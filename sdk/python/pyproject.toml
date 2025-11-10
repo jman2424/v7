@@ -1,0 +1,21 @@
+
+---
+
+### `sdk/python/pyproject.toml`
+```toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aisales-assistant-client"
+version = "0.1.0"
+description = "Python client for the AI Sales Assistant (/chat_api and admin endpoints)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Your Name"}]
+dependencies = ["requests>=2.31.0"]
+
+[project.urls]
+Homepage = "https://your-app.example.com"
