@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Analytics Events Batch",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "required": ["timestamp", "tenant", "intent", "channel"],
+    "properties": {
+      "timestamp": { "type": "string", "format": "date-time" },
+      "tenant": { "type": "string" },
+      "session_id": { "type": "string" },
+      "channel": { "type": "string", "enum": ["web", "wa", "api"] },
+      "intent": { "type": "string" },
+      "resolved": { "type": "boolean" },
+      "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+      "clarifier": { "type": "boolean" },
+      "deflected": { "type": "boolean" },
+      "offer_shown": { "type": "boolean" },
+      "offer_clicked": { "type": "boolean" },
+      "value_estimate": { "type": "number", "minimum": 0 },
+      "latency_ms": { "type": "number", "minimum": 0 }
+    },
+    "additionalProperties": true
+  }
+}
