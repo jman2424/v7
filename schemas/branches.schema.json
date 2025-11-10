@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Branches Schema",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "lat", "lon", "postcode"],
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "name": { "type": "string", "minLength": 1 },
+      "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+      "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+      "postcode": { "type": "string", "minLength": 2 },
+      "phone": { "type": "string" },
+      "hours": {
+        "type": "object",
+        "description": "Day-of-week opening ranges, e.g., mon: '09:00-18:00'",
+        "additionalProperties": { "type": "string" }
+      },
+      "holidays": {
+        "type": "array",
+        "items": { "type": "string", "format": "date" }
+      }
+    },
+    "additionalProperties": false
+  }
+}
