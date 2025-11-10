@@ -1,0 +1,25 @@
+{
+  "name": "@aisales/assistant-widget",
+  "version": "0.1.0",
+  "description": "Embed SDK for the AI Sales Assistant web widget (iframe bridge).",
+  "license": "MIT",
+  "main": "index.js",
+  "module": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "keywords": [
+    "widget",
+    "chat",
+    "sales",
+    "sdk",
+    "iframe"
+  ],
+  "scripts": {
+    "lint": "echo \"(add lint if you want)\"",
+    "test": "node --check index.js",
+    "prepublishOnly": "npm run test"
+  }
+}
