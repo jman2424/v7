@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Delivery Schema",
+  "type": "object",
+  "required": ["areas"],
+  "properties": {
+    "areas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["postcode_prefix"],
+        "properties": {
+          "postcode_prefix": { "type": "string", "minLength": 1 },
+          "fee": { "type": "number", "minimum": 0 },
+          "min_order": { "type": "number", "minimum": 0 },
+          "eta_min": { "type": "integer", "minimum": 0 },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "click_and_collect": { "type": "boolean", "default": true },
+    "notes": { "type": "string" },
+    "exceptions": {
+      "type": "array",
+      "description": "Overrides per specific postcode, date, or holiday range",
+      "items": {
+        "type": "object",
+        "properties": {
+          "postcode": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "fee": { "type": "number", "minimum": 0 },
+          "min_order": { "type": "number", "minimum": 0 },
+          "eta_min": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
