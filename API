@@ -1,0 +1,25 @@
+import { AssistantWidget, initAssistantWidget } from "@aisales/assistant-widget";
+
+// constructor(options)
+const w = new AssistantWidget({
+  baseUrl: "https://your-app.example.com",
+  tenantKey: "EXAMPLE",        // optional
+  sessionId: "asa_...",        // optional; auto-generated if omitted
+  container: document.body,    // optional; defaults to floating panel
+  iframeAttributes: { allow: "clipboard-write; fullscreen" }
+});
+
+w.on("ready", cb)
+w.on("message", cb) // { reply, raw }
+w.on("typing", cb)
+w.on("metrics", cb) // { latencyMs, deflected: bool, ... }
+w.on("error", cb)
+
+w.open()
+w.sendMessage("hello", { source: "landing-page" })
+w.setSession("asa_new")
+w.close()
+w.destroy()
+
+// shortcut:
+const widget = initAssistantWidget({ baseUrl: "...", tenantKey: "EXAMPLE" })
