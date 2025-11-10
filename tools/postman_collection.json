@@ -1,0 +1,143 @@
+{
+  "info": {
+    "name": "AI Sales Assistant — API Collection",
+    "_postman_id": "a0c7b4d0-aaaa-bbbb-cccc-ddddeeeeffff",
+    "description": "Ready-made tests for health, chat, admin, and analytics endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:10000" },
+    { "key": "tenant", "value": "EXAMPLE" },
+    { "key": "apiKey", "value": "" },
+    { "key": "sessionId", "value": "asa_test_001" }
+  ],
+  "item": [
+    {
+      "name": "Health /health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "pm.test('Body contains ok', () => pm.response.text().toLowerCase().includes('ok'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat /chat_api — simple message",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/chat_api", "host": ["{{baseUrl}}"], "path": ["chat_api"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"What are your hours today?\",\n  \"session_id\": \"{{sessionId}}\",\n  \"channel\": \"web\",\n  \"tenant\": \"{{tenant}}\",\n  \"metadata\": {\"source\":\"postman\"}\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "pm.test('JSON body', () => pm.response.headers.get('Content-Type').includes('application/json'));",
+              "const json = pm.response.json();",
+              "pm.test('Has reply', () => typeof json.reply === 'string' && json.reply.length > 0);",
+              "pm.test('Latency attached (optional)', () => json._latency_ms === undefined || typeof json._latency_ms === 'number');"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat /chat_api — delivery with postcode",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/chat_api", "host": ["{{baseUrl}}"], "path": ["chat_api"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"Do you deliver to E6 1AA?\",\n  \"session_id\": \"{{sessionId}}\",\n  \"channel\": \"web\",\n  \"tenant\": \"{{tenant}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "const json = pm.response.json();",
+              "pm.test('Contains concise reply', () => typeof json.reply === 'string' && json.reply.length > 0);",
+              "pm.test('No hallucinations marker (optional)', () => !json.reply.toLowerCase().includes('lorem'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin /admin/api/leads (optional, auth)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/api/leads?tenant={{tenant}}&limit=25",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "api", "leads"],
+          "query": [{ "key": "tenant", "value": "{{tenant}}" }, { "key": "limit", "value": "25" }]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "const data = pm.response.json();",
+              "pm.test('Has leads array', () => Array.isArray(data.leads));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics /analytics/export.csv",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/analytics/export.csv?tenant={{tenant}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["analytics", "export.csv"],
+          "query": [{ "key": "tenant", "value": "{{tenant}}" }]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status 200', () => pm.response.code === 200);",
+              "pm.test('CSV content type', () => /text\\/csv|application\\/csv/.test(pm.response.headers.get('Content-Type') || ''));",
+              "pm.test('Has header row', () => pm.response.text().split('\\n')[0].includes(','));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}
