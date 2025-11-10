@@ -1,0 +1,245 @@
+openapi: 3.0.3
+info:
+  title: AI Sales Assistant API
+  version: "0.1.0"
+  description: |
+    Public chat endpoint, admin JSON APIs, analytics, and WhatsApp webhook.
+
+servers:
+  - url: https://your-app.example.com
+  - url: http://localhost:10000
+
+tags:
+  - name: Health
+  - name: Chat
+  - name: Admin
+  - name: Analytics
+  - name: Webhooks
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness/Readiness
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /chat_api:
+    post:
+      tags: [Chat]
+      summary: Send a message to the assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Assistant reply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "400":
+          description: Bad request
+        "429":
+          description: Rate limited
+
+  /admin/api/leads:
+    get:
+      tags: [Admin]
+      summary: List leads (requires auth)
+      parameters:
+        - in: query
+          name: tenant
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, minimum: 1, maximum: 500 }
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Leads
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leads:
+                    type: array
+                    items: { $ref: "#/components/schemas/Lead" }
+
+  /admin/api/catalog:
+    put:
+      tags: [Admin]
+      summary: Replace catalog.json (validated + versioned)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, catalog]
+              properties:
+                tenant: { type: string }
+                catalog:
+                  $ref: "#/components/schemas/Catalog"
+      responses:
+        "200":
+          description: Accepted + snapshot reference
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  snapshot_path: { type: string }
+
+  /analytics/export.csv:
+    get:
+      tags: [Analytics]
+      summary: Export analytics as CSV
+      parameters:
+        - in: query
+          name: tenant
+          schema: { type: string }
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: CSV stream
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  /whatsapp/webhook:
+    get:
+      tags: [Webhooks]
+      summary: Webhook verification
+      parameters:
+        - in: query
+          name: "hub.mode"
+          schema: { type: string }
+        - in: query
+          name: "hub.verify_token"
+          schema: { type: string }
+        - in: query
+          name: "hub.challenge"
+          schema: { type: string }
+      responses:
+        "200":
+          description: Challenge echo
+          content:
+            text/plain:
+              schema: { type: string }
+    post:
+      tags: [Webhooks]
+      summary: WhatsApp inbound messages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw WhatsApp payload (forwarded to router)
+      responses:
+        "200":
+          description: Acknowledge receipt
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1 }
+        session_id: { type: string }
+        channel:
+          type: string
+          enum: [web, wa, api]
+          default: web
+        tenant: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ChatResponse:
+      type: object
+      required: [reply]
+      properties:
+        reply: { type: string }
+        raw:
+          description: Implementation-specific details (optional)
+          type: object
+          additionalProperties: true
+        _latency_ms: { type: number }
+
+    Lead:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        last_seen: { type: string, format: date-time }
+        channel: { type: string, enum: [web, wa, api] }
+        status: { type: string, enum: [new, active, won, lost] }
+
+    Catalog:
+      $ref: "#/components/schemas/CatalogInternal"
+
+    CatalogInternal:
+      type: object
+      required: [version, categories]
+      properties:
+        version: { type: integer, minimum: 1 }
+        categories:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id, name, items]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              items:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [sku, name, price]
+                  properties:
+                    sku: { type: string }
+                    name: { type: string }
+                    price: { type: number, minimum: 0 }
+                    unit: { type: string }
+                    tags:
+                      type: array
+                      items: { type: string }
+                    in_stock: { type: boolean }
+                    options:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          value: { type: string }
