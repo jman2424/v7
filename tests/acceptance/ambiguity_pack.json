@@ -1,0 +1,25 @@
+{
+  "name": "Ambiguity → single clarifier",
+  "cases": [
+    {
+      "id": "amb.delivery.no_pc",
+      "input": "Do you deliver?",
+      "expect": { "intent": "check_delivery", "needs_clarification": true, "clarifier_contains": ["postcode"] }
+    },
+    {
+      "id": "amb.price.no_sku",
+      "input": "How much is it?",
+      "expect": { "intent": "price_check", "needs_clarification": true, "clarifier_contains": ["SKU"] }
+    },
+    {
+      "id": "amb.search.vague",
+      "input": "Do you have it in stock?",
+      "expect": { "intent": "search_product|browse_category", "needs_clarification": true, "clarifier_contains": ["product", "category"] }
+    },
+    {
+      "id": "amb.bbq.people_missing",
+      "input": "BBQ bundle please",
+      "expect": { "intent": "sales_bundle|search_product", "needs_clarification": true, "clarifier_contains": ["how many"] }
+    }
+  ]
+}
