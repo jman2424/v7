@@ -1,0 +1,38 @@
+[project]
+name = "ai-sales-assistant"
+version = "7.0.0"
+description = "Multi-tenant AI Sales Assistant Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{ name = "Jamal Khan" }]
+dependencies = []
+dynamic = ["version"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+combine_as_imports = true
+line_length = 100
+
+[tool.ruff]
+select = ["E", "F", "I"]
+ignore = ["E501", "F401"]
+exclude = ["logs", "backups", "business/versions"]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+exclude = "tests/acceptance"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q --disable-warnings --tb=short"
+testpaths = ["tests"]
