@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ tenant }} — Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css') }}" />
+  <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg') }}" />
+  <meta name="theme-color" content="{{ branding.theme.primary_color if branding and branding.theme and branding.theme.primary_color else '#127A32' }}" />
+</head>
+<body data-tenant="{{ tenant }}">
+  <div id="chat-widget" class="widget">
+    <header class="widget__header">
+      <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg') }}" alt="Avatar" />
+      <div class="widget__titles">
+        <h1 class="widget__title">{{ branding.widget.chat_title if branding and branding.widget and branding.widget.chat_title else 'Sales Assistant' }}</h1>
+        <p class="widget__subtitle">{{ branding.widget.greeting if branding and branding.widget and branding.widget.greeting else 'Hi! How can I help you today?' }}</p>
+      </div>
+    </header>
+
+    <main id="chat-log" class="widget__log" role="log" aria-live="polite">
+      <!-- messages injected by widget.js -->
+    </main>
+
+    <footer class="widget__composer">
+      <form id="chat-form" autocomplete="off">
+        <input id="chat-input" name="message" type="text" placeholder="Type your message…" required />
+        <button id="chat-send" type="submit" class="btn">Send</button>
+      </form>
+    </footer>
+  </div>
+
+  <script>
+    window.__WIDGET__ = {
+      tenant: document.body.dataset.tenant,
+      endpoint: "{{ url_for('webchat_routes.chat_api') }}",
+      channel: "web",
+      sessionId: "{{ session_id }}"
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/widget.js') }}"></script>
+</body>
+</html>
