@@ -1,0 +1,22 @@
+[
+  {
+    "q": "Do you deliver to {postcode}?",
+    "a": "We deliver to many London areas. {delivery_summary} If you share your postcode, I’ll confirm the exact minimum order and fee."
+  },
+  {
+    "q": "What are your opening hours?",
+    "a": "Most branches are open Mon–Sat 09:00–20:00 and Sun 10:00–18:00. On bank holidays, hours may vary."
+  },
+  {
+    "q": "Is your meat halal certified?",
+    "a": "Yes. All products are halal and HMC-inspected."
+  },
+  {
+    "q": "Do you have BBQ bundles?",
+    "a": "Yes. We can build BBQ bundles for different group sizes — wings, drumsticks, skewers, sauces, and charcoal. Tell me how many people."
+  },
+  {
+    "q": "Can I click and collect?",
+    "a": "Yes, click & collect is available during branch opening hours. You can place an order and pick it up from your nearest branch{branch_name}."
+  }
+]
