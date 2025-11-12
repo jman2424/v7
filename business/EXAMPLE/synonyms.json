@@ -1,0 +1,13 @@
+{
+  "chicken": ["hen", "bird", "poultry"],
+  "lamb": ["mutton", "sheep meat"],
+  "beef": ["cow meat", "steak"],
+  "mince": ["ground", "keema"],
+  "bbq": ["barbecue", "grill", "cookout"],
+  "drumstick": ["drum", "leg piece"],
+  "thigh": ["upper leg"],
+  "kofta": ["seekh", "skewer", "kebab"],
+  "wing": ["flapper", "wingette"],
+  "charcoal": ["coal", "briquette"],
+  "sauce": ["marinade", "condiment", "dip"]
+}
