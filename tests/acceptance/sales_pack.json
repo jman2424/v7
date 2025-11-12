@@ -1,0 +1,21 @@
+{
+  "name": "Sales — category offers + CTA",
+  "cases": [
+    {
+      "id": "sales.wings.top_picks",
+      "input": "Show me wings for BBQ",
+      "expect": { "intent": "search_product", "answer_contains_any": ["Top picks", "wings"], "cta_contains_any": ["Anything else", "anything else"] }
+    },
+    {
+      "id": "sales.bbq.bundle_for_6",
+      "input": "I need a BBQ for 6 people",
+      "expect": { "intent": "sales_bundle|search_product", "answer_contains_any": ["bundle for 6", "BBQ"], "must_not_contain": ["unlimited", "worldwide"] }
+    },
+    {
+      "id": "sales.substitute.out_of_stock",
+      "setup": { "force_out_of_stock_sku": "CHICK_WINGS_1KG" },
+      "input": "I want chicken wings",
+      "expect": { "intent": "search_product", "answer_contains_any": ["drumsticks", "skewers", "alternatives"] }
+    }
+  ]
+}
