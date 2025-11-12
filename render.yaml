@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ai-sales-assistant
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -c gunicorn.conf.py 'app:create_app()'"
+    envVars:
+      - key: MODE
+        value: AIV7
+      - key: BUSINESS_KEY
+        value: EXAMPLE_BUSINESS
+      - key: PORT
+        value: "10000"
+      - key: SECRET_KEY
+        sync: false
+      - key: WA_VERIFY_TOKEN
+        sync: false
+      - key: WA_ACCESS_TOKEN
+        sync: false
+      - key: SHEETS_API_KEY
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: true
