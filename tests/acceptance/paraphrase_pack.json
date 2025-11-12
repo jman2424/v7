@@ -1,0 +1,63 @@
+{
+  "name": "Paraphrase coverage — curated FAQs",
+  "cases": [
+    {
+      "id": "faq.hours.1",
+      "input": "What time are you open on Sundays?",
+      "expect": { "intent": "faq", "answer_contains": ["Sun", "10:00", "18:00"] }
+    },
+    {
+      "id": "faq.hours.2",
+      "input": "Sunday opening times?",
+      "expect": { "intent": "faq", "answer_contains": ["Sun", "10:00"] }
+    },
+    {
+      "id": "faq.hours.3",
+      "input": "Are you open this Sunday?",
+      "expect": { "intent": "faq", "answer_contains": ["Sun", "open"] }
+    },
+
+    {
+      "id": "faq.halal.1",
+      "input": "Is everything halal certified?",
+      "expect": { "intent": "faq", "answer_contains": ["halal", "HMC"] }
+    },
+    {
+      "id": "faq.halal.2",
+      "input": "Do you have HMC inspection?",
+      "expect": { "intent": "faq", "answer_contains": ["HMC", "inspected"] }
+    },
+    {
+      "id": "faq.halal.3",
+      "input": "Do you sell halal meat?",
+      "expect": { "intent": "faq", "answer_contains": ["halal"] }
+    },
+
+    {
+      "id": "faq.cc.1",
+      "input": "Can I click and collect?",
+      "expect": { "intent": "faq", "answer_contains": ["click", "collect"] }
+    },
+    {
+      "id": "faq.cc.2",
+      "input": "Is collection from branch available?",
+      "expect": { "intent": "faq", "answer_contains": ["collect"] }
+    },
+    {
+      "id": "faq.cc.3",
+      "input": "Do you do pickup orders?",
+      "expect": { "intent": "faq", "answer_contains": ["pick", "branch"] }
+    },
+
+    {
+      "id": "faq.bbq.1",
+      "input": "Can you do BBQ bundles?",
+      "expect": { "intent": "faq", "answer_contains": ["BBQ", "bundle"] }
+    },
+    {
+      "id": "faq.bbq.2",
+      "input": "I need a grill pack for 8 people",
+      "expect": { "intent": "faq|sales", "answer_contains": ["people"] }
+    }
+  ]
+}
