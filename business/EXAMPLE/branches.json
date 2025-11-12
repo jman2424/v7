@@ -1,0 +1,28 @@
+[
+  {
+    "id": "east-london",
+    "name": "East London Branch",
+    "address": "12 Whitechapel Rd, London E1 1AA",
+    "postcode": "E1 1AA",
+    "phone": "+44 20 7946 1001",
+    "lat": 51.5151,
+    "lon": -0.0672,
+    "hours": {
+      "mon-sat": "09:00–20:00",
+      "sun": "10:00–18:00"
+    }
+  },
+  {
+    "id": "north-london",
+    "name": "North London Branch",
+    "address": "220 Seven Sisters Rd, London N4 3NG",
+    "postcode": "N4 3NG",
+    "phone": "+44 20 7946 1002",
+    "lat": 51.5658,
+    "lon": -0.1065,
+    "hours": {
+      "mon-sat": "09:00–20:00",
+      "sun": "10:00–18:00"
+    }
+  }
+]
