@@ -1,0 +1,25 @@
+{
+  "name": "Geo — postcode → nearest + rule",
+  "cases": [
+    {
+      "id": "geo.e1.covered",
+      "input": "Do you deliver to E1 6AN?",
+      "expect": { "intent": "check_delivery", "answer_contains": ["E1 6AN", "deliver"], "rule": { "min_order": 25.0, "fee_between": [3.0, 4.0] }, "nearest_branch_contains": ["East"] }
+    },
+    {
+      "id": "geo.ec.covered",
+      "input": "Do you deliver to EC1A 1BB?",
+      "expect": { "intent": "check_delivery", "answer_contains": ["EC1"], "rule": { "min_order": 30.0 } }
+    },
+    {
+      "id": "geo.n1.covered",
+      "input": "Delivery to N1 2AB?",
+      "expect": { "intent": "check_delivery", "answer_contains": ["N1"], "rule": { "min_order": 35.0 } }
+    },
+    {
+      "id": "geo.sw1.not_covered",
+      "input": "Delivery to SW1A 1AA?",
+      "expect": { "intent": "check_delivery", "must_not_contain": ["Yes"], "answer_contains_any": ["not covered", "don’t have delivery info"] }
+    }
+  ]
+}
