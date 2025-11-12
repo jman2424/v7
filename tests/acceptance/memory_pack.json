@@ -1,0 +1,26 @@
+{
+  "name": "Session memory — postcode/name/cart carry",
+  "cases": [
+    {
+      "id": "mem.postcode.carry",
+      "turns": [
+        { "user": "Do you deliver to E1 6AN?" },
+        { "user": "What’s the fee?", "expect": { "answer_contains_any": ["£3.50", "3.50"], "must_not_contain": ["what's your postcode"] } }
+      ]
+    },
+    {
+      "id": "mem.name.greet",
+      "turns": [
+        { "user": "My name is Adam" },
+        { "user": "Price for CHICK_WINGS_1KG", "expect": { "answer_contains_any": ["CHICK_WINGS_1KG", "£"], "optional_contains": ["Adam"] } }
+      ]
+    },
+    {
+      "id": "mem.cart.recall",
+      "turns": [
+        { "user": "Add CHICK_WINGS_1KG to my cart" },
+        { "user": "What’s in my cart?", "expect": { "answer_contains": ["CHICK_WINGS_1KG"] } }
+      ]
+    }
+  ]
+}
