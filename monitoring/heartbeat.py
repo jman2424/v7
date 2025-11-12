@@ -1,67 +1,108 @@
+#!/usr/bin/env python3
 """
-Heartbeat monitor — periodic health pings and alert logging.
+Periodic heartbeat to check service health.
 
-Purpose:
-- Hit /health or /ready endpoints every N minutes.
-- Detect downtime or high latency.
-- Append results to logs/analytics.log or send webhook alert.
+Usage:
+  python monitoring/heartbeat.py --http http://localhost:5000 --interval 30 --retries 2
+  python monitoring/heartbeat.py                             --interval 30 --retries 2  (in-process)
 
-Connections:
-- Uses requests (or httpx) to query /health.
-- Writes to logs/chatbot.log or analytics.log.
-- Optional integration: Ops dashboard webhook (Slack, Discord, etc.).
+Behavior:
+- Pings GET /health and /ready (best-effort) at a fixed interval.
+- Logs failures and exit non-zero if consecutive failures exceed --retries.
+- Optional webhook notify via stdout (you can extend to Slack/Email easily).
+
+Connects:
+- routes/health_routes.py (expects /health, /ready).
+- logs/* (stdout can be captured by your process manager).
 """
 
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
 import time
-import logging
-import requests
-from datetime import datetime
+from dataclasses import dataclass
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 
-logger = logging.getLogger("Heartbeat")
+@dataclass
+class PingResult:
+    ok: bool
+    status: int
+    body: str
 
-HEALTH_URL = "http://localhost:10000/health"  # overridden by env if needed
-INTERVAL_SECONDS = 300                        # default: every 5 minutes
-TIMEOUT = 5.0
+class Transport:
+    def get(self, path: str) -> PingResult:
+        raise NotImplementedError
 
-def ping_once(url: str = HEALTH_URL) -> dict:
-    """Ping /health endpoint and return structured result."""
-    start = time.time()
-    try:
-        resp = requests.get(url, timeout=TIMEOUT)
-        latency = round((time.time() - start) * 1000, 2)
-        status = resp.status_code
-        ok = status == 200 and "ok" in resp.text.lower()
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "url": url,
-            "status": status,
-            "latency_ms": latency,
-            "ok": ok,
-        }
-    except Exception as e:
-        latency = round((time.time() - start) * 1000, 2)
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "url": url,
-            "status": None,
-            "latency_ms": latency,
-            "ok": False,
-            "error": str(e),
-        }
+class HttpTransport(Transport):
+    def __init__(self, base_url: str):
+        self.base = base_url.rstrip("/") + "/"
 
-def log_result(result: dict) -> None:
-    """Write structured heartbeat result to logs."""
-    status = "UP" if result.get("ok") else "DOWN"
-    msg = f"[HEARTBEAT] {status} | {result.get('status')} | {result.get('latency_ms')} ms | {result.get('url')}"
-    if not result.get("ok"):
-        logger.error(msg)
-    else:
-        logger.info(msg)
+    def get(self, path: str) -> PingResult:
+        url = urljoin(self.base, path.lstrip("/"))
+        req = Request(url, method="GET")
+        try:
+            with urlopen(req, timeout=10) as resp:
+                body = resp.read().decode("utf-8", "replace")
+                return PingResult(True, resp.status, body)
+        except Exception as e:
+            return PingResult(False, 0, f"{type(e).__name__}: {e}")
 
-def run_heartbeat(interval: int = INTERVAL_SECONDS) -> None:
-    """Run continuous heartbeat loop."""
-    logger.info(f"Starting heartbeat monitor every {interval}s → {HEALTH_URL}")
-    while True:
-        res = ping_once()
-        log_result(res)
-        time.sleep(interval)
+class InProcessTransport(Transport):
+    def __init__(self):
+        from app import create_app  # lazy import
+        self.app = create_app()
+        self.client = self.app.test_client()
+
+    def get(self, path: str) -> PingResult:
+        try:
+            r = self.client.get(path)
+            body = r.get_data(as_text=True)
+            return PingResult(r.status_code == 200, r.status_code, body)
+        except Exception as e:
+            return PingResult(False, 0, f"{type(e).__name__}: {e}")
+
+class Heartbeat:
+    def __init__(self, transport: Transport, interval: int = 30, retries: int = 2):
+        self.t = transport
+        self.interval = max(5, int(interval))
+        self.retries = max(0, int(retries))
+
+    def ping_once(self) -> bool:
+        ok1 = self._check("/health", "health")
+        ok2 = self._check("/ready", "ready")  # may not exist; best-effort
+        return ok1 and (ok2 or True)
+
+    def _check(self, path: str, name: str) -> bool:
+        res = self.t.get(path)
+        status = "OK" if res.ok else "FAIL"
+        print(f"[{status}] {name} {path} status={res.status} body={res.body[:180]}", flush=True)
+        return res.ok
+
+    def run(self):
+        fails = 0
+        while True:
+            ok = self.ping_once()
+            if not ok:
+                fails += 1
+                if fails > self.retries:
+                    print(f"[ALERT] Heartbeat consecutive failures > {self.retries}. Exiting 1.", flush=True)
+                    sys.exit(1)
+            else:
+                fails = 0
+            time.sleep(self.interval)
+
+def main():
+    ap = argparse.ArgumentParser(description="Heartbeat pinger")
+    ap.add_argument("--http", default=None, help="Base URL. If omitted, runs in-process.")
+    ap.add_argument("--interval", type=int, default=30, help="Seconds between checks (min 5).")
+    ap.add_argument("--retries", type=int, default=2, help="Consecutive failures before exit 1.")
+    args = ap.parse_args()
+
+    t = HttpTransport(args.http) if args.http else InProcessTransport()
+    Heartbeat(t, interval=args.interval, retries=args.retries).run()
+
+if __name__ == "__main__":
+    main()
