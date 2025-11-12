@@ -1,0 +1,21 @@
+<nav class="navbar">
+  <div class="navbar__brand">
+    <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
+    <span>AI Sales Assistant</span>
+  </div>
+
+  <div class="navbar__controls">
+    <label>Tenant
+      <select id="tenant-select">
+        {% for k in tenants %}
+          <option value="{{ k }}" {% if k == tenant %}selected{% endif %}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <div class="navbar__spacer"></div>
+
+    <span class="role">Role: <strong>{{ role }}</strong></span>
+    <a class="btn btn--ghost" href="{{ url_for('auth_routes.logout') }}">Logout</a>
+  </div>
+</nav>
