@@ -1,0 +1,11 @@
+# Ruff linter configuration
+line-length = 100
+extend-select = ["E", "F", "I"]
+ignore = ["E501", "F401"]
+
+[per-file-ignores]
+"__init__.py" = ["F401"]
+
+[format]
+quote-style = "double"
+indent-width = 4
