@@ -1,0 +1,72 @@
+:root{
+  --wbg:#0e1016;
+  --wpanel:#131826;
+  --wtext:#EAF0FF;
+  --wmuted:#92a0c1;
+  --waccent:#3eea8c;
+  --wborder:#242b3b;
+  --wshadow: 0 12px 30px rgba(0,0,0,.4);
+  --wradius:16px;
+  --wradius-sm:12px;
+  --wfont: ui-sans-serif, system-ui, -apple-system, Inter, Roboto, "Helvetica Neue", Arial;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--wbg);color:var(--wtext);font-family:var(--wfont);
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  display:grid;place-items:center;padding:18px
+}
+
+/* WIDGET SHELL */
+.widget{
+  width:min(780px, 96%); min-height:520px; background:linear-gradient(180deg, rgba(19,24,38,.7), rgba(19,24,38,.95));
+  border:1px solid var(--wborder); border-radius:var(--wradius); box-shadow:var(--wshadow);
+  display:grid; grid-template-rows:auto 1fr auto; overflow:hidden
+}
+
+.widget__header{
+  display:flex; gap:12px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--wborder);
+  background: radial-gradient(500px 180px at 0% -40%, rgba(62,234,140,.18), transparent 70%);
+}
+.widget__avatar{width:36px;height:36px;border-radius:50%;border:1px solid var(--wborder);background:#0b0e16;object-fit:cover}
+.widget__titles{display:grid}
+.widget__title{margin:0;font-size:1.05rem}
+.widget__subtitle{margin:2px 0 0;color:var(--wmuted);font-size:.95rem}
+
+/* LOG */
+.widget__log{
+  padding:14px; overflow:auto; background:
+    radial-gradient(700px 400px at 100% -10%, rgba(106,130,255,.08), transparent 60%);
+}
+.msg{display:flex;gap:10px;margin:8px 0}
+.msg__bubble{
+  max-width:78%; padding:10px 12px; border-radius:12px; line-height:1.45;
+  border:1px solid var(--wborder); background:#0f1422; color:var(--wtext)
+}
+.msg--me{justify-content:flex-end}
+.msg--me .msg__bubble{background:#0b1c12;border-color:#123322}
+.msg__time{display:block;color:#7f8ab2;font-size:.8rem;margin-top:4px}
+
+/* COMPOSER */
+.widget__composer{
+  border-top:1px solid var(--wborder); background:var(--wpanel); padding:10px
+}
+#chat-form{display:flex;gap:8px}
+#chat-input{
+  flex:1; background:#0f1422;border:1px solid var(--wborder); color:var(--wtext);
+  padding:10px 12px; border-radius:12px; outline:none
+}
+#chat-send{
+  background:linear-gradient(180deg, #3eea8c, #17c163);
+  color:#091018; font-weight:700; border:none; border-radius:12px; padding:10px 14px; cursor:pointer
+}
+
+/* PLACEHOLDER STATES */
+.empty{
+  display:grid;place-items:center;height:100%;color:#95a2c5
+}
+
+/* UTILS */
+.hidden{display:none!important}
