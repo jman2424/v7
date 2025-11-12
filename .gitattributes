@@ -1,0 +1,14 @@
+# Normalize line endings
+* text=auto eol=lf
+
+# Treat schema files as JSON for diffs
+*.schema.json linguist-language=JSON
+
+# Mark assets as binary
+dashboards/static/img/* binary
+logs/* -diff
+backups/* -diff
+
+# Exclude certain files from source archives
+.github export-ignore
+tools/ export-ignore
