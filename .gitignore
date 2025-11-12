@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.python-version
+.venv/
+.env
+.env.*
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Test / tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+
+# Builds / dist
+build/
+dist/
+site/
+
+# Logs & backups
+logs/
+backups/
+
+# Business data versions and tenant snapshots
+business/versions/
+
+# Node / frontend
+sdk/js/node_modules/
+dashboards/static/js/node_modules/
+*.log
+
+# Generated artifacts
+*.tar.gz
+*.tmp
+*.bak
