@@ -1,0 +1,20 @@
+{
+  "name": "Grounding — no hallucinations",
+  "cases": [
+    {
+      "id": "gr.price.unknown_sku",
+      "input": "Price for BEEF_TOMAHAWK_2KG?",
+      "expect": { "intent": "price_check", "must_not_contain": ["guarantee", "in stock"], "answer_contains_any": ["couldn’t find a price", "don't have a price"] }
+    },
+    {
+      "id": "gr.delivery.unknown_area",
+      "input": "Do you deliver to SW1A 1AA?",
+      "expect": { "intent": "check_delivery", "must_not_contain": ["Yes"], "answer_contains_any": ["don’t have delivery info", "not covered"] }
+    },
+    {
+      "id": "gr.product.unknown",
+      "input": "Do you sell ostrich fillet?",
+      "expect": { "intent": "search_product", "must_not_contain": ["Yes we have"], "answer_contains_any": ["couldn’t find matches", "alternative"] }
+    }
+  ]
+}
