@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ tenant }} — Admin • AI Sales Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
+  <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg') }}" />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+</head>
+<body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
+  {% include 'partials/_navbar.html' %}
+
+  <main class="container">
+    <section class="panel panel--kpis">
+      <header class="panel__header">
+        <h2>Overview</h2>
+        <div class="filters">
+          <label>Period
+            <select id="period-select">
+              <option value="60">Last 60m</option>
+              <option value="1440" selected>Last 24h</option>
+              <option value="10080">Last 7d</option>
+            </select>
+          </label>
+          <button id="refresh-kpis" class="btn">Refresh</button>
+        </div>
+      </header>
+      {% include 'partials/_charts.html' %}
+    </section>
+
+    <section class="panel panel--crm">
+      <header class="panel__header">
+        <h2>Leads & Conversations</h2>
+        <div class="actions">
+          <button id="export-leads" class="btn btn--secondary">Export CSV</button>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table class="table" id="leads-table" aria-label="Leads table">
+          <thead>
+            <tr>
+              <th>Updated</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Tags</th>
+              <th>Session</th>
+            </tr>
+          </thead>
+          <tbody><!-- filled by admin.js --></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel panel--content">
+      <header class="panel__header">
+        <h2>Content & Data</h2>
+        <div class="actions">
+          {% if role in ['admin','staff'] %}
+          <button class="btn" data-editor-target="catalog">Edit Catalog</button>
+          <button class="btn" data-editor-target="faq">Edit FAQ</button>
+          <button class="btn btn--secondary" id="upload-json">Upload JSON</button>
+          <input type="file" id="json-file" accept=".json" hidden />
+          {% endif %}
+          <button class="btn btn--ghost" id="download-snapshot">Download Snapshot</button>
+        </div>
+      </header>
+      <div class="grid grid--two">
+        <div class="card">
+          <h3>Validation</h3>
+          <pre id="validation-output" class="pre">Loading…</pre>
+          <div>
+            <button id="run-self-repair" class="btn">Run Self-Repair Report</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>System</h3>
+          <ul class="list">
+            <li>Mode: <strong id="mode-label">…</strong></li>
+            <li>Version: <strong id="version-label">…</strong></li>
+            <li>Tenant key: <strong>{{ tenant }}</strong></li>
+          </ul>
+          <div class="stack">
+            <button id="toggle-mode-v5" class="btn btn--ghost">Switch to V5</button>
+            <button id="toggle-mode-v6" class="btn btn--ghost">Switch to AIV6</button>
+            <button id="toggle-mode-v7" class="btn btn--ghost">Switch to AIV7</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  {% include 'partials/_editor.html' %}
+
+  <template id="toast-template">
+    <div class="toast"><span class="toast__msg"></span><button class="toast__close" aria-label="Close">×</button></div>
+  </template>
+
+  <script>
+    window.__ADMIN__ = {
+      csrfToken: document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+      tenant: document.body.dataset.tenant,
+      role: document.body.dataset.role,
+      sessionId: document.body.dataset.session
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>
