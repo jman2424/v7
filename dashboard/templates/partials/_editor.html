@@ -1,0 +1,29 @@
+<div id="editor-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="editor-title">
+  <div class="modal__dialog">
+    <header class="modal__header">
+      <h2 id="editor-title">Editor</h2>
+      <button id="editor-close" class="icon-btn" aria-label="Close">×</button>
+    </header>
+
+    <div class="modal__tabs">
+      <button class="tab is-active" data-tab="catalog">Catalog</button>
+      <button class="tab" data-tab="faq">FAQ</button>
+    </div>
+
+    <section class="modal__body">
+      <form id="editor-form" data-kind="catalog">
+        <div class="editor__grid">
+          <label>JSON
+            <textarea id="editor-json" spellcheck="false" aria-label="Editor JSON"></textarea>
+          </label>
+        </div>
+        <div class="editor__actions">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button id="editor-validate" type="button" class="btn">Validate</button>
+          <button id="editor-save" type="submit" class="btn btn--primary">Save</button>
+        </div>
+        <pre id="editor-output" class="pre pre--muted">Awaiting input…</pre>
+      </form>
+    </section>
+  </div>
+</div>
