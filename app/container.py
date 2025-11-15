@@ -21,7 +21,7 @@ from retrieval.faq_store import FAQStore
 from retrieval.synonyms_store import SynonymsStore
 from retrieval.overrides_store import OverridesStore
 
-# Services (NOTE: singular `service` package)
+# Services
 from service.analytics_service import AnalyticsService
 from service.crm_service import CRMService
 from service.memory import Memory
@@ -52,30 +52,21 @@ class Container:
 
         # ---------- Services ----------
         self.analytics = AnalyticsService(self.settings)
-        # CRMService in your tree takes no settings (snapshot_path only)
         self.crm = CRMService()
         self.memory = Memory()
         self.rewriter = Rewriter(self.settings)
         self.sales = SalesFlows(self.catalog)
 
         # Core deterministic router used by all modes
-        self.router = Router(
-            self.catalog,
-            self.faq,
-            self.synonyms,
-            self.geo,
-            self.policy,
-        )
+        # Router.__init__ only takes 2 args (plus self), not 5
+        self.router = Router(self.catalog, self.faq)
 
         # ---------- Mode strategy ----------
         self.mode: ModeStrategy
 
         if self.settings.MODE == "V5":
-            # Pure deterministic / legacy
             self.mode = V5Legacy(self.router, self.rewriter, self.sales)
-
         elif self.settings.MODE == "V7":
-            # Flagship: router + rewriter + sales + extra stores
             self.mode = AIV7Flagship(
                 self.router,
                 self.rewriter,
@@ -84,7 +75,5 @@ class Container:
                 self.policy,
                 self.geo,
             )
-
         else:
-            # Default hybrid mode
             self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
