@@ -13,21 +13,23 @@ based on MODE (V5 / AIV6 / AIV7).
 from __future__ import annotations
 from typing import Any, Dict
 
-from .contracts import ModeStrategy
-from .v5_legacy import V5Legacy
+from .contracts import ModeStrategy  # for type hints only
 
 
 def make_v5() -> ModeStrategy:
     """Pure deterministic mode — no LLM, no tool calls from here."""
+    # To avoid circulars, import inside the function
+    from .v5_legacy import V5Legacy  # type: ignore
     return V5Legacy()
 
 
 def make_v6(**deps: Dict[str, Any]) -> ModeStrategy:
     """
     Hybrid mode (deterministic + LLM rewrite/clarify).
-    Lazily import to avoid import cost if unused.
-    Expected deps (optional):
-      - prompts (dict) for clarifiers/offers
+
+    Expected deps (optional / depending on your implementation of AIV6Hybrid):
+      - catalog, policy, geo, faq, crm, overrides
+      - prompts, guardrails, etc.
     """
     from .v6_hybrid import AIV6Hybrid  # type: ignore
     return AIV6Hybrid(**deps)
@@ -36,8 +38,9 @@ def make_v6(**deps: Dict[str, Any]) -> ModeStrategy:
 def make_v7(**deps: Dict[str, Any]) -> ModeStrategy:
     """
     Flagship mode with tool-use planner and strict grounding.
-    Expected deps:
-      - catalog, policy, geo, faq, crm, overrides (stores/services)
+
+    Expected deps (depending on AIV7Flagship):
+      - catalog, policy, geo, faq, crm, overrides
       - guardrails (dict or loader), prompts (dict)
     """
     from .v7_flagship import AIV7Flagship  # type: ignore
