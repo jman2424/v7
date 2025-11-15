@@ -3,7 +3,7 @@ Container — creates and holds singletons.
 
 Provides:
 - Stores (retrieval/*)
-- Services (services/*)
+- Services (service/*)
 - Mode strategy (ai_modes/*) based on Settings.MODE
 """
 
@@ -19,12 +19,12 @@ from retrieval.faq_store import FAQStore
 from retrieval.synonyms_store import SynonymsStore
 from retrieval.overrides_store import OverridesStore
 
-from services.analytics_service import AnalyticsService
-from services.crm_service import CRMService
-from services.memory import Memory
-from services.rewriter import Rewriter
-from services.router import Router
-from services.sales_flows import SalesFlows
+from service.analytics_service import AnalyticsService
+from service.crm_service import CRMService
+from service.memory import Memory
+from service.rewriter import Rewriter
+from service.router import Router
+from service.sales_flows import SalesFlows
 
 from ai_modes.contracts import ModeContracts
 from ai_modes.v5_legacy import LegacyMode
@@ -48,7 +48,7 @@ class Container:
 
         # Services
         self.analytics = AnalyticsService(self.settings)
-        self.crm = CRMService(self.settings)
+        self.crm = CRMService()  # snapshot_path only, no settings
         self.memory = Memory()
         self.rewriter = Rewriter(self.settings)
         self.sales = SalesFlows(self.catalog)
@@ -61,6 +61,13 @@ class Container:
         if self.settings.MODE == "V5":
             self.mode = LegacyMode(self.router, self.rewriter, self.sales)
         elif self.settings.MODE == "V7":
-            self.mode = FlagshipMode(self.router, self.rewriter, self.sales, self.catalog, self.policy, self.geo)
+            self.mode = FlagshipMode(
+                self.router,
+                self.rewriter,
+                self.sales,
+                self.catalog,
+                self.policy,
+                self.geo,
+            )
         else:
             self.mode = HybridMode(self.router, self.rewriter, self.sales)
