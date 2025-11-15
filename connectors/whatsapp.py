@@ -1,125 +1,164 @@
 """
-WhatsApp connector.
+WhatsApp Cloud API connector.
 
-Responsibilities:
-- Verify webhook signatures
-- Parse inbound message payloads into canonical format
-- Send outbound messages (text only, easily extensible)
-- Handle transient errors & limited retries
-- Support both sandbox and production tokens
+Provides:
+- parse_inbound(payload) -> list[dict]
+- send_reply(event, reply, settings) -> None
 
-Env vars expected:
-  WA_VERIFY_TOKEN
-  WA_ACCESS_TOKEN
-  WA_API_BASE (e.g. "https://graph.facebook.com/v20.0/")
-  WA_PHONE_ID
+This is intentionally thin:
+- No business logic
+- Just maps Meta webhook JSON -> our internal event format
+- And sends text replies using the Cloud API
 """
 
 from __future__ import annotations
-import hashlib
-import hmac
-import json
-import os
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
-import urllib.request
+from typing import Any, Dict, List
+import logging
+import requests
 
+from app.config import Settings
 
-def _json(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+logger = logging.getLogger("WhatsAppConnector")
 
 
-def _headers(token: str) -> Dict[str, str]:
-    return {
+def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Parse inbound WhatsApp Cloud API webhook payload into a flat list of events.
+
+    Input shape (simplified Meta spec):
+
+    {
+      "entry": [
+        {
+          "changes": [
+            {
+              "value": {
+                "metadata": {
+                  "display_phone_number": "...",
+                  "phone_number_id": "..."
+                },
+                "contacts": [...],
+                "messages": [
+                  {
+                    "from": "447...",
+                    "id": "...",
+                    "timestamp": "...",
+                    "type": "text",
+                    "text": {"body": "hello"}
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    Output event shape (what routes.whatsapp_routes expects):
+
+    {
+      "from": "447...",
+      "session_id": "447...",
+      "tenant": "<optional tenant key>",
+      "text": "hello",
+      "raw": <original message dict>,
+    }
+    """
+    events: List[Dict[str, Any]] = []
+
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {}) or {}
+            metadata = value.get("metadata", {}) or {}
+            messages = value.get("messages", []) or []
+
+            for msg in messages:
+                # Only handle text messages for now
+                if msg.get("type") != "text":
+                    continue
+
+                wa_id = msg.get("from")
+                text = (msg.get("text", {}) or {}).get("body", "") or ""
+
+                if not wa_id or not text.strip():
+                    continue
+
+                events.append(
+                    {
+                        "from": wa_id,
+                        "session_id": wa_id,  # simple: 1 session per number
+                        # We *could* map tenant off phone_number_id if you multi-tenant later
+                        "tenant": None,
+                        "text": text,
+                        "raw": msg,
+                        "metadata": {
+                            "phone_number_id": metadata.get("phone_number_id"),
+                            "display_phone_number": metadata.get("display_phone_number"),
+                        },
+                    }
+                )
+
+    if not events:
+        logger.debug("parse_inbound: no text messages found in payload")
+
+    return events
+
+
+def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None:
+    """
+    Send a text reply back via WhatsApp Cloud API.
+
+    Uses:
+      settings.WHATSAPP_TOKEN
+      settings.WHATSAPP_PHONE_ID
+      settings.WHATSAPP_API_URL (optional override)
+
+    If config is missing, logs a warning and no-ops.
+    """
+    wa_id = event.get("from")
+    if not wa_id:
+        logger.warning("send_reply: missing 'from' in event, cannot reply")
+        return
+
+    token = settings.WHATSAPP_TOKEN
+    phone_id = settings.WHATSAPP_PHONE_ID
+    base_url = settings.WHATSAPP_API_URL or "https://graph.facebook.com/v21.0"
+
+    if not token or not phone_id:
+        logger.warning(
+            "send_reply: missing WA config (token/phone_id). Skipping send.",
+            extra={"wa_id": wa_id},
+        )
+        return
+
+    url = f"{base_url.rstrip('/')}/{phone_id}/messages"
+
+    headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
+    payload: Dict[str, Any] = {
+        "messaging_product": "whatsapp",
+        "to": wa_id,
+        "type": "text",
+        "text": {"body": reply},
+    }
 
-@dataclass
-class WhatsAppClient:
-    verify_token: str
-    access_token: str
-    api_base: str
-    phone_id: str
-    max_retries: int = 2
-
-    # -------- factory --------
-    @classmethod
-    def from_env(cls) -> "WhatsAppClient":
-        return cls(
-            verify_token=os.getenv("WA_VERIFY_TOKEN", ""),
-            access_token=os.getenv("WA_ACCESS_TOKEN", ""),
-            api_base=os.getenv("WA_API_BASE", "https://graph.facebook.com/v20.0/"),
-            phone_id=os.getenv("WA_PHONE_ID", ""),
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=8)
+        if resp.status_code >= 400:
+            logger.warning(
+                "send_reply: WA API returned non-2xx",
+                extra={
+                    "status": resp.status_code,
+                    "body": resp.text[:500],
+                    "wa_id": wa_id,
+                },
+            )
+    except Exception as exc:
+        logger.exception(
+            "send_reply: exception while calling WA API",
+            extra={"wa_id": wa_id, "error": str(exc)},
         )
-
-    # -------- verification --------
-    def verify_challenge(self, params: Dict[str, str]) -> Optional[str]:
-        """
-        Handles GET verification from Meta webhook setup.
-        Returns challenge string if token matches.
-        """
-        token = params.get("hub.verify_token")
-        if token == self.verify_token:
-            return params.get("hub.challenge")
-        return None
-
-    # -------- inbound parse --------
-    def parse_inbound(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Convert raw Meta payload into normalized message dict:
-        { "from": "+44...", "text": "hi", "timestamp": 1690000000, "id": "wamid.xxx" }
-        """
-        try:
-            entry = payload["entry"][0]
-            changes = entry["changes"][0]
-            msg = changes["value"]["messages"][0]
-            return {
-                "from": msg["from"],
-                "text": msg.get("text", {}).get("body", ""),
-                "timestamp": int(msg.get("timestamp", time.time())),
-                "id": msg.get("id"),
-            }
-        except Exception:
-            return None
-
-    # -------- send --------
-    def send_text(self, to: str, text: str) -> bool:
-        """
-        POSTs to /{PHONE_ID}/messages
-        """
-        url = f"{self.api_base.rstrip('/')}/{self.phone_id}/messages"
-        body = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "text",
-            "text": {"body": text},
-        }
-        data = _json(body).encode("utf-8")
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                req = urllib.request.Request(url, data=data, headers=_headers(self.access_token))
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    if 200 <= r.status < 300:
-                        return True
-            except Exception:
-                if attempt == self.max_retries:
-                    raise
-                time.sleep(0.5 * attempt)
-        return False
-
-    # -------- utility --------
-    def verify_signature(self, body: bytes, header_signature: str, app_secret: Optional[str]) -> bool:
-        """
-        Meta optional HMAC-SHA256 signature verification.
-        """
-        if not header_signature or not app_secret:
-            return True  # skip if not configured
-        try:
-            expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
-            return hmac.compare_digest(expected, header_signature)
-        except Exception:
-            return False
