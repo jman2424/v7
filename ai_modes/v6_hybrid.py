@@ -25,7 +25,7 @@ Prompts (optional) passed at construction:
 """
 
 from __future__ import annotations
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from .contracts import ModeStrategy, safe_minimal_rewrite
 
@@ -40,88 +40,131 @@ _DEFAULT_CLARIFIERS = {
 
 
 class AIV6Hybrid(ModeStrategy):
-    def __init__(self, **deps: Any):
+    """
+    V6 Hybrid — light AI polish, no hallucinations, fully grounded.
+    """
+
+    def __init__(self, router: Any, rewriter: Any, sales: Any, **deps: Any):
+        # store services (even if V6 doesn’t use every one yet)
+        self.router = router
+        self.rewriter = rewriter
+        self.sales = sales
+
+        # optional prompt config
         self.prompts = deps.get("prompts") or {}
-        self.clarifiers = {**_DEFAULT_CLARIFIERS, **(self.prompts.get("clarifiers") or {})}
+        self.clarifiers = {
+            **_DEFAULT_CLARIFIERS,
+            **(self.prompts.get("clarifiers") or {}),
+        }
         self.offers = self.prompts.get("offers") or {}
+
+        # V6 is intentionally concise
         self.concise = True
 
+    # -------------------------
+    # Required by contract
+    # -------------------------
     def name(self) -> str:
         return "AIV6"
 
-    # Returned for observability in diagnostics; message_handler doesn't rely on this for execution.
     def plan(self, user_text: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Provide a deterministic “plan” for diagnostics only.
+        Router and services still handle real work.
+        """
         intent = (ctx.get("intent") or "").strip()
         ent = ctx.get("entities") or {}
         tools: list[dict] = []
-        if intent in {"check_delivery"} and (ent.get("postcode") or ctx.get("session", {}).get("postcode")):
+
+        # Delivery-related
+        if intent == "check_delivery" and (ent.get("postcode") or ctx.get("session", {}).get("postcode")):
             tools.append({"name": "policy.delivery_rule_for", "args": {"postcode": ent.get("postcode")}})
             tools.append({"name": "geo.nearest_for_postcode", "args": {"postcode": ent.get("postcode")}})
+
+        # Product search
         if intent in {"search_product", "browse_category"}:
-            tools.append({"name": "catalog.search", "args": {"query": ent.get("query"), "tags": ent.get("tags"), "limit": 6}})
+            tools.append({
+                "name": "catalog.search",
+                "args": {"query": ent.get("query"), "tags": ent.get("tags"), "limit": 6}
+            })
+
+        # Price check
         if intent == "price_check" and ent.get("sku"):
             tools.append({"name": "catalog.price_of", "args": {"sku": ent.get("sku")}})
+
         return {
             "goal": f"Rewrite grounded draft for intent={intent}",
             "tools": tools,
             "constraints": {"no_fabrication": True, "concise": self.concise},
         }
 
+    # -------------------------
+    # Core rewrite logic
+    # -------------------------
     def rewrite(self, draft: str, ctx: Dict[str, Any]) -> str:
         """
-        Apply a light 'AI polish' without changing facts:
-        - Trim, capitalize, keep to ~2 sentences
-        - Insert a restrained CTA if appropriate
-        - If ctx indicates clarification needed, prefer a single clear question
+        Apply a *light* AI polish:
+        - Never changes facts
+        - Short, neat, ~1–2 sentences
+        - Uses deterministic info passed inside ctx["facts"]
         """
-        # 1) If a clarifier is still needed (router signaled earlier), return that.
         intent = (ctx.get("intent") or "").strip() or "unknown"
         ent = ctx.get("entities") or {}
         facts = ctx.get("facts") or {}
 
-        # Heuristic: if the draft looks like a generic placeholder, prefer explicit clarifier template.
+        # 1) Clarifier requested
         if draft.lower().startswith("could you clarify") or draft.lower().startswith("which"):
             return self._clarifier(intent)
 
-        # 2) Strengthen delivery phrasing if present
+        # 2) Delivery responses
         if facts.get("delivery"):
             d = facts["delivery"]
             pc = d.get("postcode") or ent.get("postcode")
             rule = d.get("rule")
-            summ = (d.get("summary") or "").strip()
+            summary = (d.get("summary") or "").strip()
+
             if rule:
-                base = f"Yes, we deliver to {pc}. {summ}" if summ else f"Yes, we deliver to {pc}."
+                base = f"Yes, we deliver to {pc}. {summary}" if summary else f"Yes, we deliver to {pc}."
                 return self._cta(base)
+
             return f"We currently do not deliver to {pc}."
 
-        # 3) Product / price polish
+        # 3) Product list polish
         if facts.get("items"):
-            names = ", ".join(i.get("name", "") for i in (facts["items"] or [])[:3] if i.get("name"))
+            items = facts["items"] or []
+            names = ", ".join(i.get("name", "") for i in items[:3] if i.get("name"))
             if names:
                 return self._cta(f"Top picks: {names}.")
+
+        # 4) Price response
         if facts.get("price"):
             p = facts["price"]
             if p.get("price") is not None:
                 stock = "in stock" if p.get("in_stock") else "out of stock"
                 return f"{p['sku']} is £{p['price']:.2f} and {stock}."
 
-        # 4) FAQ direct answer
+        # 5) FAQ direct answer
         if facts.get("faq") and facts["faq"].get("answer"):
             return self._cta(facts["faq"]["answer"])
 
-        # 5) Fallback: minimal safe rewrite of the deterministic draft
+        # 6) Default safe rewrite
         return self._cta(safe_minimal_rewrite(draft))
 
-    # --- helpers ---
-
+    # -------------------------
+    # helpers
+    # -------------------------
     def _clarifier(self, intent: str) -> str:
-        return self.clarifiers.get(intent) or _DEFAULT_CLARIFIERS.get(intent) or _DEFAULT_CLARIFIERS["unknown"]
+        return (
+            self.clarifiers.get(intent)
+            or _DEFAULT_CLARIFIERS.get(intent)
+            or _DEFAULT_CLARIFIERS["unknown"]
+        )
 
     def _cta(self, text: str) -> str:
+        """Adds a light CTA — V6 is minimal and non-salesy."""
         t = text.strip()
         if not t or t.endswith("?"):
-            return t  # don't CTA a question
-        # Keep CTA minimal; V6 does not upsell aggressively
+            return t
         if t.lower().endswith(("anything else.", "anything else")):
             return t
         return f"{t} Anything else you’d like to check?"
