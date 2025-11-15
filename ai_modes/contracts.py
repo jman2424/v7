@@ -9,7 +9,7 @@ Keep this file dependency-light (stdlib only) to avoid circular imports.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, TypeAlias
 
 
 # ---- Public protocol used by services.message_handler ----
@@ -18,6 +18,11 @@ class ModeStrategy(Protocol):
     def name(self) -> str: ...
     def plan(self, user_text: str, ctx: Dict[str, Any]) -> Dict[str, Any]: ...
     def rewrite(self, draft: str, ctx: Dict[str, Any]) -> str: ...
+
+
+# Backwards-compatible alias so this works:
+#   from ai_modes.contracts import ModeContracts
+ModeContracts: TypeAlias = ModeStrategy
 
 
 # ---- Optional richer structures for AIV7 ----
@@ -45,7 +50,10 @@ class Plan:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "goal": self.goal,
-            "tools": [dict(name=t.name, args=t.args, required=t.required) for t in self.tools],
+            "tools": [
+                {"name": t.name, "args": dict(t.args), "required": t.required}
+                for t in self.tools
+            ],
             "constraints": dict(self.constraints),
         }
 
