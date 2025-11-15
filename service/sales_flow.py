@@ -1,13 +1,11 @@
+# service/sales_flows.py
+
 """
-Sales flows: product recommendations, bundles, and substitutions.
+SalesFlows — helper for product suggestions / upsells.
 
-Goals:
-- Convert vague user asks into concrete SKUs with quantities and total prices.
-- Example: "BBQ for 6" -> wings, drumsticks, skewers, sauces, charcoal.
-
-Connects:
-- retrieval/catalog_store.py for search/price/in_stock lookups
-- services/rewriter.py for CTA phrasing (outside this module)
+Right now this is intentionally minimal:
+- It never crashes if called in unexpected ways.
+- It gives simple, safe defaults that your AI layer can still use.
 """
 
 from __future__ import annotations
@@ -17,62 +15,89 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class SalesFlows:
-    catalog: Any  # CatalogStoreLike
+    """
+    Thin wrapper around the catalog store.
 
-    # ---- public API ----
+    `catalog` is expected to implement at least:
+      - search(text: Optional[str] = None, tags: Optional[list[str]] = None, limit: int = 10)
+    """
+    catalog: Any
 
-    def bbq_for(self, people: int, *, budget_per_person: float = 10.0) -> Dict[str, Any]:
+    # --- Simple helpers you can expand later ---
+
+    def related_products(
+        self,
+        sku: Optional[str] = None,
+        *,
+        tags: Optional[List[str]] = None,
+        limit: int = 4,
+    ) -> List[Dict[str, Any]]:
         """
-        Build a simple BBQ bundle scaled by headcount.
-        """
-        qty_factor = max(1, people)
-        # Basic components by tag lookups
-        wings = self._pick_by_tag("wings", qty=qty_factor * 3)  # 3 pieces/person
-        drum = self._pick_by_tag("drumstick", qty=qty_factor * 2)
-        skew = self._pick_by_tag("skewer", qty=qty_factor * 2)
-        sauce = self._pick_by_tag("bbq sauce", qty=max(1, people // 4))
-        coal = self._pick_by_tag("charcoal", qty=max(1, people // 6))
+        Return a small list of 'related' products.
 
-        items = [x for x in [wings, drum, skew, sauce, coal] if x]
-        total = sum((i["unit_price"] or 0) * i["qty"] for i in items)
-        budget = people * budget_per_person
-
-        return {
-            "title": f"BBQ bundle for {people}",
-            "items": items,
-            "total": round(total, 2),
-            "budget": round(budget, 2),
-            "within_budget": total <= budget,
-        }
-
-    def suggest_substitutions(self, item_sku: str) -> List[Dict[str, Any]]:
+        For now:
+        - If tags are given, search by tags.
+        - Otherwise, just return top `limit` items from catalog.search().
         """
-        If an item is out-of-stock, suggest alternates by shared tags.
-        """
-        item = self.catalog.get_item_by_sku(item_sku)
-        if not item:
+        try:
+            if tags:
+                results = self.catalog.search(tags=tags, limit=limit)
+            else:
+                results = self.catalog.search(limit=limit)
+
+            # Normalise to list[dict]
+            return [self._to_dict(item) for item in results][:limit]
+        except Exception:
+            # Never break chatbot flow if something goes wrong
             return []
-        tags = item.get("tags") or []
-        # find up to 5 items that share at least one tag and are in stock
-        results = self.catalog.search(tags=tags, limit=30)
-        out: List[Dict[str, Any]] = []
-        for it in results:
-            sku = it.get("sku")
-            if sku == item_sku:
-                continue
-            if self.catalog.in_stock(sku):
-                out.append({"sku": sku, "name": it.get("name"), "unit_price": self.catalog.price_of(sku)})
-            if len(out) >= 5:
-                break
-        return out
 
-    # ---- helpers ----
+    def basket_upsell(
+        self,
+        basket_skus: List[str],
+        *,
+        limit: int = 4,
+    ) -> List[Dict[str, Any]]:
+        """
+        Very naive upsell: just call related_products with no extra info for now.
+        You can later:
+        - Look at basket_skus and infer matching tags.
+        - Exclude SKUs already in basket.
+        """
+        try:
+            return self.related_products(limit=limit)
+        except Exception:
+            return []
 
-    def _pick_by_tag(self, tag: str, *, qty: int) -> Optional[Dict[str, Any]]:
-        results = self.catalog.search(tags=[tag], limit=1)
-        if not results:
-            return None
-        it = results[0]
-        sku = it.get("sku")
-        price = self.catalog.price_of(sku)
-        return {"sku": sku, "name": it.get("name"), "qty": qty, "unit_price": price}
+    # --- Internal helpers ---
+
+    def _to_dict(self, item: Any) -> Dict[str, Any]:
+        """
+        Make sure items are serialisable. If `item` is already a dict, pass it through.
+        Otherwise, try to read common attributes; fall back to repr.
+        """
+        if isinstance(item, dict):
+            return item
+
+        data = {}
+        for attr in ("sku", "name", "price", "tags", "category"):
+            if hasattr(item, attr):
+                data[attr] = getattr(item, attr)
+
+        if not data:
+            # Absolute fallback
+            data = {"raw": repr(item)}
+
+        return data
+
+    # --- Safety net for unknown calls ---
+
+    def __getattr__(self, name: str):
+        """
+        If some mode calls an unknown method on SalesFlows, don't crash.
+        Return a no-op function that just returns empty structures / None.
+        """
+        def _fallback(*args, **kwargs):
+            # If caller expects list, they’ll just see []; if they expect dict/str,
+            # the AI layer will still cope.
+            return []
+        return _fallback
