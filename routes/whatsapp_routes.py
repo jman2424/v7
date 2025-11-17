@@ -1,53 +1,96 @@
+# routes/whatsapp_routes.py
+from __future__ import annotations
+
+import logging
+from flask import Blueprint, request, abort, jsonify
+
+from routes import get_container
+from service.security import verify_webhook_signature
+from service import message_handler
+from connectors.whatsapp import parse_inbound, send_reply
+
+logger = logging.getLogger("WA.Webhook")
+
+# This is what app.__init__ imports as `bp as whatsapp_bp`
+bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
+
+
+@bp.get("/webhook")
+def webhook_verify():
+    """
+    Facebook/WhatsApp verification echo.
+    Used by Meta when you first set up the webhook.
+
+    Expects query params:
+      - hub.mode
+      - hub.verify_token
+      - hub.challenge
+    """
+    c = get_container()
+    verify = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge", "")
+
+    if verify != c.settings.WHATSAPP_VERIFY_TOKEN:
+        abort(403)
+
+    # Meta expects the challenge string as plain text
+    return challenge, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @bp.post("/webhook")
 def webhook_receive():
     """
-    Receive inbound messages.
+    Receive inbound WhatsApp messages.
 
-    Supports:
-      - Meta WhatsApp Cloud API (JSON + X-Hub-Signature-256)
-      - Twilio (form-encoded, no X-Hub-Signature-256 → signature check skipped)
+    Designed for WhatsApp Cloud API payloads, but:
+    - If X-Hub-Signature-256 is present AND app secret is set:
+        → verify signature (Meta)
+    - If header is missing:
+        → skip verification (e.g. Twilio hitting this URL by mistake)
     """
     c = get_container()
 
-    # ---- Signature verification (only if Meta header present) ----
-    app_secret = getattr(c.settings, "WHATSAPP_APP_SECRET", "")
+    # ----- Signature verification (Meta only) -----
+    app_secret = getattr(c.settings, "WHATSAPP_APP_SECRET", "") or ""
     sig_header = request.headers.get("X-Hub-Signature-256")
 
     if app_secret and sig_header:
-        # Only enforce verification when Meta is actually calling us
         if not verify_webhook_signature(request, app_secret):
             logger.warning("WA WEBHOOK: invalid X-Hub-Signature, aborting 403.")
             abort(403)
     else:
-        # Twilio / other sources: no X-Hub-Signature-256 → skip this check
-        logger.debug("WA WEBHOOK: no X-Hub-Signature-256, skipping Meta signature check.")
+        # No Meta signature header → probably not Cloud API
+        logger.debug(
+            "WA WEBHOOK: no X-Hub-Signature-256 present; "
+            "skipping Meta signature check."
+        )
 
-    # ---- Parse payload safely ----
-    # Try JSON first (Meta), then fall back to raw form for Twilio if needed
-    payload = {}
+    # ----- Parse payload -----
     try:
         if request.is_json:
             payload = request.get_json(force=True, silent=True) or {}
         else:
-            # Twilio-style form payload -> wrap into a pseudo-Cloud structure if you want
-            payload = {"twilio_form": request.form.to_dict()}
+            # e.g. Twilio form-encoded payload – keep it around for debugging
+            payload = {"raw_form": request.form.to_dict()}
         logger.debug("WA WEBHOOK payload: %s", str(payload)[:2000])
     except Exception as exc:
         logger.exception("WA WEBHOOK: invalid payload: %s", exc)
         return jsonify({"error": "invalid payload"}), 400
 
-    # ---- Parse inbound events ----
+    # ----- Convert into internal events -----
     try:
         events = parse_inbound(payload)
     except Exception as exc:
         logger.exception("WA WEBHOOK: parse_inbound failed: %s", exc)
+        # Don’t 500 on bad messages; just acknowledge
         return jsonify({"ok": True, "events": 0}), 200
 
     if not events:
         logger.debug("WA WEBHOOK: no text events in payload.")
         return jsonify({"ok": True, "events": 0}), 200
 
-    # ---- Process each inbound message ----
+    handled = 0
+
     for ev in events:
         try:
             text = (ev.get("text") or "").strip()
@@ -66,6 +109,7 @@ def webhook_receive():
                 text,
             )
 
+            # Core bot handler (AI Mode v6 etc. lives behind this)
             result = message_handler.handle(
                 c,
                 text=text,
@@ -81,11 +125,11 @@ def webhook_receive():
                     send_reply(ev, reply, settings=c.settings)
                 except Exception as send_exc:
                     logger.exception(
-                        "WA WEBHOOK: send_reply failed: %s",
-                        send_exc,
-                        extra={"wa_id": from_id},
+                        "WA WEBHOOK: send_reply failed",
+                        extra={"wa_id": from_id, "error": str(send_exc)},
                     )
 
+            # Analytics logging
             try:
                 c.analytics.log_turn(
                     tenant=tenant,
@@ -97,7 +141,9 @@ def webhook_receive():
             except Exception as log_exc:
                 logger.exception("Analytics log_turn failed: %s", log_exc)
 
+            handled += 1
+
         except Exception as ev_exc:
             logger.exception("Error processing WA event: %s", ev_exc)
 
-    return jsonify({"ok": True, "events": len(events)}), 200
+    return jsonify({"ok": True, "events": handled}), 200
