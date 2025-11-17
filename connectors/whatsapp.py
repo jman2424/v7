@@ -1,14 +1,13 @@
 """
-WhatsApp Cloud API connector.
+WhatsApp connector.
+
+Supports:
+- Meta WhatsApp Cloud API webhooks (JSON)
+- Twilio WhatsApp webhooks (form-encoded)
 
 Provides:
 - parse_inbound(payload) -> list[dict]
-- send_reply(event, reply, settings) -> None
-
-This is intentionally thin:
-- No business logic
-- Just maps Meta webhook JSON -> our internal event format
-- And sends text replies using the Cloud API
+- send_reply(event, reply, settings) -> None  (Cloud API only)
 """
 
 from __future__ import annotations
@@ -24,38 +23,17 @@ logger = logging.getLogger("WhatsAppConnector")
 
 def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Parse inbound WhatsApp Cloud API webhook payload into a flat list of events.
+    Parse inbound WhatsApp webhook payload into a flat list of events.
 
-    Input shape (simplified Meta spec):
+    Two modes:
 
-    {
-      "entry": [
-        {
-          "changes": [
-            {
-              "value": {
-                "metadata": {
-                  "display_phone_number": "...",
-                  "phone_number_id": "..."
-                },
-                "contacts": [...],
-                "messages": [
-                  {
-                    "from": "447...",
-                    "id": "...",
-                    "timestamp": "...",
-                    "type": "text",
-                    "text": {"body": "hello"}
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      ]
-    }
+    1) Meta Cloud API JSON (payload["entry"]...):
+       -> events with source="cloud"
 
-    Output event shape (what routes.whatsapp_routes expects):
+    2) Twilio form-encoded (wrapped in {"raw_form": {...}} by the route):
+       -> events with source="twilio"
+
+    Normalised event shape:
 
     {
       "from": "447...",
@@ -63,10 +41,49 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
       "tenant": "<optional tenant key>",
       "text": "hello",
       "raw": <original message dict>,
+      "metadata": {...},
+      "source": "cloud" | "twilio",
     }
     """
     events: List[Dict[str, Any]] = []
 
+    # -------- Twilio form-encoded (wrapped as "raw_form") ----------
+    if "raw_form" in payload:
+        form = payload.get("raw_form") or {}
+        body = (form.get("Body") or "").strip()
+
+        # Twilio WA sends both WaId and From (with "whatsapp:" prefix)
+        wa_id = (form.get("WaId") or "").strip()
+        if not wa_id:
+            frm = (form.get("From") or "").strip()
+            if frm.startswith("whatsapp:"):
+                frm = frm[len("whatsapp:") :]
+            wa_id = frm
+
+        if body and wa_id:
+            events.append(
+                {
+                    "from": wa_id,
+                    "session_id": wa_id,  # 1 session per number
+                    "tenant": None,
+                    "text": body,
+                    "raw": form,
+                    "metadata": {
+                        "twilio_message_sid": form.get("MessageSid"),
+                        "profile_name": form.get("ProfileName"),
+                    },
+                    "source": "twilio",
+                }
+            )
+        else:
+            logger.debug(
+                "parse_inbound(Twilio): missing wa_id/body; form=%r",
+                {k: form.get(k) for k in ["From", "WaId", "Body"]},
+            )
+
+        return events
+
+    # -------- Meta Cloud API JSON ----------
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {}) or {}
@@ -87,15 +104,17 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 events.append(
                     {
                         "from": wa_id,
-                        "session_id": wa_id,  # simple: 1 session per number
-                        # We *could* map tenant off phone_number_id if you multi-tenant later
+                        "session_id": wa_id,  # 1 session per number
                         "tenant": None,
                         "text": text,
                         "raw": msg,
                         "metadata": {
                             "phone_number_id": metadata.get("phone_number_id"),
-                            "display_phone_number": metadata.get("display_phone_number"),
+                            "display_phone_number": metadata.get(
+                                "display_phone_number"
+                            ),
                         },
+                        "source": "cloud",
                     }
                 )
 
@@ -114,8 +133,13 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
       settings.WHATSAPP_PHONE_ID
       settings.WHATSAPP_API_URL (optional override)
 
-    If config is missing, logs a warning and no-ops.
+    Twilio replies are handled in the route via TwiML and **do not** use this.
     """
+    # Skip if this is a Twilio event
+    if event.get("source") == "twilio":
+        logger.debug("send_reply: Twilio event; reply handled via TwiML.")
+        return
+
     wa_id = event.get("from")
     if not wa_id:
         logger.warning("send_reply: missing 'from' in event, cannot reply")
@@ -127,7 +151,7 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
 
     if not token or not phone_id:
         logger.warning(
-            "send_reply: missing WA config (token/phone_id). Skipping send.",
+            "send_reply: missing WA Cloud API config (token/phone_id). Skipping send.",
             extra={"wa_id": wa_id},
         )
         return
@@ -150,7 +174,7 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         resp = requests.post(url, headers=headers, json=payload, timeout=8)
         if resp.status_code >= 400:
             logger.warning(
-                "send_reply: WA API returned non-2xx",
+                "send_reply: WA Cloud API returned non-2xx",
                 extra={
                     "status": resp.status_code,
                     "body": resp.text[:500],
@@ -159,6 +183,6 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
             )
     except Exception as exc:
         logger.exception(
-            "send_reply: exception while calling WA API",
+            "send_reply: exception while calling WA Cloud API",
             extra={"wa_id": wa_id, "error": str(exc)},
         )
