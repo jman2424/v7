@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict
 
 from flask import Blueprint, request, abort, jsonify, Response
@@ -15,7 +16,6 @@ from connectors.whatsapp import parse_inbound, send_reply
 
 logger = logging.getLogger("WA.Webhook")
 
-# This is what app.__init__ imports as `whatsapp_bp`
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
 
@@ -78,8 +78,15 @@ def _call_bot(
         "Using direct OpenAI fallback."
     )
 
-    api_key = getattr(c.settings, "OPENAI_API_KEY", "") or ""
-    model = getattr(c.settings, "OPENAI_MODEL", "") or "gpt-4o-mini"
+    # Prefer settings, but also fall back to env
+    api_key = (
+        getattr(c.settings, "OPENAI_API_KEY", "") 
+        or os.getenv("OPENAI_API_KEY", "")
+    )
+    model = (
+        getattr(c.settings, "OPENAI_MODEL", "") 
+        or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    )
 
     if not api_key:
         logger.error("WA: OPENAI_API_KEY missing; cannot call OpenAI.")
@@ -102,8 +109,10 @@ def _call_bot(
     try:
         completion = client.chat.completions.create(
             model=model,
-            temperature=getattr(c.settings, "OPENAI_TEMPERATURE", 0.4),
-            max_tokens=getattr(c.settings, "AI_MAX_TOKENS", 800),
+            temperature=float(
+                getattr(c.settings, "OPENAI_TEMPERATURE", 0.4) or 0.4
+            ),
+            max_tokens=int(getattr(c.settings, "AI_MAX_TOKENS", 800) or 800),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {
@@ -160,15 +169,6 @@ def webhook_receive():
     Supports:
       - Twilio WhatsApp sandbox (form-encoded; User-Agent: TwilioProxy/1.1)
       - Meta WhatsApp Cloud API (JSON + X-Hub-Signature-256)
-
-    Logic:
-      * Detect Twilio vs Cloud API
-      * For Cloud API: verify X-Hub-Signature-256 with app secret
-      * Normalise events
-      * Route into _call_bot()
-      * Reply:
-          - Twilio: TwiML response
-          - Cloud API: REST send via connectors.whatsapp.send_reply
     """
     c = get_container()
 
@@ -193,7 +193,7 @@ def webhook_receive():
             "skipping Meta signature check."
         )
 
-    # ----- Twilio path (simple: single message per webhook) -----
+    # ----- Twilio path -----
     if is_twilio:
         form = request.form.to_dict()
         body = (form.get("Body") or "").strip()
@@ -229,15 +229,17 @@ def webhook_receive():
         if not reply:
             reply = "Sorry—I didn’t catch that."
 
-        # Analytics (best effort)
+        # Analytics (best effort; only if method exists)
         try:
-            c.analytics.log_turn(
-                tenant=tenant,
-                session_id=session_id,
-                intent=result.get("intent"),
-                resolved=bool(result.get("resolved", False)),
-                latency_ms=float(result.get("_latency_ms", 0) or 0),
-            )
+            analytics = getattr(c, "analytics", None)
+            if analytics and hasattr(analytics, "log_turn"):
+                analytics.log_turn(
+                    tenant=tenant,
+                    session_id=session_id,
+                    intent=result.get("intent"),
+                    resolved=bool(result.get("resolved", False)),
+                    latency_ms=float(result.get("_latency_ms", 0) or 0),
+                )
         except Exception as log_exc:
             logger.exception("Analytics log_turn failed: %s", log_exc)
 
@@ -303,15 +305,17 @@ def webhook_receive():
                         extra={"wa_id": from_id, "error": str(send_exc)},
                     )
 
-            # Analytics (best effort)
+            # Analytics (best effort; only if method exists)
             try:
-                c.analytics.log_turn(
-                    tenant=tenant,
-                    session_id=session_id,
-                    intent=result.get("intent"),
-                    resolved=bool(result.get("resolved", False)),
-                    latency_ms=float(result.get("_latency_ms", 0) or 0),
-                )
+                analytics = getattr(c, "analytics", None)
+                if analytics and hasattr(analytics, "log_turn"):
+                    analytics.log_turn(
+                        tenant=tenant,
+                        session_id=session_id,
+                        intent=result.get("intent"),
+                        resolved=bool(result.get("resolved", False)),
+                        latency_ms=float(result.get("_latency_ms", 0) or 0),
+                    )
             except Exception as log_exc:
                 logger.exception("Analytics log_turn failed: %s", log_exc)
 
@@ -321,3 +325,21 @@ def webhook_receive():
             logger.exception("Error processing WA event: %s", ev_exc)
 
     return jsonify({"ok": True, "events": handled}), 200
+
+
+# ---------- Twilio status callback (optional) ----------
+
+@bp.route("/status", methods=["POST", "GET"])
+def whatsapp_status():
+    """
+    Twilio message status callback endpoint.
+
+    If you set the Twilio status callback URL to:
+      https://v7-52g3.onrender.com/whatsapp/status
+
+    this will stop the 404s and just log the status events.
+    """
+    form = request.form.to_dict()
+    logger.info("WA STATUS: %s", form)
+    # 204 No Content is enough for Twilio
+    return Response(status=204)
