@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict
 
 from flask import Blueprint, request, abort, jsonify, Response
 from twilio.twiml.messaging_response import MessagingResponse
-from openai import OpenAI
 
 from routes import get_container
 from service.security import verify_webhook_signature
-from service import message_handler
 from connectors.whatsapp import parse_inbound, send_reply
 
 logger = logging.getLogger("WA.Webhook")
@@ -19,122 +16,20 @@ logger = logging.getLogger("WA.Webhook")
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
 
-# ---------- Core bot wrapper ----------
+# ---------- helper to get the orchestrator ----------
 
-def _call_bot(
-    c,
-    *,
-    text: str,
-    session_id: str,
-    channel: str,
-    tenant: str,
-    metadata: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+def _get_handler(container):
     """
-    Unified wrapper around whatever bot handler exists.
-
-    Priority:
-      1) service.message_handler.handle(container, text=..., ...)
-      2) service.message_handler.handle_message(text, sender=..., state=...)
-      3) Fallback: direct OpenAI call (uses OPENAI_API_KEY, OPENAI_MODEL)
+    Fetch the MessageHandler instance from the DI container.
+    Supports both `container.handler` and `container.message_handler`.
     """
-    metadata = metadata or {}
-
-    # --- 1) New-style handler: handle(container, ...) ---
-    if hasattr(message_handler, "handle"):
-        return message_handler.handle(
-            c,
-            text=text,
-            session_id=session_id,
-            channel=channel,
-            tenant=tenant,
-            metadata=metadata,
-        )
-
-    # --- 2) Legacy handler: handle_message(text, sender=..., state=...) ---
-    if hasattr(message_handler, "handle_message"):
-        logger.debug("WA: using legacy message_handler.handle_message()")
-
-        state = {
-            "session_id": session_id,
-            "tenant": tenant,
-            "channel": channel,
-        }
-        reply_text = message_handler.handle_message(
-            text,
-            sender=channel,
-            state=state,
-        )
-        return {
-            "reply": reply_text or "",
-            "intent": None,
-            "resolved": True,
-            "_latency_ms": 0,
-        }
-
-    # --- 3) Hard fallback: direct OpenAI call ---
-    logger.warning(
-        "WA: No message_handler.handle or handle_message found. "
-        "Using direct OpenAI fallback."
-    )
-
-    # Prefer settings, but also fall back to env
-    api_key = (
-        getattr(c.settings, "OPENAI_API_KEY", "") 
-        or os.getenv("OPENAI_API_KEY", "")
-    )
-    model = (
-        getattr(c.settings, "OPENAI_MODEL", "") 
-        or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    )
-
-    if not api_key:
-        logger.error("WA: OPENAI_API_KEY missing; cannot call OpenAI.")
-        return {
-            "reply": "Sorry—my brain isn’t configured properly yet.",
-            "intent": None,
-            "resolved": False,
-            "_latency_ms": 0,
-        }
-
-    client = OpenAI(api_key=api_key)
-
-    system_prompt = (
-        "You are the Tariq Halal Meat Shop assistant on WhatsApp. "
-        "Answer concisely and helpfully. If the user asks about meat, products, "
-        "or prices, respond like a friendly shop assistant. "
-        "Ask clarifying questions if needed instead of making things up."
-    )
-
-    try:
-        completion = client.chat.completions.create(
-            model=model,
-            temperature=float(
-                getattr(c.settings, "OPENAI_TEMPERATURE", 0.4) or 0.4
-            ),
-            max_tokens=int(getattr(c.settings, "AI_MAX_TOKENS", 800) or 800),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"[channel={channel} tenant={tenant}] {text}",
-                },
-            ],
-        )
-        reply = (completion.choices[0].message.content or "").strip()
-    except Exception as exc:
-        logger.exception("WA: OpenAI fallback failed: %s", exc)
-        reply = "Sorry—there was an error talking to the AI."
-
-    return {
-        "reply": reply,
-        "intent": None,
-        "resolved": True,
-        "_latency_ms": 0,
-    }
+    h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
+    if h is None:
+        logger.error("WA: No MessageHandler instance found on container.")
+    return h
 
 
-# ---------- Meta verification (for Cloud API) ----------
+# ---------- Meta verification (for WhatsApp Cloud API only) ----------
 
 @bp.get("/webhook")
 def webhook_verify():
@@ -146,16 +41,16 @@ def webhook_verify():
       - hub.verify_token
       - hub.challenge
 
-    Twilio sandbox will NOT use this.
+    Twilio sandbox does NOT use this.
     """
     c = get_container()
     verify = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge", "")
 
-    if verify != c.settings.WHATSAPP_VERIFY_TOKEN:
+    if verify != getattr(c.settings, "WHATSAPP_VERIFY_TOKEN", ""):
         abort(403)
 
-    # Meta expects the challenge string as plain text
+    # Meta expects raw challenge text/plain
     return challenge, 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
@@ -167,12 +62,11 @@ def webhook_receive():
     Receive inbound WhatsApp messages.
 
     Supports:
-      - Twilio WhatsApp sandbox (form-encoded; User-Agent: TwilioProxy/1.1)
+      - Twilio WhatsApp (form-encoded; User-Agent contains TwilioProxy)
       - Meta WhatsApp Cloud API (JSON + X-Hub-Signature-256)
     """
     c = get_container()
 
-    # --- Detect Twilio ---
     ua = request.headers.get("User-Agent") or ""
     content_type = request.headers.get("Content-Type") or ""
     is_twilio = "TwilioProxy" in ua or content_type.startswith(
@@ -189,11 +83,14 @@ def webhook_receive():
             abort(403)
     elif not is_twilio:
         logger.debug(
-            "WA WEBHOOK: no X-Hub-Signature-256 present; "
-            "skipping Meta signature check."
+            "WA WEBHOOK: no X-Hub-Signature-256 present; skipping Meta signature check."
         )
 
-    # ----- Twilio path -----
+    handler = _get_handler(c)
+
+    # ------------------------------------------------------------------
+    #                       TWILIO PATH (FORM)
+    # ------------------------------------------------------------------
     if is_twilio:
         form = request.form.to_dict()
         body = (form.get("Body") or "").strip()
@@ -205,8 +102,8 @@ def webhook_receive():
             resp.message("Sorry—I didn’t receive any text.")
             return Response(str(resp), status=200, mimetype="application/xml")
 
+        tenant = getattr(c.settings, "BUSINESS_KEY", "DEFAULT")
         session_id = from_id or "wa_unknown"
-        tenant = c.settings.BUSINESS_KEY
 
         logger.info(
             "WA IN: source=twilio tenant=%s session=%s from=%s text=%r",
@@ -216,39 +113,26 @@ def webhook_receive():
             body,
         )
 
-        result = _call_bot(
-            c,
-            text=body,
-            session_id=session_id,
-            channel="wa",
-            tenant=tenant,
-            metadata={"wa_id": from_id},
-        )
-
-        reply = (result.get("reply") or "").strip()
-        if not reply:
-            reply = "Sorry—I didn’t catch that."
-
-        # Analytics (best effort; only if method exists)
-        try:
-            analytics = getattr(c, "analytics", None)
-            if analytics and hasattr(analytics, "log_turn"):
-                analytics.log_turn(
-                    tenant=tenant,
-                    session_id=session_id,
-                    intent=result.get("intent"),
-                    resolved=bool(result.get("resolved", False)),
-                    latency_ms=float(result.get("_latency_ms", 0) or 0),
-                )
-        except Exception as log_exc:
-            logger.exception("Analytics log_turn failed: %s", log_exc)
+        if handler is None:
+            reply = "Sorry—my chatbot brain isn’t configured yet. Please contact support."
+        else:
+            # Use your orchestrator (MessageHandler.handle)
+            result = handler.handle(
+                body,
+                tenant=tenant,
+                session_id=session_id,
+                channel="whatsapp",
+                metadata={"wa_id": from_id},
+            )
+            reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
 
         resp = MessagingResponse()
         resp.message(reply)
-
         return Response(str(resp), status=200, mimetype="application/xml")
 
-    # ----- Cloud API path (Meta JSON) -----
+    # ------------------------------------------------------------------
+    #                     CLOUD API PATH (JSON)
+    # ------------------------------------------------------------------
     try:
         payload = request.get_json(force=True, silent=True) or {}
         logger.debug("WA WEBHOOK JSON payload: %s", str(payload)[:2000])
@@ -267,6 +151,7 @@ def webhook_receive():
         return jsonify({"ok": True, "events": 0}), 200
 
     handled = 0
+    tenant_default = getattr(c.settings, "BUSINESS_KEY", "DEFAULT")
 
     for ev in events:
         try:
@@ -276,7 +161,7 @@ def webhook_receive():
 
             from_id = ev.get("from") or "unknown"
             session_id = ev.get("session_id") or from_id
-            tenant = ev.get("tenant") or c.settings.BUSINESS_KEY
+            tenant = ev.get("tenant") or tenant_default
 
             logger.info(
                 "WA IN: source=cloud tenant=%s session=%s from=%s text=%r",
@@ -286,14 +171,18 @@ def webhook_receive():
                 text,
             )
 
-            result = _call_bot(
-                c,
-                text=text,
-                session_id=session_id,
-                channel="wa",
-                tenant=tenant,
-                metadata={"wa_id": from_id},
-            )
+            if handler is None:
+                result: Dict[str, Any] = {
+                    "reply": "Sorry—my chatbot brain isn’t configured yet. Please contact support."
+                }
+            else:
+                result = handler.handle(
+                    text,
+                    tenant=tenant,
+                    session_id=session_id,
+                    channel="whatsapp",
+                    metadata={"wa_id": from_id},
+                )
 
             reply = (result.get("reply") or "").strip()
             if reply:
@@ -304,20 +193,6 @@ def webhook_receive():
                         "WA WEBHOOK: send_reply failed",
                         extra={"wa_id": from_id, "error": str(send_exc)},
                     )
-
-            # Analytics (best effort; only if method exists)
-            try:
-                analytics = getattr(c, "analytics", None)
-                if analytics and hasattr(analytics, "log_turn"):
-                    analytics.log_turn(
-                        tenant=tenant,
-                        session_id=session_id,
-                        intent=result.get("intent"),
-                        resolved=bool(result.get("resolved", False)),
-                        latency_ms=float(result.get("_latency_ms", 0) or 0),
-                    )
-            except Exception as log_exc:
-                logger.exception("Analytics log_turn failed: %s", log_exc)
 
             handled += 1
 
@@ -341,5 +216,4 @@ def whatsapp_status():
     """
     form = request.form.to_dict()
     logger.info("WA STATUS: %s", form)
-    # 204 No Content is enough for Twilio
     return Response(status=204)
