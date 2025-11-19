@@ -5,6 +5,7 @@ Provides:
 - Stores (retrieval/*)
 - Services (service/*)
 - Mode strategy (ai_modes/*) based on Settings.MODE
+- MessageHandler orchestrator for V6/V7 routing
 """
 
 from __future__ import annotations
@@ -29,6 +30,10 @@ from service.rewriter import Rewriter
 from service.router import Router
 from service.sales_flows import SalesFlows
 
+# Orchestrator
+from service.message_handler import MessageHandler
+from service import HandlerDeps  # provides the deps dataclass used by MessageHandler
+
 # AI modes
 from ai_modes.contracts import ModeStrategy
 from ai_modes.v5_legacy import V5Legacy
@@ -39,6 +44,9 @@ from ai_modes.v7_flagship import AIV7Flagship
 @dataclass
 class Container:
     settings: Settings
+    # filled in during __post_init__
+    mode: ModeStrategy | None = None
+    handler: MessageHandler | None = None
 
     def __post_init__(self):
         # ---------- Retrieval layer ----------
@@ -62,8 +70,6 @@ class Container:
         self.router = Router(self.catalog, self.faq)
 
         # ---------- Mode strategy ----------
-        self.mode: ModeStrategy
-
         if self.settings.MODE == "V5":
             self.mode = V5Legacy(self.router, self.rewriter, self.sales)
         elif self.settings.MODE == "V7":
@@ -76,4 +82,22 @@ class Container:
                 self.geo,
             )
         else:
+            # default: V6 hybrid
             self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
+
+        # ---------- Message orchestrator (AI Mode V6 pipeline) ----------
+        deps = HandlerDeps(
+            mode=self.mode,
+            rewriter=self.rewriter,
+            analytics=self.analytics,
+            crm=self.crm,
+            memory=self.memory,
+            router=self.router,
+            catalog=self.catalog,
+            policy=self.policy,
+            geo=self.geo,
+            faq=self.faq,
+            synonyms=self.synonyms,
+            overrides=self.overrides,
+        )
+        self.handler = MessageHandler(deps)
