@@ -31,16 +31,21 @@ STOPWORDS = set("""
 a an the i we you to for and or of with on at in near around show find tell need want
 """.split())
 
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
+
 
 def _tokens(s: str) -> List[str]:
     return [t for t in re.findall(r"[a-z0-9'_]+", _norm(s)) if t not in STOPWORDS]
 
+
 @dataclass
 class Router:
-    synonyms: Any  # SynonymsStoreLike
-    geo_prefixes: List[str]  # cached coverage prefixes (e.g., ["E1","E2"])
+    # SynonymsStore-like object (must ideally expose .canonical(term: str) -> str)
+    synonyms: Any
+    # Cached coverage prefixes (e.g., ["E1", "E2"]); not strictly required but kept for future use
+    geo_prefixes: List[str]
 
     def route(self, text: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
         t0 = time.time()
@@ -113,8 +118,25 @@ class Router:
         return m.group(0) if m else None
 
     def _guess_tags(self, toks: List[str]) -> List[str]:
-        # map each token to canonical, drop duplicates
-        canon = [self.synonyms.canonical(t) for t in toks]
+        """
+        Map each token to a canonical tag via the synonyms store.
+        Defensive: if synonyms is miswired or lacks .canonical, fall back to raw tokens.
+        """
+        syn = getattr(self, "synonyms", None)
+
+        if syn is not None and hasattr(syn, "canonical"):
+            canon = []
+            for t in toks:
+                try:
+                    c = syn.canonical(t)
+                except Exception:
+                    # In case the store misbehaves, just treat this token as-is
+                    c = t
+                canon.append(c)
+        else:
+            # Misconfiguration safety net: no synonyms store wired
+            canon = toks
+
         seen, out = set(), []
         for c in canon:
             if c and c not in seen:
@@ -149,7 +171,7 @@ class Router:
             pc = ent.get("postcode") or ctx.get("session", {}).get("postcode")
             if not pc:
                 # nudge toward coverage prefixes if available
-                pref = ctx.get("coverage_prefixes") or []
+                pref = ctx.get("coverage_prefixes") or self.geo_prefixes or []
                 hint = f" (e.g., {'/'.join(pref[:3])})" if pref else ""
                 return True, f"What's your postcode{hint}?"
         if intent == "search_product" and not (ent.get("tags") or ent.get("category")):
