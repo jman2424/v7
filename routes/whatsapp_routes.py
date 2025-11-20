@@ -115,6 +115,8 @@ def webhook_receive():
 
         if handler is None:
             reply = "Sorry—my chatbot brain isn’t configured yet. Please contact support."
+            intent = "system_error"
+            entities: Dict[str, Any] = {}
         else:
             # Use your orchestrator (MessageHandler.handle)
             result = handler.handle(
@@ -123,8 +125,21 @@ def webhook_receive():
                 session_id=session_id,
                 channel="whatsapp",
                 metadata={"wa_id": from_id},
-            )
+            ) or {}
+
             reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
+            intent = result.get("intent", "unknown")
+            entities = result.get("entities", {}) or {}
+
+        # OUTBOUND LOG
+        logger.info(
+            "WA OUT: source=twilio tenant=%s session=%s intent=%s entities=%s reply=%r",
+            tenant,
+            session_id,
+            intent,
+            entities,
+            reply,
+        )
 
         resp = MessagingResponse()
         resp.message(reply)
@@ -173,7 +188,9 @@ def webhook_receive():
 
             if handler is None:
                 result: Dict[str, Any] = {
-                    "reply": "Sorry—my chatbot brain isn’t configured yet. Please contact support."
+                    "reply": "Sorry—my chatbot brain isn’t configured yet. Please contact support.",
+                    "intent": "system_error",
+                    "entities": {},
                 }
             else:
                 result = handler.handle(
@@ -182,9 +199,22 @@ def webhook_receive():
                     session_id=session_id,
                     channel="whatsapp",
                     metadata={"wa_id": from_id},
-                )
+                ) or {}
 
             reply = (result.get("reply") or "").strip()
+            intent = result.get("intent", "unknown")
+            entities = result.get("entities", {}) or {}
+
+            # OUTBOUND LOG
+            logger.info(
+                "WA OUT: source=cloud tenant=%s session=%s intent=%s entities=%s reply=%r",
+                tenant,
+                session_id,
+                intent,
+                entities,
+                reply,
+            )
+
             if reply:
                 try:
                     send_reply(ev, reply, settings=c.settings)
