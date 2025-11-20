@@ -10,6 +10,7 @@ Provides:
 
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import List
 
 from app.config import Settings
 
@@ -65,9 +66,21 @@ class Container:
         self.rewriter = Rewriter(self.settings)
         self.sales = SalesFlows(self.catalog)
 
-        # Core deterministic router used by all modes
-        # Router.__init__ only takes 2 args (plus self), not 5
-        self.router = Router(self.catalog, self.faq)
+        # ---------- Router (new signature: synonyms + geo_prefixes) ----------
+        coverage_prefixes: List[str] = []
+
+        # Try common attribute names on GeoStore so you don't hardcode anything
+        for attr in ("coverage_prefixes", "prefixes", "all_prefixes"):
+            if hasattr(self.geo, attr):
+                val = getattr(self.geo, attr) or []
+                if isinstance(val, list):
+                    coverage_prefixes = val
+                break
+
+        self.router = Router(
+            synonyms=self.synonyms,
+            geo_prefixes=coverage_prefixes,
+        )
 
         # ---------- Mode strategy ----------
         if self.settings.MODE == "V5":
@@ -85,7 +98,7 @@ class Container:
             # default: V6 hybrid
             self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
 
-        # ---------- Message orchestrator (AI Mode V6 pipeline) ----------
+        # ---------- Message orchestrator ----------
         deps = HandlerDeps(
             mode=self.mode,
             rewriter=self.rewriter,
