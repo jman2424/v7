@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from . import HandlerDeps
-
 
 class MessageHandlerV6:
     """
@@ -14,7 +12,7 @@ class MessageHandlerV6:
     - Same router + services pipeline as V5, but better surface-level polish.
     """
 
-    def __init__(self, deps: HandlerDeps):
+    def __init__(self, deps: Any):
         self.router = deps.router
         self.catalog = deps.catalog
         self.policy = deps.policy
@@ -43,7 +41,7 @@ class MessageHandlerV6:
         if route.get("needs_clarification"):
             if intent in {"search_product", "browse_category"}:
                 route["needs_clarification"] = False
-                ent = route.setdefault("entities", {})
+                ent = route.setdefault("entities", {}) or {}
                 if not ent.get("query"):
                     ent["query"] = user_text
             elif intent == "price_check":
@@ -133,7 +131,7 @@ class MessageHandlerV6:
             utterance = route.get("utterance") or route.get("text") or user_text
             m = self.faq.best_match(utterance, hint_tags=ent.get("tags"), top_k=1)
             if m:
-                placeholders = {}
+                placeholders: Dict[str, Any] = {}
 
                 if sess.get("postcode"):
                     placeholders["postcode"] = sess["postcode"]
@@ -198,6 +196,8 @@ class MessageHandlerV6:
         - Must NOT add new products or hallucinate prices.
         - Only rewrite wording.
         """
+        if not draft:
+            return ""
         if not self.rewriter:
             return draft
 
