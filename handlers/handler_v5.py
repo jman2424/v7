@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from . import HandlerDeps
-
 
 class MessageHandlerV5:
     """
@@ -15,7 +13,7 @@ class MessageHandlerV5:
     - Optional: passes text through deps.rewriter for tone only.
     """
 
-    def __init__(self, deps: HandlerDeps):
+    def __init__(self, deps: Any):
         self.router = deps.router
         self.catalog = deps.catalog
         self.policy = deps.policy
