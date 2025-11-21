@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from . import HandlerDeps
-from v7.brain_v7 import BrainV7
-from v7.renderer_v7 import RendererV7  # you’ll create this next
+from brain_v7 import BrainV7
+from renderer_v7 import RendererV7
 
 
 class MessageHandlerV7:
@@ -21,7 +20,7 @@ class MessageHandlerV7:
     This is your “feels-like-its-own-LLM” mode.
     """
 
-    def __init__(self, deps: HandlerDeps):
+    def __init__(self, deps: Any):
         # Core deps
         self.catalog = deps.catalog
         self.policy = deps.policy
@@ -30,8 +29,9 @@ class MessageHandlerV7:
         self.overrides = deps.overrides
 
         # Brain + renderer
-        self.brain = BrainV7()  # uses default OpenAI client unless you wire one in
-        self.renderer = RendererV7(deps.rewriter)  # you’ll define RendererV7 next
+        # BrainV7 should internally use your OpenAI client / settings
+        self.brain = BrainV7()
+        self.renderer = RendererV7(deps.rewriter)
 
     # ----------------------------------------------------------------------
     # PUBLIC ENTRYPOINT (called by master MessageHandler)
@@ -43,7 +43,7 @@ class MessageHandlerV7:
         # 1) Build session snapshot for BrainV7
         session_snapshot = {
             "postcode": sess.get("postcode"),
-            "last_intent": sess.get("last_intent"),      # may be None for now
+            "last_intent": sess.get("last_intent"),  # may be None for now
             "last_category": sess.get("last_category"),
             "last_sku": sess.get("last_sku"),
         }
@@ -52,7 +52,7 @@ class MessageHandlerV7:
         plan = self.brain.plan(
             user_text=user_text,
             session=session_snapshot,
-            history=[],  # you can plug a short history list here later if needed
+            history=[],  # can plug recent turns here later
             hints={},
         )
 
@@ -117,7 +117,6 @@ class MessageHandlerV7:
 
         # --- PRODUCT SEARCH ---
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
-            # Build a query string and tags from plan slots
             query, tags = self._build_search_query(
                 user_text=user_text,
                 category=category,
@@ -138,7 +137,6 @@ class MessageHandlerV7:
 
         # --- STORE / FAQ LOOKUP ---
         if action in {"STORE_INFO", "FAQ_LOOKUP"} or intent in {"store_info", "faq", "unknown"}:
-            # Use FAQ as the generic knowledge base; you can split store_info later if needed
             m = self.faq.best_match(user_text, hint_tags=None, top_k=1)
             if m:
                 placeholders: Dict[str, Any] = {}
