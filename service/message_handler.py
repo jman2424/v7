@@ -14,9 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .handler_v5 import MessageHandlerV5
-from .handler_v6 import MessageHandlerV6
-from .handler_v7 import MessageHandlerV7
+# ✅ Correct imports — from top-level handlers folder (NOT service.*)
+from handlers.handler_v5 import MessageHandlerV5
+from handlers.handler_v6 import MessageHandlerV6
+from handlers.handler_v7 import MessageHandlerV7
 
 from . import HandlerDeps, DEFAULT_SESSION_TTL
 
@@ -45,9 +46,9 @@ class MessageHandler:
         self.memory = deps.memory
         self.overrides = deps.overrides
 
-    # ---------------------------
+    # ---------------------------------------------------------
     # MAIN ENTRYPOINT
-    # ---------------------------
+    # ---------------------------------------------------------
 
     def handle(
         self,
@@ -63,44 +64,50 @@ class MessageHandler:
             tenant=tenant,
             session_id=session_id,
             channel=channel,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
-        # Load session before routing
+        # Load session
         sess = self._load_session(ctx)
+
+        # Clean input
         user_text = (user_text or "").strip()
 
         # Determine mode (override or default)
         mode = self._decide_mode(ctx)
 
+        # Dispatch
         if mode == "v5":
             reply_payload = self.h_v5.handle(user_text, ctx, sess)
         elif mode == "v6":
             reply_payload = self.h_v6.handle(user_text, ctx, sess)
-        else:
+        else:  # default to v7
             reply_payload = self.h_v7.handle(user_text, ctx, sess)
 
-        # Save session deltas
+        # Persist session updates
         self._save_session(ctx, sess, reply_payload)
 
-        # Log CRM + analytics
+        # CRM + analytics
         self._log_crm(ctx, user_text, reply_payload)
         self._post_analytics(ctx, user_text, reply_payload, mode)
 
         return reply_payload
 
-    # ---------------------------
-    # MODE SELECTOR
-    # ---------------------------
+    # ---------------------------------------------------------
+    # MODE SELECTION
+    # ---------------------------------------------------------
 
     def _decide_mode(self, ctx: MessageContext) -> str:
-        # Allow runtime override (e.g. tenant config or environment flag)
+        """
+        Uses overrides to switch AI modes.
+        Default is V7.
+        """
         mode = self.overrides.get("ai.mode") or "v7"
         return mode.lower()
 
-    # ---------------------------
-    # SESSION HANDLING
-    # ---------------------------
+    # ---------------------------------------------------------
+    # SESSION STORAGE
+    # ---------------------------------------------------------
 
     def _load_session(self, ctx: MessageContext) -> Dict[str, Any]:
         return {
@@ -123,18 +130,24 @@ class MessageHandler:
                 ctx.session_id,
                 "nearest_branch_id",
                 facts["branch"]["nearest"]["id"],
-                ttl=ttl
+                ttl=ttl,
             )
 
         if entities.get("category"):
-            self.memory.set(ctx.session_id, "last_category", entities["category"], ttl=ttl)
+            self.memory.set(
+                ctx.session_id, "last_category", entities["category"], ttl=ttl
+            )
 
         if entities.get("sku"):
             self.memory.set(ctx.session_id, "last_sku", entities["sku"], ttl=ttl)
 
-    # ---------------------------
-    # CRM / ANALYTICS
-    # ---------------------------
+        # OPTIONAL: save last intent for V7 brain memory
+        if reply.get("intent"):
+            self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl=ttl)
+
+    # ---------------------------------------------------------
+    # CRM LOGGING
+    # ---------------------------------------------------------
 
     def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]):
         lead = self.crm.upsert_lead(
@@ -148,17 +161,23 @@ class MessageHandler:
 
         lead_id = lead.get("id") or lead.get("_id") or "unknown"
 
+        # User message
         self.crm.append_conversation(
             ctx.tenant,
             lead_id=lead_id,
             message={"from": "user", "text": user_text},
         )
 
+        # Assistant message
         self.crm.append_conversation(
             ctx.tenant,
             lead_id=lead_id,
             message={"from": "assistant", "text": reply.get("reply")},
         )
+
+    # ---------------------------------------------------------
+    # ANALYTICS LOGGING
+    # ---------------------------------------------------------
 
     def _post_analytics(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any], mode: str):
         self.analytics.log_event(
