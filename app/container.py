@@ -4,8 +4,7 @@ Container — creates and holds singletons.
 Provides:
 - Stores (retrieval/*)
 - Services (service/*)
-- Mode strategy (ai_modes/*) based on Settings.MODE
-- MessageHandler orchestrator for V6/V7 routing
+- MessageHandler orchestrator for V5/V6/V7 routing
 """
 
 from __future__ import annotations
@@ -33,25 +32,40 @@ from service.sales_flows import SalesFlows
 
 # Orchestrator
 from service.message_handler import MessageHandler
-from service import HandlerDeps  # provides the deps dataclass used by MessageHandler
-
-# AI modes
-from ai_modes.contracts import ModeStrategy
-from ai_modes.v5_legacy import V5Legacy
-from ai_modes.v6_hybrid import AIV6Hybrid
-from ai_modes.v7_flagship import AIV7Flagship
+from service import HandlerDeps  # dataclass used by MessageHandler
 
 
 @dataclass
 class Container:
     settings: Settings
+
     # filled in during __post_init__
-    mode: ModeStrategy | None = None
     handler: MessageHandler | None = None
+
+    # you can keep these attrs accessible if other parts of the app use them
+    storage: Storage | None = None
+    catalog: CatalogStore | None = None
+    policy: PolicyStore | None = None
+    geo: GeoStore | None = None
+    faq: FAQStore | None = None
+    synonyms: SynonymsStore | None = None
+    overrides: OverridesStore | None = None
+
+    analytics: AnalyticsService | None = None
+    crm: CRMService | None = None
+    memory: Memory | None = None
+    rewriter: Rewriter | None = None
+    sales: SalesFlows | None = None
+    router: Router | None = None
 
     def __post_init__(self):
         # ---------- Retrieval layer ----------
+        #
+        # Storage is keyed by BUSINESS_KEY (e.g. "TARIQ") and internally
+        # looks under business/<BUSINESS_KEY>/catalog.json, faq.json, etc.
+        #
         self.storage = Storage(self.settings.BUSINESS_KEY)
+
         self.catalog = CatalogStore(self.storage)
         self.policy = PolicyStore(self.storage)
         self.geo = GeoStore(self.storage)
@@ -66,10 +80,10 @@ class Container:
         self.rewriter = Rewriter(self.settings)
         self.sales = SalesFlows(self.catalog)
 
-        # ---------- Router (new signature: synonyms + geo_prefixes) ----------
+        # ---------- Router (synonyms + geo prefixes) ----------
         coverage_prefixes: List[str] = []
 
-        # Try common attribute names on GeoStore so you don't hardcode anything
+        # Try common attribute names on GeoStore so we don't hardcode
         for attr in ("coverage_prefixes", "prefixes", "all_prefixes"):
             if hasattr(self.geo, attr):
                 val = getattr(self.geo, attr) or []
@@ -82,29 +96,15 @@ class Container:
             geo_prefixes=coverage_prefixes,
         )
 
-        # ---------- Mode strategy ----------
-        if self.settings.MODE == "V5":
-            self.mode = V5Legacy(self.router, self.rewriter, self.sales)
-        elif self.settings.MODE == "V7":
-            self.mode = AIV7Flagship(
-                self.router,
-                self.rewriter,
-                self.sales,
-                self.catalog,
-                self.policy,
-                self.geo,
-            )
-        else:
-            # default: V6 hybrid
-            self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
-
-        # ---------- Message orchestrator ----------
+        # ---------- HandlerDeps + master MessageHandler ----------
         deps = HandlerDeps(
-            mode=self.mode,
-            rewriter=self.rewriter,
+            # core infra
             analytics=self.analytics,
             crm=self.crm,
             memory=self.memory,
+            rewriter=self.rewriter,
+
+            # routing + data
             router=self.router,
             catalog=self.catalog,
             policy=self.policy,
@@ -113,4 +113,6 @@ class Container:
             synonyms=self.synonyms,
             overrides=self.overrides,
         )
+
+        # Master dispatcher (V5/V6/V7) – this is what routes everything now
         self.handler = MessageHandler(deps)
