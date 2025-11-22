@@ -83,9 +83,15 @@ class Container:
         )
 
         # ---------- Mode strategy (needed because HandlerDeps expects `mode`) ----------
-        if self.settings.MODE == "V5":
+        # Settings.MODE should be something like "V5", "V6", or "V7"
+        mode_name = (self.settings.MODE or "V7").upper()
+
+        if mode_name == "V5":
             self.mode = V5Legacy(self.router, self.rewriter, self.sales)
-        elif self.settings.MODE == "V7":
+        elif mode_name == "V6":
+            self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
+        else:
+            # default: V7 flagship
             self.mode = AIV7Flagship(
                 self.router,
                 self.rewriter,
@@ -94,13 +100,10 @@ class Container:
                 self.policy,
                 self.geo,
             )
-        else:
-            # default: V6 hybrid
-            self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
 
         # ---------- Message orchestrator ----------
         deps = HandlerDeps(
-            mode=self.mode,               # <-- THIS is what was missing
+            mode=self.mode,           # <- REQUIRED, fixes the TypeError
             rewriter=self.rewriter,
             analytics=self.analytics,
             crm=self.crm,
