@@ -31,7 +31,6 @@ class MessageContext:
 
 
 class MessageHandler:
-
     def __init__(self, deps: HandlerDeps):
         self.deps = deps
 
@@ -67,16 +66,16 @@ class MessageHandler:
             metadata=metadata or {},
         )
 
-        # Load session
+        # Load session snapshot
         sess = self._load_session(ctx)
 
         # Clean input
         user_text = (user_text or "").strip()
 
-        # Determine mode (override or default)
+        # Decide which mode to use
         mode = self._decide_mode(ctx)
 
-        # Dispatch
+        # Dispatch to the correct handler
         if mode == "v5":
             reply_payload = self.h_v5.handle(user_text, ctx, sess)
         elif mode == "v6":
@@ -84,7 +83,7 @@ class MessageHandler:
         else:  # default to v7
             reply_payload = self.h_v7.handle(user_text, ctx, sess)
 
-        # Persist session updates
+        # Persist session updates (postcode, nearest branch, last sku/category, last intent)
         self._save_session(ctx, sess, reply_payload)
 
         # CRM + analytics
@@ -102,6 +101,7 @@ class MessageHandler:
         Uses overrides to switch AI modes.
         Default is V7.
         """
+        # Example: overrides.json can contain { "ai.mode": "v6" } per-tenant
         mode = self.overrides.get("ai.mode") or "v7"
         return mode.lower()
 
@@ -110,40 +110,80 @@ class MessageHandler:
     # ---------------------------------------------------------
 
     def _load_session(self, ctx: MessageContext) -> Dict[str, Any]:
+        """
+        Pulls a lightweight session snapshot from the Memory store.
+        Handed into V5/V6/V7 handlers so they can use postcode / last_sku etc.
+        """
         return {
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),
             "last_category": self.memory.get(ctx.session_id, "last_category"),
             "last_sku": self.memory.get(ctx.session_id, "last_sku"),
+            "last_intent": self.memory.get(ctx.session_id, "last_intent"),
         }
 
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
+        """
+        Writes back important session fields based on the handler's reply.
+        This is what makes follow-ups like "price", "more like that", or
+        "nearest store" actually work.
+        """
         ttl = DEFAULT_SESSION_TTL
         entities = reply.get("entities") or {}
         facts = reply.get("facts") or {}
 
-        if entities.get("postcode"):
-            self.memory.set(ctx.session_id, "postcode", entities["postcode"], ttl=ttl)
+        # ----- Postcode -----
+        postcode = (
+            entities.get("postcode")
+            or facts.get("delivery", {}).get("postcode")
+            or sess.get("postcode")
+        )
+        if postcode:
+            self.memory.set(ctx.session_id, "postcode", postcode, ttl=ttl)
 
-        if facts.get("branch", {}).get("nearest", {}).get("id"):
-            self.memory.set(
-                ctx.session_id,
-                "nearest_branch_id",
-                facts["branch"]["nearest"]["id"],
-                ttl=ttl,
-            )
+        # ----- Nearest branch -----
+        nearest = (facts.get("branch") or {}).get("nearest") or {}
+        branch_id = nearest.get("id") or sess.get("nearest_branch_id")
+        if branch_id:
+            self.memory.set(ctx.session_id, "nearest_branch_id", branch_id, ttl=ttl)
 
-        if entities.get("category"):
-            self.memory.set(
-                ctx.session_id, "last_category", entities["category"], ttl=ttl
-            )
+        # ----- Last category -----
+        category = entities.get("category")
 
-        if entities.get("sku"):
-            self.memory.set(ctx.session_id, "last_sku", entities["sku"], ttl=ttl)
+        # fall back to first search result's category if not explicitly in entities
+        if not category:
+            items = facts.get("items") or []
+            if items:
+                first = items[0]
+                category = (
+                    first.get("category")
+                    or first.get("category_key")
+                    or first.get("tags", [None])[0]
+                )
 
-        # OPTIONAL: save last intent for V7 brain memory
-        if reply.get("intent"):
-            self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl=ttl)
+        if category:
+            self.memory.set(ctx.session_id, "last_category", category, ttl=ttl)
+
+        # ----- Last SKU (for "price" follow-ups) -----
+        sku = entities.get("sku")
+
+        # price tool result
+        if not sku and facts.get("price"):
+            sku = facts["price"].get("sku")
+
+        # or first search result
+        if not sku:
+            items = facts.get("items") or []
+            if items:
+                sku = items[0].get("sku")
+
+        if sku:
+            self.memory.set(ctx.session_id, "last_sku", sku, ttl=ttl)
+
+        # ----- Last intent (for V7 brain hinting / analytics) -----
+        last_intent = reply.get("intent")
+        if last_intent:
+            self.memory.set(ctx.session_id, "last_intent", last_intent, ttl=ttl)
 
     # ---------------------------------------------------------
     # CRM LOGGING
