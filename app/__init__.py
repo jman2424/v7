@@ -31,6 +31,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.files_routes import bp as files_bp
     from routes.auth_routes import bp as auth_bp
     from routes.diag_routes import bp as diag_bp
+    from routes.catalog_routes import bp as catalog_bp  # <-- NEW
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -40,6 +41,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(files_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(diag_bp)
+    app.register_blueprint(catalog_bp)  # <-- NEW
 
 
 def _install_error_handlers(app: Flask) -> None:
