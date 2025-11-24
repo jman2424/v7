@@ -12,9 +12,10 @@ from typing import Dict, List
 
 from flask import Blueprint, current_app, jsonify, request, Response
 
-catalog_bp = Blueprint("catalog", __name__)
+# Match pattern used elsewhere: routes.* exposes `bp`
+bp = Blueprint("catalog", __name__)
 
-# Use same env var you used in Apps Script
+# Use same env vars as the rest of the stack
 CATALOG_WEBHOOK_SECRET_ENV = "CATALOG_WEBHOOK_SECRET"
 CATALOG_FILE_ENV = "CATALOG_FILE"
 
@@ -39,7 +40,7 @@ def _load_catalog_doc() -> Dict:
     if not path.exists():
         return {"product_catalog": []}
     try:
-        return json.loads(path.read_text("utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         current_app.logger.error("Failed to read catalog file %s: %s", path, e)
         return {"product_catalog": []}
@@ -48,7 +49,7 @@ def _load_catalog_doc() -> Dict:
 def _save_catalog_doc(doc: Dict) -> None:
     path = _get_catalog_path()
     try:
-        path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), "utf-8")
+        path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         current_app.logger.error("Failed to write catalog file %s: %s", path, e)
 
@@ -123,7 +124,7 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
     return ok
 
 
-@catalog_bp.route("/catalog_webhook", methods=["GET", "POST"])
+@bp.route("/catalog_webhook", methods=["GET", "POST"])
 def catalog_webhook() -> Response:
     """
     GET  → return current catalog JSON for pullCatalogJsonFlatten()
@@ -190,7 +191,7 @@ def catalog_webhook() -> Response:
     ), 200
 
 
-@catalog_bp.route("/export_catalog_csv", methods=["GET"])
+@bp.route("/export_catalog_csv", methods=["GET"])
 def export_catalog_csv() -> Response:
     """
     CSV snapshot for pullCatalogCsv().
