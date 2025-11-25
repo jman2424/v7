@@ -10,7 +10,7 @@ Provides:
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from app.config import Settings
 
@@ -46,8 +46,8 @@ from ai_modes.v7_flagship import AIV7Flagship
 class Container:
     settings: Settings
     # Filled during __post_init__
-    mode: ModeStrategy | None = None
-    handler: MessageHandler | None = None
+    mode: Optional[ModeStrategy] = None
+    handler: Optional[MessageHandler] = None
 
     def __post_init__(self):
         # ---------- Retrieval layer ----------
@@ -82,28 +82,23 @@ class Container:
             geo_prefixes=coverage_prefixes,
         )
 
-        # ---------- Mode strategy (needed because HandlerDeps expects `mode`) ----------
-        # Settings.MODE should be something like "V5", "V6", or "V7"
+        # ---------- Mode strategy (legacy, still required by HandlerDeps.mode) ----------
+        # Settings.MODE should be "V5", "V6", or "V7"
         mode_name = (self.settings.MODE or "V7").upper()
 
         if mode_name == "V5":
-            self.mode = V5Legacy(self.router, self.rewriter, self.sales)
+            # V5Legacy takes no constructor args
+            self.mode = V5Legacy()
         elif mode_name == "V6":
-            self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
+            # AIV6Hybrid takes no constructor args
+            self.mode = AIV6Hybrid()
         else:
-            # default: V7 flagship
-            self.mode = AIV7Flagship(
-                self.router,
-                self.rewriter,
-                self.sales,
-                self.catalog,
-                self.policy,
-                self.geo,
-            )
+            # default: V7 flagship, also no constructor args
+            self.mode = AIV7Flagship()
 
         # ---------- Message orchestrator ----------
         deps = HandlerDeps(
-            mode=self.mode,           # <- REQUIRED, fixes the TypeError
+            mode=self.mode,
             rewriter=self.rewriter,
             analytics=self.analytics,
             crm=self.crm,
