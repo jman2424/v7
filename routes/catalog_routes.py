@@ -15,15 +15,16 @@ from flask import Blueprint, current_app, jsonify, request, Response
 # Match pattern used elsewhere: routes.* exposes `bp`
 bp = Blueprint("catalog", __name__)
 
-# Use same env vars as the rest of the stack
+# Env vars
 CATALOG_WEBHOOK_SECRET_ENV = "CATALOG_WEBHOOK_SECRET"
 CATALOG_FILE_ENV = "CATALOG_FILE"
+CATALOG_WEBHOOK_DISABLE_HMAC_ENV = "CATALOG_WEBHOOK_DISABLE_HMAC"  # optional dev bypass
 
 
 def _get_catalog_secret() -> str | None:
     secret = os.getenv(CATALOG_WEBHOOK_SECRET_ENV)
     if not secret:
-        current_app.logger.warning("No %s set in environment", CATALOG_WEBHOOK_SECRET_ENV)
+        current_app.logger.warning("Catalog webhook: no %s set in environment", CATALOG_WEBHOOK_SECRET_ENV)
     return secret
 
 
@@ -42,7 +43,7 @@ def _load_catalog_doc() -> Dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        current_app.logger.error("Failed to read catalog file %s: %s", path, e)
+        current_app.logger.error("Catalog webhook: failed to read catalog file %s: %s", path, e)
         return {"product_catalog": []}
 
 
@@ -51,7 +52,7 @@ def _save_catalog_doc(doc: Dict) -> None:
     try:
         path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        current_app.logger.error("Failed to write catalog file %s: %s", path, e)
+        current_app.logger.error("Catalog webhook: failed to write catalog file %s: %s", path, e)
 
 
 def _verify_catalog_signature(raw_body: bytes) -> bool:
@@ -59,7 +60,7 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
     Apps Script does:
 
         const raw = ts + '.' + body;
-        const sigBytes = Utilities.computeHmacSha256Signature(raw, secret);
+        const sigBytes = Utilities.computeHmacSha256Signature(raw, secret, Utilities.Charset.UTF_8);
         header: X-Catalog-Signature = 't=' + ts + ', s=' + hex(sigBytes)
 
     We must:
@@ -67,13 +68,23 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
       - parse t and s
       - recompute HMAC_SHA256(ts + "." + body_utf8, secret)
     """
+
+    # -------- optional bypass for dev --------
+    disable_flag = os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV, "").lower()
+    if disable_flag in ("1", "true", "yes", "on"):
+        current_app.logger.warning(
+            "Catalog webhook: HMAC verification DISABLED via %s; accepting all POSTs",
+            CATALOG_WEBHOOK_DISABLE_HMAC_ENV,
+        )
+        return True
+
     secret = _get_catalog_secret()
     if not secret:
         return False
 
     header = request.headers.get("X-Catalog-Signature", "")
     if not header:
-        current_app.logger.warning("Missing X-Catalog-Signature header")
+        current_app.logger.warning("Catalog webhook: missing X-Catalog-Signature header")
         return False
 
     try:
@@ -83,25 +94,31 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
             if "=" in p
         )
     except Exception:
-        current_app.logger.warning("Bad X-Catalog-Signature format: %s", header)
+        current_app.logger.warning("Catalog webhook: bad X-Catalog-Signature format: %s", header)
         return False
 
     ts = parts.get("t")
     sig_hex = parts.get("s")
     if not ts or not sig_hex:
-        current_app.logger.warning("Missing t or s in signature header")
+        current_app.logger.warning("Catalog webhook: missing t or s in signature header: %s", header)
         return False
 
-    # Optional timestamp freshness check (5 min window)
+    # Timestamp check (5 min window)
     try:
         ts_int = int(ts)
     except ValueError:
-        current_app.logger.warning("Non-integer timestamp in signature: %s", ts)
+        current_app.logger.warning("Catalog webhook: non-integer timestamp in signature: %s", ts)
         return False
 
     now = int(time.time())
-    if abs(now - ts_int) > 300:
-        current_app.logger.warning("Signature timestamp too old: %s", ts)
+    delta = now - ts_int
+    if abs(delta) > 300:
+        current_app.logger.warning(
+            "Catalog webhook: signature timestamp too old or skewed: ts=%s now=%s delta=%s",
+            ts,
+            now,
+            delta,
+        )
         return False
 
     # Rebuild the exact string Apps Script signed
@@ -114,13 +131,23 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
         digestmod=hashlib.sha256,
     ).hexdigest()
 
+    body_sha256 = hashlib.sha256(raw_body).hexdigest()
+
+    # Loud debug so you can compare with Apps Script logs
+    current_app.logger.warning(
+        "Catalog webhook debug: header=%s ts=%s now=%s delta=%s body_sha256=%s expected_hmac=%s got_hmac=%s",
+        header,
+        ts,
+        now,
+        delta,
+        body_sha256,
+        expected,
+        sig_hex,
+    )
+
     ok = hmac.compare_digest(expected, sig_hex)
     if not ok:
-        current_app.logger.warning(
-            "Catalog webhook signature mismatch: expected=%s got=%s",
-            expected,
-            sig_hex,
-        )
+        current_app.logger.warning("Catalog webhook: signature mismatch (see debug line above)")
     return ok
 
 
