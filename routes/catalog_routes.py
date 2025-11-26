@@ -24,7 +24,10 @@ CATALOG_WEBHOOK_DISABLE_HMAC_ENV = "CATALOG_WEBHOOK_DISABLE_HMAC"  # optional de
 def _get_catalog_secret() -> str | None:
     secret = os.getenv(CATALOG_WEBHOOK_SECRET_ENV)
     if not secret:
-        current_app.logger.warning("Catalog webhook: no %s set in environment", CATALOG_WEBHOOK_SECRET_ENV)
+        current_app.logger.warning(
+            "Catalog webhook: no %s set in environment",
+            CATALOG_WEBHOOK_SECRET_ENV,
+        )
     return secret
 
 
@@ -43,7 +46,11 @@ def _load_catalog_doc() -> Dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        current_app.logger.error("Catalog webhook: failed to read catalog file %s: %s", path, e)
+        current_app.logger.error(
+            "Catalog webhook: failed to read catalog file %s: %s",
+            path,
+            e,
+        )
         return {"product_catalog": []}
 
 
@@ -52,7 +59,11 @@ def _save_catalog_doc(doc: Dict) -> None:
     try:
         path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
-        current_app.logger.error("Catalog webhook: failed to write catalog file %s: %s", path, e)
+        current_app.logger.error(
+            "Catalog webhook: failed to write catalog file %s: %s",
+            path,
+            e,
+        )
 
 
 def _verify_catalog_signature(raw_body: bytes) -> bool:
@@ -67,14 +78,18 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
       - read X-Catalog-Signature
       - parse t and s
       - recompute HMAC_SHA256(ts + "." + body_utf8, secret)
+
+    In dev, if CATALOG_WEBHOOK_DISABLE_HMAC is *present at all*
+    (even empty string), we bypass verification.
     """
 
     # -------- optional bypass for dev --------
-    disable_flag = os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV, "").lower()
-    if disable_flag in ("1", "true", "yes", "on"):
+    disable_val = os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV)
+    if disable_val is not None:
         current_app.logger.warning(
-            "Catalog webhook: HMAC verification DISABLED via %s; accepting all POSTs",
+            "Catalog webhook: HMAC verification DISABLED via %s (value=%r); accepting all POSTs",
             CATALOG_WEBHOOK_DISABLE_HMAC_ENV,
+            disable_val,
         )
         return True
 
@@ -94,20 +109,29 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
             if "=" in p
         )
     except Exception:
-        current_app.logger.warning("Catalog webhook: bad X-Catalog-Signature format: %s", header)
+        current_app.logger.warning(
+            "Catalog webhook: bad X-Catalog-Signature format: %s",
+            header,
+        )
         return False
 
     ts = parts.get("t")
     sig_hex = parts.get("s")
     if not ts or not sig_hex:
-        current_app.logger.warning("Catalog webhook: missing t or s in signature header: %s", header)
+        current_app.logger.warning(
+            "Catalog webhook: missing t or s in signature header: %s",
+            header,
+        )
         return False
 
     # Timestamp check (5 min window)
     try:
         ts_int = int(ts)
     except ValueError:
-        current_app.logger.warning("Catalog webhook: non-integer timestamp in signature: %s", ts)
+        current_app.logger.warning(
+            "Catalog webhook: non-integer timestamp in signature: %s",
+            ts,
+        )
         return False
 
     now = int(time.time())
