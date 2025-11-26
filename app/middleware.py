@@ -26,20 +26,24 @@ def install_request_id(app: Flask) -> None:
     @app.after_request
     def _stamp(response):
         response.headers["X-Request-ID"] = g.get("request_id", "-")
-        # attach to logging
         return response
 
 
 def install_rate_limit(app: Flask, settings: Settings) -> None:
     # naive in-proc limiter; replace with Redis in prod multi-instance
-    buckets: Dict[str, Dict[str, float]] = defaultdict(lambda: {"tokens": settings.RATE_LIMIT_PER_MIN, "ts": time.time()})
+    buckets: Dict[str, Dict[str, float]] = defaultdict(
+        lambda: {"tokens": settings.RATE_LIMIT_PER_MIN, "ts": time.time()}
+    )
 
     def allow(ip: str) -> bool:
         # token bucket per minute with burst
         now = time.time()
         b = buckets[ip]
         refill = (now - b["ts"]) * (settings.RATE_LIMIT_PER_MIN / 60.0)
-        b["tokens"] = min(settings.RATE_LIMIT_PER_MIN + settings.RATE_LIMIT_BURST, b["tokens"] + refill)
+        b["tokens"] = min(
+            settings.RATE_LIMIT_PER_MIN + settings.RATE_LIMIT_BURST,
+            b["tokens"] + refill,
+        )
         b["ts"] = now
         if b["tokens"] >= 1.0:
             b["tokens"] -= 1.0
@@ -49,7 +53,6 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
     @app.before_request
     def _rl():
         ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
-        # Looser limits for admin-authenticated routes can be added here
         if not allow(ip):
             abort(429)
 
@@ -62,12 +65,27 @@ def install_csrf(app: Flask, settings: Settings) -> None:
     def _csrf():
         if request.method in SAFE:
             return
-        # Skip CSRF for public chat endpoints (they should be protected by origin checks)
+
         path = (request.path or "").lower()
-        if path.startswith("/chat_api") or path.startswith("/whatsapp"):
+
+        # Skip CSRF for public/webhook endpoints
+        if (
+            path.startswith("/chat_api")
+            or path.startswith("/whatsapp")
+            or path.startswith("/catalog_webhook")     # Google Sheets webhook
+            or path.startswith("/export_catalog_csv")  # read-only export
+        ):
             return
+
         token = request.headers.get(HEADER) or request.args.get("_csrf")
+
         if not token or token != (getattr(settings, "SECRET_KEY", "")[:16]):
+            app.logger.warning(
+                "CSRF blocked: method=%s path=%s token=%r",
+                request.method,
+                path,
+                token,
+            )
             abort(403, description="csrf_failed")
 
 
@@ -82,7 +100,6 @@ def install_timing_metrics(app: Flask, container) -> None:
             t0 = getattr(g, "_t0", None)
             if t0 is not None:
                 dt = int((time.time() - t0) * 1000)
-                # minimal analytics ping
                 container.analytics.record_timing(path=request.path, ms=dt)
         except Exception:
             pass
