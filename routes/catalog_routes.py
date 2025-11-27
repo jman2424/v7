@@ -190,8 +190,20 @@ def catalog_webhook() -> Response:
     if not _verify_catalog_signature(raw_body):
         return jsonify({"error": "forbidden"}), 403
 
+    # ---- parse JSON + debug rows ----
     payload = request.get_json(silent=True) or {}
     rows = payload.get("rows") or []
+
+    try:
+        rows_count = len(rows) if isinstance(rows, list) else "n/a"
+        sample = rows[:3] if isinstance(rows, list) else rows
+        current_app.logger.warning(
+            "Catalog webhook: received rows_count=%s sample=%r",
+            rows_count,
+            sample,
+        )
+    except Exception:
+        current_app.logger.exception("Catalog webhook: failed to log incoming rows")
 
     # rows come from Apps Script: {category, subcategory, name, price_str, stock}
     by_cat: Dict[str, List[Dict]] = {}
@@ -221,6 +233,12 @@ def catalog_webhook() -> Response:
         {"name": cname, "items": items}
         for cname, items in by_cat.items()
     ]
+
+    if not product_catalog:
+        current_app.logger.warning(
+            "Catalog webhook: product_catalog EMPTY after grouping (rows_count=%s)",
+            len(rows) if isinstance(rows, list) else "n/a",
+        )
 
     doc = _load_catalog_doc()
     doc["product_catalog"] = product_catalog
