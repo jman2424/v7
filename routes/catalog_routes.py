@@ -79,17 +79,17 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
       - parse t and s
       - recompute HMAC_SHA256(ts + "." + body_utf8, secret)
 
-    In dev, if CATALOG_WEBHOOK_DISABLE_HMAC is *present at all*
-    (even empty string), we bypass verification.
+    In dev, if CATALOG_WEBHOOK_DISABLE_HMAC is a *true-ish* value
+    ("1", "true", "yes", "on"), we bypass verification.
     """
 
     # -------- optional bypass for dev --------
-    disable_val = os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV)
-    if disable_val is not None:
+    disable_flag = (os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV, "") or "").strip().lower()
+    if disable_flag in ("1", "true", "yes", "on"):
         current_app.logger.warning(
             "Catalog webhook: HMAC verification DISABLED via %s (value=%r); accepting all POSTs",
             CATALOG_WEBHOOK_DISABLE_HMAC_ENV,
-            disable_val,
+            disable_flag,
         )
         return True
 
