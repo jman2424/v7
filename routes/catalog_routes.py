@@ -186,7 +186,9 @@ def catalog_webhook() -> Response:
         return jsonify(doc), 200
 
     # POST: verify signature
-    raw_body = request.get_data(cache=False)  # bytes, untouched
+    # IMPORTANT: cache=True (default) so get_json() can still read the body
+    raw_body = request.get_data()  # bytes, cached
+
     if not _verify_catalog_signature(raw_body):
         return jsonify({"error": "forbidden"}), 403
 
@@ -291,3 +293,4 @@ def export_catalog_csv() -> Response:
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=catalog.csv"},
     )
+
