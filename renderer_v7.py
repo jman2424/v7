@@ -1,3 +1,4 @@
+# renderer_v7.py
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -7,18 +8,20 @@ class RendererV7:
     """
     V7 renderer: turns BrainV7 plan + facts into the final user-facing message.
 
-    - NO planning here (no intent detection, no slot logic).
-    - ONLY phrasing, grounded strictly on `facts` and `plan`.
-    - Optional LLM-based polish via `rewriter`, but never hallucinate products/prices.
+    - NO intent detection or slot logic here.
+    - ONLY phrasing, grounded on `facts` and `plan`.
+    - Optional LLM-based polish via `rewriter`, but it must never invent
+      products, prices, or delivery areas that aren't already in `facts`.
     """
 
     def __init__(self, rewriter: Optional[Any] = None) -> None:
-        # `rewriter` is expected to have: rewrite(text, style="sales", facts=...)
+        # `rewriter` is expected to provide:
+        #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
         self.rewriter = rewriter
 
-    # ------------------------------------------------------------------
-    # PUBLIC ENTRYPOINT
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # PUBLIC ENTRYPOINT                                                  #
+    # ------------------------------------------------------------------ #
 
     def render(
         self,
@@ -33,14 +36,13 @@ class RendererV7:
         needs_clarification = bool(plan.get("needs_clarification", False))
         clarification_question = (plan.get("clarification_question") or "").strip()
 
-        # 1) Brain explicitly requested a clarifier
+        # 1) Brain explicitly asked for a clarifier
         if needs_clarification:
             if clarification_question:
                 return clarification_question
-            # fallback clarifiers based on intent if brain gave no text
             return self._fallback_clarifier(intent, plan, session)
 
-        # 2) Special/cheap actions that don't depend heavily on facts
+        # 2) Simple / cheap actions that don't depend much on facts
         if action == "GREET" or intent == "greeting":
             base = "Wa alaikum salam! How can I help you today?"
             return self._polish(base, facts)
@@ -50,7 +52,6 @@ class RendererV7:
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
-            # keep it silent or nudge very lightly
             base = "Could you tell me what you’d like help with? For example: chicken for BBQ or delivery to your postcode."
             return self._polish(base, facts)
 
@@ -79,9 +80,9 @@ class RendererV7:
         base = "I’m not fully sure what you need yet. Are you looking for chicken, lamb, beef, groceries, or delivery info?"
         return self._polish(base, facts)
 
-    # ------------------------------------------------------------------
-    # DELIVERY
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # DELIVERY                                                           #
+    # ------------------------------------------------------------------ #
 
     def _delivery_reply(
         self,
@@ -98,7 +99,10 @@ class RendererV7:
 
         if not delivery:
             if postcode:
-                return f"I don’t have delivery info for {postcode} yet. Could you double-check the postcode or ask about a branch instead?"
+                return (
+                    f"I don’t have delivery info for {postcode} yet. "
+                    "Could you double-check the postcode or ask about a branch instead?"
+                )
             return "What’s your postcode (for example: E1 6AN)? I’ll check delivery options for you."
 
         rule = delivery.get("rule")
@@ -113,14 +117,25 @@ class RendererV7:
                 base = f"{base} Nearest branch: {branch['name']}."
             return self._append_cta(base)
 
-        # No rule means no coverage
+        # No rule → no coverage
         if postcode:
-            return f"We currently don’t deliver to {postcode}. You can still visit the nearest branch or call the store for options."
-        return "We currently don’t deliver to that area. You can still visit the nearest branch or call the store for options."
+            return (
+                f"We currently don’t deliver to {postcode}. "
+                "You can still visit the nearest branch or call the store for options."
+            )
+        return (
+            "We currently don’t deliver to that area. "
+            "You can still visit the nearest branch or call the store for options."
+        )
 
-    # ------------------------------------------------------------------
-    # PRODUCTS
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # PRODUCTS                                                           #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _pretty_category(category: str) -> str:
+        # Turn "frozen_meats" → "frozen meats", "marinated_meats" → "marinated meats"
+        return (category or "").replace("_", " ").strip()
 
     def _products_reply(
         self,
@@ -129,18 +144,19 @@ class RendererV7:
         user_text: str,
     ) -> str:
         items = facts.get("items") or []
-        category = (plan.get("category") or "").strip().lower()
+        raw_category = plan.get("category") or ""
+        category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
 
+        # No items returned from catalog.search
         if not items:
-            # No matches found – ask for an alternative with some context
             if product_name:
                 return f"I couldn’t find matches for “{product_name}”. Any alternative product or cut?"
             if category:
                 return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
             return "I couldn’t find matching items. Any specific product or cut you’re after?"
 
-        # Build a short list of top picks
+        # Build short list of top picks
         top = items[:3]
         name_list = [
             i.get("name") or i.get("_norm_name", "")
@@ -152,17 +168,17 @@ class RendererV7:
         if not name_list:
             return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
 
-        base = f"Top picks: {', '.join(name_list)}."
-        # Optionally mention category / BBQ etc.
         if category:
             base = f"For {category}, top picks: {', '.join(name_list)}."
-        base = f"{base} Want prices or more options?"
+        else:
+            base = f"Top picks: {', '.join(name_list)}."
 
+        base = f"{base} Want prices or more options?"
         return self._append_cta(base)
 
-    # ------------------------------------------------------------------
-    # PRICE
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # PRICE                                                              #
+    # ------------------------------------------------------------------ #
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}
@@ -181,9 +197,9 @@ class RendererV7:
         base = f"{sku} is £{price:.2f} and {stock_str}."
         return self._append_cta(base)
 
-    # ------------------------------------------------------------------
-    # FAQ / STORE INFO
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # FAQ / STORE INFO                                                   #
+    # ------------------------------------------------------------------ #
 
     def _faq_reply(
         self,
@@ -197,15 +213,14 @@ class RendererV7:
         if answer:
             return self._append_cta(answer)
 
-        # If we have no FAQ answer, gently redirect
         return (
             "I’m not fully sure about that from my data. "
             "You can ask about products, prices, delivery, or store branches."
         )
 
-    # ------------------------------------------------------------------
-    # CLARIFIERS
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # CLARIFIERS                                                         #
+    # ------------------------------------------------------------------ #
 
     def _fallback_clarifier(
         self,
@@ -229,20 +244,21 @@ class RendererV7:
 
         return "Could you clarify what you need? For example: delivery, chicken for BBQ, or store opening times."
 
-    # ------------------------------------------------------------------
-    # POLISH / CTA HELPERS
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    # POLISH / CTA                                                       #
+    # ------------------------------------------------------------------ #
 
     def _append_cta(self, text: str) -> str:
         t = (text or "").strip()
         if not t:
             return t
-        # Don’t double-CTA
+
         lower = t.lower()
         if lower.endswith(("anything else?", "anything else.", "anything else")):
             return t
         if t.endswith("?"):
             return t
+
         return f"{t} Anything else you’d like to check?"
 
     def _polish(self, text: str, facts: Dict[str, Any]) -> str:
@@ -261,8 +277,9 @@ class RendererV7:
         try:
             return self.rewriter.rewrite(
                 text,
-                style="sales",  # your tone label
+                style="sales",
                 facts=facts,
             )
         except Exception:
+            # If polish fails, fall back to raw text rather than erroring
             return text
