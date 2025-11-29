@@ -6,7 +6,8 @@ CatalogStore
 - Price and availability lookups
 - Safe, read-only API (mutations happen via storage.write_json from admin)
 
-Schema (validated by schemas/catalog.schema.json):
+Primary internal schema (AI V7):
+
 {
   "version": int,
   "categories": [
@@ -27,9 +28,36 @@ Schema (validated by schemas/catalog.schema.json):
     }
   ]
 }
+
+Legacy Tariq webhook schema (from /catalog_webhook):
+
+{
+  "product_catalog": [
+    {
+      "name": "POULTRY",
+      "items": [
+        {
+          "name": "Baby Chicken",
+          "subcategory": "",
+          "price_str": "£5.99",
+          "stock": ""
+        },
+        ...
+      ]
+    },
+    ...
+  ]
+}
+
+This store transparently supports BOTH:
+
+- If "categories" exists → use it as-is.
+- If only "product_catalog" exists → normalize it into the internal
+  categories/items structure in-memory so search & price APIs work.
 """
 
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -41,29 +69,197 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
+def _slug_id(s: str) -> str:
+    """
+    Slug for category IDs / SKU bases:
+    - lowercased
+    - non-alphanumerics -> underscore
+    - collapse multiple underscores
+    - strip leading/trailing underscores
+    """
+    s = (s or "").lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s)
+    return s.strip("_") or "item"
+
+
+def _parse_price_str(price_str: str) -> Optional[float]:
+    """
+    Parse Things like:
+      "£8.99", "8.99", "8", "£ 8"
+    Returns float or None if unusable.
+    """
+    if not price_str:
+        return None
+    s = price_str.strip()
+    # remove currency symbol and spaces
+    s = s.replace("£", "").strip()
+    # keep only digits and dot/comma
+    m = re.findall(r"[0-9]+(?:[.,][0-9]+)?", s)
+    if not m:
+        return None
+    num = m[0].replace(",", ".")
+    try:
+        return float(num)
+    except Exception:
+        return None
+
+
 @dataclass
 class CatalogStore:
     storage: Storage
 
     def __post_init__(self):
+        # Raw catalog as loaded from storage (may be Tariq legacy or v7 schema)
         self._catalog: Dict[str, Any] = self._load()
-        # Fast indices
+        # Fast indices over the normalized structure
         self._sku_index: Dict[str, Dict[str, Any]] = {}
         self._tag_index: Dict[str, List[Dict[str, Any]]] = {}
         self._cat_index: Dict[str, Dict[str, Any]] = {}
         self._build_indices()
 
-    # -------- internal --------
+    # -------- internal load/normalize --------
 
     def _load(self) -> Dict[str, Any]:
+        """
+        Load catalog.json for this tenant and normalize its shape.
+
+        - If "categories" present: assume it's already in v7 shape.
+        - Else if "product_catalog" present: convert Tariq-style into v7 shape.
+        - Else: return minimal empty structure.
+        """
         try:
-            data = self.storage.read_json(self.storage.tenant_key, "catalog.json")
-            if not isinstance(data, dict):
-                raise ValueError("catalog.json must be an object")
-            return data
-        except FileNotFoundError:
-            # Minimal empty structure
+            raw = self.storage.read_json(self.storage.tenant_key, "catalog.json")
+            if not isinstance(raw, dict):
+                raise ValueError("catalog.json must be a JSON object")
+
+            # Case 1: already v7 schema
+            if "categories" in raw and isinstance(raw.get("categories"), list):
+                version = int(raw.get("version", 1))
+                return {
+                    "version": version,
+                    "categories": raw.get("categories") or [],
+                }
+
+            # Case 2: Tariq webhook schema -> product_catalog
+            if "product_catalog" in raw and isinstance(raw.get("product_catalog"), list):
+                return self._from_legacy_product_catalog(raw.get("product_catalog") or [])
+
+            # Fallback: unknown shape
             return {"version": 1, "categories": []}
+
+        except FileNotFoundError:
+            # Minimal empty structure if no catalog yet
+            return {"version": 1, "categories": []}
+
+    def _from_legacy_product_catalog(self, pc: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Normalize Tariq-style product_catalog rows into:
+
+        {
+          "version": 1,
+          "categories": [
+            {
+              "id": "poultry",
+              "name": "POULTRY",
+              "items": [
+                {
+                  "sku": "poultry_baby_chicken",
+                  "name": "Baby Chicken",
+                  "price": 5.99,
+                  "unit": "each",
+                  "tags": ["poultry", "baby chicken"],
+                  "in_stock": True,
+                  "options": []
+                },
+                ...
+              ]
+            },
+            ...
+          ]
+        }
+        """
+        categories: List[Dict[str, Any]] = []
+
+        for cat in pc:
+            cat_name = (cat or {}).get("name") or ""
+            cat_name = str(cat_name).strip()
+            if not cat_name:
+                continue
+
+            cat_id = _slug_id(cat_name)  # e.g. "POULTRY" -> "poultry"
+            items_in = (cat or {}).get("items") or []
+
+            norm_items: List[Dict[str, Any]] = []
+            used_skus: set[str] = set()
+
+            for item in items_in:
+                if not isinstance(item, dict):
+                    continue
+
+                raw_name = (item.get("name") or "").strip()
+                if not raw_name:
+                    continue
+
+                price_str = (item.get("price_str") or "").strip()
+                price = _parse_price_str(price_str)
+
+                subcat = (item.get("subcategory") or "").strip()
+                stock_str = (item.get("stock") or "").strip().lower()
+
+                # Simple stock heuristic: any "out", "no", "sold" -> False
+                in_stock: bool
+                if not stock_str:
+                    in_stock = True
+                else:
+                    in_stock = not any(
+                        bad in stock_str for bad in ("out", "no stock", "sold out")
+                    )
+
+                # Generate a stable-ish SKU
+                base = f"{cat_id}_{_slug_id(raw_name)}"
+                if not base or base == "item":
+                    base = cat_id or "item"
+                sku = base
+                i = 2
+                while sku in used_skus:
+                    sku = f"{base}_{i}"
+                    i += 1
+                used_skus.add(sku)
+
+                # Tags: category + subcategory + tokenised name
+                tags: List[str] = []
+                tags.append(cat_id)
+                if subcat:
+                    tags.append(_slug_id(subcat))
+                # include a coarse name tag
+                tags.append(_slug_id(raw_name))
+
+                norm_items.append(
+                    {
+                        "sku": sku,
+                        "name": raw_name,
+                        "price": price,
+                        "unit": "each",  # we don't know exact unit from sheet
+                        "tags": tags,
+                        "in_stock": in_stock,
+                        "options": [],
+                    }
+                )
+
+            if norm_items:
+                categories.append(
+                    {
+                        "id": cat_id,
+                        "name": cat_name,
+                        "items": norm_items,
+                    }
+                )
+
+        return {
+            "version": 1,
+            "categories": categories,
+        }
 
     def _build_indices(self) -> None:
         self._sku_index.clear()
@@ -85,10 +281,12 @@ class CatalogStore:
                     "_category_id": cid,
                     "_category_name": cat.get("name"),
                     "_norm_name": _norm_text(item.get("name", "")),
-                    "_norm_tags": [ _norm_text(t) for t in (item.get("tags") or []) ],
+                    "_norm_tags": [_norm_text(t) for t in (item.get("tags") or [])],
                 }
                 self._sku_index[sku] = entry
                 for t in entry["_norm_tags"]:
+                    if not t:
+                        continue
                     self._tag_index.setdefault(t, []).append(entry)
 
     # -------- read-only API --------
@@ -141,7 +339,7 @@ class CatalogStore:
         """
         limit = max(1, min(limit, 50))
         text_q = _norm_text(text or "")
-        tag_qs = [ _norm_text(t) for t in (tags or []) if t ]
+        tag_qs = [_norm_text(t) for t in (tags or []) if t]
 
         results: List[Tuple[int, Dict[str, Any]]] = []
 
