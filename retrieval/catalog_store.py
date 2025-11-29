@@ -52,7 +52,7 @@ Legacy Tariq webhook schema (from /catalog_webhook):
 This store transparently supports BOTH:
 
 - If "categories" exists → use it as-is.
-- If only "product_catalog" exists → normalize it into the internal
+- If only "product_catalog" exists → normalize Tariq-style into internal
   categories/items structure in-memory so search & price APIs work.
 """
 
@@ -85,7 +85,7 @@ def _slug_id(s: str) -> str:
 
 def _parse_price_str(price_str: str) -> Optional[float]:
     """
-    Parse Things like:
+    Parse things like:
       "£8.99", "8.99", "8", "£ 8"
     Returns float or None if unusable.
     """
@@ -127,15 +127,25 @@ class CatalogStore:
         - If "categories" present: assume it's already in v7 shape.
         - Else if "product_catalog" present: convert Tariq-style into v7 shape.
         - Else: return minimal empty structure.
+
+        NOTE: older files might have a non-int "version" (like a date string).
+        We always coerce safely and fall back to 1.
         """
         try:
             raw = self.storage.read_json(self.storage.tenant_key, "catalog.json")
             if not isinstance(raw, dict):
                 raise ValueError("catalog.json must be a JSON object")
 
+            # Safe version parsing (handles "2025-11-09", None, etc.)
+            def _safe_version(val: Any) -> int:
+                try:
+                    return int(val)
+                except Exception:
+                    return 1
+
             # Case 1: already v7 schema
             if "categories" in raw and isinstance(raw.get("categories"), list):
-                version = int(raw.get("version", 1))
+                version = _safe_version(raw.get("version", 1))
                 return {
                     "version": version,
                     "categories": raw.get("categories") or [],
@@ -143,7 +153,10 @@ class CatalogStore:
 
             # Case 2: Tariq webhook schema -> product_catalog
             if "product_catalog" in raw and isinstance(raw.get("product_catalog"), list):
-                return self._from_legacy_product_catalog(raw.get("product_catalog") or [])
+                # version not really used here, but keep a sane int for debugging
+                catalog = self._from_legacy_product_catalog(raw.get("product_catalog") or [])
+                catalog["version"] = _safe_version(raw.get("version", 1))
+                return catalog
 
             # Fallback: unknown shape
             return {"version": 1, "categories": []}
@@ -208,7 +221,6 @@ class CatalogStore:
                 stock_str = (item.get("stock") or "").strip().lower()
 
                 # Simple stock heuristic: any "out", "no", "sold" -> False
-                in_stock: bool
                 if not stock_str:
                     in_stock = True
                 else:
@@ -232,7 +244,6 @@ class CatalogStore:
                 tags.append(cat_id)
                 if subcat:
                     tags.append(_slug_id(subcat))
-                # include a coarse name tag
                 tags.append(_slug_id(raw_name))
 
                 norm_items.append(
