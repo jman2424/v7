@@ -168,6 +168,18 @@ class MessageHandlerV7:
                 category=category,
                 product_name=product_name,
             )
+
+            if self.logger:
+                self.logger.info(
+                    "V7: catalog.search action=%s intent=%s query=%r tags=%r category=%r product_name=%r",
+                    action,
+                    intent,
+                    query,
+                    tags,
+                    category,
+                    product_name,
+                )
+
             if self.catalog and (query or tags):
                 try:
                     items = self.catalog.search(text=query, tags=tags, limit=6)
@@ -209,13 +221,17 @@ class MessageHandlerV7:
                     if postcode and self.policy:
                         placeholders["postcode"] = postcode
                         try:
-                            placeholders["delivery_summary"] = self.policy.delivery_summary(postcode) or ""
+                            placeholders["delivery_summary"] = (
+                                self.policy.delivery_summary(postcode) or ""
+                            )
                         except Exception:
                             placeholders["delivery_summary"] = ""
 
                     # nearest branch placeholder if we already fetched it
                     if session.get("nearest_branch_id") and facts.get("branch", {}).get("nearest"):
-                        placeholders["branch_name"] = facts["branch"]["nearest"].get("name") or ""
+                        placeholders["branch_name"] = (
+                            facts["branch"]["nearest"].get("name") or ""
+                        )
 
                     try:
                         answer = self.faq.render_answer(entry, placeholders)
@@ -245,18 +261,33 @@ class MessageHandlerV7:
         """
         Decide what to send to catalog.search as (text, tags).
         - If product_name is present, use that as the query.
-        - If only category is present, use it as both text + tag.
+        - If only category is present, use it as both text + tags:
+            "frozen_meats" -> query="frozen meats", tags=["frozen_meats","frozen","meats"]
         - If nothing is present, fall back to full user_text.
         """
         tags: List[str] = []
         query = ""
 
         if product_name:
+            # Direct product search – let fuzzy search handle it
             query = product_name
+
         elif category:
-            query = category
-            tags.append(category.lower())
+            cat = str(category).strip().lower()
+            # Text query: nicer, human-style version
+            query = cat.replace("_", " ")
+
+            # Always include full category key as a tag
+            tags.append(cat)
+
+            # Also add split tokens ("frozen_meats" -> "frozen", "meats")
+            for token in query.split():
+                token = token.strip()
+                if token and token not in tags:
+                    tags.append(token)
+
         else:
+            # No structured signal – just use raw user text
             query = user_text
 
         return query, tags
