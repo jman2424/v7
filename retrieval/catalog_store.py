@@ -29,7 +29,7 @@ Primary internal schema (AI V7):
   ]
 }
 
-Legacy Tariq webhook schema (from /catalog_webhook):
+Tariq Sheets / webhook schema (from /catalog_webhook):
 
 {
   "product_catalog": [
@@ -49,11 +49,12 @@ Legacy Tariq webhook schema (from /catalog_webhook):
   ]
 }
 
-This store transparently supports BOTH:
+Resolution order (IMPORTANT):
 
-- If "categories" exists → use it as-is.
-- If only "product_catalog" exists → normalize Tariq-style into internal
-  categories/items structure in-memory so search & price APIs work.
+- If "product_catalog" exists → treat THIS as the source of truth and
+  normalize into internal categories/items.
+- ELSE IF "categories" exists → use it as-is (seed/manual mode).
+- ELSE → empty catalog.
 """
 
 from __future__ import annotations
@@ -124,11 +125,13 @@ class CatalogStore:
         """
         Load catalog.json for this tenant and normalize its shape.
 
-        - If "categories" present: assume it's already in v7 shape.
-        - Else if "product_catalog" present: convert Tariq-style into v7 shape.
-        - Else: return minimal empty structure.
+        Resolution priority:
 
-        NOTE: older files might have a non-int "version" (like a date string).
+        1) If "product_catalog" present (Sheets/webhook) -> convert into v7 schema.
+        2) Else if "categories" present -> assume it's already v7 schema.
+        3) Else -> return minimal empty structure.
+
+        NOTE: older files might have non-int "version" (like a date string).
         We always coerce safely and fall back to 1.
         """
         try:
@@ -136,27 +139,27 @@ class CatalogStore:
             if not isinstance(raw, dict):
                 raise ValueError("catalog.json must be a JSON object")
 
-            # Safe version parsing (handles "2025-11-09", None, etc.)
             def _safe_version(val: Any) -> int:
                 try:
                     return int(val)
                 except Exception:
                     return 1
 
-            # Case 1: already v7 schema
-            if "categories" in raw and isinstance(raw.get("categories"), list):
+            # Case 1: Tariq Sheets/webhook schema → product_catalog is SOURCE OF TRUTH
+            if isinstance(raw.get("product_catalog"), list):
+                catalog = self._from_legacy_product_catalog(
+                    raw.get("product_catalog") or []
+                )
+                catalog["version"] = _safe_version(raw.get("version", 1))
+                return catalog
+
+            # Case 2: already v7 schema (no product_catalog)
+            if isinstance(raw.get("categories"), list):
                 version = _safe_version(raw.get("version", 1))
                 return {
                     "version": version,
                     "categories": raw.get("categories") or [],
                 }
-
-            # Case 2: Tariq webhook schema -> product_catalog
-            if "product_catalog" in raw and isinstance(raw.get("product_catalog"), list):
-                # version not really used here, but keep a sane int for debugging
-                catalog = self._from_legacy_product_catalog(raw.get("product_catalog") or [])
-                catalog["version"] = _safe_version(raw.get("version", 1))
-                return catalog
 
             # Fallback: unknown shape
             return {"version": 1, "categories": []}
@@ -181,7 +184,7 @@ class CatalogStore:
                   "name": "Baby Chicken",
                   "price": 5.99,
                   "unit": "each",
-                  "tags": ["poultry", "baby chicken"],
+                  "tags": ["poultry", "baby_chicken"],
                   "in_stock": True,
                   "options": []
                 },
