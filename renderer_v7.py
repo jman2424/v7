@@ -1,7 +1,8 @@
 # renderer_v7.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import random
+from typing import Any, Dict, List, Optional
 
 
 class RendererV7:
@@ -44,19 +45,25 @@ class RendererV7:
 
         # 2) Simple / cheap actions that don't depend much on facts
         if action == "GREET" or intent == "greeting":
-            base = "Wa alaikum salam! How can I help you today?"
+            base = "Wa alaikum salam! How can I help you today – products, prices, or delivery?"
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
-            base = "I’m your Tariq Halal assistant. I can help with products, prices, and delivery details."
+            base = "I’m your Tariq Halal assistant. I can help with meats, groceries, prices, and delivery details."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
-            base = "Could you tell me what you’d like help with? For example: chicken for BBQ or delivery to your postcode."
+            base = (
+                "Could you tell me what you’d like help with? "
+                "For example: chicken for BBQ, lamb for a family dinner, or delivery to your postcode."
+            )
             return self._polish(base, facts)
 
         if action == "HUMAN_HANDOFF" or intent == "human_handoff":
-            base = "No problem, I can connect you to the store team. What’s your postcode so I can find the nearest branch and number?"
+            base = (
+                "No problem, I can connect you to the store team. "
+                "What’s your postcode so I can find the nearest branch and phone number?"
+            )
             return self._polish(base, facts)
 
         # 3) Data-backed actions
@@ -65,7 +72,7 @@ class RendererV7:
             return self._polish(msg, facts)
 
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
-            msg = self._products_reply(plan, facts, user_text)
+            msg = self._products_reply(plan, facts, user_text, session)
             return self._polish(msg, facts)
 
         if action == "PRICE_CHECK" or intent == "price_check":
@@ -73,11 +80,14 @@ class RendererV7:
             return self._polish(msg, facts)
 
         if action in {"STORE_INFO", "FAQ_LOOKUP"} or intent in {"store_info", "faq", "unknown"}:
-            msg = self._faq_reply(plan, facts, user_text)
+            msg = self._faq_reply(plan, facts, user_text, session)
             return self._polish(msg, facts)
 
         # 4) Absolute fallback
-        base = "I’m not fully sure what you need yet. Are you looking for chicken, lamb, beef, groceries, or delivery info?"
+        base = (
+            "I’m not fully sure what you need yet. "
+            "Are you looking for chicken, lamb, beef, groceries, or delivery info?"
+        )
         return self._polish(base, facts)
 
     # ------------------------------------------------------------------ #
@@ -101,7 +111,7 @@ class RendererV7:
             if postcode:
                 return (
                     f"I don’t have delivery info for {postcode} yet. "
-                    "Could you double-check the postcode or ask about a branch instead?"
+                    "Could you double-check the postcode or ask about a nearby branch instead?"
                 )
             return "What’s your postcode (for example: E1 6AN)? I’ll check delivery options for you."
 
@@ -137,43 +147,94 @@ class RendererV7:
         # Turn "frozen_meats" → "frozen meats", "marinated_meats" → "marinated meats"
         return (category or "").replace("_", " ").strip()
 
+    @staticmethod
+    def _format_item_line(item: Dict[str, Any]) -> str:
+        """
+        Build a human line like:
+        "Chicken Wings (1kg) – £6.99"
+        grounded only on fields present in `item`.
+        """
+        name = item.get("name") or item.get("_norm_name") or ""
+        name = name.strip()
+        if not name:
+            return ""
+
+        unit = (item.get("unit") or "").strip()
+        price = item.get("price")
+        bits: List[str] = [name]
+
+        if unit:
+            # avoid repeating "1kg" if name already clearly contains it
+            if unit.lower() not in name.lower():
+                bits[-1] = f"{name} ({unit})"
+
+        if isinstance(price, (int, float)):
+            bits.append(f"£{price:.2f}")
+
+        return " – ".join(bits)
+
     def _products_reply(
         self,
         plan: Dict[str, Any],
         facts: Dict[str, Any],
         user_text: str,
+        session: Dict[str, Any],
     ) -> str:
         items = facts.get("items") or []
-        raw_category = plan.get("category") or ""
+        raw_category = plan.get("category") or session.get("last_category") or ""
         category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
+        user_text = (user_text or "").strip().lower()
 
         # No items returned from catalog.search
         if not items:
+            # Handle “full catalog / all options / everything” style requests gracefully
+            keywords = ("full", "all", "everything", "entire", "whole")
+            if any(k in user_text for k in keywords) or any(
+                k in (product_name or "").lower() for k in keywords
+            ):
+                if category:
+                    return (
+                        f"The {category} catalog is quite big. "
+                        "Tell me what you’re after – for example: wings, mince, fillets, or BBQ pieces."
+                    )
+                return (
+                    "The full catalog is very large. "
+                    "Tell me what you’re after – for example: chicken wings, lamb mince, or a BBQ mix."
+                )
+
             if product_name:
                 return f"I couldn’t find matches for “{product_name}”. Any alternative product or cut?"
             if category:
                 return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
             return "I couldn’t find matching items. Any specific product or cut you’re after?"
 
-        # Build short list of top picks
-        top = items[:3]
-        name_list = [
-            i.get("name") or i.get("_norm_name", "")
-            for i in top
-            if i.get("name") or i.get("_norm_name")
-        ]
-        name_list = [n for n in name_list if n]
+        # We have items: build a short human-friendly list
+        # Limit to 4 to keep responses tight
+        top = items[:4]
 
-        if not name_list:
+        lines: List[str] = []
+        for idx, item in enumerate(top, start=1):
+            line = self._format_item_line(item)
+            if not line:
+                continue
+            lines.append(f"{idx}) {line}")
+
+        if not lines:
             return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
 
+        intro: str
         if category:
-            base = f"For {category}, top picks: {', '.join(name_list)}."
+            intro = f"For {category}, here are some good options:"
         else:
-            base = f"Top picks: {', '.join(name_list)}."
+            intro = "Here are some good options I found:"
 
-        base = f"{base} Want prices or more options?"
+        body = " ".join(lines)
+        followup = (
+            "Tell me the number you like and I can give you prices or more options."
+        )
+
+        base = f"{intro} {body} {followup}"
         return self._append_cta(base)
 
     # ------------------------------------------------------------------ #
@@ -189,12 +250,18 @@ class RendererV7:
 
         price = price_block.get("price", None)
         in_stock = price_block.get("in_stock", None)
+        name = (price_block.get("name") or "").strip()
+        unit = (price_block.get("unit") or "").strip()
 
         if price is None:
             return f"I couldn’t find a price for {sku}. It might be missing or not available right now."
 
         stock_str = "in stock" if in_stock else "out of stock"
-        base = f"{sku} is £{price:.2f} and {stock_str}."
+        label = name or sku
+        if unit:
+            label = f"{label} ({unit})"
+
+        base = f"{label} is £{price:.2f} and {stock_str}."
         return self._append_cta(base)
 
     # ------------------------------------------------------------------ #
@@ -206,12 +273,26 @@ class RendererV7:
         plan: Dict[str, Any],
         facts: Dict[str, Any],
         user_text: str,
+        session: Dict[str, Any],
     ) -> str:
         faq = facts.get("faq") or {}
         answer = (faq.get("answer") or "").strip()
 
         if answer:
             return self._append_cta(answer)
+
+        # If we have a postcode + delivery summary but no FAQ text, still be helpful
+        delivery = facts.get("delivery") or {}
+        postcode = (
+            delivery.get("postcode")
+            or plan.get("postcode")
+            or session.get("postcode")
+        )
+        summary = (delivery.get("summary") or "").strip()
+
+        if postcode and summary:
+            base = f"For {postcode}: {summary}"
+            return self._append_cta(base)
 
         return (
             "I’m not fully sure about that from my data. "
@@ -234,7 +315,7 @@ class RendererV7:
             return "What’s your postcode (for example: E1 6AN)?"
 
         if intent in {"search_product", "browse_category"}:
-            return "Are you after chicken, lamb, beef, groceries or something else?"
+            return "Are you after chicken, lamb, beef, groceries, or a mix for BBQ / weekly shop?"
 
         if intent == "price_check":
             return "Which product or SKU should I check the price for?"
@@ -249,6 +330,10 @@ class RendererV7:
     # ------------------------------------------------------------------ #
 
     def _append_cta(self, text: str) -> str:
+        """
+        Attach a short closing CTA, but vary the wording a bit so the bot
+        doesn’t sound identical every turn.
+        """
         t = (text or "").strip()
         if not t:
             return t
@@ -259,7 +344,13 @@ class RendererV7:
         if t.endswith("?"):
             return t
 
-        return f"{t} Anything else you’d like to check?"
+        variants = [
+            "Anything else you’d like to check?",
+            "Want to look at anything else?",
+            "Anything else I can help you with?",
+        ]
+        suffix = random.choice(variants)
+        return f"{t} {suffix}"
 
     def _polish(self, text: str, facts: Dict[str, Any]) -> str:
         """
