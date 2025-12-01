@@ -14,6 +14,7 @@ from openai import OpenAI
 
 DEFAULT_MODEL = "gpt-4.1-mini"
 
+
 SYSTEM_PROMPT = """
 You are StoreBrainV7 — the PLANNING BRAIN for a halal meat shop assistant.
 
@@ -22,35 +23,39 @@ You NEVER write long answers.
 You ONLY output a JSON PLAN that tells the assistant WHAT TO DO NEXT.
 
 The renderer will turn your plan into nice wording.
-Your job is to think like a smart sales assistant and decide the best next action.
+Your job is to think like a smart human sales assistant:
+- understand what the customer really wants
+- decide the right ACTION
+- fill useful slots (category, product_name, postcode, sku, handoff_channel)
+- only ask clarifying questions when genuinely needed.
 
 ======================================================================
 INTENTS (pick one)
 ======================================================================
 "greeting"        -> hi, salam, hello, etc.
-"search_product"  -> user wants items, ideas, or suggestions.
-"browse_category" -> user mentions a broad family only (e.g. "chicken", "lamb").
-"price_check"     -> user clearly wants the price of a specific item/SKU.
-"check_delivery"  -> delivery / shipping / coverage / minimum order.
+"search_product"  -> customer wants items, ideas, or suggestions.
+"browse_category" -> they only specify a broad family (e.g. "chicken", "lamb").
+"price_check"     -> clearly asking price of a specific product/SKU.
+"check_delivery"  -> anything about delivery / shipping / coverage / minimum order.
 "store_info"      -> opening times, branches, phone numbers, locations.
 "faq"             -> returns, halal status, frozen rules, storage, etc.
 "human_handoff"   -> wants a real person (phone / WhatsApp / in-store).
-"smalltalk"       -> non-business talk.
-"unknown"         -> unclear message.
+"smalltalk"       -> non-business chat.
+"unknown"         -> too unclear to classify.
 
 ======================================================================
 ACTIONS (pick one)
 ======================================================================
-"GREET"
-"ASK_SLOT"
-"SEARCH_PRODUCTS"
-"CHECK_DELIVERY"
-"PRICE_CHECK"
-"STORE_INFO"
-"FAQ_LOOKUP"
-"HUMAN_HANDOFF"
-"SMALLTALK_REPLY"
-"DO_NOTHING"
+"GREET"           -> send a greeting-style reply.
+"ASK_SLOT"        -> ask for one missing key piece of info.
+"SEARCH_PRODUCTS" -> call catalog search with category / product_name / tags.
+"CHECK_DELIVERY"  -> call delivery + nearest-branch tools.
+"PRICE_CHECK"     -> call price_of + in_stock tools.
+"STORE_INFO"      -> call store/FAQ tools for branches & hours.
+"FAQ_LOOKUP"      -> general FAQ search.
+"HUMAN_HANDOFF"   -> prepare to hand over to human (phone / WhatsApp / in-store).
+"SMALLTALK_REPLY" -> lightweight conversational reply.
+"DO_NOTHING"      -> completely empty / unusable input.
 
 ======================================================================
 SLOTS
@@ -59,32 +64,68 @@ category:
   "chicken" | "lamb" | "beef" | "groceries" | "marinated_meats" | "frozen_meats" | null
 
 product_name:
-  - Free text describing what to search for.
-  - Include details when relevant:
-    example: "bbq for 6 people, medium spicy, budget £30".
+  - Free text used for catalog search.
+  - Include occasion, budget, people, etc when helpful.
+  - Example: "bbq for 6 people, medium spicy, budget 30 pounds, mostly chicken".
 
 postcode:
-  - UK postcode (e.g., "E1 6AN") OR null.
+  - UK-style postcode string (e.g. "E1 6AN") OR null.
 
 sku:
-  - Internal SKU OR null.
+  - Exact internal SKU code OR null.
 
 handoff_channel:
   - "phone" | "whatsapp" | "in_store" | null
 
 ======================================================================
-CLARIFICATION RULES
+SESSION
 ======================================================================
-Only ask questions when absolutely necessary.
+You receive a "session" object with:
+- postcode
+- last_intent
+- last_category
+- last_sku
+
+You MAY reuse these when the user refers back with vague language.
 
 Examples:
-- Delivery but no postcode → ask for postcode.
-- BBQ query with no clear meat type → ask category.
-- Otherwise, TAKE ACTION instead of asking.
+- "same again", "same thing", "that one"      -> reuse last_sku if present.
+- "more", "more options", "all options"      -> reuse last_category.
+- "anything else for chicken"                -> intent=search_product, category="chicken".
+
+======================================================================
+CLARIFICATION (be confident)
+======================================================================
+- If you have enough info to act (SEARCH_PRODUCTS, PRICE_CHECK, etc.), then:
+    needs_clarification = false
+    action = chosen action
+
+- Only set needs_clarification = true when:
+    - you cannot safely choose a category / postcode / sku
+    - or the message is totally ambiguous.
+
+When you DO need clarification:
+  action = "ASK_SLOT"
+  clarification_question = short and specific.
+
+Examples:
+- Delivery but no postcode at all:
+    intent = "check_delivery"
+    action = "ASK_SLOT"
+    clarification_question = "What’s your postcode (for example: E1 6AN)?"
+
+- User says "meat for BBQ" and you truly can’t pick category:
+    intent = "search_product"
+    action = "ASK_SLOT"
+    clarification_question = "Are you after chicken, lamb, beef or a mix for BBQ?"
 
 ======================================================================
 OUTPUT FORMAT (STRICT JSON)
 ======================================================================
+You MUST ALWAYS return valid JSON (no markdown, no comments).
+
+Required fields:
+
 {
   "intent": "...",
   "action": "...",
@@ -102,58 +143,54 @@ OUTPUT FORMAT (STRICT JSON)
 }
 """
 
+
 # -------------------------------------------------------------------
-# UTILITIES
+# CONFIG DATACLASS
 # -------------------------------------------------------------------
 
-POSTCODE_REGEX = re.compile(
-    r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b",
-    re.IGNORECASE,
-)
-
-ALLOWED_CATEGORIES = {
-    "chicken",
-    "lamb",
-    "beef",
-    "groceries",
-    "marinated_meats",
-    "frozen_meats",
-}
-
-def extract_postcode(text: str) -> Optional[str]:
-    m = POSTCODE_REGEX.search(text.upper())
-    if m:
-        return f"{m.group(1)} {m.group(2)}"
-    return None
-
-def detect_category(text: str) -> Optional[str]:
-    t = text.lower()
-    for c in ALLOWED_CATEGORIES:
-        if c in t:
-            return c
-    if "bbq" in t:
-        return "chicken"
-    return None
 
 @dataclass
 class BrainConfig:
     model: str = DEFAULT_MODEL
     system_prompt: str = SYSTEM_PROMPT
 
+
 # -------------------------------------------------------------------
-# MAIN CLASS
+# BRAIN IMPLEMENTATION
 # -------------------------------------------------------------------
 
+
 class BrainV7:
-    """LLM + rule-based smart planner."""
+    """
+    StoreBrainV7 — planning-only brain for V7.
+
+    This is deliberately opinionated and "human-like":
+
+    - Cheap heuristics first (greetings, "more options", "meat", etc.).
+    - Then an LLM plan for everything else.
+    - Finally a post-processor to clean up intent/action/slots.
+
+    It returns a JSON dict with:
+
+        {
+          intent, action, category, product_name, postcode,
+          sku, handoff_channel, needs_clarification,
+          clarification_question, meta:{is_greeting,is_goodbye}
+        }
+    """
+
+    # --------------------------------------------------------------- #
+    # INIT
+    # --------------------------------------------------------------- #
 
     def __init__(self, client: Optional[OpenAI] = None, config: Optional[BrainConfig] = None):
         self.client = client or OpenAI()
         self.config = config or BrainConfig()
 
-    # ---------------------------------------------------------------
-    # PUBLIC: CREATE PLAN
-    # ---------------------------------------------------------------
+    # --------------------------------------------------------------- #
+    # PUBLIC: PLAN
+    # --------------------------------------------------------------- #
+
     def plan(
         self,
         user_text: str,
@@ -161,19 +198,21 @@ class BrainV7:
         history: Optional[List[Dict[str, str]]] = None,
         hints: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-
         user_text = (user_text or "").strip()
         session = session or {}
         history = history or []
         hints = hints or {}
 
-        # Empty → do nothing
+        # Empty message → blank plan
         if not user_text:
             return self._blank_plan(session)
 
-        postcode = extract_postcode(user_text)
-        category = detect_category(user_text)
+        # 1) Fast heuristics (no OpenAI call for obvious stuff)
+        fast = self._fast_path(user_text, session)
+        if fast is not None:
+            return fast
 
+        # 2) Full LLM plan
         payload = {
             "message": user_text,
             "session": {
@@ -185,7 +224,7 @@ class BrainV7:
             "hints": hints,
         }
 
-        messages = [
+        messages: List[Dict[str, str]] = [
             {"role": "system", "content": self.config.system_prompt},
             *history,
             {"role": "user", "content": json.dumps(payload)},
@@ -195,56 +234,214 @@ class BrainV7:
             model=self.config.model,
             response_format={"type": "json_object"},
             messages=messages,
-            max_output_tokens=400,  # prevent truncation issues
         )
 
         raw = completion.choices[0].message.content
-        plan = self._safe_parse(raw, session)
 
-        if postcode and not plan.get("postcode"):
-            plan["postcode"] = postcode
+        # 3) Post-process to enforce rules & add extra intelligence
+        return self._post_process(raw, user_text, session)
 
-        if category and not plan.get("category"):
-            plan["category"] = category
+    # --------------------------------------------------------------- #
+    # INTERNAL: FAST PATHS                                            #
+    # --------------------------------------------------------------- #
 
-        return plan
+    def _fast_path(self, text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Cheap, deterministic behaviour for trivial queries so we don't
+        waste tokens or get weird LLM mistakes.
+        """
+        low = text.lower().strip()
 
-    # ---------------------------------------------------------------
-    # INTERNAL: PARSE PLAN
-    # ---------------------------------------------------------------
-    def _safe_parse(self, raw: str, session: Dict[str, Any]) -> Dict[str, Any]:
+        # --- greetings ---
+        if self._is_greeting(low):
+            return {
+                "intent": "greeting",
+                "action": "GREET",
+                "category": None,
+                "product_name": None,
+                "postcode": session.get("postcode"),
+                "sku": session.get("last_sku"),
+                "handoff_channel": None,
+                "needs_clarification": False,
+                "clarification_question": "",
+                "meta": {"is_greeting": True, "is_goodbye": False},
+            }
+
+        # --- generic "more" / "more options" / "all options" ---
+        if low in {"more", "more options", "all options", "anything else"}:
+            last_cat = session.get("last_category")
+            last_intent = session.get("last_intent")
+            if last_cat:
+                # Ask for more from the last category
+                return {
+                    "intent": "search_product",
+                    "action": "SEARCH_PRODUCTS",
+                    "category": last_cat,
+                    "product_name": f"more options in {last_cat}",
+                    "postcode": session.get("postcode"),
+                    "sku": session.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"is_greeting": False, "is_goodbye": False},
+                }
+            if last_intent in {"search_product", "browse_category"}:
+                return {
+                    "intent": "search_product",
+                    "action": "SEARCH_PRODUCTS",
+                    "category": None,
+                    "product_name": "more options similar to last query",
+                    "postcode": session.get("postcode"),
+                    "sku": session.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"is_greeting": False, "is_goodbye": False},
+                }
+
+        # --- simple meat queries like "meat" / "meat full catalog" ---
+        if low.startswith("meat"):
+            # Customer clearly wants meat but we don't know which type.
+            return {
+                "intent": "search_product",
+                "action": "ASK_SLOT",
+                "category": None,
+                "product_name": "mixed meat request",
+                "postcode": session.get("postcode"),
+                "sku": session.get("last_sku"),
+                "handoff_channel": None,
+                "needs_clarification": True,
+                "clarification_question": "Are you looking for chicken, lamb, beef, or a mix of meats?",
+                "meta": {"is_greeting": False, "is_goodbye": False},
+            }
+
+        # --- quick delivery detection with explicit postcode in text ---
+        postcode = self._extract_postcode(text)
+        if self._looks_like_delivery(low):
+            if postcode:
+                return {
+                    "intent": "check_delivery",
+                    "action": "CHECK_DELIVERY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": postcode,
+                    "sku": session.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"is_greeting": False, "is_goodbye": False},
+                }
+            # no postcode anywhere → ask for it
+            return {
+                "intent": "check_delivery",
+                "action": "ASK_SLOT",
+                "category": None,
+                "product_name": None,
+                "postcode": session.get("postcode"),
+                "sku": session.get("last_sku"),
+                "handoff_channel": None,
+                "needs_clarification": True,
+                "clarification_question": "What’s your postcode (for example: E1 6AN)?",
+                "meta": {"is_greeting": False, "is_goodbye": False},
+            }
+
+        return None
+
+    # --------------------------------------------------------------- #
+    # INTERNAL: POST-PROCESSOR                                        #
+    # --------------------------------------------------------------- #
+
+    def _post_process(self, raw: str, user_text: str, session: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse the LLM JSON, enforce allowed values, and upgrade behaviour
+        for common patterns (bbq, mix, vague meat queries, etc.).
+        """
         try:
             data = json.loads(raw)
         except Exception:
+            # model completely misbehaved → safe blank
             return self._blank_plan(session)
 
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
-        category = data.get("category")
-        if category:
-            category = category.lower()
-        if category not in ALLOWED_CATEGORIES:
-            category = None
+        # Normalise category
+        allowed_categories = {
+            "chicken",
+            "lamb",
+            "beef",
+            "groceries",
+            "marinated_meats",
+            "frozen_meats",
+        }
+        cat = data.get("category")
+        cat = str(cat).lower() if cat is not None else None
+        if cat not in allowed_categories:
+            cat = None
 
         product_name = data.get("product_name")
-        postcode = data.get("postcode") or session.get("postcode")
+        postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
         sku = data.get("sku") or session.get("last_sku")
         handoff_channel = data.get("handoff_channel")
 
         needs_clarification = bool(data.get("needs_clarification", False))
         clarification_question = data.get("clarification_question") or ""
 
-        meta = data.get("meta") or {}
+        meta_in = data.get("meta") or {}
         meta = {
-            "is_greeting": bool(meta.get("is_greeting", False)),
-            "is_goodbye": bool(meta.get("is_goodbye", False)),
+            "is_greeting": bool(meta_in.get("is_greeting", False)),
+            "is_goodbye": bool(meta_in.get("is_goodbye", False)),
         }
+
+        low = user_text.lower()
+
+        # --- Upgrade vague "meat"/"bbq" style queries if model was timid ---
+        if intent in {"unknown", "faq"} and "bbq" in low:
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
+            if not cat:
+                # assume chicken-heavy BBQ unless they mention lamb/beef
+                if "lamb" in low:
+                    cat = "lamb"
+                elif "beef" in low:
+                    cat = "beef"
+                else:
+                    cat = "chicken"
+            product_name = product_name or "bbq selection, mix of popular cuts for grilling"
+
+        if intent in {"unknown", "faq"} and low.strip() == "meat":
+            intent = "search_product"
+            action = "ASK_SLOT"
+            needs_clarification = True
+            clarification_question = "Are you looking for chicken, lamb, beef, or a mix of meats?"
+
+        # --- If intent says CHECK_DELIVERY but no postcode anywhere → ASK_SLOT ---
+        if intent == "check_delivery" and not postcode:
+            action = "ASK_SLOT"
+            needs_clarification = True
+            clarification_question = "What’s your postcode (for example: E1 6AN)?"
+
+        # --- More-options follow-up without model catching it ---
+        if intent in {"unknown", "smalltalk"} and self._looks_like_more_options(low):
+            last_cat = session.get("last_category")
+            if last_cat:
+                intent = "search_product"
+                action = "SEARCH_PRODUCTS"
+                cat = last_cat
+                product_name = f"more options in {last_cat}"
+                needs_clarification = False
+                clarification_question = ""
+
+        # --- greetings safety net ---
+        if self._is_greeting(low) and intent == "unknown":
+            intent = "greeting"
+            action = "GREET"
+            meta["is_greeting"] = True
 
         return {
             "intent": intent,
             "action": action,
-            "category": category,
+            "category": cat,
             "product_name": product_name,
             "postcode": postcode,
             "sku": sku,
@@ -254,9 +451,10 @@ class BrainV7:
             "meta": meta,
         }
 
-    # ---------------------------------------------------------------
-    # INTERNAL: DEFAULT PLAN
-    # ---------------------------------------------------------------
+    # --------------------------------------------------------------- #
+    # INTERNAL: BASELINE PLAN                                         #
+    # --------------------------------------------------------------- #
+
     def _blank_plan(self, session: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "intent": "unknown",
@@ -269,4 +467,55 @@ class BrainV7:
             "needs_clarification": False,
             "clarification_question": "",
             "meta": {"is_greeting": False, "is_goodbye": False},
-      }
+        }
+
+    # --------------------------------------------------------------- #
+    # INTERNAL: UTILITIES                                             #
+    # --------------------------------------------------------------- #
+
+    @staticmethod
+    def _is_greeting(low: str) -> bool:
+        return bool(
+            re.search(r"\b(hi|hello|hey|salam|salaam|assalamu alaikum|assalamualaikum|as-salamu alaykum)\b", low)
+        )
+
+    @staticmethod
+    def _looks_like_more_options(low: str) -> bool:
+        return low in {
+            "more",
+            "more options",
+            "all options",
+            "anything else",
+            "show me more",
+            "more please",
+        }
+
+    @staticmethod
+    def _looks_like_delivery(low: str) -> bool:
+        return any(
+            w in low
+            for w in [
+                "deliver",
+                "delivery",
+                "ship",
+                "shipping",
+                "postcode",
+                "post code",
+                "minimum order",
+                "min order",
+            ]
+        )
+
+    @staticmethod
+    def _extract_postcode(text: str) -> Optional[str]:
+        """
+        Very loose UK postcode matcher (good enough for planning).
+        Examples: E1 6AN, SW1A 1AA, N16 7XY
+        """
+        m = re.search(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b", text.upper())
+        if not m:
+            return None
+        pc = m.group(1)
+        # Normalise single space in the middle
+        pc = re.sub(r"\s+", " ", pc).strip()
+        return pc
