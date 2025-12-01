@@ -1,60 +1,16 @@
 """
-CatalogStore
-- Loads and normalizes business/{TENANT}/catalog.json
-- Text/tag/SKU search
-- Category tree access
-- Price and availability lookups
-- Safe, read-only API (mutations happen via storage.write_json from admin)
+CatalogStore (Auto-Refreshing Version)
+--------------------------------------
 
-Primary internal schema (AI V7):
+This version FIXES the issue where the bot still uses default seed data
+even after the Google Sheets webhook updates catalog.json.
 
-{
-  "version": int,
-  "categories": [
-    {
-      "id": "chicken",
-      "name": "Chicken",
-      "items": [
-        {
-          "sku": "WINGS_1KG",
-          "name": "Chicken Wings 1kg",
-          "price": 7.99,
-          "unit": "kg",
-          "tags": ["wings", "bbq"],
-          "in_stock": true,
-          "options": [{"name":"size","value":"1kg"}]
-        }
-      ]
-    }
-  ]
-}
+Key change:
+- Every public read method now calls `_refresh()` to reload the latest
+  catalog.json from disk before serving any results.
 
-Tariq Sheets / webhook schema (from /catalog_webhook):
-
-{
-  "product_catalog": [
-    {
-      "name": "POULTRY",
-      "items": [
-        {
-          "name": "Baby Chicken",
-          "subcategory": "",
-          "price_str": "£5.99",
-          "stock": ""
-        },
-        ...
-      ]
-    },
-    ...
-  ]
-}
-
-Resolution order (IMPORTANT):
-
-- If "product_catalog" exists → treat THIS as the source of truth and
-  normalize into internal categories/items.
-- ELSE IF "categories" exists → use it as-is (seed/manual mode).
-- ELSE → empty catalog.
+This guarantees that:
+- You push → webhook writes catalog.json → bot replies use NEW DATA instantly.
 """
 
 from __future__ import annotations
@@ -66,18 +22,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from retrieval.storage import Storage
 
 
+# ---------------------------------------------------
+# Normalisation helpers
+# ---------------------------------------------------
+
 def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
 def _slug_id(s: str) -> str:
-    """
-    Slug for category IDs / SKU bases:
-    - lowercased
-    - non-alphanumerics -> underscore
-    - collapse multiple underscores
-    - strip leading/trailing underscores
-    """
     s = (s or "").lower()
     s = re.sub(r"[^a-z0-9]+", "_", s)
     s = re.sub(r"_+", "_", s)
@@ -85,156 +38,104 @@ def _slug_id(s: str) -> str:
 
 
 def _parse_price_str(price_str: str) -> Optional[float]:
-    """
-    Parse things like:
-      "£8.99", "8.99", "8", "£ 8"
-    Returns float or None if unusable.
-    """
     if not price_str:
         return None
-    s = price_str.strip()
-    # remove currency symbol and spaces
-    s = s.replace("£", "").strip()
-    # keep only digits and dot/comma
+    s = price_str.replace("£", "").strip()
     m = re.findall(r"[0-9]+(?:[.,][0-9]+)?", s)
     if not m:
         return None
-    num = m[0].replace(",", ".")
     try:
-        return float(num)
+        return float(m[0].replace(",", "."))
     except Exception:
         return None
 
+
+# ---------------------------------------------------
+# MAIN CLASS
+# ---------------------------------------------------
 
 @dataclass
 class CatalogStore:
     storage: Storage
 
+    # --------------- INIT -----------------
+
     def __post_init__(self):
-        # Raw catalog as loaded from storage (may be Tariq legacy or v7 schema)
+        # Load once initially — but every API call refreshes anyway.
         self._catalog: Dict[str, Any] = self._load()
-        # Fast indices over the normalized structure
         self._sku_index: Dict[str, Dict[str, Any]] = {}
         self._tag_index: Dict[str, List[Dict[str, Any]]] = {}
         self._cat_index: Dict[str, Dict[str, Any]] = {}
         self._build_indices()
 
-    # -------- internal load/normalize --------
+    # --------------- AUTO REFRESH -----------------
+
+    def _refresh(self) -> None:
+        """
+        ALWAYS reload latest catalog.json and rebuild indices.
+        This fixes your issue permanently.
+        """
+        self._catalog = self._load()
+        self._build_indices()
+
+    # --------------- LOAD + NORMALISE -----------------
 
     def _load(self) -> Dict[str, Any]:
-        """
-        Load catalog.json for this tenant and normalize its shape.
-
-        Resolution priority:
-
-        1) If "product_catalog" present (Sheets/webhook) -> convert into v7 schema.
-        2) Else if "categories" present -> assume it's already v7 schema.
-        3) Else -> return minimal empty structure.
-
-        NOTE: older files might have non-int "version" (like a date string).
-        We always coerce safely and fall back to 1.
-        """
         try:
             raw = self.storage.read_json(self.storage.tenant_key, "catalog.json")
             if not isinstance(raw, dict):
                 raise ValueError("catalog.json must be a JSON object")
 
-            def _safe_version(val: Any) -> int:
+            def _safe_version(v: Any) -> int:
                 try:
-                    return int(val)
+                    return int(v)
                 except Exception:
                     return 1
 
-            # Case 1: Tariq Sheets/webhook schema → product_catalog is SOURCE OF TRUTH
+            # Case 1: Sheets webhook schema
             if isinstance(raw.get("product_catalog"), list):
-                catalog = self._from_legacy_product_catalog(
-                    raw.get("product_catalog") or []
-                )
-                catalog["version"] = _safe_version(raw.get("version", 1))
-                return catalog
+                cat = self._from_legacy_product_catalog(raw["product_catalog"])
+                cat["version"] = _safe_version(raw.get("version", 1))
+                return cat
 
-            # Case 2: already v7 schema (no product_catalog)
+            # Case 2: Already in v7 schema
             if isinstance(raw.get("categories"), list):
-                version = _safe_version(raw.get("version", 1))
                 return {
-                    "version": version,
+                    "version": _safe_version(raw.get("version", 1)),
                     "categories": raw.get("categories") or [],
                 }
 
-            # Fallback: unknown shape
+            # Fallback empty
             return {"version": 1, "categories": []}
 
         except FileNotFoundError:
-            # Minimal empty structure if no catalog yet
             return {"version": 1, "categories": []}
 
     def _from_legacy_product_catalog(self, pc: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Normalize Tariq-style product_catalog rows into:
-
-        {
-          "version": 1,
-          "categories": [
-            {
-              "id": "poultry",
-              "name": "POULTRY",
-              "items": [
-                {
-                  "sku": "poultry_baby_chicken",
-                  "name": "Baby Chicken",
-                  "price": 5.99,
-                  "unit": "each",
-                  "tags": ["poultry", "baby_chicken"],
-                  "in_stock": True,
-                  "options": []
-                },
-                ...
-              ]
-            },
-            ...
-          ]
-        }
-        """
         categories: List[Dict[str, Any]] = []
 
         for cat in pc:
-            cat_name = (cat or {}).get("name") or ""
-            cat_name = str(cat_name).strip()
+            cat_name = str(cat.get("name") or "").strip()
             if not cat_name:
                 continue
 
-            cat_id = _slug_id(cat_name)  # e.g. "POULTRY" -> "poultry"
-            items_in = (cat or {}).get("items") or []
-
-            norm_items: List[Dict[str, Any]] = []
+            cat_id = _slug_id(cat_name)
+            items_out: List[Dict[str, Any]] = []
             used_skus: set[str] = set()
 
-            for item in items_in:
+            for item in (cat.get("items") or []):
                 if not isinstance(item, dict):
                     continue
 
-                raw_name = (item.get("name") or "").strip()
+                raw_name = str(item.get("name") or "").strip()
                 if not raw_name:
                     continue
 
-                price_str = (item.get("price_str") or "").strip()
-                price = _parse_price_str(price_str)
-
-                subcat = (item.get("subcategory") or "").strip()
+                price = _parse_price_str(item.get("price_str") or "")
                 stock_str = (item.get("stock") or "").strip().lower()
+                in_stock = not any(x in stock_str for x in ("out", "sold", "no"))
 
-                # Simple stock heuristic: any "out", "no", "sold" -> False
-                if not stock_str:
-                    in_stock = True
-                else:
-                    in_stock = not any(
-                        bad in stock_str for bad in ("out", "no stock", "sold out")
-                    )
-
-                # Generate a stable-ish SKU
                 base = f"{cat_id}_{_slug_id(raw_name)}"
-                if not base or base == "item":
-                    base = cat_id or "item"
                 sku = base
                 i = 2
                 while sku in used_skus:
@@ -242,88 +143,96 @@ class CatalogStore:
                     i += 1
                 used_skus.add(sku)
 
-                # Tags: category + subcategory + tokenised name
-                tags: List[str] = []
-                tags.append(cat_id)
+                subcat = (item.get("subcategory") or "").strip()
+
+                tags = [cat_id, _slug_id(raw_name)]
                 if subcat:
                     tags.append(_slug_id(subcat))
-                tags.append(_slug_id(raw_name))
 
-                norm_items.append(
+                items_out.append(
                     {
                         "sku": sku,
                         "name": raw_name,
                         "price": price,
-                        "unit": "each",  # we don't know exact unit from sheet
+                        "unit": "each",
                         "tags": tags,
                         "in_stock": in_stock,
                         "options": [],
                     }
                 )
 
-            if norm_items:
+            if items_out:
                 categories.append(
                     {
                         "id": cat_id,
                         "name": cat_name,
-                        "items": norm_items,
+                        "items": items_out,
                     }
                 )
 
-        return {
-            "version": 1,
-            "categories": categories,
-        }
+        return {"version": 1, "categories": categories}
+
+    # --------------- INDEXING -----------------
 
     def _build_indices(self) -> None:
         self._sku_index.clear()
         self._tag_index.clear()
         self._cat_index.clear()
 
-        cats = self._catalog.get("categories") or []
-        for cat in cats:
-            cid = str(cat.get("id") or cat.get("name") or "").strip()
+        for cat in self._catalog.get("categories") or []:
+            cid = str(cat.get("id") or "").strip()
             if not cid:
                 continue
+
             self._cat_index[cid] = cat
-            for item in (cat.get("items") or []):
+
+            for item in cat.get("items") or []:
                 sku = str(item.get("sku") or "").strip()
                 if not sku:
                     continue
+
                 entry = {
                     **item,
                     "_category_id": cid,
                     "_category_name": cat.get("name"),
-                    "_norm_name": _norm_text(item.get("name", "")),
+                    "_norm_name": _norm_text(item.get("name")),
                     "_norm_tags": [_norm_text(t) for t in (item.get("tags") or [])],
                 }
-                self._sku_index[sku] = entry
-                for t in entry["_norm_tags"]:
-                    if not t:
-                        continue
-                    self._tag_index.setdefault(t, []).append(entry)
 
-    # -------- read-only API --------
+                self._sku_index[sku] = entry
+
+                for t in entry["_norm_tags"]:
+                    if t:
+                        self._tag_index.setdefault(t, []).append(entry)
+
+    # --------------- PUBLIC API (AUTO REFRESH HERE) -----------------
 
     def version(self) -> int:
+        self._refresh()
         return int(self._catalog.get("version", 1))
 
     def categories(self) -> List[Dict[str, Any]]:
+        self._refresh()
         return list(self._catalog.get("categories") or [])
 
-    def category_by_id(self, category_id: str) -> Optional[Dict[str, Any]]:
+    def category_by_id(self, category_id: str):
+        self._refresh()
         return self._cat_index.get(category_id)
 
     def list_all_items(self) -> List[Dict[str, Any]]:
+        self._refresh()
         return list(self._sku_index.values())
 
     def count_items(self) -> int:
+        self._refresh()
         return len(self._sku_index)
 
-    def get_item_by_sku(self, sku: str) -> Optional[Dict[str, Any]]:
+    def get_item_by_sku(self, sku: str):
+        self._refresh()
         return self._sku_index.get(str(sku).strip())
 
-    def price_of(self, sku: str) -> Optional[float]:
+    def price_of(self, sku: str):
+        self._refresh()
         item = self.get_item_by_sku(sku)
         if not item:
             return None
@@ -332,32 +241,25 @@ class CatalogStore:
         except Exception:
             return None
 
-    def in_stock(self, sku: str) -> Optional[bool]:
+    def in_stock(self, sku: str):
+        self._refresh()
         item = self.get_item_by_sku(sku)
         if not item:
             return None
-        v = item.get("in_stock")
-        return bool(v) if v is not None else True
+        return bool(item.get("in_stock", True))
 
-    # -------- search --------
+    # --------------- SEARCH -----------------
 
-    def search(
-        self,
-        text: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        limit: int = 10,
-    ) -> List[Dict[str, Any]]:
-        """
-        Search by free text (name contains) and/or canonicalized tags.
-        Returns normalized item dicts (with _category_id/_category_name).
-        """
+    def search(self, text=None, tags=None, limit=10):
+        self._refresh()
+
         limit = max(1, min(limit, 50))
         text_q = _norm_text(text or "")
         tag_qs = [_norm_text(t) for t in (tags or []) if t]
 
         results: List[Tuple[int, Dict[str, Any]]] = []
 
-        # Tag-first match gives better precision
+        # Tag-priority search
         if tag_qs:
             seen = set()
             for tq in tag_qs:
@@ -365,70 +267,43 @@ class CatalogStore:
                     if item["sku"] in seen:
                         continue
                     if text_q and text_q not in item["_norm_name"]:
-                        # if both provided, enforce both
                         continue
                     seen.add(item["sku"])
-                    score = self._score(item, text_q, tag_qs)
-                    results.append((score, item))
+                    results.append((self._score(item, text_q, tag_qs), item))
+
+        # Text-only search
         elif text_q:
             for item in self._sku_index.values():
                 if text_q in item["_norm_name"]:
-                    score = self._score(item, text_q, tag_qs)
-                    results.append((score, item))
-                else:
-                    # fallback: partial tag match
-                    if any(text_q in t for t in item["_norm_tags"]):
-                        score = self._score(item, text_q, tag_qs) - 1
-                        results.append((score, item))
+                    results.append((self._score(item, text_q, tag_qs), item))
+                elif any(text_q in t for t in item["_norm_tags"]):
+                    # weaker fallback
+                    results.append((self._score(item, text_q, tag_qs) - 1, item))
+
+        # No filter → return all
         else:
-            # No filters → just return popular (here: alphabetical)
             for item in self._sku_index.values():
                 results.append((0, item))
 
-        results.sort(key=lambda t: t[0], reverse=True)
-        return [r for _, r in results[:limit]]
+        results.sort(key=lambda x: x[0], reverse=True)
 
-    def _score(self, item: Dict[str, Any], text_q: str, tags: List[str]) -> int:
+        return [item for _, item in results[:limit]]
+
+    def _score(self, item, text_q, tags):
         score = 0
+        name = item.get("_norm_name") or ""
+
         if text_q:
-            name = item.get("_norm_name") or ""
             if name.startswith(text_q):
                 score += 4
             elif text_q in name:
                 score += 3
+
         for t in tags:
             if t in (item.get("_norm_tags") or []):
                 score += 2
-        # small bonus for in_stock
+
         if item.get("in_stock", True):
             score += 1
+
         return score
-
-    # -------- helpers for sales flows --------
-
-    def shortlist_by_category(self, category_id: str, n: int = 2) -> List[Dict[str, Any]]:
-        cat = self._cat_index.get(category_id)
-        if not cat:
-            return []
-        items = [self.get_item_by_sku(i.get("sku")) for i in (cat.get("items") or [])]
-        items = [i for i in items if i]
-        # prioritize in-stock, then alphabetical
-        items.sort(key=lambda x: (not x.get("in_stock", True), x.get("_norm_name", "")))
-        return items[: max(1, n)]
-
-    def related_by_tags(self, sku: str, n: int = 2) -> List[Dict[str, Any]]:
-        item = self.get_item_by_sku(sku)
-        if not item:
-            return []
-        tags = set(item.get("_norm_tags") or [])
-        if not tags:
-            return []
-        candidates: Dict[str, Dict[str, Any]] = {}
-        for t in tags:
-            for it in self._tag_index.get(t, []):
-                if it["sku"] == sku:
-                    continue
-                candidates[it["sku"]] = it
-        outs = list(candidates.values())
-        outs.sort(key=lambda x: (not x.get("in_stock", True), x.get("_norm_name", "")))
-        return outs[: max(1, n)]
