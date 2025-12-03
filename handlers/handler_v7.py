@@ -135,6 +135,27 @@ class MessageHandlerV7:
         postcode = plan.get("postcode") or session.get("postcode")
         sku = plan.get("sku")
 
+        # --- META from BrainV7 (controls scope + message size) ---
+        meta = plan.get("meta") or {}
+        search_scope = meta.get("search_scope", "top_picks")
+        item_level = bool(meta.get("item_level", False))
+        search_tags_meta = meta.get("search_tags") or []
+        wants_chunking = bool(meta.get("wants_chunking", False))
+
+        try:
+            max_items = int(meta.get("max_items", 6))
+        except Exception:
+            max_items = 6
+
+        # expose for renderer (for chunking, pagination, etc.)
+        facts["search_meta"] = {
+            "scope": search_scope,
+            "item_level": item_level,
+            "search_tags": search_tags_meta,
+            "max_items": max_items,
+            "wants_chunking": wants_chunking,
+        }
+
         # --- DELIVERY CHECK ---
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if self.policy and postcode:
@@ -167,26 +188,43 @@ class MessageHandlerV7:
                 user_text=user_text,
                 category=category,
                 product_name=product_name,
+                meta=meta,
             )
+
+            # merge any tags suggested by the brain (e.g. "wings", "brain")
+            for t in search_tags_meta:
+                t = str(t).strip().lower()
+                if t and t not in tags:
+                    tags.append(t)
 
             if self.logger:
                 self.logger.info(
-                    "V7: catalog.search action=%s intent=%s query=%r tags=%r category=%r product_name=%r",
+                    "V7: catalog.search action=%s intent=%s query=%r tags=%r category=%r product_name=%r scope=%s max_items=%s",
                     action,
                     intent,
                     query,
                     tags,
                     category,
                     product_name,
+                    search_scope,
+                    max_items,
                 )
 
             if self.catalog and (query or tags):
+                # limit controls how many items we ever pull from the catalog
+                # BrainV7 decides rough size; renderer decides how to display.
+                search_limit = max_items
+                # for full_category / full_store, allow a bit more headroom
+                if search_scope in {"full_category", "full_store"}:
+                    search_limit = max(search_limit, 30)
+
                 try:
-                    items = self.catalog.search(text=query, tags=tags, limit=6)
+                    items = self.catalog.search(text=query, tags=tags, limit=search_limit)
                 except Exception as e:
                     if self.logger:
                         self.logger.exception("V7: catalog.search failed: %s", e)
                     items = []
+
                 facts["items"] = items
 
         # --- PRICE CHECK ---
@@ -257,38 +295,44 @@ class MessageHandlerV7:
         user_text: str,
         category: Optional[str],
         product_name: Optional[str],
+        meta: Dict[str, Any],
     ) -> tuple[str, List[str]]:
         """
         Decide what to send to catalog.search as (text, tags).
-        - If product_name is present, use that as the query.
-        - If only category is present, use it as both text + tags:
-            "frozen_meats" -> query="frozen meats", tags=["frozen_meats","frozen","meats"]
-        - If nothing is present, fall back to full user_text.
+
+        New behaviour:
+        - Uses BrainV7 meta.search_tags for item-level searches ("wings", "lamb brain").
+        - Category becomes a strong tag (so 'wings' + last_category='chicken'
+          -> tags contain 'chicken' AND 'wings').
+        - Still keeps behaviour for category-only queries and fallback to user_text.
         """
         tags: List[str] = []
         query = ""
 
+        # Prefer explicit product_name as text query
         if product_name:
-            # Direct product search – let fuzzy search handle it
             query = product_name
-
         elif category:
             cat = str(category).strip().lower()
-            # Text query: nicer, human-style version
             query = cat.replace("_", " ")
-
-            # Always include full category key as a tag
-            tags.append(cat)
-
-            # Also add split tokens ("frozen_meats" -> "frozen", "meats")
-            for token in query.split():
-                token = token.strip()
-                if token and token not in tags:
-                    tags.append(token)
-
         else:
-            # No structured signal – just use raw user text
             query = user_text
+
+        # Always tag with category if we have one
+        if category:
+            cat = str(category).strip().lower()
+            if cat:
+                tags.append(cat)
+                for token in cat.replace("_", " ").split():
+                    token = token.strip()
+                    if token and token not in tags:
+                        tags.append(token)
+
+        # Also add any meta search tags (cuts like wings / brain / mince)
+        for t in meta.get("search_tags") or []:
+            t = str(t).strip().lower()
+            if t and t not in tags:
+                tags.append(t)
 
         return query, tags
 
