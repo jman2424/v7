@@ -1,4 +1,3 @@
-# renderer_v7.py
 from __future__ import annotations
 
 import random
@@ -184,15 +183,27 @@ class RendererV7:
         raw_category = plan.get("category") or session.get("last_category") or ""
         category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
-        user_text = (user_text or "").strip().lower()
+        user_text_raw = (user_text or "").strip()
+        user_text_lower = user_text_raw.lower()
 
-        # No items returned from catalog.search
+        # --- meta from search layer (scope + size + item-level) ---
+        search_meta = facts.get("search_meta") or {}
+        scope = search_meta.get("scope", "top_picks")
+        item_level = bool(search_meta.get("item_level", False))
+        primary_cut = search_meta.get("primary_cut")
+        try:
+            max_items = int(search_meta.get("max_items", 8))
+        except Exception:
+            max_items = 8
+        wants_chunking = bool(search_meta.get("wants_chunking", False))
+
+        # ------------------------ NO ITEMS ---------------------------
         if not items:
             # Handle “full catalog / all options / everything” style requests gracefully
             keywords = ("full", "all", "everything", "entire", "whole")
-            if any(k in user_text for k in keywords) or any(
-                k in (product_name or "").lower() for k in keywords
-            ):
+            pn_lower = (product_name or "").lower()
+
+            if any(k in user_text_lower for k in keywords) or any(k in pn_lower for k in keywords):
                 if category:
                     return (
                         f"The {category} catalog is quite big. "
@@ -209,9 +220,23 @@ class RendererV7:
                 return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
             return "I couldn’t find matching items. Any specific product or cut you’re after?"
 
-        # We have items: build a short human-friendly list
-        # Limit to 4 to keep responses tight
-        top = items[:4]
+        # ------------------------ LIMIT SIZE -------------------------
+        # Decide how many items to show, based on scope and max_items.
+        total_items = len(items)
+
+        if scope == "item_list":
+            # Specific cut (e.g. wings, brain, mince)
+            limit = min(total_items, max(4, min(max_items, 10)))
+        elif scope == "full_category":
+            # Full category – allow more, but still keep single message sane
+            limit = min(total_items, max(10, min(max_items, 20)))
+        elif scope == "full_store":
+            # Massive – show a sample only
+            limit = min(total_items, max(10, min(max_items, 20)))
+        else:  # "top_picks" or unknown
+            limit = min(total_items, max(4, min(max_items, 8)))
+
+        top = items[:limit]
 
         lines: List[str] = []
         for idx, item in enumerate(top, start=1):
@@ -223,18 +248,43 @@ class RendererV7:
         if not lines:
             return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
 
+        # ------------------------ INTRO TEXT -------------------------
         intro: str
-        if category:
+
+        if item_level and primary_cut:
+            # e.g. "Here are our wings options in chicken:"
+            if category:
+                intro = f"Here are our {primary_cut} options in {category}:"
+            else:
+                intro = f"Here are our {primary_cut} options:"
+        elif scope == "full_category" and category:
+            intro = f"Here’s a wider selection from our {category} range:"
+        elif scope == "full_store":
+            intro = "Here’s a wider selection from across the store:"
+        elif category:
             intro = f"For {category}, here are some good options:"
         else:
             intro = "Here are some good options I found:"
 
         body = " ".join(lines)
-        followup = (
-            "Tell me the number you like and I can give you prices or more options."
-        )
 
-        base = f"{intro} {body} {followup}"
+        # ------------------------ FOLLOW-UP TEXT ---------------------
+        # If we showed only part of a big list, be honest and invite narrowing.
+        extra_tail = ""
+        if total_items > limit:
+            if scope in {"full_category", "full_store"} or wants_chunking:
+                extra_tail = (
+                    f" I’ve shown the first {limit} items to keep things clear. "
+                    "Tell me a specific cut (for example: wings, fillets, mince) or a number from the list."
+                )
+            elif item_level:
+                extra_tail = (
+                    f" I’ve shown the main {primary_cut} options. "
+                    "If you want something more specific, tell me the number you like."
+                )
+
+        followup = " Tell me the number you like and I can give you prices or more options."
+        base = f"{intro} {body}{extra_tail}{followup}"
         return self._append_cta(base)
 
     # ------------------------------------------------------------------ #
