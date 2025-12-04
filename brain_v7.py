@@ -1,4 +1,3 @@
-# brain_v7.py
 from __future__ import annotations
 
 import json
@@ -133,32 +132,6 @@ meta.wants_chunking:
   - true when the result will be LONG (full category or store).
   - This tells the renderer/handler to split into multiple WhatsApp messages.
 
-Examples:
-
-User: "beef catalog"
-  -> intent="search_product"
-     category="beef"
-     meta.search_scope="top_picks" (OR "full_category" if they explicitly say "full")
-     meta.max_items=8
-     meta.wants_chunking=false
-
-User: "lamb full catalog" or "all lamb options"
-  -> intent="search_product"
-     category="lamb"
-     meta.search_scope="full_category"
-     meta.list_all_items = true
-     meta.max_items ≈ 30
-     meta.wants_chunking=true
-
-User: "full product catalog", "show me everything"
-  -> intent="search_product"
-     category=null
-     meta.search_scope="full_store"
-     meta.list_all_items = true
-     meta.max_items ≈ 30
-     meta.wants_chunking=true
-  The renderer will usually answer that the catalog is too big and ask for a category.
-
 ======================================================================
 CLARIFICATION (be confident)
 ======================================================================
@@ -173,17 +146,6 @@ CLARIFICATION (be confident)
 When you DO need clarification:
   action = "ASK_SLOT"
   clarification_question = short and specific.
-
-Examples:
-- Delivery but no postcode at all:
-    intent = "check_delivery"
-    action = "ASK_SLOT"
-    clarification_question = "What’s your postcode (for example: E1 6AN)?"
-
-- User says "meat for BBQ" and you truly can’t pick category:
-    intent = "search_product"
-    action = "ASK_SLOT"
-    clarification_question = "Are you after chicken, lamb, beef or a mix for BBQ?"
 
 ======================================================================
 OUTPUT FORMAT (STRICT JSON)
@@ -205,7 +167,6 @@ Required fields:
   "meta": {
     "is_greeting": boolean,
     "is_goodbye": boolean,
-
     "search_scope": "top_picks" | "item_list" | "full_category" | "full_store",
     "item_level": boolean,
     "search_tags": [string, ...],
@@ -217,40 +178,19 @@ Required fields:
 """
 
 
-# -------------------------------------------------------------------
-# CONFIG DATACLASS
-# -------------------------------------------------------------------
-
-
 @dataclass
 class BrainConfig:
     model: str = DEFAULT_MODEL
     system_prompt: str = SYSTEM_PROMPT
 
 
-# -------------------------------------------------------------------
-# BRAIN IMPLEMENTATION
-# -------------------------------------------------------------------
-
-
 class BrainV7:
-    """
-    StoreBrainV7 — planning-only brain for V7.
-
-    - Same external interface as before.
-    - More intelligence for:
-        * full catalog / all options
-        * item-level searches ("wings", "lamb brain")
-        * rough control of answer size via meta.search_scope, max_items, wants_chunking
-    """
-
     CUT_KEYWORDS = {
         "wing", "wings",
         "thigh", "thighs",
         "breast", "breasts",
         "drumstick", "drumsticks",
-        "mince",
-        "burger", "burgers",
+        "mince", "burger", "burgers",
         "steak", "steaks",
         "chop", "chops",
         "rib", "ribs",
@@ -262,16 +202,12 @@ class BrainV7:
         "kebab", "kebabs",
     }
 
-    # --------------------------------------------------------------- #
-    # INIT
-    # --------------------------------------------------------------- #
-
     def __init__(self, client: Optional[OpenAI] = None, config: Optional[BrainConfig] = None):
         self.client = client or OpenAI()
         self.config = config or BrainConfig()
 
     # --------------------------------------------------------------- #
-    # PUBLIC: PLAN
+    # PUBLIC: PLAN                                                    #
     # --------------------------------------------------------------- #
 
     def plan(
@@ -286,16 +222,15 @@ class BrainV7:
         history = history or []
         hints = hints or {}
 
-        # Empty message → blank plan
         if not user_text:
             return self._blank_plan(session)
 
-        # 1) Fast heuristics (no OpenAI call for obvious stuff)
+        # 1) fast path
         fast = self._fast_path(user_text, session)
         if fast is not None:
             return fast
 
-        # 2) Full LLM plan
+        # 2) LLM plan
         payload = {
             "message": user_text,
             "session": {
@@ -318,25 +253,18 @@ class BrainV7:
             response_format={"type": "json_object"},
             messages=messages,
         )
-
         raw = completion.choices[0].message.content
-
-        # 3) Post-process to enforce rules & add extra intelligence
         return self._post_process(raw, user_text, session)
 
     # --------------------------------------------------------------- #
-    # INTERNAL: FAST PATHS                                            #
+    # FAST PATH                                                       #
     # --------------------------------------------------------------- #
 
     def _fast_path(self, text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Cheap, deterministic behaviour for trivial queries so we don't
-        waste tokens or get weird LLM mistakes.
-        """
         low = text.lower().strip()
 
-        # --- greetings (strong) ---
-        if low in {"hi", "hello", "hey", "salam", "salaam"} or self._is_greeting(low):
+        # greetings
+        if self._is_greeting(low):
             return {
                 "intent": "greeting",
                 "action": "GREET",
@@ -353,13 +281,13 @@ class BrainV7:
                     "search_scope": "top_picks",
                     "item_level": False,
                     "search_tags": [],
-                    "max_items": 0,
+                    "max_items": 8,
                     "wants_chunking": False,
                     "primary_cut": None,
                 },
             }
 
-        # --- generic "more" / "more options" / "all options" ---
+        # more / more options
         if low in {"more", "more options", "all options", "anything else"}:
             last_cat = session.get("last_category")
             last_intent = session.get("last_intent")
@@ -374,7 +302,6 @@ class BrainV7:
                 "primary_cut": None,
             }
             if last_cat:
-                # Ask for more from the last category
                 return {
                     "intent": "search_product",
                     "action": "SEARCH_PRODUCTS",
@@ -401,9 +328,8 @@ class BrainV7:
                     "meta": base_meta,
                 }
 
-        # --- meat queries like "meat", "meat catalog", "meat full catalog" ---
-        if "meat" in low:
-            # Customer clearly wants meat but we don't know which type.
+        # "meat" / "meat catalog"
+        if low.startswith("meat"):
             return {
                 "intent": "search_product",
                 "action": "ASK_SLOT",
@@ -426,7 +352,7 @@ class BrainV7:
                 },
             }
 
-        # --- quick delivery detection with explicit postcode in text ---
+        # delivery with postcode
         postcode = self._extract_postcode(text)
         if self._looks_like_delivery(low):
             if postcode:
@@ -446,12 +372,11 @@ class BrainV7:
                         "search_scope": "top_picks",
                         "item_level": False,
                         "search_tags": [],
-                        "max_items": 0,
+                        "max_items": 8,
                         "wants_chunking": False,
                         "primary_cut": None,
                     },
                 }
-            # no postcode anywhere → ask for it
             return {
                 "intent": "check_delivery",
                 "action": "ASK_SLOT",
@@ -468,7 +393,7 @@ class BrainV7:
                     "search_scope": "top_picks",
                     "item_level": False,
                     "search_tags": [],
-                    "max_items": 0,
+                    "max_items": 8,
                     "wants_chunking": False,
                     "primary_cut": None,
                 },
@@ -477,24 +402,18 @@ class BrainV7:
         return None
 
     # --------------------------------------------------------------- #
-    # INTERNAL: POST-PROCESSOR                                        #
+    # POST PROCESS                                                     #
     # --------------------------------------------------------------- #
 
     def _post_process(self, raw: str, user_text: str, session: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse the LLM JSON, enforce allowed values, and upgrade behaviour
-        for common patterns (bbq, vague meat, full catalog, item cuts, more options).
-        """
         try:
             data = json.loads(raw)
         except Exception:
-            # model completely misbehaved → safe blank
             return self._blank_plan(session)
 
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
-        # Normalise category
         allowed_categories = {
             "chicken",
             "lamb",
@@ -512,33 +431,220 @@ class BrainV7:
         postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
         sku = data.get("sku") or session.get("last_sku")
         handoff_channel = data.get("handoff_channel")
-
         needs_clarification = bool(data.get("needs_clarification", False))
         clarification_question = data.get("clarification_question") or ""
 
         meta_in = data.get("meta") or {}
         low = user_text.lower()
 
-        # --- meta defaults / normalisation ---
-        search_scope = (
-            meta_in.get("search_scope")
-            or data.get("search_scope")
-            or "top_picks"
-        )
+        # meta defaults
+        search_scope = meta_in.get("search_scope") or "top_picks"
         item_level = bool(meta_in.get("item_level", False))
-        search_tags = meta_in.get("search_tags") or data.get("search_tags") or []
+        search_tags = meta_in.get("search_tags") or []
         if not isinstance(search_tags, list):
             search_tags = []
-
         try:
-            max_items = int(meta_in.get("max_items", data.get("max_items", 8)))
+            max_items = int(meta_in.get("max_items", 8))
         except Exception:
             max_items = 8
-
-        wants_chunking = bool(meta_in.get("wants_chunking", data.get("wants_chunking", False)))
-        primary_cut = meta_in.get("primary_cut") or data.get("primary_cut")
+        wants_chunking = bool(meta_in.get("wants_chunking", False))
+        primary_cut = meta_in.get("primary_cut")
 
         meta = {
             "is_greeting": bool(meta_in.get("is_greeting", False)),
             "is_goodbye": bool(meta_in.get("is_goodbye", False)),
-     
+            "search_scope": search_scope,
+            "item_level": item_level,
+            "search_tags": search_tags,
+            "max_items": max_items,
+            "wants_chunking": wants_chunking,
+            "primary_cut": primary_cut,
+        }
+
+        # bbq upgrade
+        if intent in {"unknown", "faq"} and "bbq" in low:
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
+            if not cat:
+                if "lamb" in low:
+                    cat = "lamb"
+                elif "beef" in low:
+                    cat = "beef"
+                else:
+                    cat = "chicken"
+            product_name = product_name or "bbq selection, mix of popular cuts for grilling"
+
+        # vague meat
+        if intent in {"unknown", "faq"} and low.strip() == "meat":
+            intent = "search_product"
+            action = "ASK_SLOT"
+            needs_clarification = True
+            clarification_question = "Are you looking for chicken, lamb, beef, or a mix of meats?"
+
+        # full catalog detection: "lamb full catalog", "all lamb options"
+        full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
+        if any(k in low for k in full_keywords):
+            for cat_word, cat_key in [("chicken", "chicken"), ("lamb", "lamb"), ("beef", "beef")]:
+                if cat_word in low:
+                    intent = "search_product"
+                    action = "SEARCH_PRODUCTS"
+                    cat = cat_key
+                    search_scope = "full_category"
+                    meta["search_scope"] = search_scope
+                    meta["max_items"] = 30
+                    meta["wants_chunking"] = True
+                    product_name = product_name or f"full {cat_word} catalog"
+                    break
+
+            # truly full store
+            if "product catalog" in low or "full catalog" in low or ("all" in low and not cat):
+                intent = "search_product"
+                action = "SEARCH_PRODUCTS"
+                cat = None
+                search_scope = "full_store"
+                meta["search_scope"] = search_scope
+                meta["max_items"] = 30
+                meta["wants_chunking"] = True
+
+        # item-level cuts like wings / brain / mince
+        detected_cut = None
+        for word in self.CUT_KEYWORDS:
+            if re.search(rf"\b{re.escape(word)}\b", low):
+                detected_cut = word
+                break
+
+        if detected_cut:
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
+            item_level = True
+            meta["item_level"] = True
+            meta["primary_cut"] = detected_cut
+            if detected_cut not in search_tags:
+                search_tags.append(detected_cut)
+                meta["search_tags"] = search_tags
+            meta["search_scope"] = "item_list"
+            meta["max_items"] = max_items or 8
+            # infer category if missing
+            if not cat:
+                if "chicken" in low:
+                    cat = "chicken"
+                elif "lamb" in low:
+                    cat = "lamb"
+                elif "beef" in low:
+                    cat = "beef"
+                elif session.get("last_category"):
+                    cat = session["last_category"]
+            if not product_name:
+                product_name = user_text
+
+        # if intent says CHECK_DELIVERY but no postcode
+        if intent == "check_delivery" and not postcode:
+            action = "ASK_SLOT"
+            needs_clarification = True
+            clarification_question = "What’s your postcode (for example: E1 6AN)?"
+
+        # more-options safety net based on text
+        if intent in {"unknown", "smalltalk"} and self._looks_like_more_options(low):
+            last_cat = session.get("last_category")
+            if last_cat:
+                intent = "search_product"
+                action = "SEARCH_PRODUCTS"
+                cat = last_cat
+                product_name = f"more options in {last_cat}"
+                needs_clarification = False
+                clarification_question = ""
+
+        # greetings safety net
+        if self._is_greeting(low) and intent == "unknown":
+            intent = "greeting"
+            action = "GREET"
+            meta["is_greeting"] = True
+
+        return {
+            "intent": intent,
+            "action": action,
+            "category": cat,
+            "product_name": product_name,
+            "postcode": postcode,
+            "sku": sku,
+            "handoff_channel": handoff_channel,
+            "needs_clarification": needs_clarification,
+            "clarification_question": clarification_question,
+            "meta": meta,
+        }
+
+    # --------------------------------------------------------------- #
+    # BASELINE PLAN                                                    #
+    # --------------------------------------------------------------- #
+
+    def _blank_plan(self, session: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "intent": "unknown",
+            "action": "DO_NOTHING",
+            "category": None,
+            "product_name": None,
+            "postcode": session.get("postcode"),
+            "sku": session.get("last_sku"),
+            "handoff_channel": None,
+            "needs_clarification": False,
+            "clarification_question": "",
+            "meta": {
+                "is_greeting": False,
+                "is_goodbye": False,
+                "search_scope": "top_picks",
+                "item_level": False,
+                "search_tags": [],
+                "max_items": 8,
+                "wants_chunking": False,
+                "primary_cut": None,
+            },
+        }
+
+    # --------------------------------------------------------------- #
+    # UTILITIES                                                        #
+    # --------------------------------------------------------------- #
+
+    @staticmethod
+    def _is_greeting(low: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(hi|hello|hey|salam|salaam|assalamu alaikum|assalamualaikum|as-salamu alaykum)\b",
+                low,
+            )
+        )
+
+    @staticmethod
+    def _looks_like_more_options(low: str) -> bool:
+        return low in {
+            "more",
+            "more options",
+            "all options",
+            "anything else",
+            "show me more",
+            "more please",
+        }
+
+    @staticmethod
+    def _looks_like_delivery(low: str) -> bool:
+        return any(
+            w in low
+            for w in [
+                "deliver",
+                "delivery",
+                "ship",
+                "shipping",
+                "postcode",
+                "post code",
+                "minimum order",
+                "min order",
+            ]
+        )
+
+    @staticmethod
+    def _extract_postcode(text: str) -> Optional[str]:
+        m = re.search(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b", text.upper())
+        if not m:
+            return None
+        pc = m.group(1)
+        pc = re.sub(r"\s+", " ", pc).strip()
+        return pc
