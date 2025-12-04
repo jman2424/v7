@@ -113,9 +113,6 @@ In those cases:
 - meta.search_tags should include the main cut name ("wings", "brain", "mince")
 - meta.primary_cut = that main cut name (e.g. "wings")
 
-This lets the catalog search return ONLY those items and the renderer
-add small, simple information about that cut if needed.
-
 ======================================================================
 CATALOG SCOPE & MESSAGE SIZE
 ======================================================================
@@ -150,7 +147,7 @@ User: "lamb full catalog" or "all lamb options"
      category="lamb"
      meta.search_scope="full_category"
      meta.list_all_items = true
-     meta.max_items about 30
+     meta.max_items ≈ 30
      meta.wants_chunking=true
 
 User: "full product catalog", "show me everything"
@@ -158,7 +155,7 @@ User: "full product catalog", "show me everything"
      category=null
      meta.search_scope="full_store"
      meta.list_all_items = true
-     meta.max_items about 30
+     meta.max_items ≈ 30
      meta.wants_chunking=true
   The renderer will usually answer that the catalog is too big and ask for a category.
 
@@ -248,34 +245,21 @@ class BrainV7:
     """
 
     CUT_KEYWORDS = {
-        "wing",
-        "wings",
-        "thigh",
-        "thighs",
-        "breast",
-        "breasts",
-        "drumstick",
-        "drumsticks",
+        "wing", "wings",
+        "thigh", "thighs",
+        "breast", "breasts",
+        "drumstick", "drumsticks",
         "mince",
-        "burger",
-        "burgers",
-        "steak",
-        "steaks",
-        "chop",
-        "chops",
-        "rib",
-        "ribs",
-        "brain",
-        "brains",
+        "burger", "burgers",
+        "steak", "steaks",
+        "chop", "chops",
+        "rib", "ribs",
+        "brain", "brains",
         "liver",
-        "kidney",
-        "kidneys",
-        "feet",
-        "paya",
-        "nugget",
-        "nuggets",
-        "kebab",
-        "kebabs",
+        "kidney", "kidneys",
+        "feet", "paya",
+        "nugget", "nuggets",
+        "kebab", "kebabs",
     }
 
     # --------------------------------------------------------------- #
@@ -316,7 +300,6 @@ class BrainV7:
             "message": user_text,
             "session": {
                 "postcode": session.get("postcode"),
-            # keep last_* simple but available
                 "last_intent": session.get("last_intent"),
                 "last_category": session.get("last_category"),
                 "last_sku": session.get("last_sku"),
@@ -352,8 +335,8 @@ class BrainV7:
         """
         low = text.lower().strip()
 
-        # --- greetings ---
-        if self._is_greeting(low):
+        # --- greetings (strong) ---
+        if low in {"hi", "hello", "hey", "salam", "salaam"} or self._is_greeting(low):
             return {
                 "intent": "greeting",
                 "action": "GREET",
@@ -367,6 +350,12 @@ class BrainV7:
                 "meta": {
                     "is_greeting": True,
                     "is_goodbye": False,
+                    "search_scope": "top_picks",
+                    "item_level": False,
+                    "search_tags": [],
+                    "max_items": 0,
+                    "wants_chunking": False,
+                    "primary_cut": None,
                 },
             }
 
@@ -412,8 +401,8 @@ class BrainV7:
                     "meta": base_meta,
                 }
 
-        # --- simple meat queries like "meat" / "meat full catalog" ---
-        if low.startswith("meat"):
+        # --- meat queries like "meat", "meat catalog", "meat full catalog" ---
+        if "meat" in low:
             # Customer clearly wants meat but we don't know which type.
             return {
                 "intent": "search_product",
@@ -428,6 +417,12 @@ class BrainV7:
                 "meta": {
                     "is_greeting": False,
                     "is_goodbye": False,
+                    "search_scope": "top_picks",
+                    "item_level": False,
+                    "search_tags": [],
+                    "max_items": 8,
+                    "wants_chunking": False,
+                    "primary_cut": None,
                 },
             }
 
@@ -448,6 +443,12 @@ class BrainV7:
                     "meta": {
                         "is_greeting": False,
                         "is_goodbye": False,
+                        "search_scope": "top_picks",
+                        "item_level": False,
+                        "search_tags": [],
+                        "max_items": 0,
+                        "wants_chunking": False,
+                        "primary_cut": None,
                     },
                 }
             # no postcode anywhere → ask for it
@@ -464,6 +465,12 @@ class BrainV7:
                 "meta": {
                     "is_greeting": False,
                     "is_goodbye": False,
+                    "search_scope": "top_picks",
+                    "item_level": False,
+                    "search_tags": [],
+                    "max_items": 0,
+                    "wants_chunking": False,
+                    "primary_cut": None,
                 },
             }
 
@@ -476,12 +483,7 @@ class BrainV7:
     def _post_process(self, raw: str, user_text: str, session: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parse the LLM JSON, enforce allowed values, and upgrade behaviour
-        for common patterns:
-        - bbq queries
-        - vague "meat"
-        - more options
-        - full catalog / all options
-        - item-level cuts like wings / brain / mince
+        for common patterns (bbq, vague meat, full catalog, item cuts, more options).
         """
         try:
             data = json.loads(raw)
@@ -515,12 +517,9 @@ class BrainV7:
         clarification_question = data.get("clarification_question") or ""
 
         meta_in = data.get("meta") or {}
-
         low = user_text.lower()
 
-        # ------------------------------------------------------------------
-        # Base meta defaults (extended)
-        # ------------------------------------------------------------------
+        # --- meta defaults / normalisation ---
         search_scope = (
             meta_in.get("search_scope")
             or data.get("search_scope")
@@ -542,17 +541,4 @@ class BrainV7:
         meta = {
             "is_greeting": bool(meta_in.get("is_greeting", False)),
             "is_goodbye": bool(meta_in.get("is_goodbye", False)),
-            "search_scope": search_scope,
-            "item_level": item_level,
-            "search_tags": search_tags,
-            "max_items": max_items,
-            "wants_chunking": wants_chunking,
-            "primary_cut": primary_cut,
-        }
-
-        # ------------------------------------------------------------------
-        # Heuristics: BBQ / vague meat
-        # ------------------------------------------------------------------
-        if intent in {"unknown", "faq"} and "bbq" in low:
-            intent = "search_product"
-            actio
+     
