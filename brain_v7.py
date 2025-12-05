@@ -60,7 +60,8 @@ ACTIONS (pick one)
 SLOTS
 ======================================================================
 category:
-  "chicken" | "lamb" | "beef" | "groceries" | "marinated_meats" | "frozen_meats" | null
+  Free form string derived from the store’s data such as:
+  "chicken", "lamb", "beef", "groceries", "poultry", "exotic_meats", etc. OR null.
 
 product_name:
   - Free text used for catalog search.
@@ -178,25 +179,16 @@ Required fields:
 """
 
 
-# -------------------------------------------------------------------
-# CONFIG DATACLASS
-# -------------------------------------------------------------------
-
-
 @dataclass
 class BrainConfig:
     model: str = DEFAULT_MODEL
     system_prompt: str = SYSTEM_PROMPT
 
 
-# -------------------------------------------------------------------
-# BRAIN IMPLEMENTATION
-# -------------------------------------------------------------------
-
-
 class BrainV7:
     """
     Planning-only brain for V7.
+    Generic: no hardcoded category list; works with any store schema.
     """
 
     CUT_KEYWORDS = {
@@ -397,19 +389,14 @@ class BrainV7:
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
-        # Normalise category against the core meat families
-        allowed_categories = {
-            "chicken",
-            "lamb",
-            "beef",
-            "groceries",
-            "marinated_meats",
-            "frozen_meats",
-        }
-        cat = data.get("category")
-        cat = str(cat).lower() if cat is not None else None
-        if cat not in allowed_categories:
+        # Generic category normalisation:
+        # - lower-case
+        # - spaces -> underscores
+        cat_raw = data.get("category")
+        if cat_raw is None or str(cat_raw).strip() == "":
             cat = None
+        else:
+            cat = str(cat_raw).strip().lower().replace(" ", "_")
 
         product_name = data.get("product_name")
         postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
@@ -474,17 +461,12 @@ class BrainV7:
         # -----------------------------------------------------------
         full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
         if any(k in low for k in full_keywords):
-            for cat_word, cat_key in [
-                ("chicken", "chicken"),
-                ("lamb", "lamb"),
-                ("beef", "beef"),
-            ]:
+            for cat_word in ["chicken", "lamb", "beef"]:
                 if cat_word in low:
                     intent = "search_product"
                     action = "SEARCH_PRODUCTS"
-                    cat = cat_key
-                    search_scope = "full_category"
-                    meta["search_scope"] = search_scope
+                    cat = cat or cat_word  # keep existing if LLM already picked
+                    meta["search_scope"] = "full_category"
                     meta["max_items"] = 30
                     meta["wants_chunking"] = True
                     product_name = product_name or f"full {cat_word} catalog"
@@ -495,8 +477,7 @@ class BrainV7:
                 intent = "search_product"
                 action = "SEARCH_PRODUCTS"
                 cat = None
-                search_scope = "full_store"
-                meta["search_scope"] = search_scope
+                meta["search_scope"] = "full_store"
                 meta["max_items"] = 30
                 meta["wants_chunking"] = True
 
@@ -563,6 +544,19 @@ class BrainV7:
             intent = "greeting"
             action = "GREET"
             meta["is_greeting"] = True
+
+        # -----------------------------------------------------------
+        # FINAL SAFETY NET: unknown -> product search
+        # -----------------------------------------------------------
+        if intent == "unknown":
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
+            if not product_name:
+                product_name = user_text
+            if not cat and session.get("last_category"):
+                cat = session["last_category"]
+            needs_clarification = False
+            clarification_question = ""
 
         return {
             "intent": intent,
