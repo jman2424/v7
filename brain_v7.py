@@ -178,13 +178,27 @@ Required fields:
 """
 
 
+# -------------------------------------------------------------------
+# CONFIG DATACLASS
+# -------------------------------------------------------------------
+
+
 @dataclass
 class BrainConfig:
     model: str = DEFAULT_MODEL
     system_prompt: str = SYSTEM_PROMPT
 
 
+# -------------------------------------------------------------------
+# BRAIN IMPLEMENTATION
+# -------------------------------------------------------------------
+
+
 class BrainV7:
+    """
+    Planning-only brain for V7.
+    """
+
     CUT_KEYWORDS = {
         "wing", "wings",
         "thigh", "thighs",
@@ -225,12 +239,12 @@ class BrainV7:
         if not user_text:
             return self._blank_plan(session)
 
-        # 1) fast path
+        # 1) Fast path
         fast = self._fast_path(user_text, session)
         if fast is not None:
             return fast
 
-        # 2) LLM plan
+        # 2) Full LLM plan
         payload = {
             "message": user_text,
             "session": {
@@ -263,8 +277,21 @@ class BrainV7:
     def _fast_path(self, text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         low = text.lower().strip()
 
+        base_meta = {
+            "is_greeting": False,
+            "is_goodbye": False,
+            "search_scope": "top_picks",
+            "item_level": False,
+            "search_tags": [],
+            "max_items": 8,
+            "wants_chunking": False,
+            "primary_cut": None,
+        }
+
         # greetings
         if self._is_greeting(low):
+            meta = dict(base_meta)
+            meta["is_greeting"] = True
             return {
                 "intent": "greeting",
                 "action": "GREET",
@@ -275,32 +302,14 @@ class BrainV7:
                 "handoff_channel": None,
                 "needs_clarification": False,
                 "clarification_question": "",
-                "meta": {
-                    "is_greeting": True,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
+                "meta": meta,
             }
 
         # more / more options
         if low in {"more", "more options", "all options", "anything else"}:
             last_cat = session.get("last_category")
             last_intent = session.get("last_intent")
-            base_meta = {
-                "is_greeting": False,
-                "is_goodbye": False,
-                "search_scope": "top_picks",
-                "item_level": False,
-                "search_tags": [],
-                "max_items": 8,
-                "wants_chunking": False,
-                "primary_cut": None,
-            }
+
             if last_cat:
                 return {
                     "intent": "search_product",
@@ -312,8 +321,9 @@ class BrainV7:
                     "handoff_channel": None,
                     "needs_clarification": False,
                     "clarification_question": "",
-                    "meta": base_meta,
+                    "meta": dict(base_meta),
                 }
+
             if last_intent in {"search_product", "browse_category"}:
                 return {
                     "intent": "search_product",
@@ -325,7 +335,7 @@ class BrainV7:
                     "handoff_channel": None,
                     "needs_clarification": False,
                     "clarification_question": "",
-                    "meta": base_meta,
+                    "meta": dict(base_meta),
                 }
 
         # "meat" / "meat catalog"
@@ -340,16 +350,7 @@ class BrainV7:
                 "handoff_channel": None,
                 "needs_clarification": True,
                 "clarification_question": "Are you looking for chicken, lamb, beef, or a mix of meats?",
-                "meta": {
-                    "is_greeting": False,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
+                "meta": dict(base_meta),
             }
 
         # delivery with postcode
@@ -366,16 +367,7 @@ class BrainV7:
                     "handoff_channel": None,
                     "needs_clarification": False,
                     "clarification_question": "",
-                    "meta": {
-                        "is_greeting": False,
-                        "is_goodbye": False,
-                        "search_scope": "top_picks",
-                        "item_level": False,
-                        "search_tags": [],
-                        "max_items": 8,
-                        "wants_chunking": False,
-                        "primary_cut": None,
-                    },
+                    "meta": dict(base_meta),
                 }
             return {
                 "intent": "check_delivery",
@@ -387,16 +379,7 @@ class BrainV7:
                 "handoff_channel": None,
                 "needs_clarification": True,
                 "clarification_question": "What’s your postcode (for example: E1 6AN)?",
-                "meta": {
-                    "is_greeting": False,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
+                "meta": dict(base_meta),
             }
 
         return None
@@ -414,6 +397,7 @@ class BrainV7:
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
+        # Normalise category against the core meat families
         allowed_categories = {
             "chicken",
             "lamb",
@@ -461,7 +445,9 @@ class BrainV7:
             "primary_cut": primary_cut,
         }
 
-        # bbq upgrade
+        # -----------------------------------------------------------
+        # BBQ upgrade
+        # -----------------------------------------------------------
         if intent in {"unknown", "faq"} and "bbq" in low:
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
@@ -474,17 +460,25 @@ class BrainV7:
                     cat = "chicken"
             product_name = product_name or "bbq selection, mix of popular cuts for grilling"
 
-        # vague meat
+        # -----------------------------------------------------------
+        # Vague "meat"
+        # -----------------------------------------------------------
         if intent in {"unknown", "faq"} and low.strip() == "meat":
             intent = "search_product"
             action = "ASK_SLOT"
             needs_clarification = True
             clarification_question = "Are you looking for chicken, lamb, beef, or a mix of meats?"
 
-        # full catalog detection: "lamb full catalog", "all lamb options"
+        # -----------------------------------------------------------
+        # Full catalog detection: "lamb full catalog", "all lamb options"
+        # -----------------------------------------------------------
         full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
         if any(k in low for k in full_keywords):
-            for cat_word, cat_key in [("chicken", "chicken"), ("lamb", "lamb"), ("beef", "beef")]:
+            for cat_word, cat_key in [
+                ("chicken", "chicken"),
+                ("lamb", "lamb"),
+                ("beef", "beef"),
+            ]:
                 if cat_word in low:
                     intent = "search_product"
                     action = "SEARCH_PRODUCTS"
@@ -506,7 +500,9 @@ class BrainV7:
                 meta["max_items"] = 30
                 meta["wants_chunking"] = True
 
-        # item-level cuts like wings / brain / mince
+        # -----------------------------------------------------------
+        # Item-level cuts like wings / brain / mince
+        # -----------------------------------------------------------
         detected_cut = None
         for word in self.CUT_KEYWORDS:
             if re.search(rf"\b{re.escape(word)}\b", low):
@@ -524,6 +520,7 @@ class BrainV7:
                 meta["search_tags"] = search_tags
             meta["search_scope"] = "item_list"
             meta["max_items"] = max_items or 8
+
             # infer category if missing
             if not cat:
                 if "chicken" in low:
@@ -534,16 +531,21 @@ class BrainV7:
                     cat = "beef"
                 elif session.get("last_category"):
                     cat = session["last_category"]
+
             if not product_name:
                 product_name = user_text
 
-        # if intent says CHECK_DELIVERY but no postcode
+        # -----------------------------------------------------------
+        # Delivery intent with no postcode
+        # -----------------------------------------------------------
         if intent == "check_delivery" and not postcode:
             action = "ASK_SLOT"
             needs_clarification = True
             clarification_question = "What’s your postcode (for example: E1 6AN)?"
 
-        # more-options safety net based on text
+        # -----------------------------------------------------------
+        # More-options safety net based on text
+        # -----------------------------------------------------------
         if intent in {"unknown", "smalltalk"} and self._looks_like_more_options(low):
             last_cat = session.get("last_category")
             if last_cat:
@@ -554,7 +556,9 @@ class BrainV7:
                 needs_clarification = False
                 clarification_question = ""
 
-        # greetings safety net
+        # -----------------------------------------------------------
+        # Greetings safety net
+        # -----------------------------------------------------------
         if self._is_greeting(low) and intent == "unknown":
             intent = "greeting"
             action = "GREET"
