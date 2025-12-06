@@ -60,12 +60,10 @@ ACTIONS (pick one)
 SLOTS
 ======================================================================
 category:
-  - A broad product family like "chicken", "lamb", "beef",
-    "groceries", "marinated_meats", "frozen_meats", "exotic_meats", etc.
-  - Use snake_case where possible:
-      "Exotic Meats"  -> "exotic_meats"
-      "Frozen Meats"  -> "frozen_meats"
-  - If unsure, you may leave it null.
+  - Short category key like "poultry", "lamb", "beef", "groceries",
+    "marinated_meats", "frozen_meats", "exotic_meats", etc.
+  - Use whatever categories exist for the store.
+  - null if no category is implied.
 
 product_name:
   - Free text used for catalog search.
@@ -183,13 +181,30 @@ Required fields:
 """
 
 
+# -------------------------------------------------------------------
+# CONFIG DATACLASS
+# -------------------------------------------------------------------
+
 @dataclass
 class BrainConfig:
     model: str = DEFAULT_MODEL
     system_prompt: str = SYSTEM_PROMPT
 
 
+# -------------------------------------------------------------------
+# BRAIN IMPLEMENTATION
+# -------------------------------------------------------------------
+
 class BrainV7:
+    """
+    StoreBrainV7 — planning-only brain for V7.
+
+    Dynamic version:
+    - No hard-coded category list.
+    - Any category string from the model/user is accepted (normalised).
+    - Still gives hints about size (search_scope, max_items, wants_chunking).
+    """
+
     CUT_KEYWORDS = {
         "wing", "wings",
         "thigh", "thighs",
@@ -334,7 +349,7 @@ class BrainV7:
                 }
 
         # "meat" / "meat catalog"
-        if low == "meat" or low.startswith("meat "):
+        if low.startswith("meat"):
             return {
                 "intent": "search_product",
                 "action": "ASK_SLOT",
@@ -419,16 +434,15 @@ class BrainV7:
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
-        # ---------- FLEXIBLE CATEGORY NORMALISER (NO HARD-CODED LIST) ----------
-        cat_raw = data.get("category")
-        cat: Optional[str] = None
-        if isinstance(cat_raw, str):
-            c = cat_raw.strip().lower()
-            if c:
-                # normalise spaces & then snake_case
-                # e.g. "Exotic Meats" -> "exotic_meats"
-                c = re.sub(r"\s+", " ", c)
-                cat = c.replace(" ", "_")
+        # dynamic category: accept any string, just normalise
+        cat = data.get("category")
+        if isinstance(cat, str):
+            cat = cat.strip()
+            if not cat:
+                cat = None
+            else:
+                # normalise spaces / casing but DO NOT restrict values
+                cat = re.sub(r"\s+", "_", cat.lower())
         else:
             cat = None
 
@@ -470,13 +484,8 @@ class BrainV7:
         if intent in {"unknown", "faq"} and "bbq" in low:
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
-            if not cat:
-                if "lamb" in low:
-                    cat = "lamb"
-                elif "beef" in low:
-                    cat = "beef"
-                else:
-                    cat = "chicken"
+            # if model didn't pick a category, we don't force it:
+            # keep cat as-is (could be None); catalog layer can still search.
             product_name = product_name or "bbq selection, mix of popular cuts for grilling"
 
         # vague meat
@@ -486,33 +495,23 @@ class BrainV7:
             needs_clarification = True
             clarification_question = "Are you looking for chicken, lamb, beef, or a mix of meats?"
 
-        # full catalog detection: "lamb full catalog", "all lamb options"
+        # full catalog detection: "full catalog", "all options", etc.
         full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
         if any(k in low for k in full_keywords):
-            for cat_word in ["chicken", "lamb", "beef", "groceries", "marinated", "frozen", "exotic"]:
-                if cat_word in low:
-                    intent = "search_product"
-                    action = "SEARCH_PRODUCTS"
-                    if not cat:
-                        # generic: normalise like earlier ("exotic" -> "exotic_meats" is still handled by catalog tags)
-                        base = cat_word
-                        if cat_word in {"marinated", "frozen", "exotic"}:
-                            base = f"{cat_word}_meats"
-                        cat = base
-                    meta["search_scope"] = "full_category"
-                    meta["max_items"] = 30
-                    meta["wants_chunking"] = True
-                    if not product_name:
-                        product_name = f"full {cat_word} catalog"
-                    break
-
-            # truly full store
-            if ("product catalog" in low or "full catalog" in low) and not cat:
+            # if the model already suggested a category, treat it as full_category
+            if cat:
                 intent = "search_product"
                 action = "SEARCH_PRODUCTS"
-                cat = None
+                meta["search_scope"] = "full_category"
+                meta["max_items"] = max_items if max_items > 8 else 30
+                meta["wants_chunking"] = True
+                product_name = product_name or f"full {cat.replace('_', ' ')} catalog"
+            else:
+                # no category → full store
+                intent = "search_product"
+                action = "SEARCH_PRODUCTS"
                 meta["search_scope"] = "full_store"
-                meta["max_items"] = 30
+                meta["max_items"] = max_items if max_items > 8 else 30
                 meta["wants_chunking"] = True
 
         # item-level cuts like wings / brain / mince
@@ -531,18 +530,14 @@ class BrainV7:
             if detected_cut not in search_tags:
                 search_tags.append(detected_cut)
                 meta["search_tags"] = search_tags
-            meta["search_scope"] = "item_list"
-            meta["max_items"] = max_items or 8
-            # infer category if missing
-            if not cat:
-                if "chicken" in low:
-                    cat = "chicken"
-                elif "lamb" in low:
-                    cat = "lamb"
-                elif "beef" in low:
-                    cat = "beef"
-                elif session.get("last_category"):
-                    cat = session["last_category"]
+            if meta["search_scope"] in {"top_picks", None}:
+                meta["search_scope"] = "item_list"
+            if not max_items or max_items < 1:
+                meta["max_items"] = 8
+
+            # infer category only very lightly; keep it dynamic
+            if not cat and session.get("last_category"):
+                cat = session["last_category"]
             if not product_name:
                 product_name = user_text
 
