@@ -28,6 +28,8 @@ class MessageHandlerV7:
         self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
         self.overrides = getattr(deps, "overrides", None)
+        # optional explicit synonyms dep
+        self.synonyms = getattr(deps, "synonyms", None)
 
         # Optional extras
         self.logger = getattr(deps, "logger", None)
@@ -51,16 +53,19 @@ class MessageHandlerV7:
             "last_sku": sess.get("last_sku"),
         }
 
-        # 2) Ask BrainV7 for a plan (intent + action + slots)
-        plan = self._safe_plan(user_text=user_text, session=session_snapshot)
+        # 2) Build dynamic hints from catalog + synonyms
+        hints = self._brain_hints()
 
-        # 3) Execute tools according to the plan (grounding layer)
+        # 3) Ask BrainV7 for a plan (intent + action + slots)
+        plan = self._safe_plan(user_text=user_text, session=session_snapshot, hints=hints)
+
+        # 4) Execute tools according to the plan (grounding layer)
         facts = self._execute_plan(plan, user_text, session_snapshot)
 
-        # 4) Derive entities from the plan (for session + analytics)
+        # 5) Derive entities from the plan (for session + analytics)
         entities = self._entities_from_plan(plan)
 
-        # 5) Let RendererV7 craft the final reply
+        # 6) Let RendererV7 craft the final reply
         reply_text = self.renderer.render(
             user_text=user_text,
             plan=plan,
@@ -68,7 +73,7 @@ class MessageHandlerV7:
             session=session_snapshot,
         )
 
-        # 6) Unified payload for the master handler
+        # 7) Unified payload for the master handler
         return {
             "reply": reply_text,
             "mode": "v7",
@@ -78,10 +83,98 @@ class MessageHandlerV7:
         }
 
     # ------------------------------------------------------------------
+    # INTERNAL: BUILD HINTS FOR BRAINV7
+    # ------------------------------------------------------------------
+
+    def _brain_hints(self) -> Dict[str, Any]:
+        """
+        Build the hints dict passed into BrainV7.plan.
+
+        - categories: list[{"id": ..., "name": ...}] from the catalog.
+        - category_synonyms: mapping from overrides / synonyms / catalog if available.
+        """
+        hints: Dict[str, Any] = {}
+
+        # ----- categories from catalog -----
+        categories: List[Dict[str, str]] = []
+
+        if self.catalog:
+            try:
+                raw_cats = None
+
+                # Try common method names first
+                if hasattr(self.catalog, "categories") and callable(self.catalog.categories):
+                    raw_cats = self.catalog.categories()
+                elif hasattr(self.catalog, "all_categories") and callable(self.catalog.all_categories):
+                    raw_cats = self.catalog.all_categories()
+                elif hasattr(self.catalog, "list_categories") and callable(self.catalog.list_categories):
+                    raw_cats = self.catalog.list_categories()
+                # Fallback to a data attribute
+                elif hasattr(self.catalog, "data"):
+                    data = getattr(self.catalog, "data")
+                    if isinstance(data, dict):
+                        raw_cats = data.get("categories") or data.get("families")
+
+                if raw_cats is None:
+                    raw_cats = []
+
+                norm_cats: List[Dict[str, str]] = []
+                for c in raw_cats:
+                    cid: Optional[str] = None
+                    cname: Optional[str] = None
+
+                    if isinstance(c, dict):
+                        cid = (
+                            str(c.get("id") or c.get("code") or c.get("key") or c.get("slug") or c.get("name") or "")
+                            .strip()
+                        )
+                        cname = str(c.get("name") or c.get("label") or cid).strip()
+                    elif isinstance(c, str):
+                            cid = c.strip()
+                            cname = cid.replace("_", " ").title()
+                    else:
+                        continue
+
+                    if not cid and not cname:
+                        continue
+
+                    norm_cats.append({"id": cid or cname, "name": cname or cid})
+
+                categories = norm_cats
+
+            except Exception as e:
+                if self.logger:
+                    self.logger.exception("V7: building category hints failed: %s", e)
+
+        hints["categories"] = categories
+
+        # ----- category_synonyms from deps -----
+        syn_src = None
+        if self.synonyms is not None:
+            syn_src = self.synonyms
+        elif self.overrides is not None and hasattr(self.overrides, "synonyms"):
+            syn_src = getattr(self.overrides, "synonyms")
+        elif self.catalog is not None and hasattr(self.catalog, "synonyms"):
+            syn_src = getattr(self.catalog, "synonyms")
+
+        if syn_src:
+            try:
+                # Expecting dict-like mapping
+                if isinstance(syn_src, dict):
+                    hints["category_synonyms"] = syn_src
+                elif hasattr(syn_src, "to_dict"):
+                    hints["category_synonyms"] = syn_src.to_dict()
+            except Exception as e:
+                if self.logger:
+                    self.logger.exception("V7: building synonym hints failed: %s", e)
+
+        return hints
+
+    # ------------------------------------------------------------------
     # INTERNAL: BRAIN WRAPPER
     # ------------------------------------------------------------------
 
-    def _safe_plan(self, user_text: str, session: Dict[str, Any]) -> Dict[str, Any]:
+    def _safe_plan(self, user_text: str, session: Dict[str, Any], hints: Dict[str, Any]) -> Dict[str, Any]:
         """
         Wrap BrainV7.plan with a hard fallback so a model error
         never crashes the WhatsApp webhook.
@@ -91,7 +184,7 @@ class MessageHandlerV7:
                 user_text=user_text,
                 session=session,
                 history=[],  # can plug recent turns here later
-                hints={},
+                hints=hints,
             )
         except Exception as e:
             if self.logger:
@@ -204,9 +297,8 @@ class MessageHandlerV7:
                 try:
                     price_val = self.catalog.price_of(sku)
                     in_stock = self.catalog.in_stock(sku)
-                    # optional: name/unit if your catalog exposes them
                     try:
-                        meta_info = self.catalog.meta_of(sku)  # safe wrapper if you have it
+                        meta_info = self.catalog.meta_of(sku)
                     except Exception:
                         meta_info = {}
                 except Exception as e:
@@ -243,7 +335,6 @@ class MessageHandlerV7:
                         except Exception:
                             placeholders["delivery_summary"] = ""
 
-                    # nearest branch placeholder if we already fetched it
                     if session.get("nearest_branch_id") and facts.get("branch", {}).get("nearest"):
                         placeholders["branch_name"] = (
                             facts["branch"]["nearest"].get("name") or ""
@@ -311,33 +402,27 @@ class MessageHandlerV7:
 
         # 2) Main text query
         if product_name:
-            # Product-level or free-text search
             query = str(product_name).strip()
 
         elif category:
-            # Category-based search; keep generic so it works for any store
             cat_key = str(category).strip().lower()
             human_cat = cat_key.replace("_", " ")
             query = human_cat or cat_key
 
-            # Use the raw category key as a tag
             if cat_key and cat_key not in tags:
                 tags.append(cat_key)
 
-            # Also add split tokens ("exotic_meats" -> "exotic", "meats")
             for token in human_cat.split():
                 token = token.strip()
                 if token and token not in tags:
                     tags.append(token)
 
         else:
-            # No structured signal – just use raw user text
             query = user_text
 
-        # 3) If we still have no category but do have strong tags (e.g. "wings", "mince"),
+        # 3) If we still have no category but do have strong tags,
         #    use them to steer the query as a virtual category.
         if not category and not product_name and tags:
-            # Example: tags = ["wings"] -> query "wings"
             query = " ".join(tags)
 
         query = (query or "").strip()
