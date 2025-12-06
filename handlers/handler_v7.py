@@ -33,7 +33,6 @@ class MessageHandlerV7:
         self.logger = getattr(deps, "logger", None)
 
         # Brain + renderer
-        # BrainV7 uses the OpenAI SDK; API key is taken from env/settings.
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         self.renderer = RendererV7(getattr(deps, "rewriter", None))
 
@@ -128,33 +127,13 @@ class MessageHandlerV7:
         """
         action = (plan.get("action") or "DO_NOTHING").strip().upper()
         intent = (plan.get("intent") or "unknown").strip()
+        meta = plan.get("meta") or {}
         facts: Dict[str, Any] = {}
 
         category = plan.get("category")
         product_name = plan.get("product_name") or None
         postcode = plan.get("postcode") or session.get("postcode")
         sku = plan.get("sku")
-
-        # --- META from BrainV7 (controls scope + message size) ---
-        meta = plan.get("meta") or {}
-        search_scope = meta.get("search_scope", "top_picks")
-        item_level = bool(meta.get("item_level", False))
-        search_tags_meta = meta.get("search_tags") or []
-        wants_chunking = bool(meta.get("wants_chunking", False))
-
-        try:
-            max_items = int(meta.get("max_items", 6))
-        except Exception:
-            max_items = 6
-
-        # expose for renderer (for chunking, pagination, etc.)
-        facts["search_meta"] = {
-            "scope": search_scope,
-            "item_level": item_level,
-            "search_tags": search_tags_meta,
-            "max_items": max_items,
-            "wants_chunking": wants_chunking,
-        }
 
         # --- DELIVERY CHECK ---
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
@@ -191,35 +170,27 @@ class MessageHandlerV7:
                 meta=meta,
             )
 
-            # merge any tags suggested by the brain (e.g. "wings", "brain")
-            for t in search_tags_meta:
-                t = str(t).strip().lower()
-                if t and t not in tags:
-                    tags.append(t)
-
             if self.logger:
                 self.logger.info(
-                    "V7: catalog.search action=%s intent=%s query=%r tags=%r category=%r product_name=%r scope=%s max_items=%s",
+                    "V7: catalog.search action=%s intent=%s query=%r tags=%r category=%r product_name=%r meta=%r",
                     action,
                     intent,
                     query,
                     tags,
                     category,
                     product_name,
-                    search_scope,
-                    max_items,
+                    meta,
                 )
 
             if self.catalog and (query or tags):
-                # limit controls how many items we ever pull from the catalog
-                # BrainV7 decides rough size; renderer decides how to display.
-                search_limit = max_items
-                # for full_category / full_store, allow a bit more headroom
-                if search_scope in {"full_category", "full_store"}:
-                    search_limit = max(search_limit, 30)
+                try:
+                    # Use meta.max_items if present, otherwise default to 8
+                    limit = int(meta.get("max_items") or 8)
+                except Exception:
+                    limit = 8
 
                 try:
-                    items = self.catalog.search(text=query, tags=tags, limit=search_limit)
+                    items = self.catalog.search(text=query, tags=tags, limit=limit)
                 except Exception as e:
                     if self.logger:
                         self.logger.exception("V7: catalog.search failed: %s", e)
@@ -233,14 +204,21 @@ class MessageHandlerV7:
                 try:
                     price_val = self.catalog.price_of(sku)
                     in_stock = self.catalog.in_stock(sku)
+                    # optional: name/unit if your catalog exposes them
+                    try:
+                        meta_info = self.catalog.meta_of(sku)  # safe wrapper if you have it
+                    except Exception:
+                        meta_info = {}
                 except Exception as e:
                     if self.logger:
                         self.logger.exception("V7: price check failed: %s", e)
-                    price_val, in_stock = None, None
+                    price_val, in_stock, meta_info = None, None, {}
                 facts["price"] = {
                     "sku": sku,
                     "price": price_val,
                     "in_stock": in_stock,
+                    "name": meta_info.get("name"),
+                    "unit": meta_info.get("unit"),
                 }
 
         # --- STORE / FAQ LOOKUP ---
@@ -300,40 +278,69 @@ class MessageHandlerV7:
         """
         Decide what to send to catalog.search as (text, tags).
 
-        New behaviour:
-        - Uses BrainV7 meta.search_tags for item-level searches ("wings", "lamb brain").
-        - Category becomes a strong tag (so 'wings' + last_category='chicken'
-          -> tags contain 'chicken' AND 'wings').
-        - Still keeps behaviour for category-only queries and fallback to user_text.
+        - Use Brain meta:
+            * meta.search_tags
+            * meta.primary_cut
+            * meta.search_scope
+        - If product_name is present, start from that.
+        - If only category is present, use it as both text + tag.
+        - If nothing is present, fall back to user_text.
+        - For cut-level requests ("wings", "mince"), meta.search_tags
+          becomes the "virtual category" built from product data.
         """
         tags: List[str] = []
         query = ""
 
-        # Prefer explicit product_name as text query
-        if product_name:
-            query = product_name
-        elif category:
-            cat = str(category).strip().lower()
-            query = cat.replace("_", " ")
-        else:
-            query = user_text
+        meta = meta or {}
 
-        # Always tag with category if we have one
-        if category:
-            cat = str(category).strip().lower()
-            if cat:
-                tags.append(cat)
-                for token in cat.replace("_", " ").split():
-                    token = token.strip()
-                    if token and token not in tags:
-                        tags.append(token)
+        # 1) Seed tags from meta.search_tags / primary_cut
+        meta_tags = meta.get("search_tags") or []
+        if isinstance(meta_tags, str):
+            meta_tags = [meta_tags]
 
-        # Also add any meta search tags (cuts like wings / brain / mince)
-        for t in meta.get("search_tags") or []:
+        for t in meta_tags:
             t = str(t).strip().lower()
             if t and t not in tags:
                 tags.append(t)
 
+        primary_cut = meta.get("primary_cut")
+        if primary_cut:
+            primary_cut = str(primary_cut).strip().lower()
+            if primary_cut and primary_cut not in tags:
+                tags.append(primary_cut)
+
+        # 2) Main text query
+        if product_name:
+            # Product-level or free-text search
+            query = str(product_name).strip()
+
+        elif category:
+            # Category-based search; keep generic so it works for any store
+            cat_key = str(category).strip().lower()
+            human_cat = cat_key.replace("_", " ")
+            query = human_cat or cat_key
+
+            # Use the raw category key as a tag
+            if cat_key and cat_key not in tags:
+                tags.append(cat_key)
+
+            # Also add split tokens ("exotic_meats" -> "exotic", "meats")
+            for token in human_cat.split():
+                token = token.strip()
+                if token and token not in tags:
+                    tags.append(token)
+
+        else:
+            # No structured signal – just use raw user text
+            query = user_text
+
+        # 3) If we still have no category but do have strong tags (e.g. "wings", "mince"),
+        #    use them to steer the query as a virtual category.
+        if not category and not product_name and tags:
+            # Example: tags = ["wings"] -> query "wings"
+            query = " ".join(tags)
+
+        query = (query or "").strip()
         return query, tags
 
     # ------------------------------------------------------------------
