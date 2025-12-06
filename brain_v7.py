@@ -201,7 +201,7 @@ class BrainV7:
 
     Dynamic version:
     - No hard-coded category list.
-    - Any category string from the model/user is accepted (normalised).
+    - Categories are inferred from hints (catalog + synonyms) and/or the model.
     - Still gives hints about size (search_scope, max_items, wants_chunking).
     """
 
@@ -274,7 +274,7 @@ class BrainV7:
             messages=messages,
         )
         raw = completion.choices[0].message.content
-        return self._post_process(raw, user_text, session)
+        return self._post_process(raw, user_text, session, hints)
 
     # --------------------------------------------------------------- #
     # FAST PATH                                                       #
@@ -422,10 +422,194 @@ class BrainV7:
         return None
 
     # --------------------------------------------------------------- #
+    # CATEGORY MAP (dynamic from hints)                               #
+    # --------------------------------------------------------------- #
+
+    @staticmethod
+    def _norm_cat_key(raw: str) -> str:
+        """Turn IDs / names into a canonical internal key, e.g.
+        'EXOTIC MEATS' -> 'exotic_meats'
+        """
+        raw = (raw or "").strip().lower()
+        raw = re.sub(r"\s+", "_", raw)
+        return raw
+
+    @staticmethod
+    def _clean_phrase(label: str) -> str:
+        """Normalise phrases for matching inside user text."""
+        label = (label or "").lower()
+        label = re.sub(r"[^a-z0-9\s]+", " ", label)
+        label = re.sub(r"\s+", " ", label).strip()
+        return label
+
+    @classmethod
+    def _add_label_variants(cls, mapping: Dict[str, str], label: str, key: str) -> None:
+        """Add both singular/plural variants for a phrase."""
+        base = cls._clean_phrase(label)
+        if not base:
+            return
+        if base not in mapping:
+            mapping[base] = key
+
+        # crude singular/plural handling on last token
+        parts = base.split()
+        if not parts:
+            return
+        last = parts[-1]
+        singular = None
+        plural = None
+        if last.endswith("s"):
+            singular = last[:-1]
+        else:
+            plural = last + "s"
+
+        if singular:
+            s_phrase = " ".join(parts[:-1] + [singular])
+            if s_phrase and s_phrase not in mapping:
+                mapping[s_phrase] = key
+        if plural:
+            p_phrase = " ".join(parts[:-1] + [plural])
+            if p_phrase and p_phrase not in mapping:
+                mapping[p_phrase] = key
+
+    def _build_category_mapping(self, hints: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Build a dynamic map from phrases -> canonical category key.
+
+        Example mapping entries:
+        - "beef" -> "beef"
+        - "cow meat" -> "beef"
+        - "exotic meats" -> "exotic_meats"
+        - "exotic meat" -> "exotic_meats"
+        """
+        mapping: Dict[str, str] = {}
+
+        categories = hints.get("categories") or []
+        cat_syn = hints.get("category_synonyms") or hints.get("synonyms") or {}
+
+        # from categories list
+        for c in categories:
+            cid = str(c.get("id") or "").strip()
+            cname = str(c.get("name") or "").strip()
+            if not cid and not cname:
+                continue
+            key_source = cid or cname
+            key = self._norm_cat_key(key_source)
+
+            # ID and name as phrases
+            if cid:
+                self._add_label_variants(mapping, cid, key)
+            if cname:
+                self._add_label_variants(mapping, cname, key)
+
+        # from synonyms mapping
+        if isinstance(cat_syn, dict):
+            for base, syns in cat_syn.items():
+                base_key = self._norm_cat_key(str(base))
+                self._add_label_variants(mapping, str(base), base_key)
+                if isinstance(syns, list):
+                    for s in syns:
+                        self._add_label_variants(mapping, str(s), base_key)
+
+        return mapping
+
+    def _resolve_category(
+        self,
+        raw_cat: Any,
+        user_text: str,
+        session: Dict[str, Any],
+        hints: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Decide the final category key:
+        - Prefer hints-based mapping (categories + synonyms).
+        - Fallback to model's raw category, normalised.
+        - Fallback to session.last_category.
+        """
+        mapping = self._build_category_mapping(hints)
+        low = user_text.lower()
+
+        # 1) If we have a model-suggested category, try to map it
+        if isinstance(raw_cat, str) and raw_cat.strip():
+            cleaned = self._clean_phrase(raw_cat)
+            key_from_clean = mapping.get(cleaned)
+            if key_from_clean:
+                return key_from_clean
+
+            norm_key = self._norm_cat_key(raw_cat)
+            if norm_key in mapping.values():
+                return norm_key
+
+        # 2) Infer from user text using mapping (longest phrases first)
+        for phrase in sorted(mapping.keys(), key=len, reverse=True):
+            if phrase and phrase in low:
+                return mapping[phrase]
+
+        # 3) No mapping, no text hit → fall back to model raw_cat
+        if isinstance(raw_cat, str) and raw_cat.strip():
+            return self._norm_cat_key(raw_cat)
+
+        # 4) Finally, reuse last_category if present
+        last_cat = session.get("last_category")
+        if isinstance(last_cat, str) and last_cat.strip():
+            return last_cat
+
+        return None
+
+    def _is_pure_category_query(
+        self,
+        user_text: str,
+        cat_key: Optional[str],
+        mapping: Dict[str, str],
+    ) -> bool:
+        """
+        Detect things like "exotic meat", "marinated meat", "beef catalog".
+        If the message is basically just category words + generic terms,
+        treat it as a category browse request.
+        """
+        if not cat_key:
+            return False
+
+        low = self._clean_phrase(user_text)
+        if not low:
+            return False
+
+        # find all phrases that map to this cat_key
+        phrases = [p for p, k in mapping.items() if k == cat_key]
+        if not phrases:
+            return False
+
+        generic_words = {
+            "meat", "meats", "catalog", "category", "products", "range",
+            "stuff", "things", "items", "selection", "options"
+        }
+
+        # if any phrase is the dominant content, with only generic extras,
+        # treat as pure category
+        for ph in phrases:
+            if ph in low:
+                leftover = low.replace(ph, " ")
+                leftover = re.sub(r"\s+", " ", leftover).strip()
+                if not leftover:
+                    return True
+                # check leftover is only generic words
+                tokens = leftover.split()
+                if all(t in generic_words for t in tokens):
+                    return True
+
+        return False
+
+    # --------------------------------------------------------------- #
     # POST PROCESS                                                     #
     # --------------------------------------------------------------- #
 
-    def _post_process(self, raw: str, user_text: str, session: Dict[str, Any]) -> Dict[str, Any]:
+    def _post_process(
+        self,
+        raw: str,
+        user_text: str,
+        session: Dict[str, Any],
+        hints: Dict[str, Any],
+    ) -> Dict[str, Any]:
         try:
             data = json.loads(raw)
         except Exception:
@@ -434,18 +618,7 @@ class BrainV7:
         intent = (data.get("intent") or "unknown").strip()
         action = (data.get("action") or "DO_NOTHING").strip()
 
-        # dynamic category: accept any string, just normalise
-        cat = data.get("category")
-        if isinstance(cat, str):
-            cat = cat.strip()
-            if not cat:
-                cat = None
-            else:
-                # normalise spaces / casing but DO NOT restrict values
-                cat = re.sub(r"\s+", "_", cat.lower())
-        else:
-            cat = None
-
+        raw_cat = data.get("category")
         product_name = data.get("product_name")
         postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
         sku = data.get("sku") or session.get("last_sku")
@@ -480,12 +653,14 @@ class BrainV7:
             "primary_cut": primary_cut,
         }
 
+        # --- dynamic category resolution ---
+        category_map = self._build_category_mapping(hints)
+        cat = self._resolve_category(raw_cat, user_text, session, hints)
+
         # bbq upgrade
         if intent in {"unknown", "faq"} and "bbq" in low:
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
-            # if model didn't pick a category, we don't force it:
-            # keep cat as-is (could be None); catalog layer can still search.
             product_name = product_name or "bbq selection, mix of popular cuts for grilling"
 
         # vague meat
@@ -498,16 +673,16 @@ class BrainV7:
         # full catalog detection: "full catalog", "all options", etc.
         full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
         if any(k in low for k in full_keywords):
-            # if the model already suggested a category, treat it as full_category
             if cat:
                 intent = "search_product"
                 action = "SEARCH_PRODUCTS"
                 meta["search_scope"] = "full_category"
                 meta["max_items"] = max_items if max_items > 8 else 30
                 meta["wants_chunking"] = True
-                product_name = product_name or f"full {cat.replace('_', ' ')} catalog"
+                if not product_name:
+                    pretty_cat = cat.replace("_", " ")
+                    product_name = f"full {pretty_cat} catalog"
             else:
-                # no category → full store
                 intent = "search_product"
                 action = "SEARCH_PRODUCTS"
                 meta["search_scope"] = "full_store"
@@ -535,11 +710,24 @@ class BrainV7:
             if not max_items or max_items < 1:
                 meta["max_items"] = 8
 
-            # infer category only very lightly; keep it dynamic
             if not cat and session.get("last_category"):
                 cat = session["last_category"]
             if not product_name:
                 product_name = user_text
+
+        # pure category queries ("exotic meat", "marinated meat", "groceries catalog")
+        if self._is_pure_category_query(user_text, cat, category_map):
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
+            # we intentionally leave product_name as None / very generic
+            product_name = product_name if product_name else None
+            if any(k in low for k in full_keywords):
+                meta["search_scope"] = "full_category"
+                meta["max_items"] = max_items if max_items > 8 else 30
+                meta["wants_chunking"] = True
+            else:
+                meta["search_scope"] = "top_picks"
+                meta["wants_chunking"] = False
 
         # if intent says CHECK_DELIVERY but no postcode
         if intent == "check_delivery" and not postcode:
