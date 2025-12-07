@@ -1,16 +1,10 @@
+# retrieval/catalog_store.py
 """
-CatalogStore (Auto-Refreshing Version)
---------------------------------------
+CatalogStore (Auto-Refreshing + Tag-Driven Version)
 
-This version FIXES the issue where the bot still uses default seed data
-even after the Google Sheets webhook updates catalog.json.
-
-Key change:
-- Every public read method now calls `_refresh()` to reload the latest
-  catalog.json from disk before serving any results.
-
-This guarantees that:
-- You push → webhook writes catalog.json → bot replies use NEW DATA instantly.
+- Always reloads catalog.json before serving data.
+- Builds rich tag indices (exotic_meats → exotic_meats, exotic, meats, meat).
+- Works with ANY categories that appear in catalog.json (no hard-coding).
 """
 
 from __future__ import annotations
@@ -73,7 +67,6 @@ class CatalogStore:
     def _refresh(self) -> None:
         """
         ALWAYS reload latest catalog.json and rebuild indices.
-        This fixes your issue permanently.
         """
         self._catalog = self._load()
         self._build_indices()
@@ -92,7 +85,7 @@ class CatalogStore:
                 except Exception:
                     return 1
 
-            # Case 1: Sheets webhook schema
+            # Case 1: Sheets webhook legacy schema
             if isinstance(raw.get("product_catalog"), list):
                 cat = self._from_legacy_product_catalog(raw["product_catalog"])
                 cat["version"] = _safe_version(raw.get("version", 1))
@@ -191,12 +184,37 @@ class CatalogStore:
                 if not sku:
                     continue
 
+                # Build rich tag set:
+                # - original tags
+                # - split tokens (exotic_meats -> exotic, meats)
+                # - singular forms (meats -> meat)
+                raw_tags = item.get("tags") or []
+                norm_tags: List[str] = []
+
+                for t in raw_tags:
+                    nt = _norm_text(t)
+                    if not nt:
+                        continue
+                    if nt not in norm_tags:
+                        norm_tags.append(nt)
+
+                    # split on _ or space
+                    for token in re.split(r"[ _]+", nt):
+                        token = token.strip()
+                        if token and token not in norm_tags:
+                            norm_tags.append(token)
+                            # crude singular
+                            if token.endswith("s"):
+                                sing = token[:-1]
+                                if sing and sing not in norm_tags:
+                                    norm_tags.append(sing)
+
                 entry = {
                     **item,
                     "_category_id": cid,
                     "_category_name": cat.get("name"),
                     "_norm_name": _norm_text(item.get("name")),
-                    "_norm_tags": [_norm_text(t) for t in (item.get("tags") or [])],
+                    "_norm_tags": norm_tags,
                 }
 
                 self._sku_index[sku] = entry
@@ -205,7 +223,7 @@ class CatalogStore:
                     if t:
                         self._tag_index.setdefault(t, []).append(entry)
 
-    # --------------- PUBLIC API (AUTO REFRESH HERE) -----------------
+    # --------------- PUBLIC API (AUTO REFRESH) -----------------
 
     def version(self) -> int:
         self._refresh()
@@ -251,6 +269,14 @@ class CatalogStore:
     # --------------- SEARCH -----------------
 
     def search(self, text=None, tags=None, limit=10):
+        """
+        Tag-driven search:
+
+        - If tags are provided, we use them as the primary filter.
+          Text is only used for scoring, NOT as a hard filter.
+        - If only text is provided, match on name + tags.
+        - If nothing is provided, return all items (up to limit).
+        """
         self._refresh()
 
         limit = max(1, min(limit, 50))
@@ -266,8 +292,6 @@ class CatalogStore:
                 for item in self._tag_index.get(tq, []):
                     if item["sku"] in seen:
                         continue
-                    if text_q and text_q not in item["_norm_name"]:
-                        continue
                     seen.add(item["sku"])
                     results.append((self._score(item, text_q, tag_qs), item))
 
@@ -280,13 +304,12 @@ class CatalogStore:
                     # weaker fallback
                     results.append((self._score(item, text_q, tag_qs) - 1, item))
 
-        # No filter → return all
+        # No filter → return all (for “full catalog” type flows)
         else:
             for item in self._sku_index.values():
                 results.append((0, item))
 
         results.sort(key=lambda x: x[0], reverse=True)
-
         return [item for _, item in results[:limit]]
 
     def _score(self, item, text_q, tags):
@@ -299,8 +322,9 @@ class CatalogStore:
             elif text_q in name:
                 score += 3
 
+        item_tags = item.get("_norm_tags") or []
         for t in tags:
-            if t in (item.get("_norm_tags") or []):
+            if t in item_tags:
                 score += 2
 
         if item.get("in_stock", True):
