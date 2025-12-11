@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, request, jsonify, render_template
 from routes import get_container
-from channels.web_widget_connector import parse_inbound, send_reply  # adjust import path if needed
+from connectors.web_widget_connector import parse_inbound, send_reply  # ✅
 
 bp = Blueprint("webchat", __name__)
 
@@ -62,7 +62,7 @@ def chat_api():
     metadata = event["metadata"]
 
     # Delegate to message handler (mode-aware)
-    from services import message_handler
+    from service import message_handler  # ✅
 
     result = message_handler.handle(
         c,
