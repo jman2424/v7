@@ -1,40 +1,29 @@
 """
-Web widget connector (iframe bridge contract).
+Web widget connector.
 
-Purpose:
-- Define the payload contract between the embedding page (client SDK) and the
-  widget page (server-rendered /chat_ui).
-- Provide helpers to validate incoming messages and build outgoing replies.
-- Protect against origin spoofing and malformed messages.
+Two roles in one module:
 
-This must align with:
-- sdk/js/index.js (EVT names, fields)
-- dashboard/static/js/widget.js (iframe-side listener)
-- routes/webchat_routes.py (/chat_ui GET, /chat_api POST)
+1) WidgetBridge  (iframe bridge, used by the frontend / postMessage layer)
+2) parse_inbound + send_reply (server-side /chat_api connector)
 
-Contract (incoming from client):
-{
-  "type": "chat:message",
-  "sessionId": "asa_...",
-  "text": "string",
-  "metadata": {...}
-}
-
-Contract (outgoing to client):
-{
-  "type": "chat:reply",
-  "data": {
-    "reply": "string",
-    "raw": {...}
-  }
-}
+This keeps things simple and lets:
+  - connectors/__init__.py import WidgetBridge
+  - routes/webchat_routes.py import parse_inbound, send_reply
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+import logging
 
+logger = logging.getLogger("WebWidgetConnector")
+
+
+# =====================================================================
+# IFRAME BRIDGE (used by the /chat_ui iframe + widget.js)
+# =====================================================================
 
 EVT_TO_IFRAME = "ASA_WIDGET:client->iframe"
 EVT_FROM_IFRAME = "ASA_WIDGET:iframe->client"
@@ -148,3 +137,126 @@ class WidgetBridge:
                 "data": dict(metrics or {}),
             },
         }
+
+
+# =====================================================================
+# /chat_api CONNECTOR (server-side normalisation)
+# =====================================================================
+
+
+def _extract_text(payload: Dict[str, Any]) -> str:
+    """
+    Supports both:
+    - /chat_api contract: { "message": "hi", ... }
+    - widget-style contract: { "text": "hi", ... }
+    """
+    text = (payload.get("message") or payload.get("text") or "").strip()
+    return text
+
+
+def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
+    """
+    Use explicit session_id if provided, otherwise fall back to the
+    old behaviour: "asa_<remote_addr>".
+    """
+    sess = (
+        payload.get("session_id")
+        or payload.get("sessionId")
+        or ""
+    ).strip()
+
+    if not sess and remote_addr:
+        sess = f"asa_{remote_addr}"
+
+    return sess or "asa_anon"
+
+
+def parse_inbound(
+    payload: Dict[str, Any],
+    *,
+    default_tenant: Optional[str] = None,
+    default_channel: str = "web",
+    remote_addr: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Parse inbound web widget payload into a flat list of events.
+
+    Input (typical /chat_api JSON):
+    {
+      "message": "hi",
+      "session_id": "asa_...",
+      "channel": "web",
+      "tenant": "tariq_meatshop",
+      "metadata": {...}
+    }
+
+    Returns:
+    [
+      {
+        "from": "web:asa_...",
+        "session_id": "asa_...",
+        "tenant": "...",
+        "text": "hi",
+        "raw": <original payload>,
+        "metadata": {...},
+        "source": "web_widget",
+        "channel": "web",
+      }
+    ]
+    """
+    events: List[Dict[str, Any]] = []
+
+    if not isinstance(payload, dict):
+        logger.debug("parse_inbound(web): payload is not a dict (%r)", type(payload))
+        return events
+
+    text = _extract_text(payload)
+    if not text:
+        logger.debug("parse_inbound(web): missing/empty message/text")
+        return events
+
+    session_id = _extract_session_id(payload, remote_addr)
+    channel = (payload.get("channel") or default_channel or "web").strip() or "web"
+    tenant = payload.get("tenant") or default_tenant
+
+    metadata = payload.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    events.append(
+        {
+            "from": f"web:{session_id}",
+            "session_id": session_id,
+            "tenant": tenant,
+            "text": text,
+            "raw": payload,
+            "metadata": metadata,
+            "source": "web_widget",
+            "channel": channel,
+        }
+    )
+
+    return events
+
+
+def send_reply(
+    event: Dict[str, Any],
+    reply: str,
+    *,
+    raw: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Build the JSON response that /chat_api should return.
+
+    Matches your documented contract:
+
+    Returns:
+    { "reply": str, "raw": {...}? }
+    """
+    session_id = event.get("session_id")
+
+    return {
+        "reply": str(reply or ""),
+        "raw": raw or {},
+        "session_id": session_id,
+    }
