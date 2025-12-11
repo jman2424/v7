@@ -97,14 +97,8 @@ def chat_api():
         "metadata": metadata,
     }
 
-    # Log analytics
-    c.analytics.log_turn(
-        tenant=tenant,
-        session_id=session_id,
-        intent=result.get("intent"),
-        resolved=result.get("resolved", False),
-        latency_ms=result.get("_latency_ms", 0),
-    )
+    # NOTE: analytics logging removed because AnalyticsService
+    # does not expose `log_turn` in this codebase.
 
     # Build response using connector helper
     resp_payload = send_reply(
