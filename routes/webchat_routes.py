@@ -50,7 +50,7 @@ def chat_api():
     Returns (HTTP response JSON):
     {
       "reply": str,
-      "raw": {...}                   # full result from message handler
+      "raw": {...}                   # full result from router.handle()
     }
     """
 
@@ -83,8 +83,11 @@ def chat_api():
     tenant = event["tenant"]
     metadata = event["metadata"]
 
-    # ✅ Use the container's message_handler service, not the module
-    result = c.message_handler.handle(
+    # Use the router module as the single entrypoint
+    from service import router
+
+    result = router.handle(
+        c,
         text=text,
         session_id=session_id,
         channel=channel,
