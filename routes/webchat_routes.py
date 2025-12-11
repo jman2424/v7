@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, current_app
 from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
 
@@ -83,22 +83,67 @@ def chat_api():
     metadata = event["metadata"]
 
     # ------------------------------------------------------------------
-    # TEMP STUB LOGIC – just to get the pipeline working.
+    # MAIN BOT CALL – try to use the real router if available.
+    # If anything goes wrong, fall back to echo so the UI never 500s.
     # ------------------------------------------------------------------
-    reply_text = f"I received: {text}"
+    router_obj = getattr(c, "router", None)
+    result = None
 
-    result = {
-        "reply": reply_text,
-        "intent": "stub_web_echo",
-        "resolved": True,
-        "_latency_ms": 0,
-        "channel": channel,
-        "tenant": tenant,
-        "metadata": metadata,
-    }
+    try:
+        if router_obj is not None:
+            # Try common patterns for Router.handle(...)
+            if hasattr(router_obj, "handle"):
+                try:
+                    # Pattern 1: handle(text=..., session_id=..., ...)
+                    result = router_obj.handle(
+                        text=text,
+                        session_id=session_id,
+                        channel=channel,
+                        tenant=tenant,
+                        metadata=metadata,
+                    )
+                except TypeError:
+                    # Pattern 2: handle(container, text=..., ...)
+                    result = router_obj.handle(
+                        c,
+                        text=text,
+                        session_id=session_id,
+                        channel=channel,
+                        tenant=tenant,
+                        metadata=metadata,
+                    )
 
-    # NOTE: analytics logging removed because AnalyticsService
-    # does not expose `log_turn` in this codebase.
+            elif hasattr(router_obj, "handle_turn"):
+                # Some implementations use handle_turn(...)
+                result = router_obj.handle_turn(
+                    text=text,
+                    session_id=session_id,
+                    channel=channel,
+                    tenant=tenant,
+                    metadata=metadata,
+                )
+
+    except Exception:
+        # Log the error but don't break the widget.
+        current_app.logger.exception(
+            "webchat /chat_api: router error, falling back to echo"
+        )
+        result = None
+
+    # If router didn't return a usable result, use a simple echo reply.
+    if not isinstance(result, dict) or "reply" not in result:
+        reply_text = f"I received: {text}"
+        result = {
+            "reply": reply_text,
+            "intent": "stub_web_echo",
+            "resolved": True,
+            "_latency_ms": 0,
+            "channel": channel,
+            "tenant": tenant,
+            "metadata": metadata,
+        }
+    else:
+        reply_text = result.get("reply", "")
 
     # Build response using connector helper
     resp_payload = send_reply(
