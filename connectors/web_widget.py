@@ -148,4 +148,3 @@ class WidgetBridge:
                 "data": dict(metrics or {}),
             },
         }
-
