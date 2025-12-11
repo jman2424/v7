@@ -1,10 +1,23 @@
 from __future__ import annotations
 
-from flask import Blueprint, request, jsonify, render_template, current_app
+from flask import Blueprint, request, jsonify, render_template
 from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
 
 bp = Blueprint("webchat", __name__)
+
+ALLOWED_WEB_ORIGIN = "https://web-tester-jnwd.onrender.com"
+
+
+def _add_cors_headers(resp):
+    """
+    Add CORS headers so the web-tester frontend can call /chat_api.
+    """
+    resp.headers["Access-Control-Allow-Origin"] = ALLOWED_WEB_ORIGIN
+    resp.headers["Vary"] = "Origin"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    return resp
 
 
 @bp.get("/chat_ui")
@@ -37,22 +50,16 @@ def chat_api():
     Returns (HTTP response JSON):
     {
       "reply": str,
-      "raw": {...}                   # full result from message_handler
+      "raw": {...}                   # full result from message handler
     }
     """
 
-    # ---------- CORS preflight (OPTIONS) ----------
+    # --- Handle CORS preflight ---
     if request.method == "OPTIONS":
-        resp = current_app.make_response("")
-        resp.status_code = 204  # No Content
-        origin = request.headers.get("Origin", "*")
-        resp.headers["Access-Control-Allow-Origin"] = origin
-        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        resp.headers["Access-Control-Allow-Credentials"] = "true"
-        return resp
+        resp = jsonify({})
+        return _add_cors_headers(resp)
 
-    # ---------- Actual POST ----------
+    # --- Normal POST handling ---
     c = get_container()
     data = request.get_json(force=True) or {}
 
@@ -66,8 +73,8 @@ def chat_api():
 
     if not events:
         resp = jsonify({"error": "missing_message"})
-        _add_cors_headers(resp)
-        return resp, 400
+        resp.status_code = 400
+        return _add_cors_headers(resp)
 
     event = events[0]
     text = event["text"]
@@ -76,11 +83,8 @@ def chat_api():
     tenant = event["tenant"]
     metadata = event["metadata"]
 
-    # Delegate to message handler (mode-aware)
-    from service import message_handler
-
-    result = message_handler.handle(
-        c,
+    # ✅ Use the container's message_handler service, not the module
+    result = c.message_handler.handle(
         text=text,
         session_id=session_id,
         channel=channel,
@@ -110,15 +114,4 @@ def chat_api():
             "raw": resp_payload["raw"],
         }
     )
-    _add_cors_headers(resp)
-    return resp, 200
-
-
-def _add_cors_headers(resp):
-    """
-    Helper to add CORS headers on POST responses.
-    """
-    origin = request.headers.get("Origin", "*")
-    resp.headers["Access-Control-Allow-Origin"] = origin
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
-    return resp
+    return _add_cors_headers(resp)
