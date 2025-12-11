@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, request, jsonify, render_template
 from routes import get_container
-from connectors.web_widget_connector import parse_inbound, send_reply  # ✅
+from connectors.web_widget import parse_inbound, send_reply  # <- from web_widget, not web_widget_connector
 
 bp = Blueprint("webchat", __name__)
 
@@ -28,16 +28,16 @@ def chat_api():
     Contract (HTTP request JSON):
     {
       "message": str,
-      "session_id": str?,        # optional, we fall back to asa_<remote_addr>
+      "session_id": str?,            # optional, we fall back to asa_<remote_addr>
       "channel": "web"|"wa"|"api"?,  # optional, defaults to "web"
-      "tenant": str?,            # optional, defaults to BUSINESS_KEY
-      "metadata": {}?            # optional dict
+      "tenant": str?,                # optional, defaults to BUSINESS_KEY
+      "metadata": {}?                # optional dict
     }
 
     Returns (HTTP response JSON):
     {
       "reply": str,
-      "raw": {...}               # full result from message_handler
+      "raw": {...}                   # full result from message_handler
     }
     """
     c = get_container()
@@ -62,7 +62,7 @@ def chat_api():
     metadata = event["metadata"]
 
     # Delegate to message handler (mode-aware)
-    from service import message_handler  # ✅
+    from service import message_handler
 
     result = message_handler.handle(
         c,
@@ -90,4 +90,9 @@ def chat_api():
     )
 
     # Your original contract only required {reply, raw} – we keep that.
-    return jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"]}), 200
+    return jsonify(
+        {
+            "reply": resp_payload["reply"],
+            "raw": resp_payload["raw"],
+        }
+    ), 200
