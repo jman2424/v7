@@ -1,14 +1,32 @@
 """
-Web widget connector.
+Web widget connector + iframe bridge.
 
-Two roles in one module:
+This module provides:
 
-1) WidgetBridge  (iframe bridge, used by the frontend / postMessage layer)
-2) parse_inbound + send_reply (server-side /chat_api connector)
+1) WidgetBridge  -> for the iframe-based SDK (postMessage contract)
+2) parse_inbound -> normalise /chat_api JSON into a single event
+3) send_reply    -> build the JSON response for /chat_api
 
-This keeps things simple and lets:
-  - connectors/__init__.py import WidgetBridge
-  - routes/webchat_routes.py import parse_inbound, send_reply
+Event shape (inbound to core):
+
+{
+  "from": "web:<session_id>",
+  "session_id": "asa_...",
+  "tenant": "<tenant key or None>",
+  "text": "hello",
+  "raw": <original payload dict>,
+  "metadata": {...},
+  "source": "web_widget",
+  "channel": "web",
+}
+
+Response shape (outbound):
+
+{
+  "reply": "string",
+  "raw": {...},
+  "session_id": "asa_..."
+}
 """
 
 from __future__ import annotations
@@ -21,14 +39,13 @@ import logging
 logger = logging.getLogger("WebWidgetConnector")
 
 
-# =====================================================================
-# IFRAME BRIDGE (used by the /chat_ui iframe + widget.js)
-# =====================================================================
+# -------------------------------------------------------------------
+# Iframe bridge (for SDK / widget.js postMessage integration)
+# -------------------------------------------------------------------
 
 EVT_TO_IFRAME = "ASA_WIDGET:client->iframe"
 EVT_FROM_IFRAME = "ASA_WIDGET:iframe->client"
 
-# Allow local dev + your real domains
 DEFAULT_ALLOWED_ORIGINS: List[str] = [
     "http://localhost",
     "http://localhost:3000",
@@ -51,7 +68,7 @@ class WidgetBridge:
     """
     Stateless helpers to work with the iframe bridge.
 
-    Typical iframe-side flow (in /chat_ui page script or widget.js):
+    Typical flow (inside widget.js):
       - Validate event.origin with validate_origin()
       - Validate payload with is_chat_message()
       - POST to /chat_api
@@ -80,7 +97,13 @@ class WidgetBridge:
     def parse_chat_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Returns a normalized dict:
-        { "message": str, "session_id": str, "channel": "web", "tenant": str|None, "metadata": dict }
+        {
+          "message": str,
+          "session_id": str | None,
+          "channel": "web",
+          "tenant": str | None,
+          "metadata": dict
+        }
         """
         text = (payload.get("text") or "").strip()
         sess = (payload.get("sessionId") or "").strip() or None
@@ -94,54 +117,36 @@ class WidgetBridge:
             "metadata": meta if isinstance(meta, dict) else {},
         }
 
-    # ---- outbound events ----
+    # ---- outbound events (iframe) ----
 
     def build_ready_event(self, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return {
-            "__asa": EVT_FROM_IFRAME,
-            "payload": {"type": "ready", "data": data or {}},
-        }
+        return {"__asa": EVT_FROM_IFRAME, "payload": {"type": "ready", "data": data or {}}}
 
     def build_typing_event(self, on: bool = True) -> Dict[str, Any]:
-        return {
-            "__asa": EVT_FROM_IFRAME,
-            "payload": {"type": "chat:typing", "data": {"on": bool(on)}},
-        }
+        return {"__asa": EVT_FROM_IFRAME, "payload": {"type": "chat:typing", "data": {"on": bool(on)}}}
 
     def build_reply_event(self, reply: str, raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return {
             "__asa": EVT_FROM_IFRAME,
             "payload": {
                 "type": "chat:reply",
-                "data": {
-                    "reply": str(reply or ""),
-                    "raw": raw or {},
-                },
+                "data": {"reply": str(reply or ""), "raw": raw or {}},
             },
         }
 
     def build_error_event(self, message: str, code: str = "widget_error") -> Dict[str, Any]:
         return {
             "__asa": EVT_FROM_IFRAME,
-            "payload": {
-                "type": "error",
-                "data": {"code": code, "message": str(message)},
-            },
+            "payload": {"type": "error", "data": {"code": code, "message": str(message)}},
         }
 
     def build_metrics_event(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "__asa": EVT_FROM_IFRAME,
-            "payload": {
-                "type": "metrics",
-                "data": dict(metrics or {}),
-            },
-        }
+        return {"__asa": EVT_FROM_IFRAME, "payload": {"type": "metrics", "data": dict(metrics or {})}}
 
 
-# =====================================================================
-# /chat_api CONNECTOR (server-side normalisation)
-# =====================================================================
+# -------------------------------------------------------------------
+# /chat_api normalisation helpers
+# -------------------------------------------------------------------
 
 
 def _extract_text(payload: Dict[str, Any]) -> str:
@@ -156,8 +161,8 @@ def _extract_text(payload: Dict[str, Any]) -> str:
 
 def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
     """
-    Use explicit session_id if provided, otherwise fall back to the
-    old behaviour: "asa_<remote_addr>".
+    Use explicit session_id if provided, otherwise fall back to
+    the old behaviour: "asa_<remote_addr>".
     """
     sess = (
         payload.get("session_id")
@@ -248,10 +253,8 @@ def send_reply(
     """
     Build the JSON response that /chat_api should return.
 
-    Matches your documented contract:
-
     Returns:
-    { "reply": str, "raw": {...}? }
+    { "reply": str, "raw": {...}, "session_id": "asa_..." }
     """
     session_id = event.get("session_id")
 
