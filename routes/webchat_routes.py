@@ -2,9 +2,22 @@ from __future__ import annotations
 
 from flask import Blueprint, request, jsonify, render_template
 from routes import get_container
-from connectors.web_widget_connector import parse_inbound, send_reply  # ✅
+from connectors.web_widget import parse_inbound, send_reply
 
 bp = Blueprint("webchat", __name__)
+
+ALLOWED_WEB_ORIGIN = "https://web-tester-jnwd.onrender.com"
+
+
+def _add_cors_headers(resp):
+    """
+    Add CORS headers so the web-tester frontend can call /chat_api.
+    """
+    resp.headers["Access-Control-Allow-Origin"] = ALLOWED_WEB_ORIGIN
+    resp.headers["Vary"] = "Origin"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    return resp
 
 
 @bp.get("/chat_ui")
@@ -22,7 +35,7 @@ def chat_ui():
     return render_template("chatbot.html", session_id=session_id, tenant=tenant)
 
 
-@bp.post("/chat_api")
+@bp.route("/chat_api", methods=["POST", "OPTIONS"])
 def chat_api():
     """
     Contract (HTTP request JSON):
@@ -37,9 +50,15 @@ def chat_api():
     Returns (HTTP response JSON):
     {
       "reply": str,
-      "raw": {...}                    # full result object
+      "raw": {...}
     }
     """
+
+    # --- CORS preflight ---
+    if request.method == "OPTIONS":
+        resp = jsonify({})
+        return _add_cors_headers(resp)
+
     c = get_container()
     data = request.get_json(force=True) or {}
 
@@ -52,7 +71,9 @@ def chat_api():
     )
 
     if not events:
-        return jsonify({"error": "missing_message"}), 400
+        resp = jsonify({"error": "missing_message"})
+        resp.status_code = 400
+        return _add_cors_headers(resp)
 
     event = events[0]
     text = event["text"]
@@ -63,11 +84,9 @@ def chat_api():
 
     # ------------------------------------------------------------------
     # TEMP STUB LOGIC – just to get the pipeline working.
-    # This is where we'll later plug in service.router / message_handler.
     # ------------------------------------------------------------------
     reply_text = f"I received: {text}"
 
-    # Fake "result" object so analytics + widget still see something sane
     result = {
         "reply": reply_text,
         "intent": "stub_web_echo",
@@ -78,7 +97,7 @@ def chat_api():
         "metadata": metadata,
     }
 
-    # Log analytics (matches your previous pattern)
+    # Log analytics
     c.analytics.log_turn(
         tenant=tenant,
         session_id=session_id,
@@ -87,12 +106,17 @@ def chat_api():
         latency_ms=result.get("_latency_ms", 0),
     )
 
-    # Build response using connector helper (keeps contract stable)
+    # Build response using connector helper
     resp_payload = send_reply(
         event,
         reply_text,
         raw=result,
     )
 
-    # Your original contract only required {reply, raw}
-    return jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"]}), 200
+    resp = jsonify(
+        {
+            "reply": resp_payload["reply"],
+            "raw": resp_payload["raw"],
+        }
+    )
+    return _add_cors_headers(resp)
