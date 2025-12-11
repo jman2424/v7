@@ -6,6 +6,7 @@ from connectors.web_widget import parse_inbound, send_reply
 
 bp = Blueprint("webchat", __name__)
 
+# The frontend that is allowed to call /chat_api
 ALLOWED_WEB_ORIGIN = "https://web-tester-jnwd.onrender.com"
 
 
@@ -33,6 +34,171 @@ def chat_ui():
     session_id = request.args.get("session") or ""
     tenant = request.args.get("tenant") or c.settings.BUSINESS_KEY
     return render_template("chatbot.html", session_id=session_id, tenant=tenant)
+
+
+# ---- internal helper -------------------------------------------------
+
+
+def _call_router_dynamic(c, event, *, text, session_id, channel, tenant, metadata):
+    """
+    Try a bunch of likely router/message-handler entry points.
+
+    This is defensive on purpose: different versions may expose:
+      - c.router.handle(...)
+      - c.router.route(...)
+      - c.router.handle_turn(...)
+      - c.router.handle_message(...)
+      - service.router.handle(...)
+      - service.message_handler.handle_turn(...)
+
+    If any returns a dict with a "reply" key, we treat it as success.
+    Otherwise we return None and the caller can fall back.
+    """
+    # 1) Instance router on the container
+    router_obj = getattr(c, "router", None)
+
+    # 2) Also try module-level handlers if available
+    try:
+        from service import router as router_mod  # type: ignore
+    except Exception:
+        router_mod = None
+
+    try:
+        from service import message_handler as mh_mod  # type: ignore
+    except Exception:
+        mh_mod = None
+
+    candidates = []
+
+    if router_obj is not None:
+        candidates.append(("c.router", router_obj))
+
+    if router_mod is not None:
+        candidates.append(("service.router", router_mod))
+
+    if mh_mod is not None:
+        candidates.append(("service.message_handler", mh_mod))
+
+    # Nothing to try
+    if not candidates:
+        current_app.logger.warning("webchat: no router/message_handler available on container")
+        return None
+
+    # Argument combinations we will attempt, in order
+    base_kwargs = dict(
+        text=text,
+        session_id=session_id,
+        channel=channel,
+        tenant=tenant,
+        metadata=metadata,
+        event=event,
+        container=c,
+    )
+
+    # For each candidate object, we’ll try these method names:
+    method_names = [
+        "handle",
+        "route",
+        "handle_turn",
+        "handle_message",
+    ]
+
+    # Different call patterns (positional vs keyword)
+    def _attempt_call(obj_name, obj, method_name):
+        if not hasattr(obj, method_name):
+            return None
+
+        fn = getattr(obj, method_name)
+        if not callable(fn):
+            return None
+
+        # Try several signatures, swallowing TypeError (wrong args)
+        # but logging once for debugging.
+        # 1) Keywords only (most likely)
+        try:
+            return fn(
+                text=text,
+                session_id=session_id,
+                channel=channel,
+                tenant=tenant,
+                metadata=metadata,
+            )
+        except TypeError:
+            pass
+
+        # 2) With container kw
+        try:
+            return fn(
+                container=c,
+                text=text,
+                session_id=session_id,
+                channel=channel,
+                tenant=tenant,
+                metadata=metadata,
+            )
+        except TypeError:
+            pass
+
+        # 3) With event kw
+        try:
+            return fn(
+                event=event,
+                container=c,
+            )
+        except TypeError:
+            pass
+
+        # 4) (container, **kwargs)
+        try:
+            return fn(
+                c,
+                text=text,
+                session_id=session_id,
+                channel=channel,
+                tenant=tenant,
+                metadata=metadata,
+            )
+        except TypeError:
+            pass
+
+        # 5) (container, event)
+        try:
+            return fn(c, event)
+        except TypeError:
+            pass
+
+        # If we got here, signature didn't match any pattern.
+        current_app.logger.debug(
+            "webchat: method %s.%s did not accept tested signatures",
+            obj_name,
+            method_name,
+        )
+        return None
+
+    for obj_name, obj in candidates:
+        for method_name in method_names:
+            try:
+                result = _attempt_call(obj_name, obj, method_name)
+            except Exception:
+                # Any non-TypeError is a real error: log and continue with others.
+                current_app.logger.exception(
+                    "webchat: error calling %s.%s – continuing with fallbacks",
+                    obj_name,
+                    method_name,
+                )
+                continue
+
+            if isinstance(result, dict) and "reply" in result:
+                current_app.logger.debug(
+                    "webchat: using result from %s.%s", obj_name, method_name
+                )
+                return result
+
+    # If nothing worked, return None so caller can fall back.
+    return None
+
+
+# ---- main route ------------------------------------------------------
 
 
 @bp.route("/chat_api", methods=["POST", "OPTIONS"])
@@ -83,55 +249,21 @@ def chat_api():
     metadata = event["metadata"]
 
     # ------------------------------------------------------------------
-    # MAIN BOT CALL – try to use the real router if available.
-    # If anything goes wrong, fall back to echo so the UI never 500s.
+    # MAIN BOT CALL – dynamic router lookup.
+    # If nothing usable comes back, we fall back to echo.
     # ------------------------------------------------------------------
-    router_obj = getattr(c, "router", None)
-    result = None
+    result = _call_router_dynamic(
+        c,
+        event,
+        text=text,
+        session_id=session_id,
+        channel=channel,
+        tenant=tenant,
+        metadata=metadata,
+    )
 
-    try:
-        if router_obj is not None:
-            # Try common patterns for Router.handle(...)
-            if hasattr(router_obj, "handle"):
-                try:
-                    # Pattern 1: handle(text=..., session_id=..., ...)
-                    result = router_obj.handle(
-                        text=text,
-                        session_id=session_id,
-                        channel=channel,
-                        tenant=tenant,
-                        metadata=metadata,
-                    )
-                except TypeError:
-                    # Pattern 2: handle(container, text=..., ...)
-                    result = router_obj.handle(
-                        c,
-                        text=text,
-                        session_id=session_id,
-                        channel=channel,
-                        tenant=tenant,
-                        metadata=metadata,
-                    )
-
-            elif hasattr(router_obj, "handle_turn"):
-                # Some implementations use handle_turn(...)
-                result = router_obj.handle_turn(
-                    text=text,
-                    session_id=session_id,
-                    channel=channel,
-                    tenant=tenant,
-                    metadata=metadata,
-                )
-
-    except Exception:
-        # Log the error but don't break the widget.
-        current_app.logger.exception(
-            "webchat /chat_api: router error, falling back to echo"
-        )
-        result = None
-
-    # If router didn't return a usable result, use a simple echo reply.
     if not isinstance(result, dict) or "reply" not in result:
+        # Fallback so the widget never 500s
         reply_text = f"I received: {text}"
         result = {
             "reply": reply_text,
