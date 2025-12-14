@@ -1,27 +1,27 @@
-# routes/webchat_routes.py
 from __future__ import annotations
 
 import logging
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, make_response
 
 from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
 
 logger = logging.getLogger("WEB.Chat")
-
 bp = Blueprint("webchat", __name__)
 
 
-# ------------------------------------------------------------
-# Same helper pattern WhatsApp uses
-# ------------------------------------------------------------
-def _get_handler(container):
-    """
-    Fetch or create the MessageHandler instance.
-    This mirrors whatsapp_routes.py exactly.
-    """
-    h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
+def _cors(resp):
+    # lock to your frontend origin
+    resp.headers["Access-Control-Allow-Origin"] = "https://web-tester-jnwd.onrender.com"
+    resp.headers["Vary"] = "Origin"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Credentials"] = "true"
+    return resp
 
+
+def _get_handler(container):
+    h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
     if h is None:
         logger.warning("WEB: No MessageHandler on container. Creating one.")
         try:
@@ -31,13 +31,9 @@ def _get_handler(container):
         except Exception as exc:
             logger.exception("WEB: Failed to create MessageHandler: %s", exc)
             return None
-
     return h
 
 
-# ------------------------------------------------------------
-# UI
-# ------------------------------------------------------------
 @bp.get("/chat_ui")
 def chat_ui():
     c = get_container()
@@ -46,10 +42,13 @@ def chat_ui():
     return render_template("chatbot.html", session_id=session_id, tenant=tenant)
 
 
-# ------------------------------------------------------------
-# API
-# ------------------------------------------------------------
-@bp.post("/chat_api")
+# ✅ IMPORTANT: explicit OPTIONS route
+@bp.route("/chat_api", methods=["OPTIONS"])
+def chat_api_options():
+    return _cors(make_response("", 200))
+
+
+@bp.route("/chat_api", methods=["POST"])
 def chat_api():
     c = get_container()
 
@@ -57,9 +56,8 @@ def chat_api():
         data = request.get_json(force=True) or {}
     except Exception:
         logger.exception("WEB: Invalid JSON payload")
-        return jsonify({"error": "invalid_json"}), 400
+        return _cors(jsonify({"error": "invalid_json"})), 400
 
-    # ---- normalise inbound payload ----
     events = parse_inbound(
         data,
         default_tenant=c.settings.BUSINESS_KEY,
@@ -68,32 +66,21 @@ def chat_api():
     )
 
     if not events:
-        return jsonify({"error": "missing_message"}), 400
+        return _cors(jsonify({"error": "missing_message"})), 400
 
     event = events[0]
-
     text = event["text"]
     session_id = event["session_id"]
     tenant = event["tenant"]
     channel = event["channel"]
     metadata = event["metadata"]
 
-    logger.info(
-        "WEB IN: tenant=%s session=%s text=%r",
-        tenant,
-        session_id,
-        text,
-    )
+    logger.info("WEB IN: tenant=%s session=%s text=%r", tenant, session_id, text)
 
-    # ---- get SAME handler WhatsApp uses ----
     handler = _get_handler(c)
 
     if handler is None:
-        result = {
-            "reply": "Sorry—my chatbot brain isn’t configured yet.",
-            "intent": "system_error",
-            "entities": {},
-        }
+        result = {"reply": "Sorry—bot not configured.", "intent": "system_error", "entities": {}}
     else:
         try:
             result = handler.handle(
@@ -105,32 +92,11 @@ def chat_api():
             ) or {}
         except Exception as exc:
             logger.exception("WEB: handler.handle crashed: %s", exc)
-            result = {
-                "reply": "Sorry—something went wrong while processing your message.",
-                "intent": "system_error",
-                "entities": {},
-            }
+            result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
     reply = (result.get("reply") or "").strip()
+    logger.info("WEB OUT: tenant=%s session=%s intent=%s reply=%r", tenant, session_id, result.get("intent"), reply)
 
-    logger.info(
-        "WEB OUT: tenant=%s session=%s intent=%s reply=%r",
-        tenant,
-        session_id,
-        result.get("intent"),
-        reply,
-    )
+    resp_payload = send_reply(event, reply, raw=result)
 
-    # ---- build widget response ----
-    resp_payload = send_reply(
-        event,
-        reply,
-        raw=result,
-    )
-
-    return jsonify(
-        {
-            "reply": resp_payload["reply"],
-            "raw": resp_payload["raw"],
-        }
-    ), 200
+    return _cors(jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"]})), 200
