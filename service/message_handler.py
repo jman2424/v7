@@ -5,6 +5,7 @@ MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 - VALIDATES product responses
 - Forces safe fallback if catalog resolution fails
 - Guarantees products are returned when intent requires it
+- Adds DISPATCH logging so we can find issues fast
 """
 
 from __future__ import annotations
@@ -67,8 +68,27 @@ class MessageHandler:
         sess = self._load_session(ctx)
         mode = self._decide_mode(ctx)
 
-        # ---------------- DISPATCH ----------------
+        # --- request correlation id (if your widget sends one) ---
+        rid = (
+            (metadata or {}).get("rid")
+            or (metadata or {}).get("request_id")
+            or ctx.metadata.get("rid")
+            or ctx.metadata.get("request_id")
+            or "no_rid"
+        )
 
+        # ---------------- DISPATCH LOGGING ----------------
+        logger.info(
+            "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
+            tenant,
+            session_id,
+            channel,
+            mode,
+            rid,
+            user_text[:120],
+        )
+
+        # ---------------- DISPATCH ----------------
         if mode == "v5":
             reply = self.h_v5.handle(user_text, ctx, sess)
         elif mode == "v6":
@@ -76,12 +96,20 @@ class MessageHandler:
         else:
             reply = self.h_v7.handle(user_text, ctx, sess)
 
-        # ---------------- VALIDATION ----------------
+        logger.info(
+            "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
+            tenant,
+            session_id,
+            mode,
+            rid,
+            reply.get("intent"),
+            sorted(list(reply.keys())),
+        )
 
+        # ---------------- VALIDATION ----------------
         reply = self._validate_reply(reply, user_text, ctx)
 
         # ---------------- PERSIST ----------------
-
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
         self._post_analytics(ctx, user_text, reply, mode)
@@ -109,12 +137,55 @@ class MessageHandler:
         Prevents broken states like:
         - browse/search intent with zero items
         - catalog failure loops
+        - category single-word -> "tell me more" (must show products)
         """
 
-        intent = reply.get("intent")
+        intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
 
+        # ---- NEW: If user typed a bare category word, force product results ----
+        text = (user_text or "").strip().lower()
+        known_category_words = {
+            "chicken",
+            "lamb",
+            "beef",
+            "groceries",
+            "grocery",
+            "frozen",
+            "frozen meats",
+            "frozen_meats",
+            "marinated",
+            "marinated meats",
+            "marinated_meats",
+        }
+
+        looks_like_bare_category = (len(text.split()) <= 2) and (text in known_category_words)
+
+        # If the pipeline returned "unknown" (or anything) but items are empty for bare category, that's a fail.
+        if looks_like_bare_category and not items:
+            logger.warning(
+                "PIPELINE FAILURE: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
+                user_text,
+                intent,
+                ctx.tenant,
+                ctx.session_id,
+            )
+            return {
+                "reply": (
+                    f"Got it — **{text}**.\n\n"
+                    "Tell me what you want and I’ll pull options:\n"
+                    "• wings / thighs / breast\n"
+                    "• mince / chops / ribs\n"
+                    "• or ask: **cheapest**, **best for BBQ**, **family pack**"
+                ),
+                "intent": "system_force_browse",
+                "resolved": False,
+                "facts": {"force_category": text},
+                "entities": {"category": text},
+            }
+
+        # Original rule: certain intents must return items
         requires_items = intent in {
             "browse_category",
             "search_product",
@@ -124,10 +195,11 @@ class MessageHandler:
 
         if requires_items and not items:
             logger.warning(
-                "PIPELINE FAILURE: intent=%s but no items returned | text=%r tenant=%s",
+                "PIPELINE FAILURE: intent=%s but no items returned | text=%r tenant=%s session=%s",
                 intent,
                 user_text,
                 ctx.tenant,
+                ctx.session_id,
             )
 
             return {
