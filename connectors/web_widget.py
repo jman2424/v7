@@ -32,9 +32,11 @@ Response shape (outbound):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 import logging
+import secrets
+
 
 logger = logging.getLogger("WebWidgetConnector")
 
@@ -56,11 +58,49 @@ DEFAULT_ALLOWED_ORIGINS: List[str] = [
 
 
 def _canon_origin(u: str) -> str:
+    """
+    Canonicalize a browser origin string into scheme://netloc.
+    Returns "" on failure.
+    """
     try:
         p = urlparse(u)
+        if not p.scheme or not p.netloc:
+            return ""
         return f"{p.scheme}://{p.netloc}"
     except Exception:
         return ""
+
+
+def _safe_str(v: Any, max_len: int = 300) -> str:
+    """
+    Safe string for logs to avoid huge payloads + newlines.
+    """
+    try:
+        s = str(v)
+    except Exception:
+        return "<unprintable>"
+    s = s.replace("\n", "\\n").replace("\r", "\\r")
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s
+
+
+def _make_req_id() -> str:
+    return "wwc_" + secrets.token_hex(6)
+
+
+def _log_ctx(req_id: Optional[str], **fields: Any) -> str:
+    """
+    Create a compact context string for logs.
+    """
+    parts = []
+    if req_id:
+        parts.append(f"rid={req_id}")
+    for k, v in fields.items():
+        if v is None:
+            continue
+        parts.append(f"{k}={_safe_str(v, 120)}")
+    return " ".join(parts)
 
 
 @dataclass
@@ -79,22 +119,76 @@ class WidgetBridge:
 
     # ---- validation ----
 
-    def validate_origin(self, origin: str) -> bool:
+    def validate_origin(self, origin: str, *, req_id: Optional[str] = None) -> bool:
+        """
+        Return True if `origin` is allowed.
+
+        Logs:
+          - debug: canonicalized origin + match decision
+          - warning: missing/invalid origin
+        """
         if not origin:
+            logger.warning("validate_origin: missing origin %s", _log_ctx(req_id))
             return False
+
         allowed = self.allowed_origins or DEFAULT_ALLOWED_ORIGINS
         o = _canon_origin(origin)
-        return any(o.startswith(a) for a in allowed)
 
-    def is_chat_message(self, payload: Dict[str, Any]) -> bool:
+        if not o:
+            logger.warning(
+                "validate_origin: invalid origin=%r %s",
+                _safe_str(origin),
+                _log_ctx(req_id),
+            )
+            return False
+
+        ok = any(o == a or o.startswith(a) for a in allowed)
+
+        logger.debug(
+            "validate_origin: origin=%s ok=%s allowed=%s %s",
+            o,
+            ok,
+            len(allowed),
+            _log_ctx(req_id),
+        )
+        return ok
+
+    def is_chat_message(self, payload: Dict[str, Any], *, req_id: Optional[str] = None) -> bool:
+        """
+        Validate the inbound widget postMessage payload.
+
+        Expected:
+          { type: "chat:message", text: "..." }
+        """
         if not isinstance(payload, dict):
+            logger.debug(
+                "is_chat_message: payload not dict type=%s %s",
+                type(payload),
+                _log_ctx(req_id),
+            )
             return False
-        if payload.get("type") != "chat:message":
-            return False
-        text = payload.get("text")
-        return isinstance(text, str) and len(text.strip()) > 0
 
-    def parse_chat_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        t = payload.get("type")
+        if t != "chat:message":
+            logger.debug(
+                "is_chat_message: wrong type=%r %s",
+                _safe_str(t),
+                _log_ctx(req_id),
+            )
+            return False
+
+        text = payload.get("text")
+        ok = isinstance(text, str) and len(text.strip()) > 0
+
+        if not ok:
+            logger.debug(
+                "is_chat_message: empty/invalid text=%r %s",
+                _safe_str(text),
+                _log_ctx(req_id),
+            )
+        return ok
+
+    def parse_chat_message(self, payload: Dict[str, Any], *, req_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Returns a normalized dict:
         {
@@ -109,12 +203,30 @@ class WidgetBridge:
         sess = (payload.get("sessionId") or "").strip() or None
         meta = payload.get("metadata") or {}
         tenant = payload.get("tenant") or None
+
+        if not isinstance(meta, dict):
+            logger.debug(
+                "parse_chat_message: metadata not dict type=%s %s",
+                type(meta),
+                _log_ctx(req_id),
+            )
+            meta = {}
+
+        logger.debug(
+            "parse_chat_message: session_id=%r tenant=%r text_len=%d meta_keys=%d %s",
+            sess,
+            tenant,
+            len(text),
+            len(meta.keys()),
+            _log_ctx(req_id),
+        )
+
         return {
             "message": text,
             "session_id": sess,
             "channel": "web",
             "tenant": tenant,
-            "metadata": meta if isinstance(meta, dict) else {},
+            "metadata": meta,
         }
 
     # ---- outbound events (iframe) ----
@@ -148,15 +260,19 @@ class WidgetBridge:
 # /chat_api normalisation helpers
 # -------------------------------------------------------------------
 
-
 def _extract_text(payload: Dict[str, Any]) -> str:
     """
     Supports both:
     - /chat_api contract: { "message": "hi", ... }
     - widget-style contract: { "text": "hi", ... }
     """
-    text = (payload.get("message") or payload.get("text") or "").strip()
-    return text
+    try:
+        text = (payload.get("message") or payload.get("text") or "")
+        if not isinstance(text, str):
+            return ""
+        return text.strip()
+    except Exception:
+        return ""
 
 
 def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
@@ -164,16 +280,49 @@ def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> 
     Use explicit session_id if provided, otherwise fall back to
     the old behaviour: "asa_<remote_addr>".
     """
-    sess = (
-        payload.get("session_id")
-        or payload.get("sessionId")
-        or ""
-    ).strip()
+    try:
+        sess = payload.get("session_id") or payload.get("sessionId") or ""
+        if not isinstance(sess, str):
+            sess = ""
+        sess = sess.strip()
+    except Exception:
+        sess = ""
 
     if not sess and remote_addr:
         sess = f"asa_{remote_addr}"
 
     return sess or "asa_anon"
+
+
+def _extract_channel(payload: Dict[str, Any], default_channel: str) -> str:
+    try:
+        ch = payload.get("channel") or default_channel or "web"
+        if not isinstance(ch, str):
+            return "web"
+        ch = ch.strip()
+        return ch or "web"
+    except Exception:
+        return "web"
+
+
+def _extract_tenant(payload: Dict[str, Any], default_tenant: Optional[str]) -> Optional[str]:
+    try:
+        t = payload.get("tenant") or default_tenant
+        if t is None:
+            return None
+        if not isinstance(t, str):
+            return default_tenant
+        t = t.strip()
+        return t or None
+    except Exception:
+        return default_tenant
+
+
+def _extract_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
+    meta = payload.get("metadata") or {}
+    if not isinstance(meta, dict):
+        return {}
+    return meta
 
 
 def parse_inbound(
@@ -182,52 +331,55 @@ def parse_inbound(
     default_tenant: Optional[str] = None,
     default_channel: str = "web",
     remote_addr: Optional[str] = None,
+    req_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Parse inbound web widget payload into a flat list of events.
 
-    Input (typical /chat_api JSON):
-    {
-      "message": "hi",
-      "session_id": "asa_...",
-      "channel": "web",
-      "tenant": "tariq_meatshop",
-      "metadata": {...}
-    }
+    Adds robust logging so you can trace:
+      - missing text
+      - session_id derivation
+      - tenant/channel parsing
+      - metadata shape issues
 
-    Returns:
-    [
-      {
-        "from": "web:asa_...",
-        "session_id": "asa_...",
-        "tenant": "...",
-        "text": "hi",
-        "raw": <original payload>,
-        "metadata": {...},
-        "source": "web_widget",
-        "channel": "web",
-      }
-    ]
+    NOTE: `req_id` is optional. If not passed, we generate one for logs only.
     """
+    rid = req_id or _make_req_id()
     events: List[Dict[str, Any]] = []
 
     if not isinstance(payload, dict):
-        logger.debug("parse_inbound(web): payload is not a dict (%r)", type(payload))
+        logger.warning(
+            "parse_inbound: payload not dict type=%s %s",
+            type(payload),
+            _log_ctx(rid, remote_addr=remote_addr),
+        )
         return events
 
     text = _extract_text(payload)
     if not text:
-        logger.debug("parse_inbound(web): missing/empty message/text")
+        logger.info(
+            "parse_inbound: empty text message_keys=%s %s",
+            list(payload.keys()),
+            _log_ctx(rid, remote_addr=remote_addr),
+        )
         return events
 
     session_id = _extract_session_id(payload, remote_addr)
-    channel = (payload.get("channel") or default_channel or "web").strip() or "web"
-    tenant = payload.get("tenant") or default_tenant
+    channel = _extract_channel(payload, default_channel)
+    tenant = _extract_tenant(payload, default_tenant)
+    metadata = _extract_metadata(payload)
 
-    metadata = payload.get("metadata") or {}
-    if not isinstance(metadata, dict):
-        metadata = {}
+    logger.info(
+        "parse_inbound: ok session_id=%s channel=%s tenant=%s text_len=%d meta_keys=%d %s",
+        session_id,
+        channel,
+        tenant,
+        len(text),
+        len(metadata.keys()),
+        _log_ctx(rid, remote_addr=remote_addr),
+    )
 
+    # Keep raw payload, but DO NOT log it here (too noisy + may contain PII).
     events.append(
         {
             "from": f"web:{session_id}",
@@ -238,6 +390,7 @@ def parse_inbound(
             "metadata": metadata,
             "source": "web_widget",
             "channel": channel,
+            "req_id": rid,  # helpful for correlating logs end-to-end
         }
     )
 
@@ -249,17 +402,42 @@ def send_reply(
     reply: str,
     *,
     raw: Optional[Dict[str, Any]] = None,
+    req_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build the JSON response that /chat_api should return.
 
     Returns:
-    { "reply": str, "raw": {...}, "session_id": "asa_..." }
+      { "reply": str, "raw": {...}, "session_id": "asa_..." }
+
+    Logging:
+      - info: reply length + session_id
+      - debug: raw keys count (NOT full raw)
     """
-    session_id = event.get("session_id")
+    rid = req_id or event.get("req_id") or _make_req_id()
+    session_id = event.get("session_id") or "asa_anon"
+    reply_str = str(reply or "")
+
+    raw_out = raw or {}
+
+    logger.info(
+        "send_reply: session_id=%s reply_len=%d raw_keys=%d %s",
+        session_id,
+        len(reply_str),
+        len(raw_out.keys()) if isinstance(raw_out, dict) else 0,
+        _log_ctx(rid),
+    )
+
+    # never dump raw in logs by default
+    logger.debug(
+        "send_reply.debug: raw_type=%s %s",
+        type(raw_out),
+        _log_ctx(rid),
+    )
 
     return {
-        "reply": str(reply or ""),
-        "raw": raw or {},
+        "reply": reply_str,
+        "raw": raw_out,
         "session_id": session_id,
+        "req_id": rid,  # optional but extremely useful for debugging
     }
