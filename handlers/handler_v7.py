@@ -13,14 +13,17 @@ from renderer_v7 import RendererV7
 
 class MessageHandlerV7:
     """
-    V7 handler (crash-proof):
+    V7 handler (crash-proof + modifier-aware)
 
-    Goals:
-    - Never crash the webhook (hard try/except in handle + safe helpers)
-    - Fix your exact bug: short prompts like "chicken", "lamb", "wings", and typos like "chciken"
-      should still return products by forcing SEARCH_PRODUCTS via heuristics.
-    - Strong logging with request_id correlation
-    - Always returns ui.catalog_items (webchat-friendly)
+    Fixes:
+    - Never crash the webhook (hard try/except + defensive helpers)
+    - Handles short + medium prompts (<= 5 words) with heuristics:
+        * typos: "lam", "chciken", "chepest"
+        * modifiers: "cheapest lamb", "lamb under 10", "boneless lamb", "bbq chicken", "marinted chicken"
+    - Forces SEARCH_PRODUCTS when the message looks product-related
+    - Applies post-filter + post-sort even if catalog.search doesn't support it
+    - Always returns ui.catalog_items for webchat cards
+    - Strong request_id logging
     """
 
     def __init__(self, deps: Any):
@@ -42,7 +45,6 @@ class MessageHandlerV7:
         t0 = time.perf_counter()
         user_text = (user_text or "").strip()
 
-        # request_id must never crash
         request_id = self._get_request_id(ctx) or str(uuid.uuid4())[:12]
         tenant = getattr(ctx, "tenant", None) or "unknown"
         session_id = getattr(ctx, "session_id", None) or "unknown"
@@ -66,7 +68,7 @@ class MessageHandlerV7:
         )
 
         try:
-            # 1) Heuristic pre-pass for short prompts + typos
+            # 1) Heuristic (handles your failing cases)
             plan = self._heuristic_plan(user_text, request_id=request_id)
             if plan:
                 self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
@@ -75,12 +77,18 @@ class MessageHandlerV7:
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
                 self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
 
-                # 3) Normalize plan (force catalog search when slots exist)
+                # 3) Normalize
                 plan = self._normalize_plan(plan, user_text=user_text)
                 self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
-                # 4) If brain still returned unknown on a short prompt, force SEARCH_PRODUCTS
+                # 4) Force product search for product-looking messages
                 if self._looks_like_product_query(user_text) and (plan.get("intent") in (None, "", "unknown")):
+                    mods = self._parse_modifiers(user_text)
+                    tags = self._token_tags(user_text)
+                    for t in mods.get("tags") or []:
+                        if t not in tags:
+                            tags.append(t)
+
                     plan = {
                         "intent": "search_product",
                         "action": "SEARCH_PRODUCTS",
@@ -91,7 +99,12 @@ class MessageHandlerV7:
                         "handoff_channel": None,
                         "needs_clarification": False,
                         "clarification_question": "",
-                        "meta": {"max_items": 8, "search_tags": [user_text.lower().strip()]},
+                        "meta": {
+                            "max_items": 12,
+                            "search_tags": tags,
+                            "sort": mods.get("sort"),
+                            "max_price": mods.get("max_price"),
+                        },
                     }
                     self._info(request_id, "V7.force_search_fallback", plan=self._safe_plan_log(plan))
 
@@ -138,8 +151,6 @@ class MessageHandlerV7:
         except Exception as e:
             dt_ms = int((time.perf_counter() - t0) * 1000)
             self._exc(request_id, "V7.handle_crash", err=str(e), latency_ms=dt_ms)
-
-            # Absolute safe fallback payload (never crash connector)
             return {
                 "reply": "Sorry — I had a technical issue. Please try again.",
                 "mode": "v7",
@@ -164,34 +175,101 @@ class MessageHandlerV7:
         return None
 
     # ------------------------------------------------------------------
-    # HEURISTICS (YOUR FIX)
+    # HEURISTICS
     # ------------------------------------------------------------------
 
     def _looks_like_product_query(self, user_text: str) -> bool:
         text = (user_text or "").strip().lower()
         if not text:
             return False
-        # Your failing cases are 1-2 words
-        return len(text.split()) <= 2
+        # expanded: your failing prompts are 2–4 words
+        return len(text.split()) <= 5
+
+    def _parse_modifiers(self, text: str) -> Dict[str, Any]:
+        t = (text or "").lower()
+
+        sort = None
+        if re.search(r"\bcheapest\b|\bchepest\b|\blowest\b", t):
+            sort = "price_asc"
+        if re.search(r"\bmost expensive\b|\bhighest\b", t):
+            sort = "price_desc"
+
+        max_price = None
+        m = re.search(r"\b(under|below|less than)\s*£?\s*(\d+(\.\d+)?)\b", t)
+        if m:
+            try:
+                max_price = float(m.group(2))
+            except Exception:
+                max_price = None
+
+        tags: List[str] = []
+        if re.search(r"\bbbq\b|\bbarbecue\b", t):
+            tags.append("bbq")
+        if re.search(r"\bmarinated\b|\bmarin(a|e)ted\b|\bmarinted\b", t):
+            tags.append("marinated")
+        if re.search(r"\bboneless\b", t):
+            tags.append("boneless")
+
+        return {"sort": sort, "max_price": max_price, "tags": tags}
+
+    def _strip_modifier_words(self, text: str) -> str:
+        s = (text or "").lower()
+        # remove keywords but keep the rest for category/product extraction
+        s = re.sub(
+            r"\b(cheapest|chepest|lowest|most expensive|highest|under|below|less than|boneless|bbq|barbecue|marinated|marinted)\b",
+            " ",
+            s,
+        )
+        s = re.sub(r"\s+", " ", s).strip()
+        # drop standalone currency symbols
+        s = s.replace("£", " ").strip()
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    def _token_tags(self, text: str) -> List[str]:
+        t = (text or "").lower()
+        t = re.sub(r"[^a-z0-9\s_]+", " ", t)
+        toks = [x.strip() for x in t.split() if x.strip()]
+        out: List[str] = []
+        for tok in toks:
+            if tok not in out:
+                out.append(tok)
+        return out
 
     def _heuristic_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
         """
-        If user gives a short prompt (<= 2 words), don't rely on Brain.
-        - Fix typos by fuzzy matching catalog categories
-        - Otherwise treat it as a product query/tag (wings, chops, mince, etc.)
+        Handles:
+        - typos: lam, chciken
+        - modifiers: cheapest lamb, lamb under 10, bbq chicken, marinted chicken, boneless lamb
         """
         text = (user_text or "").strip().lower()
         if not text:
             return None
-        if len(text.split()) > 2:
+        if len(text.split()) > 5:
             return None
 
-        text_norm = re.sub(r"[^a-z0-9\s_]+", "", text).strip()
+        text_norm = re.sub(r"[^a-z0-9\s_£]+", "", text).strip()
         if not text_norm:
             return None
 
-        # 1) Try fuzzy match to categories
-        cat = self._fuzzy_category_match(text_norm, request_id=request_id)
+        mods = self._parse_modifiers(text_norm)
+        core = self._strip_modifier_words(text_norm)
+
+        # If user wrote "lamb under 10" core becomes "lamb"
+        # If user wrote "bbq chicken" core becomes "chicken"
+        # If user wrote only "under 10" core may be empty -> fall back to original tokens
+        if not core:
+            core = text_norm
+
+        # Try fuzzy match to category first
+        cat = self._fuzzy_category_match(core, request_id=request_id)
+
+        tags = self._token_tags(core)
+        for t in mods.get("tags") or []:
+            if t not in tags:
+                tags.append(t)
+
+        # If we found a category -> browse
         if cat:
             return {
                 "intent": "browse_category",
@@ -203,21 +281,31 @@ class MessageHandlerV7:
                 "handoff_channel": None,
                 "needs_clarification": False,
                 "clarification_question": "",
-                "meta": {"max_items": 8},
+                "meta": {
+                    "max_items": 12,
+                    "search_tags": mods.get("tags") or [],
+                    "sort": mods.get("sort"),
+                    "max_price": mods.get("max_price"),
+                },
             }
 
-        # 2) Otherwise treat as product search
+        # Otherwise search products using core as text + tags
         return {
             "intent": "search_product",
             "action": "SEARCH_PRODUCTS",
             "category": None,
-            "product_name": text_norm,
+            "product_name": core,
             "postcode": None,
             "sku": None,
             "handoff_channel": None,
             "needs_clarification": False,
             "clarification_question": "",
-            "meta": {"max_items": 8, "search_tags": [text_norm]},
+            "meta": {
+                "max_items": 12,
+                "search_tags": tags,
+                "sort": mods.get("sort"),
+                "max_price": mods.get("max_price"),
+            },
         }
 
     def _fuzzy_category_match(self, text: str, request_id: str) -> Optional[str]:
@@ -251,10 +339,11 @@ class MessageHandlerV7:
         if not candidates:
             return None
 
-        if text in id_map:
-            return id_map[text]
+        text_l = (text or "").lower().strip()
+        if text_l in id_map:
+            return id_map[text_l]
 
-        match = difflib.get_close_matches(text, candidates, n=1, cutoff=0.78)
+        match = difflib.get_close_matches(text_l, candidates, n=1, cutoff=0.78)
         if match:
             return id_map.get(match[0]) or match[0]
         return None
@@ -288,12 +377,12 @@ class MessageHandlerV7:
                 hints=hints,
             )
             if not isinstance(plan, dict):
-                return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 8}}
+                return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 12}}
             return plan
 
         except Exception as e:
             self._exc(request_id, "V7.brain_plan_failed", err=str(e))
-            return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 8}}
+            return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 12}}
 
     def _normalize_plan(self, plan: Dict[str, Any], user_text: str) -> Dict[str, Any]:
         p = dict(plan or {})
@@ -302,22 +391,23 @@ class MessageHandlerV7:
         category = p.get("category")
         product_name = p.get("product_name")
 
+        # force catalog search if brain gave slots but wrong action
         if (category or product_name) and action in {"", "DO_NOTHING", "STORE_INFO", "FAQ_LOOKUP"}:
             p["action"] = "SEARCH_PRODUCTS"
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        if len((user_text or "").split()) <= 2 and p.get("needs_clarification"):
+        # don't block on clarification for short messages
+        if len((user_text or "").split()) <= 5 and p.get("needs_clarification"):
             p["needs_clarification"] = False
             p["clarification_question"] = ""
 
         meta = p.get("meta") or {}
         if not isinstance(meta, dict):
             meta = {}
-        meta.setdefault("max_items", 8)
+        meta.setdefault("max_items", 12)
         p["meta"] = meta
 
-        # Ensure required keys exist (prevents KeyErrors in other code)
         p.setdefault("category", None)
         p.setdefault("product_name", None)
         p.setdefault("postcode", None)
@@ -329,8 +419,43 @@ class MessageHandlerV7:
         return p
 
     # ------------------------------------------------------------------
-    # EXECUTION (catalog / delivery / faq)
+    # EXECUTION
     # ------------------------------------------------------------------
+
+    def _post_filter_items(self, items: List[Dict[str, Any]], meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+        meta = meta or {}
+        max_price = meta.get("max_price")
+        sort = meta.get("sort")
+
+        cleaned: List[Dict[str, Any]] = []
+        for it in items or []:
+            if isinstance(it, dict):
+                cleaned.append(it)
+
+        # filter: max_price
+        if isinstance(max_price, (int, float)):
+            tmp: List[Dict[str, Any]] = []
+            for it in cleaned:
+                p = it.get("price")
+                try:
+                    p_val = float(p) if p is not None else None
+                except Exception:
+                    p_val = None
+                if p_val is None or p_val <= float(max_price):
+                    tmp.append(it)
+            cleaned = tmp
+
+        # sort
+        if sort in {"price_asc", "price_desc"}:
+            def price_key(x: Dict[str, Any]) -> float:
+                try:
+                    return float(x.get("price"))
+                except Exception:
+                    return 10**9
+
+            cleaned.sort(key=price_key, reverse=(sort == "price_desc"))
+
+        return cleaned
 
     def _execute_plan(
         self,
@@ -375,11 +500,11 @@ class MessageHandlerV7:
             query, tags = self._build_search_query(user_text, category, product_name, meta)
 
             try:
-                limit = int((meta or {}).get("max_items") or 8)
+                limit = int((meta or {}).get("max_items") or 12)
             except Exception:
-                limit = 8
+                limit = 12
 
-            self._info(request_id, "V7.catalog.search", query=self._clip(query, 120), tags=(tags or [])[:20], limit=limit)
+            self._info(request_id, "V7.catalog.search", query=self._clip(query, 120), tags=(tags or [])[:20], limit=limit, meta=self._compact(meta))
 
             items: List[Dict[str, Any]] = []
             if self.catalog and (query or tags):
@@ -394,6 +519,7 @@ class MessageHandlerV7:
                 else:
                     self._debug(request_id, "V7.catalog_search_skipped", query=query, tags=tags)
 
+            items = self._post_filter_items(items, meta)
             facts["items"] = items
             self._debug(request_id, "V7.catalog.result", count=len(items), preview=self._preview_items(items))
 
