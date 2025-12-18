@@ -13,53 +13,96 @@ from renderer_v7 import RendererV7
 
 class MessageHandlerV7:
     """
-    V7 handler (crash-proof + modifier-aware + multi-category join)
+    V7 handler (crash-proof + modifier-aware + multi-meat join)
 
-    Fixes:
-    - Never crash the webhook (hard try/except + defensive helpers)
-    - Heuristics cover short + medium prompts (<= 7 words):
-        * typos: "lam", "chciken", "chepest", "kidnneys"
-        * modifiers: "cheapest lamb", "lamb under 10", "boneless lamb", "bbq chicken", "marinted chicken"
-        * multi-category queries: "beef steaks lamb steaks and chicken steaks"
-    - Forces SEARCH_PRODUCTS when message looks product-related
-    - Post-filter + post-sort applied even if catalog.search doesn't support it
-    - Always returns ui.catalog_items for webchat cards
-    - Strong request_id logging
+    Guarantees:
+    - Never crashes the webhook (hard try/except in handle + defensive helpers)
+    - Strong heuristic for product queries, including typos + modifiers
+    - Multi-meat join: "beef steaks lamb steaks and chicken steaks"
+      runs per-meat searches and merges results (dedupe + optional sort/filter)
+    - Always returns ui.catalog_items for webchat
     """
 
     # -----------------------------
-    # ALIASES / NORMALIZATION
+    # ALIASES (expand freely)
     # -----------------------------
-    # Expand these freely; they are safe and cheap.
-    _MEAT_ALIASES: Dict[str, str] = {
-        # chicken / poultry
+    # NOTE: This is token-based. Multi-word aliases are handled via regex rules too.
+    _ALIASES: Dict[str, str] = {
+        # meats (canonical keys)
         "chicken": "chicken",
+        "poultry": "chicken",
+        "hen": "chicken",
+        "broiler": "chicken",
+        "cockerel": "chicken",
+
+        "lamb": "lamb",
+        "mutton": "lamb",
+        "sheep": "lamb",
+
+        "beef": "beef",
+        "cow": "beef",
+        "veal": "beef",
+
+        "goat": "goat",
+        "kid": "goat",
+
+        # common typos
         "chciken": "chicken",
         "chiken": "chicken",
         "chcken": "chicken",
         "chikcen": "chicken",
         "chikn": "chicken",
-        "poultry": "chicken",
-        "hen": "chicken",
-        "broiler": "chicken",
-        "wings": "wings",
+        "chkien": "chicken",
+
+        "lam": "lamb",
+        "lmb": "lamb",
+
+        "bief": "beef",
+        "bef": "beef",
+        "beff": "beef",
+
+        "chepest": "cheapest",
+        "cheepest": "cheapest",
+        "cheapest": "cheapest",
+        "cheap": "cheapest",
+        "lowest": "cheapest",
+        "low": "cheapest",
+
+        "expencive": "expensive",
+        "expensive": "expensive",
+        "premium": "expensive",
+        "highest": "expensive",
+
+        # cuts / intents
+        "steak": "steak",
+        "steaks": "steak",
+        "ribeye": "ribeye",
+        "rib-eye": "ribeye",
+        "sirloin": "sirloin",
+        "fillet": "fillet",
+        "tbone": "tbone",
+        "t-bone": "tbone",
+
+        "mince": "mince",
+        "ground": "mince",
+        "keema": "mince",
+
+        "chop": "chops",
+        "chops": "chops",
+        "rib": "ribs",
+        "ribs": "ribs",
+
         "wing": "wings",
+        "wings": "wings",
         "drumstick": "drumsticks",
         "drumsticks": "drumsticks",
         "thigh": "thighs",
         "thighs": "thighs",
         "breast": "breast",
         "breasts": "breast",
-        "fillet": "fillet",
-        "fillets": "fillet",
-        "whole chicken": "whole",
+        "fillet(s)": "fillet",
 
-        # lamb
-        "lamb": "lamb",
-        "lam": "lamb",
-        "lambs": "lamb",
-        "mutton": "lamb",
-        "goat": "goat",
+        # organs / misc (helps searches)
         "kidney": "kidneys",
         "kidneys": "kidneys",
         "kindney": "kidneys",
@@ -71,58 +114,51 @@ class MessageHandlerV7:
         "hearts": "hearts",
         "tongue": "tongue",
         "tripe": "tripe",
+        "brain": "brain",
         "paya": "paya",
         "feet": "feet",
         "head": "head",
-        "brain": "brain",
 
-        # beef
-        "beef": "beef",
-        "bief": "beef",
-        "bef": "beef",
-        "cow": "beef",
-        "steak": "steak",
-        "steaks": "steak",
-        "sirloin": "sirloin",
-        "ribeye": "ribeye",
-        "fillet steak": "fillet",
-        "fillet steak(s)": "fillet",
-
-        # generic cuts / intents
-        "mince": "mince",
-        "ground": "mince",
-        "chops": "chops",
-        "chop": "chops",
-        "ribs": "ribs",
-        "rib": "ribs",
+        # modifiers / tags
         "bbq": "bbq",
         "barbecue": "bbq",
+        "grill": "bbq",
+        "grilled": "bbq",
+
         "marinated": "marinated",
         "marinaded": "marinated",
         "marinted": "marinated",
-        "marin(t|e)ed": "marinated",
-        "boneless": "boneless",
-        "bone-in": "bone_in",
-        "bone in": "bone_in",
-        "skin on": "skin_on",
-        "skin off": "skin_off",
+        "marinate": "marinated",
 
-        # cheap typos for modifiers
-        "cheapest": "cheapest",
-        "chepest": "cheapest",
-        "cheap": "cheapest",
-        "lowest": "cheapest",
-        "low": "cheapest",
-        "most expensive": "expensive",
-        "highest": "expensive",
-        "premium": "expensive",
-        "best": "best",
+        "boneless": "boneless",
+        "bonein": "bone_in",
+        "bone-in": "bone_in",
+        "bone": "bone_in",
+
+        "skinon": "skin_on",
+        "skin-on": "skin_on",
+        "skinoff": "skin_off",
+        "skin-off": "skin_off",
+
         "family": "family",
-        "family pack": "family",
         "bulk": "bulk",
+        "pack": "pack",
+        "tray": "tray",
     }
 
     _MEAT_KEYS = ("chicken", "lamb", "beef", "goat")
+
+    # phrases we strip for extracting "core" and intent
+    _MOD_WORDS_RE = re.compile(
+        r"\b("
+        r"cheapest|cheap|lowest|low|"
+        r"most\s+expensive|expensive|premium|highest|"
+        r"under|below|less\s+than|"
+        r"boneless|bbq|barbecue|marinated|marinaded|marinted|"
+        r"family|bulk|pack|tray"
+        r")\b",
+        re.IGNORECASE,
+    )
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
@@ -141,19 +177,23 @@ class MessageHandlerV7:
 
     def handle(self, user_text: str, ctx: Any, sess: Dict[str, Any]) -> Dict[str, Any]:
         t0 = time.perf_counter()
-        user_text = (user_text or "").strip()
+        raw_text = (user_text or "").strip()
 
         request_id = self._get_request_id(ctx) or str(uuid.uuid4())[:12]
         tenant = getattr(ctx, "tenant", None) or "unknown"
         session_id = getattr(ctx, "session_id", None) or "unknown"
         channel = getattr(ctx, "channel", None) or "unknown"
 
+        sess = sess or {}
         session_snapshot = {
-            "postcode": (sess or {}).get("postcode"),
-            "last_intent": (sess or {}).get("last_intent"),
-            "last_category": (sess or {}).get("last_category"),
-            "last_sku": (sess or {}).get("last_sku"),
+            "postcode": sess.get("postcode"),
+            "last_intent": sess.get("last_intent"),
+            "last_category": sess.get("last_category"),
+            "last_sku": sess.get("last_sku"),
         }
+
+        # IMPORTANT: normalize early (this fixes multi-join + typos everywhere)
+        norm_text = self._normalize_text(raw_text)
 
         self._info(
             request_id,
@@ -161,20 +201,20 @@ class MessageHandlerV7:
             tenant=tenant,
             session=session_id,
             channel=channel,
-            text=self._clip(user_text, 240),
+            text=self._clip(norm_text, 240),
             sess=session_snapshot,
         )
 
         try:
-            # 0) Multi-category join (e.g., "beef steaks lamb steaks and chicken steaks")
-            multi = self._multi_query_plan(user_text, request_id=request_id)
+            # 0) MULTI-MEAT JOIN first (covers your main failing case)
+            multi = self._multi_query_plan(norm_text, request_id=request_id)
             if multi:
                 plan = multi["plan"]
                 facts = multi["facts"]
                 entities = self._entities_from_plan(plan)
 
                 reply_text = self.renderer.render(
-                    user_text=user_text,
+                    user_text=raw_text,
                     plan=plan,
                     facts=facts,
                     session=session_snapshot,
@@ -186,12 +226,7 @@ class MessageHandlerV7:
                 }
 
                 dt_ms = int((time.perf_counter() - t0) * 1000)
-                self._info(
-                    request_id,
-                    "V7.ok_multi",
-                    items_count=len(facts.get("items") or []),
-                    latency_ms=dt_ms,
-                )
+                self._info(request_id, "V7.ok_multi", items_count=len(facts.get("items") or []), latency_ms=dt_ms)
 
                 return {
                     "reply": reply_text,
@@ -203,23 +238,23 @@ class MessageHandlerV7:
                     "meta": {"request_id": request_id, "latency_ms": dt_ms},
                 }
 
-            # 1) Heuristic (handles failing cases)
-            plan = self._heuristic_plan(user_text, request_id=request_id)
+            # 1) Heuristic plan (short/medium product prompts)
+            plan = self._heuristic_plan(norm_text, request_id=request_id)
             if plan:
                 self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
             else:
                 # 2) Brain plan
-                plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
+                plan = self._safe_plan(user_text=raw_text, session=session_snapshot, request_id=request_id)
                 self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
 
-                # 3) Normalize
-                plan = self._normalize_plan(plan, user_text=user_text)
+                # 3) Normalize brain plan
+                plan = self._normalize_plan(plan, user_text=raw_text)
                 self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
-                # 4) Force product search for product-looking messages
-                if self._looks_like_product_query(user_text) and (plan.get("intent") in (None, "", "unknown")):
-                    mods = self._parse_modifiers(user_text)
-                    tags = self._token_tags(user_text)
+                # 4) Force product search fallback if it looks product-related
+                if self._looks_like_product_query(norm_text) and (plan.get("intent") in (None, "", "unknown")):
+                    mods = self._parse_modifiers(norm_text)
+                    tags = self._token_tags(norm_text)
                     for t in mods.get("tags") or []:
                         if t not in tags:
                             tags.append(t)
@@ -228,7 +263,7 @@ class MessageHandlerV7:
                         "intent": "search_product",
                         "action": "SEARCH_PRODUCTS",
                         "category": None,
-                        "product_name": self._normalize_text(user_text),
+                        "product_name": norm_text,
                         "postcode": None,
                         "sku": None,
                         "handoff_channel": None,
@@ -243,15 +278,15 @@ class MessageHandlerV7:
                     }
                     self._info(request_id, "V7.force_search_fallback", plan=self._safe_plan_log(plan))
 
-            # 5) Execute tools
-            facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
+            # 5) Execute
+            facts = self._execute_plan(plan, raw_text, session_snapshot, request_id=request_id)
 
             # 6) Entities
             entities = self._entities_from_plan(plan)
 
             # 7) Render
             reply_text = self.renderer.render(
-                user_text=user_text,
+                user_text=raw_text,
                 plan=plan,
                 facts=facts,
                 session=session_snapshot,
@@ -310,52 +345,76 @@ class MessageHandlerV7:
         return None
 
     # ------------------------------------------------------------------
-    # MULTI CATEGORY JOIN (KEY PATCH)
+    # NORMALIZATION
     # ------------------------------------------------------------------
 
-    def _multi_query_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
+    def _normalize_text(self, text: str) -> str:
+        t = (text or "").lower().strip()
+        if not t:
+            return ""
+
+        # unify separators
+        t = t.replace("&", " and ")
+        t = re.sub(r"[,/]+", " ", t)
+
+        # keep £ and digits for "under £10"
+        t = re.sub(r"[^a-z0-9\s£_-]+", " ", t)
+        t = re.sub(r"\s+", " ", t).strip()
+
+        toks = t.split()
+        out: List[str] = []
+        for tok in toks:
+            out.append(self._ALIASES.get(tok, tok))
+        t = " ".join(out).strip()
+
+        # normalize a couple of common multiword forms
+        t = re.sub(r"\bmost\s+expensive\b", "expensive", t)
+        t = re.sub(r"\bless\s+than\b", "under", t)
+        t = re.sub(r"\bskin\s+on\b", "skin_on", t)
+        t = re.sub(r"\bskin\s+off\b", "skin_off", t)
+        t = re.sub(r"\bbone\s+in\b", "bone_in", t)
+
+        return re.sub(r"\s+", " ", t).strip()
+
+    # ------------------------------------------------------------------
+    # MULTI-MEAT JOIN (KEY FIX)
+    # ------------------------------------------------------------------
+
+    def _multi_query_plan(self, norm_text: str, request_id: str) -> Optional[Dict[str, Any]]:
         """
-        If user asked for the same thing across multiple meats:
-          - "beef steaks lamb steaks and chicken steaks"
-          - "lamb mince and beef mince"
-          - "chicken wings and lamb chops"
-        We run multiple searches and merge.
+        Detect 2+ meats in a message and run per-meat searches, then merge.
+        Example: "beef steaks lamb steaks and chicken steaks"
         """
-        text = (user_text or "").strip().lower()
-        if not text or not self.catalog:
+        if not norm_text or not self.catalog:
             return None
 
-        meats = self._extract_meats(text)
+        meats = self._extract_meats(norm_text)
         if len(meats) < 2:
             return None
 
-        mods = self._parse_modifiers(text)
+        mods = self._parse_modifiers(norm_text)
 
-        # topic/cut words left after removing meats + conjunctions + modifier words
-        core = self._strip_modifier_words(text)
-        core = re.sub(r"\b(and|or|with|plus)\b", " ", core)
-        for m in meats:
-            core = re.sub(rf"\b{re.escape(m)}\b", " ", core)
-        core = re.sub(r"\s+", " ", core).strip()
+        # Determine item intent like "steak", "mince", "chops", etc.
+        item_intent = self._extract_item_intent(norm_text)
 
-        # If nothing left, default to "all" to pull general lists for each meat
-        topic = core or "all"
+        # Build a "topic" by stripping meats + modifiers + glue words
+        core = self._strip_meats_and_modifiers(norm_text, meats)
+        topic = item_intent or core or "all"
 
-        # Build searches per meat
-        merged: List[Dict[str, Any]] = []
-        seen: set = set()
-
-        # More results per meat, then post-filter + cap total
         per_meat_limit = 8
         total_limit = 18
 
+        merged: List[Dict[str, Any]] = []
+        seen: set = set()
+
         for meat in meats:
             q = f"{meat} {topic}".strip()
-            tags = self._token_tags(f"{meat} {topic}")
-            # add modifier tags (bbq/marinated/boneless)
-            for t in mods.get("tags") or []:
-                if t not in tags:
-                    tags.append(t)
+            tags = self._token_tags(q)
+
+            # ensure modifier tags are included
+            for tag in mods.get("tags") or []:
+                if tag not in tags:
+                    tags.append(tag)
 
             self._info(request_id, "V7.multi.search", meat=meat, query=self._clip(q, 120), tags=tags[:20])
 
@@ -371,9 +430,7 @@ class MessageHandlerV7:
                 if not isinstance(it, dict):
                     continue
                 key = (it.get("sku") or it.get("id") or it.get("code") or it.get("name") or "").strip()
-                if not key:
-                    continue
-                if key in seen:
+                if not key or key in seen:
                     continue
                 seen.add(key)
                 merged.append(it)
@@ -385,7 +442,7 @@ class MessageHandlerV7:
             "intent": "search_product",
             "action": "SEARCH_PRODUCTS",
             "category": None,
-            "product_name": self._normalize_text(user_text),
+            "product_name": norm_text,
             "postcode": None,
             "sku": None,
             "handoff_channel": None,
@@ -393,7 +450,7 @@ class MessageHandlerV7:
             "clarification_question": "",
             "meta": {
                 "max_items": total_limit,
-                "search_tags": self._token_tags(user_text),
+                "search_tags": self._token_tags(norm_text),
                 "sort": mods.get("sort"),
                 "max_price": mods.get("max_price"),
                 "multi_meats": meats,
@@ -405,52 +462,76 @@ class MessageHandlerV7:
         self._info(request_id, "V7.multi.merged", meats=meats, topic=topic, count=len(merged))
         return {"plan": plan, "facts": facts}
 
-    def _extract_meats(self, text: str) -> List[str]:
-        t = (text or "").lower()
+    def _extract_meats(self, norm_text: str) -> List[str]:
+        t = norm_text or ""
         found: List[str] = []
         for k in self._MEAT_KEYS:
             if re.search(rf"\b{re.escape(k)}\b", t):
                 found.append(k)
-        # also map common alias words if user typed only alias forms
-        # e.g. "poultry steaks" -> include chicken
-        if "chicken" not in found and re.search(r"\bpoultry\b", t):
-            found.append("chicken")
-        if "lamb" not in found and re.search(r"\bmutton\b", t):
-            found.append("lamb")
-        return found
+        # dedupe
+        out: List[str] = []
+        for x in found:
+            if x not in out:
+                out.append(x)
+        return out
+
+    def _extract_item_intent(self, norm_text: str) -> Optional[str]:
+        """
+        Detect the product-type the user is asking for:
+        steak/mince/chops/wings/etc.
+        """
+        t = norm_text or ""
+
+        # priority matters (specific before generic)
+        intents = [
+            "ribeye", "sirloin", "fillet", "tbone",  # specific steaks
+            "steak",
+            "mince",
+            "chops",
+            "wings", "drumsticks", "thighs", "breast",
+            "ribs",
+            "kofta",
+            "boneless",
+            "marinated",
+            "bbq",
+        ]
+        for it in intents:
+            if re.search(rf"\b{re.escape(it)}\b", t):
+                return it
+        return None
+
+    def _strip_meats_and_modifiers(self, norm_text: str, meats: List[str]) -> str:
+        s = norm_text or ""
+        # remove modifiers
+        s = self._MOD_WORDS_RE.sub(" ", s)
+        # remove meats
+        for m in meats:
+            s = re.sub(rf"\b{re.escape(m)}\b", " ", s)
+        # remove glue
+        s = re.sub(r"\b(and|or|with|plus)\b", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
 
     # ------------------------------------------------------------------
     # HEURISTICS
     # ------------------------------------------------------------------
 
-    def _looks_like_product_query(self, user_text: str) -> bool:
-        text = (user_text or "").strip().lower()
-        if not text:
+    def _looks_like_product_query(self, norm_text: str) -> bool:
+        if not norm_text:
             return False
-        return len(text.split()) <= 7
+        return len(norm_text.split()) <= 9  # allow "beef ribeye steak under 10"
 
-    def _normalize_text(self, text: str) -> str:
-        t = (text or "").lower().strip()
-        t = re.sub(r"[^a-z0-9\s£_-]+", " ", t)
-        t = re.sub(r"\s+", " ", t).strip()
-        # apply alias replacements token-by-token
-        toks = t.split()
-        out: List[str] = []
-        for tok in toks:
-            out.append(self._MEAT_ALIASES.get(tok, tok))
-        return " ".join(out).strip()
-
-    def _parse_modifiers(self, text: str) -> Dict[str, Any]:
-        t = (text or "").lower()
+    def _parse_modifiers(self, norm_text: str) -> Dict[str, Any]:
+        t = norm_text or ""
 
         sort = None
-        if re.search(r"\b(cheapest|chepest|cheap|lowest|low)\b", t):
+        if re.search(r"\bcheapest\b|\bcheap\b|\blowest\b|\blow\b", t):
             sort = "price_asc"
-        if re.search(r"\b(most expensive|highest|expensive|premium)\b", t):
+        if re.search(r"\bexpensive\b|\bpremium\b|\bhighest\b", t):
             sort = "price_desc"
 
         max_price = None
-        m = re.search(r"\b(under|below|less than)\s*£?\s*(\d+(\.\d+)?)\b", t)
+        m = re.search(r"\b(under|below)\s*£?\s*(\d+(\.\d+)?)\b", t)
         if m:
             try:
                 max_price = float(m.group(2))
@@ -458,34 +539,14 @@ class MessageHandlerV7:
                 max_price = None
 
         tags: List[str] = []
-        if re.search(r"\b(bbq|barbecue)\b", t):
-            tags.append("bbq")
-        if re.search(r"\b(marinated|marinaded|marinted)\b", t):
-            tags.append("marinated")
-        if re.search(r"\bboneless\b", t):
-            tags.append("boneless")
-        if re.search(r"\bfamily\b|\bfamily pack\b", t):
-            tags.append("family")
-        if re.search(r"\bbulk\b", t):
-            tags.append("bulk")
+        for tag in ("bbq", "marinated", "boneless", "family", "bulk"):
+            if re.search(rf"\b{re.escape(tag)}\b", t):
+                tags.append(tag)
 
         return {"sort": sort, "max_price": max_price, "tags": tags}
 
-    def _strip_modifier_words(self, text: str) -> str:
-        s = (text or "").lower()
-        s = re.sub(
-            r"\b(cheapest|chepest|cheap|lowest|low|most|expensive|highest|premium|best|"
-            r"under|below|less|than|boneless|bbq|barbecue|marinated|marinted|family|bulk)\b",
-            " ",
-            s,
-        )
-        s = s.replace("£", " ")
-        s = re.sub(r"\s+", " ", s).strip()
-        return s
-
-    def _token_tags(self, text: str) -> List[str]:
-        t = (text or "").lower()
-        t = self._normalize_text(t)
+    def _token_tags(self, norm_text: str) -> List[str]:
+        t = (norm_text or "").lower()
         t = re.sub(r"[^a-z0-9\s_]+", " ", t)
         toks = [x.strip() for x in t.split() if x.strip()]
         out: List[str] = []
@@ -494,42 +555,39 @@ class MessageHandlerV7:
                 out.append(tok)
         return out
 
-    def _heuristic_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
+    def _heuristic_plan(self, norm_text: str, request_id: str) -> Optional[Dict[str, Any]]:
         """
-        Handles:
-        - typos: lam, chciken, chepest
-        - modifiers: cheapest lamb, lamb under 10, bbq chicken, marinted chicken, boneless lamb
+        Heuristic for product searching:
+        - short/medium prompts
+        - typos are already normalized
+        - supports "cheapest lamb", "lamb under 10", "bbq chicken wings"
         """
-        text = (user_text or "").strip().lower()
-        if not text:
+        if not norm_text:
             return None
-        if len(text.split()) > 7:
-            return None
-
-        text_norm = self._normalize_text(text)
-        if not text_norm:
+        if len(norm_text.split()) > 9:
             return None
 
-        mods = self._parse_modifiers(text_norm)
-        core = self._strip_modifier_words(text_norm) or text_norm
+        mods = self._parse_modifiers(norm_text)
 
-        # Alias core token if needed (helps "chciken" -> "chicken")
-        core = self._normalize_text(core)
+        # If it looks like product-y text, force SEARCH_PRODUCTS (no clarification blocking)
+        if self._looks_like_product_query(norm_text):
+            tags = self._token_tags(norm_text)
+            for t in mods.get("tags") or []:
+                if t not in tags:
+                    tags.append(t)
 
-        # Try fuzzy match to category first
-        cat = self._fuzzy_category_match(core, request_id=request_id)
+            # if user wrote only "under 10" etc., keep tags as query
+            query = norm_text
+            if mods.get("max_price") is not None:
+                # remove "under 10" from query so search focuses on items
+                query = re.sub(r"\b(under|below)\s*£?\s*\d+(\.\d+)?\b", " ", query)
+                query = re.sub(r"\s+", " ", query).strip() or norm_text
 
-        tags = self._token_tags(core)
-        for t in mods.get("tags") or []:
-            if t not in tags:
-                tags.append(t)
-
-        if cat:
             return {
-                "intent": "browse_category",
+                "intent": "search_product",
                 "action": "SEARCH_PRODUCTS",
-                "category": cat,
-                "product_name": None,
+                "category": None,
+                "product_name": query,
                 "postcode": None,
                 "sku": None,
                 "handoff_channel": None,
@@ -537,68 +595,12 @@ class MessageHandlerV7:
                 "clarification_question": "",
                 "meta": {
                     "max_items": 12,
-                    "search_tags": mods.get("tags") or [],
+                    "search_tags": tags,
                     "sort": mods.get("sort"),
                     "max_price": mods.get("max_price"),
                 },
             }
 
-        return {
-            "intent": "search_product",
-            "action": "SEARCH_PRODUCTS",
-            "category": None,
-            "product_name": core,
-            "postcode": None,
-            "sku": None,
-            "handoff_channel": None,
-            "needs_clarification": False,
-            "clarification_question": "",
-            "meta": {
-                "max_items": 12,
-                "search_tags": tags,
-                "sort": mods.get("sort"),
-                "max_price": mods.get("max_price"),
-            },
-        }
-
-    def _fuzzy_category_match(self, text: str, request_id: str) -> Optional[str]:
-        if not self.catalog:
-            self._debug(request_id, "V7.no_catalog_for_category_match")
-            return None
-
-        try:
-            cats = self.catalog.categories() or []
-        except Exception as e:
-            self._exc(request_id, "V7.categories_failed", err=str(e))
-            return None
-
-        candidates: List[str] = []
-        id_map: Dict[str, str] = {}
-
-        for c in cats:
-            if not isinstance(c, dict):
-                continue
-            cid = (c.get("id") or "").strip()
-            nm = (c.get("name") or "").strip()
-            if cid:
-                k = cid.lower()
-                candidates.append(k)
-                id_map[k] = cid
-            if nm:
-                k = nm.lower()
-                candidates.append(k)
-                id_map[k] = cid or nm
-
-        if not candidates:
-            return None
-
-        text_l = self._normalize_text(text).lower().strip()
-        if text_l in id_map:
-            return id_map[text_l]
-
-        match = difflib.get_close_matches(text_l, candidates, n=1, cutoff=0.78)
-        if match:
-            return id_map.get(match[0]) or match[0]
         return None
 
     # ------------------------------------------------------------------
@@ -649,7 +651,8 @@ class MessageHandlerV7:
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        if len((user_text or "").split()) <= 7 and p.get("needs_clarification"):
+        # don't block on clarification for short/medium product messages
+        if len((user_text or "").split()) <= 9 and p.get("needs_clarification"):
             p["needs_clarification"] = False
             p["clarification_question"] = ""
 
@@ -689,6 +692,7 @@ class MessageHandlerV7:
                     p_val = float(p) if p is not None else None
                 except Exception:
                     p_val = None
+                # keep unknown prices, but filter known ones
                 if p_val is None or p_val <= float(max_price):
                     tmp.append(it)
             cleaned = tmp
