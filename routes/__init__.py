@@ -31,7 +31,7 @@ def require_auth(roles: Optional[Iterable[str]] = None) -> Callable[..., Any]:
             container = get_container()
             sec = container  # type: ignore
             # services.security is not attached directly; import here:
-            from services.security import require_bearer_or_session, ensure_roles
+            from service.security import require_bearer_or_session, ensure_roles
 
             user = require_bearer_or_session(container, request)
             if roles:
