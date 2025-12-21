@@ -1,15 +1,17 @@
 """
 Logging setup.
 
-- Console-first logging (Render-safe)
-- Optional rotating file logs for local/dev
-- Request-ID aware formatter
+Goals:
+- Everything goes to console + logs/chatbot.log
+- Errors + tracebacks ALSO go to logs/errors.log
+- Analytics-only logs go to logs/analytics.log
+- Request-id included when available
 """
 
 from __future__ import annotations
 
 import logging
-import sys
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -23,55 +25,51 @@ class RequestIdFilter(logging.Filter):
         return True
 
 
-def _console_handler(level: int) -> logging.Handler:
-    h = logging.StreamHandler(sys.stdout)
-    h.setLevel(level)
-    h.setFormatter(
-        logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s %(request_id)s - %(message)s"
-        )
-    )
-    h.addFilter(RequestIdFilter())
-    return h
-
-
-def _file_handler(path: Path, level: int) -> logging.Handler:
+def _rotating(path: Path, level: int) -> RotatingFileHandler:
     path.parent.mkdir(parents=True, exist_ok=True)
     h = RotatingFileHandler(
         path,
         maxBytes=5_000_000,
-        backupCount=3,
+        backupCount=5,
         encoding="utf-8",
     )
     h.setLevel(level)
-    h.setFormatter(
-        logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s %(request_id)s - %(message)s"
-        )
-    )
     h.addFilter(RequestIdFilter())
+    h.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(request_id)s - %(message)s")
+    )
     return h
 
 
 def configure_logging(settings: Settings) -> None:
-    root = logging.getLogger()
+    logs_dir = Path(os.getenv("LOG_DIR", "logs"))
 
-    # 🔒 Prevent handler duplication on reload
-    root.handlers.clear()
+    root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    # ✅ ALWAYS log to stdout (Render / Gunicorn)
-    root.addHandler(_console_handler(logging.INFO))
+    # Avoid duplicate handlers on reloads
+    root.handlers = []
 
-    # Optional file logs (safe locally, harmless on Render)
-    logs_dir = Path("logs")
-    root.addHandler(_file_handler(logs_dir / "errors.log", logging.ERROR))
+    # Console
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.addFilter(RequestIdFilter())
+    console.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s"))
+    root.addHandler(console)
 
-    logging.getLogger("Analytics").addHandler(
-        _file_handler(logs_dir / "analytics.log", logging.INFO)
-    )
+    # Main runtime file: catches app.logger + everything unless you override
+    runtime = _rotating(logs_dir / "chatbot.log", logging.INFO)
+    root.addHandler(runtime)
 
-    # Make Flask/Gunicorn propagate properly
-    logging.getLogger("werkzeug").setLevel(logging.INFO)
-    logging.getLogger("gunicorn.error").propagate = True
-    logging.getLogger("gunicorn.access").propagate = True
+    # Errors file: only ERROR+ (includes app.logger.exception tracebacks)
+    errors = _rotating(logs_dir / "errors.log", logging.ERROR)
+    root.addHandler(errors)
+
+    # Analytics file: only analytics logger
+    analytics = _rotating(logs_dir / "analytics.log", logging.INFO)
+    a = logging.getLogger("Analytics")
+    a.setLevel(logging.INFO)
+    a.propagate = False  # prevent double-writing into chatbot.log
+    a.handlers = []
+    a.addHandler(analytics)
+    a.addHandler(console)  # optional: show analytics in console too
