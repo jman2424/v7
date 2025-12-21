@@ -1,19 +1,20 @@
 """
 App factory: create_app()
 
-- Loads config (env, flags, secrets)
+- Loads config
 - Sets up logging
-- Wires DI container (stores, services, modes)
-- Registers middleware (request IDs, rate limits, CSRF)
-- Registers blueprints from routes/*
+- Wires DI container
+- Registers middleware
+- Registers blueprints
 - Installs global error handlers
 """
 
 from __future__ import annotations
-import logging
+
 from typing import Any, Dict
 
 from flask import Flask, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from app.config import Settings, load_settings
 from app.logging_setup import configure_logging
@@ -31,7 +32,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.files_routes import bp as files_bp
     from routes.auth_routes import bp as auth_bp
     from routes.diag_routes import bp as diag_bp
-    from routes.catalog_routes import bp as catalog_bp  # <-- NEW
+    from routes.catalog_routes import bp as catalog_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -41,66 +42,45 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(files_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(diag_bp)
-    app.register_blueprint(catalog_bp)  # <-- NEW
+    app.register_blueprint(catalog_bp)
 
 
 def _install_error_handlers(app: Flask) -> None:
-    @app.errorhandler(400)
-    def bad_request(err):
-        app.logger.warning(f"400: {err}")
-        return jsonify({"error": "bad_request"}), 400
+    @app.errorhandler(HTTPException)
+    def handle_http(err: HTTPException):
+        # logs 4xx/5xx raised via abort(...) etc
+        app.logger.warning("HTTP %s %s %s", err.code, request.method, request.path)
+        key = (err.name or "error").lower().replace(" ", "_")
+        return jsonify({"error": key}), err.code
 
-    @app.errorhandler(401)
-    def unauthorized(err):
-        return jsonify({"error": "unauthorized"}), 401
-
-    @app.errorhandler(403)
-    def forbidden(err):
-        return jsonify({"error": "forbidden"}), 403
-
-    @app.errorhandler(404)
-    def not_found(err):
-        return jsonify({"error": "not_found"}), 404
-
-    @app.errorhandler(429)
-    def too_many(err):
-        return jsonify({"error": "rate_limited"}), 429
-
-    @app.errorhandler(500)
-    def server_error(err):
-        app.logger.exception("Unhandled server error")
+    @app.errorhandler(Exception)
+    def handle_exception(err: Exception):
+        # always full traceback
+        app.logger.exception("UNHANDLED_EXCEPTION %s %s", request.method, request.path)
         return jsonify({"error": "server_error"}), 500
 
 
 def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
-    # Settings & logging
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
     app = Flask(__name__, static_folder=None)
     app.config["SECRET_KEY"] = settings.SECRET_KEY
-    app.config["WTF_CSRF_ENABLED"] = False  # using our own lightweight CSRF
+    app.config["WTF_CSRF_ENABLED"] = False
 
-    # Dependency container (stores, services, mode strategy)
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
-    # Middleware
     middleware.install_request_id(app)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
     middleware.install_timing_metrics(app, container)
 
-    # Blueprints
     _register_blueprints(app)
-
-    # Error handlers
     _install_error_handlers(app)
 
-    # Mode banner
-    app.logger.info(f"App started in MODE={settings.MODE} TENANT={settings.BUSINESS_KEY}")
+    app.logger.info("App started MODE=%s TENANT=%s", settings.MODE, settings.BUSINESS_KEY)
 
-    # Simple root
     @app.get("/")
     def root():
         return {"ok": True, "mode": settings.MODE, "tenant": settings.BUSINESS_KEY}
