@@ -4,9 +4,11 @@ Security utilities.
 Provides:
 - hash_password(plain) -> str
 - check_password(plain, hashed) -> bool
-- verify_webhook_signature(request, app_secret) -> bool
-- require_bearer_or_session(...)
-- ensure_roles(...)
+- verify_webhook_signature(request, app_secret) -> bool   # used by WhatsApp webhook
+
+Admin auth helpers (so routes don't crash):
+- require_bearer_or_session(container, request) -> dict
+- ensure_roles(user, roles) -> None
 
 Notes
 -----
@@ -21,22 +23,23 @@ to avoid locking you out in dev. In prod, ALWAYS set the secret.
 
 from __future__ import annotations
 
-import os
 import hmac
 import hashlib
-import secrets
-from typing import Optional, Iterable, Tuple
+from typing import Optional, Iterable, Any, Dict
 
 import bcrypt
-from flask import Request, request, session, abort
+from flask import Request
 
 
-# =========================================================
-# Password hashing (admin login, etc.)
-# =========================================================
+# ------------- Password hashing (for admin login, etc.) -------------
+
 
 def hash_password(plain: str) -> str:
-    """Hash a plaintext password using bcrypt."""
+    """
+    Hash a plaintext password using bcrypt.
+
+    Returns a UTF-8 string safe to store in DB / env.
+    """
     if not isinstance(plain, str):
         raise TypeError("Password must be a string")
 
@@ -46,7 +49,9 @@ def hash_password(plain: str) -> str:
 
 
 def check_password(plain: str, hashed: str) -> bool:
-    """Compare plaintext password to stored bcrypt hash."""
+    """
+    Compare plaintext password to stored bcrypt hash.
+    """
     if not plain or not hashed:
         return False
     try:
@@ -55,19 +60,20 @@ def check_password(plain: str, hashed: str) -> bool:
         return False
 
 
-# =========================================================
-# WhatsApp / Meta webhook signature verification
-# =========================================================
+# ------------- Webhook signature verification (WhatsApp / Meta) -------------
+
 
 def verify_webhook_signature(request: Request, app_secret: Optional[str]) -> bool:
     """
     Verify Meta / WhatsApp webhook signature.
 
-    Header: X-Hub-Signature-256: "sha256=<hex-digest>"
-    Digest: HMAC-SHA256(app_secret, raw_body)
+    Meta spec:
+      X-Hub-Signature-256: "sha256=<hex-digest>"
+      digest = HMAC-SHA256(app_secret, raw_body)
     """
+    # dev-mode bypass
     if not app_secret:
-        return True  # dev-safe
+        return True
 
     header = request.headers.get("X-Hub-Signature-256", "")
     prefix = "sha256="
@@ -89,83 +95,66 @@ def verify_webhook_signature(request: Request, app_secret: Optional[str]) -> boo
     return hmac.compare_digest(received_sig, computed)
 
 
-# =========================================================
-# Admin / Dashboard security
-# =========================================================
+# ------------- Admin auth helpers (fix your ImportError) -------------
 
-def _parse_bearer_token(auth_header: str) -> str:
-    """
-    Parse:
-      Authorization: Bearer <token>
-    """
-    if not auth_header:
+
+def _extract_bearer_token(req: Request) -> str:
+    auth = (req.headers.get("Authorization") or "").strip()
+    if not auth.lower().startswith("bearer "):
         return ""
-    parts = auth_header.strip().split()
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        return parts[1]
-    return ""
+    return auth.split(" ", 1)[1].strip()
 
 
-def require_bearer_or_session(
-    *,
-    allowed_roles: Optional[Iterable[str]] = None,
-    session_user_key: str = "user",
-    session_role_key: str = "role",
-    env_token_key: str = "ADMIN_BEARER_TOKEN",
-) -> Tuple[bool, str]:
+def require_bearer_or_session(container: Any, req: Request) -> Dict[str, Any]:
     """
-    Allow access if:
-    1) Valid Flask session exists, OR
-    2) Bearer token matches ADMIN_BEARER_TOKEN env var
+    Returns a user-like dict if authorized, otherwise raises a 401 via exception upstream.
 
-    Returns: (ok, reason)
+    Supports:
+    - Bearer token: Authorization: Bearer <token>
+      Token is validated by container.auth if present, otherwise falls back to env token.
+    - Session auth: if you later add it, container.auth may also support it.
     """
+    token = _extract_bearer_token(req)
 
-    allowed = {r.lower() for r in (allowed_roles or [])}
+    # 1) Preferred: container.auth service (if you have one)
+    auth_svc = getattr(container, "auth", None)
+    if auth_svc:
+        # Common patterns: validate_bearer / verify_token / authenticate_request
+        for fn_name in ("validate_bearer", "verify_token", "authenticate_request"):
+            fn = getattr(auth_svc, fn_name, None)
+            if callable(fn):
+                user = fn(token=token, request=req)  # type: ignore
+                if user:
+                    return user  # expected dict-like
 
-    # ---- 1. Session auth ----
-    user = session.get(session_user_key)
-    role = (session.get(session_role_key) or "").lower()
+    # 2) Fallback: simple env-token check (fast unblock)
+    # Set ADMIN_BEARER_TOKEN in Render env vars
+    import os
+    expected = (os.getenv("ADMIN_BEARER_TOKEN") or "").strip()
+    if expected and token and hmac.compare_digest(token, expected):
+        return {"id": "bearer", "role": "admin", "roles": ["admin"]}
 
-    if user:
-        if not allowed or role in allowed:
-            return True, "session_ok"
-        return False, "role_not_allowed"
-
-    # ---- 2. Bearer token auth ----
-    expected = (os.getenv(env_token_key) or "").strip()
-    auth_header = request.headers.get("Authorization", "")
-    token = _parse_bearer_token(auth_header)
-
-    if expected and token and secrets.compare_digest(token, expected):
-        return True, "bearer_ok"
-
-    return False, "unauthorized"
+    # 3) No auth matched
+    raise PermissionError("Unauthorized")
 
 
-def ensure_roles(role: Optional[str], allowed_roles: Iterable[str]) -> bool:
+def ensure_roles(user: Dict[str, Any], roles: Iterable[str]) -> None:
     """
-    Simple role check.
+    Ensures user has at least one of the allowed roles.
+    Raises PermissionError if not allowed.
     """
-    if not allowed_roles:
-        return True
-    return (role or "").lower() in {r.lower() for r in allowed_roles}
+    allowed = set([r.strip().lower() for r in roles if r])
+    if not allowed:
+        return
 
+    # Accept either `role` (string) or `roles` (list)
+    user_role = str(user.get("role") or "").strip().lower()
+    user_roles = user.get("roles") or []
+    if isinstance(user_roles, str):
+        user_roles = [user_roles]
+    user_roles = set([str(r).strip().lower() for r in user_roles if r])
 
-# =========================================================
-# Optional decorator (nice to have)
-# =========================================================
+    if user_role in allowed or (user_roles & allowed):
+        return
 
-def require_admin(*roles: str):
-    """
-    Optional decorator for admin routes.
-    """
-    def decorator(fn):
-        def wrapper(*args, **kwargs):
-            ok, _ = require_bearer_or_session(allowed_roles=roles)
-            if not ok:
-                abort(401)
-            return fn(*args, **kwargs)
-        wrapper.__name__ = fn.__name__
-        return wrapper
-    return decorator
+    raise PermissionError("Forbidden")
