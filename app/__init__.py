@@ -59,6 +59,15 @@ def _install_error_handlers(app: Flask) -> None:
         app.logger.exception("UNHANDLED_EXCEPTION %s %s", request.method, request.path)
         return jsonify({"error": "server_error"}), 500
 
+# put in create_app() after blueprints are registered (temporary)
+@app.get("/__routes")
+def __routes():
+    rows = []
+    for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
+        rows.append({"rule": str(rule), "endpoint": rule.endpoint, "methods": sorted(m for m in rule.methods if m not in {"HEAD","OPTIONS"})})
+    return {"routes": rows}
+
+
 
 def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
     settings: Settings = load_settings(config_override)
