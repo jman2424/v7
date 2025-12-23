@@ -11,6 +11,7 @@ App factory: create_app()
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict
 
 from flask import Flask, jsonify, request
@@ -62,7 +63,16 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
-    app = Flask(__name__, static_folder=None)
+    # Repo root (…/app/__init__.py -> …/app -> repo root)
+    BASE_DIR = Path(__file__).resolve().parent.parent
+
+    # IMPORTANT: point Flask to repo-root templates/static
+    app = Flask(
+        __name__,
+        template_folder=str(BASE_DIR / "templates"),
+        static_folder=str(BASE_DIR / "static"),
+    )
+
     app.config["SECRET_KEY"] = settings.SECRET_KEY
     app.config["WTF_CSRF_ENABLED"] = False
 
