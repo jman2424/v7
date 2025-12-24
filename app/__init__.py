@@ -1,18 +1,7 @@
-"""
-App factory: create_app()
-
-- Loads config
-- Sets up logging
-- Wires DI container
-- Registers middleware
-- Registers blueprints
-- Installs global error handlers
-"""
-
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -23,8 +12,10 @@ from app.container import Container
 from app import middleware
 
 
+BASE_DIR = Path(__file__).resolve().parents[1]  # repo root (folder that contains /templates and /static)
+
+
 def _register_blueprints(app: Flask) -> None:
-    # Lazy imports to avoid circulars
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
@@ -63,14 +54,11 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
-    # Repo root (…/app/__init__.py -> …/app -> repo root)
-    BASE_DIR = Path(__file__).resolve().parent.parent
-
-    # IMPORTANT: point Flask to repo-root templates/static
     app = Flask(
         __name__,
         template_folder=str(BASE_DIR / "templates"),
         static_folder=str(BASE_DIR / "static"),
+        static_url_path="/static",
     )
 
     app.config["SECRET_KEY"] = settings.SECRET_KEY
@@ -86,21 +74,6 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
 
     _register_blueprints(app)
     _install_error_handlers(app)
-
-    # --- TEMP: route map (remove after you find paths) ---
-    @app.get("/__routes")
-    def __routes():
-        rows = []
-        for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
-            rows.append(
-                {
-                    "rule": str(rule),
-                    "endpoint": rule.endpoint,
-                    "methods": sorted(m for m in rule.methods if m not in {"HEAD", "OPTIONS"}),
-                }
-            )
-        return {"routes": rows}
-    # -----------------------------------------------------
 
     app.logger.info("App started MODE=%s TENANT=%s", settings.MODE, settings.BUSINESS_KEY)
 
