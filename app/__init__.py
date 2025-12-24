@@ -1,7 +1,18 @@
+"""
+App factory: create_app()
+
+- Loads config
+- Sets up logging
+- Wires DI container
+- Registers middleware
+- Registers blueprints
+- Installs global error handlers
+"""
+
 from __future__ import annotations
 
-from typing import Any, Dict
 from pathlib import Path
+from typing import Any, Dict
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -12,10 +23,12 @@ from app.container import Container
 from app import middleware
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]  # repo root (folder that contains /templates and /static)
+# repo root (folder that contains /templates and /static)
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 def _register_blueprints(app: Flask) -> None:
+    # Lazy imports to avoid circular imports
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
@@ -40,20 +53,24 @@ def _register_blueprints(app: Flask) -> None:
 def _install_error_handlers(app: Flask) -> None:
     @app.errorhandler(HTTPException)
     def handle_http(err: HTTPException):
+        # Logs abort(...) etc
         app.logger.warning("HTTP %s %s %s", err.code, request.method, request.path)
         key = (err.name or "error").lower().replace(" ", "_")
         return jsonify({"error": key}), err.code
 
     @app.errorhandler(Exception)
     def handle_exception(err: Exception):
+        # Always logs full traceback
         app.logger.exception("UNHANDLED_EXCEPTION %s %s", request.method, request.path)
         return jsonify({"error": "server_error"}), 500
 
 
 def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
+    # Load settings + configure logging first
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
+    # IMPORTANT: point Flask at repo-root templates/static
     app = Flask(
         __name__,
         template_folder=str(BASE_DIR / "templates"),
@@ -61,24 +78,49 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
         static_url_path="/static",
     )
 
+    # Core config
     app.config["SECRET_KEY"] = settings.SECRET_KEY
-    app.config["WTF_CSRF_ENABLED"] = False
+    app.config["WTF_CSRF_ENABLED"] = False  # you're using your own lightweight CSRF
 
+    # Container
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
+    # Middleware
     middleware.install_request_id(app)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
     middleware.install_timing_metrics(app, container)
 
+    # Blueprints + errors
     _register_blueprints(app)
     _install_error_handlers(app)
 
+    # Boot logs (helps instantly when templates/static break)
     app.logger.info("App started MODE=%s TENANT=%s", settings.MODE, settings.BUSINESS_KEY)
+    app.logger.info("Template folder: %s", app.template_folder)
+    app.logger.info("Static folder: %s", app.static_folder)
 
+    # Root
     @app.get("/")
     def root():
         return {"ok": True, "mode": settings.MODE, "tenant": settings.BUSINESS_KEY}
+
+    # Optional: route map for debugging (keep it, or delete later)
+    if getattr(settings, "DEBUG_ROUTES", False):
+        @app.get("/__routes")
+        def __routes():
+            rows = []
+            for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
+                rows.append(
+                    {
+                        "rule": str(rule),
+                        "endpoint": rule.endpoint,
+                        "methods": sorted(
+                            m for m in rule.methods if m not in {"HEAD", "OPTIONS"}
+                        ),
+                    }
+                )
+            return {"routes": rows}
 
     return app
