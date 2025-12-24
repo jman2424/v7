@@ -7,12 +7,13 @@ App factory: create_app()
 - Registers middleware
 - Registers blueprints
 - Installs global error handlers
+- Correctly points Flask to dashboard/templates + dashboard/static
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Dict
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -22,13 +23,15 @@ from app.logging_setup import configure_logging
 from app.container import Container
 from app import middleware
 
+# /app/app/__init__.py -> parents[1] == /app (repo root)
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# repo root (folder that contains /templates and /static)
-BASE_DIR = Path(__file__).resolve().parents[1]
+DASHBOARD_DIR = REPO_ROOT / "dashboard"
+TEMPLATES_DIR = DASHBOARD_DIR / "templates"
+STATIC_DIR = DASHBOARD_DIR / "static"
 
 
 def _register_blueprints(app: Flask) -> None:
-    # Lazy imports to avoid circular imports
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
@@ -53,74 +56,69 @@ def _register_blueprints(app: Flask) -> None:
 def _install_error_handlers(app: Flask) -> None:
     @app.errorhandler(HTTPException)
     def handle_http(err: HTTPException):
-        # Logs abort(...) etc
         app.logger.warning("HTTP %s %s %s", err.code, request.method, request.path)
         key = (err.name or "error").lower().replace(" ", "_")
         return jsonify({"error": key}), err.code
 
     @app.errorhandler(Exception)
     def handle_exception(err: Exception):
-        # Always logs full traceback
         app.logger.exception("UNHANDLED_EXCEPTION %s %s", request.method, request.path)
         return jsonify({"error": "server_error"}), 500
 
 
 def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
-    # Load settings + configure logging first
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
-    # IMPORTANT: point Flask at repo-root templates/static
     app = Flask(
         __name__,
-        template_folder=str(BASE_DIR / "templates"),
-        static_folder=str(BASE_DIR / "static"),
+        template_folder=str(TEMPLATES_DIR),
+        static_folder=str(STATIC_DIR),
         static_url_path="/static",
     )
 
-    # Core config
-    app.config["SECRET_KEY"] = settings.SECRET_KEY
-    app.config["WTF_CSRF_ENABLED"] = False  # you're using your own lightweight CSRF
+    # quick sanity log so you SEE paths in Render logs
+    app.logger.info(
+        "Flask paths repo_root=%s templates=%s static=%s",
+        REPO_ROOT,
+        TEMPLATES_DIR,
+        STATIC_DIR,
+    )
 
-    # Container
+    app.config["SECRET_KEY"] = settings.SECRET_KEY
+    app.config["WTF_CSRF_ENABLED"] = False
+
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
-    # Middleware
     middleware.install_request_id(app)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
     middleware.install_timing_metrics(app, container)
 
-    # Blueprints + errors
     _register_blueprints(app)
     _install_error_handlers(app)
 
-    # Boot logs (helps instantly when templates/static break)
-    app.logger.info("App started MODE=%s TENANT=%s", settings.MODE, settings.BUSINESS_KEY)
-    app.logger.info("Template folder: %s", app.template_folder)
-    app.logger.info("Static folder: %s", app.static_folder)
+    # diag: confirm the actual template directory contents on Render
+    @app.get("/__diag/templates")
+    def __diag_templates():
+        try:
+            files = sorted(p.name for p in TEMPLATES_DIR.glob("*.html"))
+        except Exception as e:
+            files = [f"ERR: {e}"]
+        return {
+            "repo_root": str(REPO_ROOT),
+            "templates_dir": str(TEMPLATES_DIR),
+            "static_dir": str(STATIC_DIR),
+            "templates_exist": TEMPLATES_DIR.exists(),
+            "static_exist": STATIC_DIR.exists(),
+            "html_files": files[:200],
+        }
 
-    # Root
+    app.logger.info("App started MODE=%s TENANT=%s", settings.MODE, settings.BUSINESS_KEY)
+
     @app.get("/")
     def root():
         return {"ok": True, "mode": settings.MODE, "tenant": settings.BUSINESS_KEY}
-
-    # Optional: route map for debugging (keep it, or delete later)
-    if getattr(settings, "DEBUG_ROUTES", False):
-        @app.get("/__routes")
-        def __routes():
-            rows = []
-            for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r)):
-                rows.append(
-                    {
-                        "rule": str(rule),
-                        "endpoint": rule.endpoint,
-                        "methods": sorted(
-                            m for m in rule.methods if m not in {"HEAD", "OPTIONS"}
-                        ),
-                    }
-                )
-            return {"routes": rows}
 
     return app
