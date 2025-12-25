@@ -8,6 +8,7 @@ Middleware installers for Flask.
 """
 
 from __future__ import annotations
+
 import time
 import uuid
 from collections import defaultdict
@@ -36,7 +37,6 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
     )
 
     def allow(ip: str) -> bool:
-        # token bucket per minute with burst
         now = time.time()
         b = buckets[ip]
         refill = (now - b["ts"]) * (settings.RATE_LIMIT_PER_MIN / 60.0)
@@ -52,12 +52,17 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _rl():
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
         if not allow(ip):
             abort(429)
 
 
 def install_csrf(app: Flask, settings: Settings) -> None:
+    """
+    Custom CSRF gate for state-changing routes.
+    - Requires X-CSRF-Token header OR ?_csrf=...
+    - Exempts public/webhook/auth endpoints.
+    """
     SAFE = {"GET", "HEAD", "OPTIONS"}
     HEADER = "X-CSRF-Token"
 
@@ -68,18 +73,23 @@ def install_csrf(app: Flask, settings: Settings) -> None:
 
         path = (request.path or "").lower()
 
-        # Skip CSRF for public/webhook endpoints
+        # ✅ EXEMPT: public + webhooks + auth flows
         if (
-            path.startswith("/chat_api")
+            path.startswith("/auth")               # <--- THIS FIXES your /auth/login 403
+            or path.startswith("/chat_api")
             or path.startswith("/whatsapp")
-            or path.startswith("/catalog_webhook")     # Google Sheets webhook
-            or path.startswith("/export_catalog_csv")  # read-only export
+            or path.startswith("/catalog_webhook")
+            or path.startswith("/export_catalog_csv")
+            or path.startswith("/health")
+            or path.startswith("/ready")
+            or path.startswith("/version")
         ):
             return
 
         token = request.headers.get(HEADER) or request.args.get("_csrf")
 
-        if not token or token != (getattr(settings, "SECRET_KEY", "")[:16]):
+        expected = (getattr(settings, "SECRET_KEY", "") or "")[:16]
+        if not token or token != expected:
             app.logger.warning(
                 "CSRF blocked: method=%s path=%s token=%r",
                 request.method,
