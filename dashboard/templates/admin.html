@@ -10,15 +10,13 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="icon" href="{{ (branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg')) }}" />
 
-  {# IMPORTANT: csrf_token is usually a function in Flask-WTF #}
-  <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}" />
+  <!-- Your middleware passes csrf_token as a string in template context -->
+  <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
   <style>
-    /* Tiny safety UI so you can see failures even if JS dies */
     .js-banner{display:none; padding:10px 12px; margin:12px 0; border-radius:10px; background:#151515; color:#fff; font-size:14px;}
     .js-banner--warn{background:#2a1f00;}
     .js-banner--err{background:#2a0000;}
-    .js-banner code{opacity:.9}
     .noscript{padding:10px 12px; margin:12px 0; border-radius:10px; background:#2a1f00; color:#fff; font-size:14px;}
   </style>
 </head>
@@ -28,24 +26,16 @@
   data-role="{{ role }}"
   data-session="{{ session_id }}"
 >
-  {# Don't hard-crash if partial missing #}
   {% include 'partials/_navbar.html' ignore missing %}
 
   <main class="container">
 
     <noscript>
-      <div class="noscript">
-        This dashboard needs JavaScript enabled.
-      </div>
+      <div class="noscript">This dashboard needs JavaScript enabled.</div>
     </noscript>
 
-    <div id="js-ok" class="js-banner js-banner--warn">
-      Loading dashboard scripts…
-    </div>
-
-    <div id="js-error" class="js-banner js-banner--err">
-      Dashboard scripts failed to load. Open DevTools → Console and Network.
-    </div>
+    <div id="js-ok" class="js-banner js-banner--warn">Loading dashboard scripts…</div>
+    <div id="js-error" class="js-banner js-banner--err">Dashboard scripts failed to load. Open DevTools → Console and Network.</div>
 
     <!-- ===================== -->
     <!-- Overview / KPIs -->
@@ -65,13 +55,11 @@
         </div>
       </header>
 
-      {# Safe include; if missing, still render page #}
       {% include 'partials/_charts.html' ignore missing %}
 
-      <!-- Fallback skeleton so you can still see something -->
       <div id="kpi-fallback" style="margin-top:12px;">
         <div class="card">
-          <h3>KPIs</h3>
+          <h3>KPIs (fallback)</h3>
           <pre class="pre" id="kpi-output">Waiting for data…</pre>
         </div>
       </div>
@@ -163,7 +151,7 @@
   </template>
 
   <script>
-    // Always define this (admin.js depends on it)
+    // Admin JS reads this config
     window.__ADMIN__ = {
       csrfToken: (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')) || "",
       tenant: document.body.dataset.tenant || "",
@@ -171,31 +159,46 @@
       sessionId: document.body.dataset.session || ""
     };
 
-    // Visible proof JS is alive
     const ok = document.getElementById("js-ok");
+    const errBanner = document.getElementById("js-error");
+
     if (ok) {
       ok.style.display = "block";
-      ok.textContent = "Dashboard scripts loading…";
+      ok.textContent = "Dashboard loading…";
     }
 
-    // Tiny helper so even if admin.js fails, you can test backend quickly
-    async function __pingAdminApi() {
-      try {
-        const r = await fetch("/admin/api/kpis?period=1440", { credentials: "same-origin" });
-        const txt = await r.text();
-        const out = document.getElementById("kpi-output");
-        if (out) out.textContent = r.ok ? txt : ("HTTP " + r.status + "\\n" + txt);
-        if (ok) ok.textContent = r.ok ? "API reachable. Loading full dashboard…" : "API error. Check routes.";
-      } catch (e) {
-        const err = document.getElementById("js-error");
-        if (err) err.style.display = "block";
-        if (ok) ok.textContent = "JS ok, but API unreachable.";
+    // Minimal backend reachability check (routes that actually exist)
+    async function __pingBackend() {
+      const out = document.getElementById("kpi-output");
+      const period = document.getElementById("period-select")?.value || "1440";
+
+      // Prefer analytics route (exists in your route map)
+      const candidates = [
+        `/analytics/kpis.json?period=${encodeURIComponent(period)}`,
+        `/admin/api/summary`
+      ];
+
+      for (const url of candidates) {
+        try {
+          const r = await fetch(url, { credentials: "same-origin" });
+          const txt = await r.text();
+          if (out) out.textContent = `GET ${url}\nHTTP ${r.status}\n\n${txt}`;
+          if (r.ok) {
+            if (ok) ok.textContent = "Backend reachable. Loading full dashboard…";
+            return;
+          }
+        } catch (e) {
+          // try next
+        }
       }
+
+      if (errBanner) errBanner.style.display = "block";
+      if (ok) ok.textContent = "JS ok, but backend routes failed.";
     }
-    __pingAdminApi();
+
+    __pingBackend();
   </script>
 
-  {# Use defer so scripts don't block and DOM exists before they run #}
   <script defer src="{{ url_for('static', filename='js/charts.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/admin.js') }}"></script>
 
