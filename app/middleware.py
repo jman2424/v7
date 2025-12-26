@@ -1,21 +1,11 @@
-"""
-Middleware installers for Flask.
-
-- Request ID injection
-- IP-based rate limiting (simple token bucket)
-- CSRF token check for admin/auth/dashboard mutations
-- Timing metrics → AnalyticsService
-"""
-
 from __future__ import annotations
 
 import time
 import uuid
-import secrets
 from collections import defaultdict
-from typing import Dict, Optional
+from typing import Dict
 
-from flask import Flask, g, request, abort, session
+from flask import Flask, g, request, abort
 
 from app.config import Settings
 
@@ -61,51 +51,12 @@ def install_csrf(app: Flask, settings: Settings) -> None:
     SAFE = {"GET", "HEAD", "OPTIONS"}
     HEADER = "X-CSRF-Token"
 
-    def ensure_token() -> str:
-        tok = session.get("_csrf")
-        if not tok:
-            tok = secrets.token_urlsafe(24)
-            session["_csrf"] = tok
-        return tok
-
-    def read_token() -> Optional[str]:
-        # 1) header (AJAX)
-        tok = request.headers.get(HEADER)
-        if tok:
-            return tok
-
-        # 2) query param
-        tok = request.args.get("_csrf")
-        if tok:
-            return tok
-
-        # 3) form field (HTML forms)
-        if request.form:
-            tok = request.form.get("csrf_token")
-            if tok:
-                return tok
-
-        # 4) json body (API clients)
-        if request.is_json:
-            try:
-                data = request.get_json(silent=True) or {}
-                tok = data.get("csrf_token")
-                if tok:
-                    return tok
-            except Exception:
-                pass
-
-        return None
-
-    @app.context_processor
-    def _inject_csrf():
-        # makes {{ csrf_token }} available in templates
-        return {"csrf_token": ensure_token()}
+    def expected_token() -> str:
+        # your existing scheme
+        return (getattr(settings, "SECRET_KEY", "") or "")[:16]
 
     @app.before_request
     def _csrf():
-        ensure_token()
-
         if request.method in SAFE:
             return
 
@@ -117,20 +68,25 @@ def install_csrf(app: Flask, settings: Settings) -> None:
             or path.startswith("/whatsapp")
             or path.startswith("/catalog_webhook")
             or path.startswith("/export_catalog_csv")
-            or path.startswith("/health")
         ):
             return
 
-        # We DO want CSRF for admin/auth/dashboard writes
-        expected = session.get("_csrf")
-        got = read_token()
+        # Accept token from:
+        # 1) header
+        # 2) query param
+        # 3) form field (THIS is the fix for Option A)
+        token = (
+            request.headers.get(HEADER)
+            or request.args.get("_csrf")
+            or request.form.get("csrf_token")
+        )
 
-        if not expected or not got or got != expected:
+        if not token or token != expected_token():
             app.logger.warning(
-                "CSRF blocked: method=%s path=%s token_present=%s",
+                "CSRF blocked: method=%s path=%s token=%r",
                 request.method,
                 path,
-                bool(got),
+                token,
             )
             abort(403, description="csrf_failed")
 
