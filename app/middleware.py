@@ -3,7 +3,7 @@ Middleware installers for Flask.
 
 - Request ID injection
 - IP-based rate limiting (simple token bucket)
-- CSRF token check for admin forms/JSON (custom header)
+- CSRF token check for admin/auth/dashboard mutations
 - Timing metrics → AnalyticsService
 """
 
@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import time
 import uuid
+import secrets
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
-from flask import Flask, g, request, abort
+from flask import Flask, g, request, abort, session
 
 from app.config import Settings
 
@@ -31,7 +32,6 @@ def install_request_id(app: Flask) -> None:
 
 
 def install_rate_limit(app: Flask, settings: Settings) -> None:
-    # naive in-proc limiter; replace with Redis in prod multi-instance
     buckets: Dict[str, Dict[str, float]] = defaultdict(
         lambda: {"tokens": settings.RATE_LIMIT_PER_MIN, "ts": time.time()}
     )
@@ -52,49 +52,85 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _rl():
-        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
         if not allow(ip):
             abort(429)
 
 
 def install_csrf(app: Flask, settings: Settings) -> None:
-    """
-    Custom CSRF gate for state-changing routes.
-    - Requires X-CSRF-Token header OR ?_csrf=...
-    - Exempts public/webhook/auth endpoints.
-    """
     SAFE = {"GET", "HEAD", "OPTIONS"}
     HEADER = "X-CSRF-Token"
 
+    def ensure_token() -> str:
+        tok = session.get("_csrf")
+        if not tok:
+            tok = secrets.token_urlsafe(24)
+            session["_csrf"] = tok
+        return tok
+
+    def read_token() -> Optional[str]:
+        # 1) header (AJAX)
+        tok = request.headers.get(HEADER)
+        if tok:
+            return tok
+
+        # 2) query param
+        tok = request.args.get("_csrf")
+        if tok:
+            return tok
+
+        # 3) form field (HTML forms)
+        if request.form:
+            tok = request.form.get("csrf_token")
+            if tok:
+                return tok
+
+        # 4) json body (API clients)
+        if request.is_json:
+            try:
+                data = request.get_json(silent=True) or {}
+                tok = data.get("csrf_token")
+                if tok:
+                    return tok
+            except Exception:
+                pass
+
+        return None
+
+    @app.context_processor
+    def _inject_csrf():
+        # makes {{ csrf_token }} available in templates
+        return {"csrf_token": ensure_token()}
+
     @app.before_request
     def _csrf():
+        ensure_token()
+
         if request.method in SAFE:
             return
 
         path = (request.path or "").lower()
 
-        # ✅ EXEMPT: public + webhooks + auth flows
+        # Skip CSRF for public/webhook endpoints
         if (
-            path.startswith("/auth")               # <--- THIS FIXES your /auth/login 403
-            or path.startswith("/chat_api")
+            path.startswith("/chat_api")
             or path.startswith("/whatsapp")
             or path.startswith("/catalog_webhook")
             or path.startswith("/export_catalog_csv")
             or path.startswith("/health")
-            or path.startswith("/ready")
-            or path.startswith("/version")
         ):
             return
 
-        token = request.headers.get(HEADER) or request.args.get("_csrf")
+        # We DO want CSRF for admin/auth/dashboard writes
+        expected = session.get("_csrf")
+        got = read_token()
 
-        expected = (getattr(settings, "SECRET_KEY", "") or "")[:16]
-        if not token or token != expected:
+        if not expected or not got or got != expected:
             app.logger.warning(
-                "CSRF blocked: method=%s path=%s token=%r",
+                "CSRF blocked: method=%s path=%s token_present=%s",
                 request.method,
                 path,
-                token,
+                bool(got),
             )
             abort(403, description="csrf_failed")
 
