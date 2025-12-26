@@ -4,19 +4,34 @@
   <meta charset="utf-8" />
   <title>Admin Login • AI Sales Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="icon" href="{{ url_for('static', filename='img/logo.svg') }}" />
 </head>
+
 <body class="auth">
   <main class="auth__wrap">
-    <form class="card card--auth" method="post" action="{{ url_for('admin.admin_login_submit') }}">
+
+    <!--
+      This page is rendered by:
+        GET /admin/login
+
+      This form submits to:
+        POST /auth/login
+      (POST-only, never browsed directly)
+    -->
+
+    <form class="card card--auth" method="post" action="{{ url_for('auth.login') }}">
       <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
+
       <h1>Sign in</h1>
 
-      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+      {% if error %}
+        <p class="error">{{ error }}</p>
+      {% endif %}
 
-      <label>Username / Email
-        <input name="username" type="text" autocomplete="username" required />
+      <label>Email
+        <input name="email" type="text" autocomplete="username" required />
       </label>
 
       <label>Password
@@ -24,14 +39,16 @@
       </label>
 
       <label>TOTP (if enabled)
-        <input name="totp_code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        <input name="totp" type="text" inputmode="numeric" placeholder="123456" />
       </label>
 
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
       <button class="btn btn--primary" type="submit">Login</button>
+
       <p class="muted">Having trouble? Contact your administrator.</p>
     </form>
+
   </main>
 </body>
 </html>
