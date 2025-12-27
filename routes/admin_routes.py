@@ -6,50 +6,44 @@ from routes import get_container, require_auth
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
-# -------------------------
+# -----------------
 # HTML pages
-# -------------------------
+# -----------------
 
 @bp.get("/login")
 def admin_login_page():
-    # renders templates/login.html
-    return render_template("login.html", error=None)
+    # Your middleware can inject csrf_token into templates (see middleware fix below)
+    return render_template("login.html")
 
 
 @bp.post("/login")
 def admin_login_submit():
     """
-    HTML form login:
-    - validates credentials
-    - sets session["user"]
+    Server-rendered login:
+    - validates creds
+    - sets session['user']
     - redirects to /admin/
     """
     c = get_container()
 
-    username = (request.form.get("username") or "").strip()
+    email = (request.form.get("username") or request.form.get("email") or "").strip().lower()
     password = request.form.get("password") or ""
-    totp_code = (request.form.get("totp_code") or "").strip() or None
+    totp = request.form.get("totp_code") or request.form.get("totp") or ""
 
     from services.security import authenticate_user, verify_totp
 
-    # allow username OR email — your security service decides
-    user = authenticate_user(email=username.lower(), password=password) or authenticate_user(
-        email=username, password=password
-    )
-
+    user = authenticate_user(email=email, password=password)
     if not user:
-        return render_template("login.html", error="Invalid username/password"), 401
+        return render_template("login.html", error="Invalid username or password"), 401
 
-    # If user has TOTP enabled, require it
     if user.get("totp_secret"):
-        if not totp_code or not verify_totp(user["totp_secret"], totp_code):
-            return render_template("login.html", error="TOTP code required/invalid"), 401
+        if not totp or not verify_totp(user["totp_secret"], totp):
+            return render_template("login.html", error="TOTP required / invalid code"), 401
 
-    roles = user.get("roles") or []
     session["user"] = {
-        "id": user.get("id"),
-        "email": user.get("email") or username,
-        "roles": roles,
+        "id": user["id"],
+        "email": user["email"],
+        "roles": user.get("roles", []),
     }
 
     return redirect(url_for("admin.admin_home"))
@@ -66,24 +60,21 @@ def admin_logout():
 def admin_home():
     c = get_container()
     user = session.get("user") or {}
-    roles = user.get("roles") or []
-    role = roles[0] if roles else "Staff"
 
-    # if you have branding in container, pass it; otherwise keep safe defaults
+    # make sure these exist even if you haven't wired branding yet
     branding = getattr(c, "branding", None)
-
     return render_template(
         "admin.html",
         tenant=c.settings.BUSINESS_KEY,
-        role=role,
-        session_id=user.get("id") or "",
+        role=(user.get("roles") or ["Staff"])[0],
+        session_id=session.get("sid", ""),
         branding=branding,
     )
 
 
-# -------------------------
-# Admin JSON APIs
-# -------------------------
+# -----------------
+# Admin APIs
+# -----------------
 
 @bp.get("/api/leads")
 @require_auth(roles=("Owner", "Manager", "Staff"))
