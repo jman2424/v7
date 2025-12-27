@@ -13,15 +13,10 @@
   <main class="auth__wrap">
 
     <!--
-      This page is rendered by:
-        GET /admin/login
-
-      This form submits to:
-        POST /auth/login
-      (POST-only, never browsed directly)
+      GET  /admin/login   renders this page
+      POST /admin/login   handles form login + sets session
     -->
-
-    <form class="card card--auth" method="post" action="{{ url_for('auth.login') }}">
+    <form class="card card--auth" method="post" action="{{ url_for('admin.admin_login_submit') }}">
       <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
 
       <h1>Sign in</h1>
@@ -31,7 +26,7 @@
       {% endif %}
 
       <label>Email
-        <input name="email" type="text" autocomplete="username" required />
+        <input name="email" type="email" autocomplete="username" required />
       </label>
 
       <label>Password
@@ -39,7 +34,7 @@
       </label>
 
       <label>TOTP (if enabled)
-        <input name="totp" type="text" inputmode="numeric" placeholder="123456" />
+        <input name="totp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
       </label>
 
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
