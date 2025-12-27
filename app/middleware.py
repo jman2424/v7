@@ -52,7 +52,7 @@ def install_csrf(app: Flask, settings: Settings) -> None:
     HEADER = "X-CSRF-Token"
 
     def expected_token() -> str:
-        # your existing scheme
+        # simple token; you can upgrade later to per-session tokens
         return (getattr(settings, "SECRET_KEY", "") or "")[:16]
 
     @app.before_request
@@ -71,15 +71,15 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         ):
             return
 
-        # Accept token from:
-        # 1) header
-        # 2) query param
-        # 3) form field (THIS is the fix for Option A)
-        token = (
-            request.headers.get(HEADER)
-            or request.args.get("_csrf")
-            or request.form.get("csrf_token")
-        )
+        # Accept token from header, query, form, OR JSON body
+        token = request.headers.get(HEADER) or request.args.get("_csrf")
+
+        if not token:
+            token = request.form.get("csrf_token")
+
+        if not token:
+            body = request.get_json(silent=True) or {}
+            token = body.get("csrf_token")
 
         if not token or token != expected_token():
             app.logger.warning(
