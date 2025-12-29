@@ -1,11 +1,12 @@
+# app/middleware.py
 from __future__ import annotations
 
 import time
 import uuid
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
-from flask import Flask, g, request, abort
+from flask import Flask, g, request, abort, session
 
 from app.config import Settings
 
@@ -42,18 +43,40 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _rl():
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
         if not allow(ip):
             abort(429)
 
 
+def _get_csrf_from_request() -> Optional[str]:
+    # 1) Header (AJAX)
+    token = request.headers.get("X-CSRF-Token")
+    if token:
+        return token
+
+    # 2) Form field (HTML form POST)
+    if request.form:
+        token = request.form.get("csrf_token") or request.form.get("_csrf")
+        if token:
+            return token
+
+    # 3) Query
+    token = request.args.get("_csrf")
+    if token:
+        return token
+
+    # 4) JSON body (API callers that send it)
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        token = data.get("csrf_token") or data.get("_csrf")
+        if token:
+            return token
+
+    return None
+
+
 def install_csrf(app: Flask, settings: Settings) -> None:
     SAFE = {"GET", "HEAD", "OPTIONS"}
-    HEADER = "X-CSRF-Token"
-
-    def expected_token() -> str:
-        # simple token; you can upgrade later to per-session tokens
-        return (getattr(settings, "SECRET_KEY", "") or "")[:16]
 
     @app.before_request
     def _csrf():
@@ -71,23 +94,25 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         ):
             return
 
-        # Accept token from header, query, form, OR JSON body
-        token = request.headers.get(HEADER) or request.args.get("_csrf")
+        # Only enforce CSRF for browser/admin endpoints.
+        # API endpoints should use bearer tokens instead.
+        browser_zone = (
+            path.startswith("/admin")
+            or path.startswith("/auth")  # only relevant if browser posts here
+        )
+        if not browser_zone:
+            return
 
-        if not token:
-            token = request.form.get("csrf_token")
+        expected = session.get("csrf_token")
+        token = _get_csrf_from_request()
 
-        if not token:
-            body = request.get_json(silent=True) or {}
-            token = body.get("csrf_token")
+        if not expected:
+            # create one lazily so the next GET that renders templates can include it
+            session["csrf_token"] = uuid.uuid4().hex
+            expected = session["csrf_token"]
 
-        if not token or token != expected_token():
-            app.logger.warning(
-                "CSRF blocked: method=%s path=%s token=%r",
-                request.method,
-                path,
-                token,
-            )
+        if not token or token != expected:
+            app.logger.warning("CSRF blocked: method=%s path=%s token=%r", request.method, path, token)
             abort(403, description="csrf_failed")
 
 
