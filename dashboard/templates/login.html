@@ -1,3 +1,4 @@
+<!-- dashboard/templates/login.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -11,11 +12,6 @@
 
 <body class="auth">
   <main class="auth__wrap">
-
-    <!--
-      GET  /admin/login   renders this page
-      POST /admin/login   handles form login + sets session
-    -->
     <form class="card card--auth" method="post" action="{{ url_for('admin.admin_login_submit') }}">
       <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
 
@@ -26,7 +22,7 @@
       {% endif %}
 
       <label>Email
-        <input name="email" type="email" autocomplete="username" required />
+        <input name="email" type="text" autocomplete="username" required />
       </label>
 
       <label>Password
@@ -40,10 +36,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
       <button class="btn btn--primary" type="submit">Login</button>
-
       <p class="muted">Having trouble? Contact your administrator.</p>
     </form>
-
   </main>
 </body>
 </html>
