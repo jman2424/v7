@@ -2,17 +2,17 @@
 Middleware installers for Flask.
 
 - Request ID injection
-- IP-based rate limiting (simple token bucket)
-- CSRF protection (session token; supports form + JSON + header)
-- Timing metrics → AnalyticsService
+- Simple IP rate limiting
+- CSRF protection (supports: header, query, form, JSON)
+- Timing metrics -> AnalyticsService
 """
 
 from __future__ import annotations
+
 import time
 import uuid
-import secrets
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
 from flask import Flask, g, request, abort, session
 
@@ -56,64 +56,62 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
             abort(429)
 
 
-def _ensure_csrf_token() -> str:
-    tok = session.get("csrf_token")
-    if not tok:
-        tok = secrets.token_urlsafe(32)
-        session["csrf_token"] = tok
-    return tok
+def _read_csrf_from_request() -> Optional[str]:
+    # 1) header (fetch / ajax)
+    token = request.headers.get("X-CSRF-Token")
+    if token:
+        return token
+
+    # 2) query string (?_csrf=...)
+    token = request.args.get("_csrf")
+    if token:
+        return token
+
+    # 3) HTML forms
+    token = request.form.get("csrf_token")
+    if token:
+        return token
+
+    # 4) JSON body
+    if request.is_json:
+        try:
+            data = request.get_json(silent=True) or {}
+            token = data.get("csrf_token")
+            if token:
+                return token
+        except Exception:
+            pass
+
+    return None
 
 
 def install_csrf(app: Flask, settings: Settings) -> None:
     SAFE = {"GET", "HEAD", "OPTIONS"}
-    HEADER = "X-CSRF-Token"
 
     @app.before_request
     def _csrf():
-        # Ensure token exists for pages that will render forms
         if request.method in SAFE:
-            _ensure_csrf_token()
             return
 
         path = (request.path or "").lower()
 
-        # Skip CSRF for public/webhook endpoints
+        # Public endpoints / webhooks / read-only exports
         if (
             path.startswith("/chat_api")
             or path.startswith("/whatsapp")
             or path.startswith("/catalog_webhook")
             or path.startswith("/export_catalog_csv")
+            or path.startswith("/health")
         ):
             return
 
-        expected = session.get("csrf_token")
-        if not expected:
-            abort(403, description="csrf_missing_session")
+        # Expected token: per-session (preferred). Fallback to stable dev token.
+        expected = session.get("_csrf") or (getattr(settings, "SECRET_KEY", "")[:16] if settings.SECRET_KEY else "")
 
-        token = None
+        got = _read_csrf_from_request()
 
-        # 1) header
-        token = request.headers.get(HEADER) or token
-
-        # 2) query (rare, but ok)
-        token = request.args.get("_csrf") or token
-
-        # 3) form field
-        if token is None and request.form:
-            token = request.form.get("csrf_token")
-
-        # 4) JSON body
-        if token is None and request.is_json:
-            data = request.get_json(silent=True) or {}
-            token = data.get("csrf_token")
-
-        if not token or token != expected:
-            app.logger.warning(
-                "CSRF blocked: method=%s path=%s token=%r",
-                request.method,
-                path,
-                token,
-            )
+        if not expected or not got or got != expected:
+            app.logger.warning("CSRF blocked: method=%s path=%s token=%r", request.method, path, got)
             abort(403, description="csrf_failed")
 
 
