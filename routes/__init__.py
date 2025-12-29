@@ -2,16 +2,15 @@
 Route helpers.
 
 Exports:
-- get_container(): access DI container attached to app
-- require_auth(): session/bearer auth + optional RBAC
+- get_container(): access to app.container
+- require_auth(): RBAC gate for admin endpoints/pages
 """
 
 from __future__ import annotations
-
-from typing import Callable, Any, Optional, Iterable
+from typing import Callable, Any, Optional, Iterable, Set
 from functools import wraps
 
-from flask import current_app, request, abort
+from flask import current_app, request, session, abort
 
 
 def get_container():
@@ -21,21 +20,28 @@ def get_container():
     return c
 
 
+def _has_any_role(user_roles: Iterable[str], required: Set[str]) -> bool:
+    user_set = {str(r) for r in (user_roles or [])}
+    return bool(user_set.intersection(required))
+
+
 def require_auth(roles: Optional[Iterable[str]] = None) -> Callable[..., Any]:
-    required_roles = set(roles or ())
+    """
+    Requires a logged-in session user.
+    Optionally requires at least one role in `roles`.
+    """
+    required = set(roles or ())
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            container = get_container()
+            user = session.get("user")
+            if not user:
+                abort(401, description="unauthorized")
 
-            # NOTE: correct module name is services.security (plural)
-            from services.security import require_bearer_or_session, ensure_roles
-
-            user = require_bearer_or_session(container, request)
-
-            if required_roles:
-                ensure_roles(user, required_roles)
+            if required:
+                if not _has_any_role(user.get("roles", []), required):
+                    abort(403, description="forbidden")
 
             return fn(*args, **kwargs)
 
