@@ -2,15 +2,16 @@
 Route helpers.
 
 Exports:
-- require_auth(): RBAC gate for admin endpoints
-- get_container(): access to app.container
+- get_container(): access DI container attached to app
+- require_auth(): session/bearer auth + optional RBAC
 """
 
 from __future__ import annotations
+
 from typing import Callable, Any, Optional, Iterable
 from functools import wraps
 
-from flask import current_app, request, abort, session
+from flask import current_app, request, abort
 
 
 def get_container():
@@ -21,28 +22,23 @@ def get_container():
 
 
 def require_auth(roles: Optional[Iterable[str]] = None) -> Callable[..., Any]:
-    need_roles = set(roles or ())
+    required_roles = set(roles or ())
 
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            c = get_container()
+            container = get_container()
 
-            # Session auth first
-            user = session.get("user")
+            # NOTE: correct module name is services.security (plural)
+            from services.security import require_bearer_or_session, ensure_roles
 
-            # Optional: allow bearer auth for API calls
-            if not user:
-                from services.security import require_bearer_or_none  # you implement this or stub it
-                user = require_bearer_or_none(c, request)
+            user = require_bearer_or_session(container, request)
 
-            if not user:
-                abort(401, description="unauthorized")
-
-            if need_roles:
-                from services.security import ensure_roles
-                ensure_roles(user, need_roles)
+            if required_roles:
+                ensure_roles(user, required_roles)
 
             return fn(*args, **kwargs)
+
         return wrapper
+
     return deco
