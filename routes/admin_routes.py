@@ -1,87 +1,93 @@
 from __future__ import annotations
 
-import uuid
-from flask import Blueprint, request, jsonify, render_template, session, redirect, url_for
-
+from flask import Blueprint, request, render_template, redirect, url_for, session, abort
 from routes import get_container, require_auth
 
-bp = Blueprint("admin", __name__, url_prefix="/admin")
+bp = Blueprint("admin_routes", __name__, url_prefix="/admin")
 
 
-def _ensure_csrf_token() -> str:
-    if "_csrf" not in session:
-        session["_csrf"] = uuid.uuid4().hex
-    return session["_csrf"]
+def _csrf_token() -> str:
+    c = get_container()
+    # Must match middleware check (SECRET_KEY[:16])
+    return (c.settings.SECRET_KEY or "")[:16]
 
 
-# -------------------------
-# Pages
-# -------------------------
+def _session_role_label() -> str:
+    u = session.get("user") or {}
+    roles = u.get("roles") or []
+    # your template checks role in ['admin','staff'] so we map
+    if "Owner" in roles or "Manager" in roles:
+        return "admin"
+    if "Staff" in roles:
+        return "staff"
+    return "staff"
+
 
 @bp.get("/login")
 def admin_login_page():
-    csrf_token = _ensure_csrf_token()
-    return render_template("login.html", csrf_token=csrf_token)
+    # IMPORTANT: page is /admin/login (GET)
+    return render_template("login.html", csrf_token=_csrf_token(), error=None)
 
 
 @bp.post("/login")
 def admin_login_submit():
-    """
-    Handles HTML form login safely:
-    - validates CSRF via middleware (it reads form csrf_token now)
-    - authenticates user
-    - sets session["user"]
-    - redirects to /admin/
-    """
+    # IMPORTANT: form posts here (NOT /auth/login)
     c = get_container()
+    form = request.form or {}
 
-    email = (request.form.get("email") or "").strip().lower()
-    password = request.form.get("password") or ""
-    totp = (request.form.get("totp") or "").strip()
+    token = form.get("csrf_token")
+    if not token or token != _csrf_token():
+        abort(403, description="csrf_failed")
+
+    email = (form.get("email") or "").strip().lower()
+    password = form.get("password") or ""
+    totp = (form.get("totp") or "").strip()
 
     from services.security import authenticate_user, verify_totp
 
     user = authenticate_user(email=email, password=password)
     if not user:
-        csrf_token = _ensure_csrf_token()
-        return render_template("login.html", error="Invalid credentials", csrf_token=csrf_token), 401
+        return render_template("login.html", csrf_token=_csrf_token(), error="Invalid credentials"), 401
 
     if user.get("totp_secret"):
         if not totp or not verify_totp(user["totp_secret"], totp):
-            csrf_token = _ensure_csrf_token()
-            return render_template("login.html", error="TOTP required/invalid", csrf_token=csrf_token), 401
+            return render_template("login.html", csrf_token=_csrf_token(), error="TOTP required/invalid"), 401
 
     session["user"] = {"id": user["id"], "email": user["email"], "roles": user.get("roles", [])}
 
-    return redirect(url_for("admin.admin_home"))
+    # redirect to dashboard (do NOT show JSON endpoint)
+    return redirect(url_for("admin_routes.admin_home"))
 
 
 @bp.post("/logout")
 def admin_logout():
     session.pop("user", None)
-    session.pop("_csrf", None)
-    return redirect(url_for("admin.admin_login_page"))
+    return redirect(url_for("admin_routes.admin_login_page"))
 
 
 @bp.get("/")
 @require_auth(roles=("Owner", "Manager", "Staff"))
 def admin_home():
     c = get_container()
-    csrf_token = _ensure_csrf_token()
-    # if your template expects these:
+    u = session.get("user") or {}
+
+    # minimal-but-safe context for your admin.html
+    tenant = c.settings.BUSINESS_KEY
+    tenants = [tenant]  # or load from config if you have multi-tenant keys
+    role = _session_role_label()
+
     return render_template(
         "admin.html",
-        tenant=c.settings.BUSINESS_KEY,
-        csrf_token=csrf_token,
-        role=(session.get("user") or {}).get("roles", [""])[0] if session.get("user") else "",
-        session_id=session.get("_sid", ""),
-        tenants=[c.settings.BUSINESS_KEY],
+        tenant=tenant,
+        tenants=tenants,
+        role=role,
+        session_id=f"sess_{u.get('id','')}",
+        csrf_token=_csrf_token(),
+        branding=None,
     )
 
 
-# -------------------------
-# APIs
-# -------------------------
+# ---------------- API endpoints ----------------
 
 @bp.get("/api/leads")
 @require_auth(roles=("Owner", "Manager", "Staff"))
@@ -89,20 +95,11 @@ def api_leads():
     c = get_container()
     limit = int(request.args.get("limit", "50"))
     leads = c.crm.list_leads(limit=limit)
-    return jsonify({"leads": leads})
+    return {"leads": leads}
 
 
 @bp.get("/api/summary")
 @require_auth(roles=("Owner", "Manager", "Staff"))
 def api_summary():
     c = get_container()
-    summary = c.analytics.summary(c.settings.BUSINESS_KEY)
-    return jsonify(summary)
-
-
-@bp.get("/api/audit")
-@require_auth(roles=("Owner", "Manager"))
-def api_audit():
-    c = get_container()
-    items = c.storage.list_audit_entries(c.settings.BUSINESS_KEY)
-    return jsonify({"audit": items})
+    return c.analytics.summary(c.settings.BUSINESS_KEY)
