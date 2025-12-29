@@ -1,10 +1,18 @@
-# app/middleware.py
-from __future__ import annotations
+"""
+Middleware installers for Flask.
 
+- Request ID injection
+- IP-based rate limiting (simple token bucket)
+- CSRF protection (session token; supports form + JSON + header)
+- Timing metrics → AnalyticsService
+"""
+
+from __future__ import annotations
 import time
 import uuid
+import secrets
 from collections import defaultdict
-from typing import Dict, Optional
+from typing import Dict
 
 from flask import Flask, g, request, abort, session
 
@@ -43,44 +51,28 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _rl():
-        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
         if not allow(ip):
             abort(429)
 
 
-def _get_csrf_from_request() -> Optional[str]:
-    # 1) Header (AJAX)
-    token = request.headers.get("X-CSRF-Token")
-    if token:
-        return token
-
-    # 2) Form field (HTML form POST)
-    if request.form:
-        token = request.form.get("csrf_token") or request.form.get("_csrf")
-        if token:
-            return token
-
-    # 3) Query
-    token = request.args.get("_csrf")
-    if token:
-        return token
-
-    # 4) JSON body (API callers that send it)
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-        token = data.get("csrf_token") or data.get("_csrf")
-        if token:
-            return token
-
-    return None
+def _ensure_csrf_token() -> str:
+    tok = session.get("csrf_token")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["csrf_token"] = tok
+    return tok
 
 
 def install_csrf(app: Flask, settings: Settings) -> None:
     SAFE = {"GET", "HEAD", "OPTIONS"}
+    HEADER = "X-CSRF-Token"
 
     @app.before_request
     def _csrf():
+        # Ensure token exists for pages that will render forms
         if request.method in SAFE:
+            _ensure_csrf_token()
             return
 
         path = (request.path or "").lower()
@@ -94,25 +86,34 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         ):
             return
 
-        # Only enforce CSRF for browser/admin endpoints.
-        # API endpoints should use bearer tokens instead.
-        browser_zone = (
-            path.startswith("/admin")
-            or path.startswith("/auth")  # only relevant if browser posts here
-        )
-        if not browser_zone:
-            return
-
         expected = session.get("csrf_token")
-        token = _get_csrf_from_request()
-
         if not expected:
-            # create one lazily so the next GET that renders templates can include it
-            session["csrf_token"] = uuid.uuid4().hex
-            expected = session["csrf_token"]
+            abort(403, description="csrf_missing_session")
+
+        token = None
+
+        # 1) header
+        token = request.headers.get(HEADER) or token
+
+        # 2) query (rare, but ok)
+        token = request.args.get("_csrf") or token
+
+        # 3) form field
+        if token is None and request.form:
+            token = request.form.get("csrf_token")
+
+        # 4) JSON body
+        if token is None and request.is_json:
+            data = request.get_json(silent=True) or {}
+            token = data.get("csrf_token")
 
         if not token or token != expected:
-            app.logger.warning("CSRF blocked: method=%s path=%s token=%r", request.method, path, token)
+            app.logger.warning(
+                "CSRF blocked: method=%s path=%s token=%r",
+                request.method,
+                path,
+                token,
+            )
             abort(403, description="csrf_failed")
 
 
