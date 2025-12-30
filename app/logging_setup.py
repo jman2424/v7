@@ -18,7 +18,9 @@ def _mk_handler(path: Path, level: int) -> RotatingFileHandler:
     path.parent.mkdir(parents=True, exist_ok=True)
     h = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
     h.setLevel(level)
-    h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(request_id)s - %(message)s"))
+    h.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(request_id)s - %(message)s")
+    )
     h.addFilter(RequestIdFilter())
     return h
 
@@ -28,13 +30,12 @@ def configure_logging(settings: Settings) -> None:
     root.handlers.clear()
     root.setLevel(logging.INFO)
 
-    # ✅ Console handler (Render reads stdout/stderr)
+    # Console (Render shows stdout/stderr)
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s"))
     root.addHandler(console)
 
-    # ✅ Ensure exceptions always show up in console too
     console_err = logging.StreamHandler()
     console_err.setLevel(logging.ERROR)
     console_err.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s"))
