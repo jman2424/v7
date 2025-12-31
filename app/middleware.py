@@ -79,7 +79,7 @@ def install_csrf(app: Flask, settings: Settings) -> None:
 
         path = (request.path or "").lower()
 
-        # allow public/webhook endpoints
+        # let public endpoints through
         if (
             path.startswith("/chat_api")
             or path.startswith("/whatsapp")
@@ -89,13 +89,11 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         ):
             return
 
-        # IMPORTANT:
-        # CSRF is required for admin form posts (including /admin/login)
         expected = session.get("_csrf")
         got = _read_csrf_from_request()
 
         if not expected or not got or got != expected:
-            app.logger.warning("CSRF blocked: method=%s path=%s token=%r", request.method, path, got)
+            app.logger.warning("CSRF blocked: method=%s path=%s", request.method, path)
             abort(403, description="csrf_failed")
 
 
