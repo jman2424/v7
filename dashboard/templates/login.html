@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <title>Admin Login • AI Sales Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="icon" href="{{ url_for('static', filename='img/logo.svg') }}" />
 </head>
@@ -13,18 +12,12 @@
   <main class="auth__wrap">
 
     <!--
-      GET  /admin/login   -> renders this page
-      POST /auth/login    -> handled by auth_routes.login
+      GET  /admin/login  -> renders this page
+      POST /admin/login  -> processes login + redirects to /admin/
     -->
 
-    <form class="card card--auth"
-          method="post"
-          action="{{ url_for('auth.login') }}"
-          autocomplete="on">
-
-      <img class="logo"
-           src="{{ url_for('static', filename='img/logo.svg') }}"
-           alt="Logo" />
+    <form class="card card--auth" method="post" action="{{ url_for('admin_routes.admin_login_submit') }}">
+      <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
 
       <h1>Sign in</h1>
 
@@ -32,46 +25,23 @@
         <p class="error">{{ error }}</p>
       {% endif %}
 
-      <label for="email">Email</label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        required
-        autocomplete="username"
-        spellcheck="false"
-      />
+      <label>Email
+        <input name="email" type="text" autocomplete="username" required />
+      </label>
 
-      <label for="password">Password</label>
-      <input
-        id="password"
-        name="password"
-        type="password"
-        required
-        autocomplete="current-password"
-      />
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required />
+      </label>
 
-      <label for="totp">TOTP (if enabled)</label>
-      <input
-        id="totp"
-        name="totp"
-        type="text"
-        inputmode="numeric"
-        autocomplete="one-time-code"
-        placeholder="123456"
-      />
+      <label>TOTP (if enabled)
+        <input name="totp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+      </label>
 
-      <!-- REQUIRED: middleware checks this -->
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-      <button class="btn btn--primary" type="submit">
-        Login
-      </button>
+      <button class="btn btn--primary" type="submit">Login</button>
 
-      <p class="muted">
-        Having trouble? Contact your administrator.
-      </p>
-
+      <p class="muted">Having trouble? Contact your administrator.</p>
     </form>
 
   </main>
