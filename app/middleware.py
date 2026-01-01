@@ -1,3 +1,12 @@
+"""
+Middleware installers for Flask.
+
+- Request ID injection
+- Simple IP rate limiting
+- CSRF protection (supports: header, query, form, JSON)
+- Timing metrics -> AnalyticsService
+"""
+
 from __future__ import annotations
 
 import time
@@ -48,18 +57,22 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
 
 def _read_csrf_from_request() -> Optional[str]:
+    # 1) Header
     token = request.headers.get("X-CSRF-Token")
     if token:
         return token
 
+    # 2) Query
     token = request.args.get("_csrf")
     if token:
         return token
 
+    # 3) Form
     token = request.form.get("csrf_token")
     if token:
         return token
 
+    # 4) JSON
     if request.is_json:
         data = request.get_json(silent=True) or {}
         token = data.get("csrf_token")
@@ -74,12 +87,16 @@ def install_csrf(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _csrf():
+        # Always ensure session has a token (needed for first POST)
+        if "_csrf" not in session:
+            session["_csrf"] = f"csrf_{uuid.uuid4().hex}"
+
         if request.method in SAFE:
             return
 
         path = (request.path or "").lower()
 
-        # let public endpoints through
+        # ✅ Allow public endpoints / webhooks
         if (
             path.startswith("/chat_api")
             or path.startswith("/whatsapp")
@@ -89,11 +106,15 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         ):
             return
 
+        # ✅ Allow login endpoints (otherwise you lock yourself out)
+        if path.startswith("/auth/login") or path.startswith("/admin/login"):
+            return
+
         expected = session.get("_csrf")
         got = _read_csrf_from_request()
 
         if not expected or not got or got != expected:
-            app.logger.warning("CSRF blocked: method=%s path=%s", request.method, path)
+            app.logger.warning("CSRF blocked: method=%s path=%s got=%r", request.method, path, got)
             abort(403, description="csrf_failed")
 
 
