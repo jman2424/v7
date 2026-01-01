@@ -16,25 +16,44 @@
       POST /admin/login  -> processes login + redirects to /admin/
     -->
 
-    <form class="card card--auth" method="post" action="{{ url_for('admin_routes.admin_login_submit') }}">
+    <form class="card card--auth" method="post" action="{{ url_for('admin_routes.admin_login_submit') }}" novalidate>
       <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
 
       <h1>Sign in</h1>
 
-      {% if error %}
-        <p class="error">{{ error }}</p>
+      {# Show error from template OR querystring #}
+      {% set qerr = request.args.get('error') %}
+      {% if error or qerr %}
+        <p class="error">{{ error or qerr }}</p>
       {% endif %}
 
       <label>Email
-        <input name="email" type="text" autocomplete="username" required />
+        <input
+          name="email"
+          type="email"
+          autocomplete="username"
+          required
+          value="{{ request.form.get('email','') if request.method == 'POST' else '' }}"
+        />
       </label>
 
       <label>Password
-        <input name="password" type="password" autocomplete="current-password" required />
+        <input
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
       </label>
 
       <label>TOTP (if enabled)
-        <input name="totp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" />
+        <input
+          name="totp"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          placeholder="123456"
+        />
       </label>
 
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
