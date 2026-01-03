@@ -27,7 +27,7 @@ def login_post():
         # if someone posts a form here by accident, send them back to /admin/login
         return redirect(url_for("admin_routes.admin_login_page"))
 
-    from services.security import authenticate_user, verify_totp
+    from service.security import authenticate_user, verify_totp
 
     user = authenticate_user(email=email, password=password)
     if not user:
