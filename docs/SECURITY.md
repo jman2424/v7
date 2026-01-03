@@ -8,7 +8,7 @@ This system implements multiple layers of protection to safeguard tenant data an
 ## Authentication
 - Admin access uses username/password + **TOTP** (Time-based One-Time Password) via `pyotp`.
 - Session cookies include CSRF tokens for all admin POST requests.
-- All credentials are stored as bcrypt hashes in `services/security.py`.
+- All credentials are stored as bcrypt hashes in `service/security.py`.
 
 ---
 
@@ -21,13 +21,13 @@ This system implements multiple layers of protection to safeguard tenant data an
 
 ## RBAC (Role-Based Access Control)
 - Roles: `admin`, `editor`, `viewer`.
-- Permissions mapped in `services/security.py`.
+- Permissions mapped in `service/security.py`.
 - Used by `routes/admin_routes.py` and templates to hide restricted UI components.
 
 ---
 
 ## Rate Limiting
-- Implemented per IP and per endpoint in `services/rate_limit.py`.
+- Implemented per IP and per endpoint in `service/rate_limit.py`.
 - Default burst: 10 req/sec; sustained: 3 req/sec.
 - Exceeding limits returns HTTP 429.
 
