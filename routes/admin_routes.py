@@ -43,7 +43,7 @@ def admin_login_submit():
     password = request.form.get("password") or ""
     totp = (request.form.get("totp") or "").strip() or None
 
-    from services.security import authenticate_user, verify_totp
+    from service.security import authenticate_user, verify_totp
 
     user = authenticate_user(email=email, password=password)
     if not user:
