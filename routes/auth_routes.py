@@ -9,7 +9,6 @@ bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 @bp.get("/login")
 def login_get():
-    # Never show JSON login page in browser
     return redirect(url_for("admin_routes.admin_login_page"))
 
 
@@ -22,22 +21,18 @@ def login_post():
         data = request.get_json(silent=True) or {}
         email = (data.get("email") or "").strip().lower()
         password = data.get("password") or ""
-        totp = data.get("totp") or None
+        totp = (data.get("totp") or "").strip() or None
     else:
-        # if someone posts a form here by accident, send them back to /admin/login
         return redirect(url_for("admin_routes.admin_login_page"))
 
-    from service.security import authenticate_user, verify_totp
+    from service.security import authenticate_user  # verify_totp not needed here
 
-    user = authenticate_user(email=email, password=password)
+    # ✅ FIX: pass container + totp_code
+    user = authenticate_user(c, email=email, password=password, totp_code=totp)
     if not user:
         return jsonify({"ok": False, "error": "invalid_credentials"}), 401
 
-    if user.get("totp_secret"):
-        if not totp or not verify_totp(user["totp_secret"], totp):
-            return jsonify({"ok": False, "error": "totp_required"}), 401
-
-    session["user"] = {"id": user["id"], "email": user["email"], "roles": user.get("roles", [])}
+    session["user"] = {"email": user["email"], "roles": user.get("roles", [])}
     return jsonify({"ok": True, "user": session["user"]})
 
 
