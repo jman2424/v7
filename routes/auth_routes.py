@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify, session, redirect, url_for
 
 from routes import get_container
 
-bp = Blueprint("auth", __name__, url_prefix="/auth")
+bp = Blueprint("auth_routes", __name__, url_prefix="/auth")
 
 
 @bp.get("/login")
