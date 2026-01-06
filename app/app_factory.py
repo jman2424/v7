@@ -17,9 +17,7 @@ DASHBOARD_DIR = REPO_ROOT / "dashboard"
 TEMPLATES_DIR = DASHBOARD_DIR / "templates"
 STATIC_DIR = DASHBOARD_DIR / "static"
 
-
 def _register_blueprints(app: Flask) -> None:
-    # Import inside function to avoid circular imports at import-time.
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
@@ -30,7 +28,6 @@ def _register_blueprints(app: Flask) -> None:
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
 
-    # Register once, in a stable order.
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
     app.register_blueprint(whatsapp_bp)
@@ -40,6 +37,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
+
 
 
 def _install_error_handlers(app: Flask) -> None:
