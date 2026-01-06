@@ -1,8 +1,8 @@
 # app/app_factory.py
 from __future__ import annotations
 
-from typing import Any, Dict
 from pathlib import Path
+from typing import Any, Dict
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -19,6 +19,7 @@ STATIC_DIR = DASHBOARD_DIR / "static"
 
 
 def _register_blueprints(app: Flask) -> None:
+    # Import inside function to avoid circular imports at import-time.
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
@@ -29,6 +30,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
 
+    # Register once, in a stable order.
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
     app.register_blueprint(whatsapp_bp)
@@ -74,6 +76,7 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
+    # Middleware
     middleware.install_request_id(app)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
