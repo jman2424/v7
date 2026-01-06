@@ -16,7 +16,7 @@
       POST /admin/login  -> processes login + redirects to /admin/
     -->
 
-    <form class="card card--auth" method="post" action="{{ url_for('admin_routes.admin_login_submit') }}" novalidate>
+    <form class="card card--auth" method="post" action="{{ url_for('admin_ui.login_submit') }}" novalidate>
       <img class="logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="Logo" />
 
       <h1>Sign in</h1>
