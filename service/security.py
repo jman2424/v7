@@ -1,43 +1,53 @@
 # service/security.py
-from __future__ import annotations
-
+import os
 import hmac
-import hashlib
 import base64
-from typing import Any, Optional
+import hashlib
 
-
-def verify_webhook_signature(
-    auth_token: str,
-    signature_header: str,
-    full_url: str,
-    form_data: dict[str, Any],
-) -> bool:
+def authenticate_user(username: str, password: str) -> bool:
     """
-    Twilio request validation.
-
-    signature_header: X-Twilio-Signature
-    full_url: the exact URL Twilio requested (incl https + host + path, no querystring changes)
-    form_data: request.form as a dict (all fields Twilio posted)
-
-    Returns True if signature matches.
+    Admin login check using env vars.
     """
-    if not auth_token or not signature_header or not full_url:
+    admin_user = os.getenv("ADMIN_USERNAME", "")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "")
+
+    if not admin_user or not admin_pass:
+        # Fail closed if env vars are missing
         return False
 
-    # Build the signed string: URL + sorted params concatenated as key+value
-    items = sorted((k, str(v)) for k, v in (form_data or {}).items())
-    payload = full_url + "".join(k + v for k, v in items)
+    return (
+        hmac.compare_digest((username or "").strip(), admin_user)
+        and hmac.compare_digest(password or "", admin_pass)
+    )
 
-    digest = hmac.new(
-        auth_token.encode("utf-8"),
-        payload.encode("utf-8"),
-        hashlib.sha1,
-    ).digest()
+def verify_totp(code: str) -> bool:
+    """
+    Optional TOTP check.
+    If ADMIN_TOTP_SECRET is not set, treat TOTP as disabled and return True.
+    """
+    secret = os.getenv("ADMIN_TOTP_SECRET", "").strip()
+    if not secret:
+        return True  # TOTP disabled
 
-    expected = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(expected, signature_header)
+    # Minimal TOTP (RFC 6238). Requires code to be 6 digits.
+    try:
+        code = (code or "").strip()
+        if len(code) != 6 or not code.isdigit():
+            return False
 
+        # Decode base32 secret
+        key = base64.b32decode(secret.upper() + "====", casefold=True)
 
-# Keep your existing functions below (authenticate_user, verify_totp, etc.)
-# If they don't exist, tell me and I’ll write them too.
+        # Time step = 30s
+        import time, struct
+        timestep = int(time.time()) // 30
+        msg = struct.pack(">Q", timestep)
+
+        h = hmac.new(key, msg, hashlib.sha1).digest()
+        o = h[-1] & 0x0F
+        dbc = struct.unpack(">I", h[o:o+4])[0] & 0x7FFFFFFF
+        otp = str(dbc % 1000000).zfill(6)
+
+        return hmac.compare_digest(code, otp)
+    except Exception:
+        return False
