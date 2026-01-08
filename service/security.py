@@ -5,7 +5,7 @@ import os
 import hmac
 import base64
 import hashlib
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 # -----------------------------
@@ -18,16 +18,16 @@ def verify_webhook_signature(
     form_data: Dict[str, Any],
 ) -> bool:
     """
-    Twilio request validation.
+    Validate Twilio webhook signature.
 
-    signature_header: X-Twilio-Signature
-    full_url: exact URL Twilio requested (incl https + host + path, no querystring changes)
+    signature_header: value of X-Twilio-Signature header
+    full_url: exact URL Twilio requested (scheme + host + path must match)
     form_data: request.form as a dict (all fields Twilio posted)
     """
     if not auth_token or not signature_header or not full_url:
         return False
 
-    # Build the signed string: URL + sorted params concatenated as key+value
+    # Twilio signs: full_url + concatenated sorted params (key + value)
     items = sorted((k, str(v)) for k, v in (form_data or {}).items())
     payload = full_url + "".join(k + v for k, v in items)
 
@@ -42,37 +42,67 @@ def verify_webhook_signature(
 
 
 # -----------------------------
-# 2) Admin username/password
+# 2) Admin auth (env-based)
 # -----------------------------
-def authenticate_user(username: str, password: str) -> bool:
+def authenticate_user(
+    c: Any = None, *, email: str = "", password: str = ""
+) -> Optional[Dict[str, Any]]:
     """
-    Admin login check using env vars.
+    Dashboard login.
+
+    Matches routes/admin_routes.py:
+        user = authenticate_user(c, email=email, password=password)
+
+    Returns:
+        - user dict (with id/email/roles/totp_secret) if valid
+        - None if invalid
     """
-    admin_user = os.getenv("ADMIN_USERNAME", "")
-    admin_pass = os.getenv("ADMIN_PASSWORD", "")
+    admin_user = (os.getenv("ADMIN_USERNAME") or "").strip().lower()
+    admin_pass = os.getenv("ADMIN_PASSWORD") or ""
 
     if not admin_user or not admin_pass:
-        return False
+        # Fail closed if env vars missing
+        return None
 
-    return (
-        hmac.compare_digest((username or "").strip(), admin_user)
-        and hmac.compare_digest(password or "", admin_pass)
-    )
+    email_norm = (email or "").strip().lower()
+    password_norm = password or ""
+
+    if not (
+        hmac.compare_digest(email_norm, admin_user)
+        and hmac.compare_digest(password_norm, admin_pass)
+    ):
+        return None
+
+    # Optional 2FA: if set, login route will require a totp code
+    totp_secret = (os.getenv("ADMIN_TOTP_SECRET") or "").strip() or None
+
+    return {
+        "id": "admin",
+        "email": admin_user,
+        "roles": ["admin"],
+        "totp_secret": totp_secret,
+    }
 
 
 # -----------------------------
-# 3) Optional TOTP (2FA)
+# 3) TOTP verify (secret + code)
 # -----------------------------
-def verify_totp(code: str) -> bool:
+def verify_totp(secret: str, code: str) -> bool:
     """
-    If ADMIN_TOTP_SECRET is not set, TOTP is disabled and returns True.
-    Otherwise validates a 6-digit TOTP code.
-    """
-    secret = os.getenv("ADMIN_TOTP_SECRET", "").strip()
-    if not secret:
-        return True  # TOTP disabled
+    Validate a 6-digit TOTP.
 
+    Matches routes/admin_routes.py:
+        verify_totp(user["totp_secret"], totp)
+
+    secret: base32 encoded secret
+    code: 6 digit code from authenticator app
+    """
+    secret = (secret or "").strip()
     code = (code or "").strip()
+
+    if not secret:
+        return True  # If no secret, treat as not required
+
     if len(code) != 6 or not code.isdigit():
         return False
 
@@ -80,14 +110,16 @@ def verify_totp(code: str) -> bool:
         # Decode base32 secret
         key = base64.b32decode(secret.upper() + "====", casefold=True)
 
-        # Time step = 30s
-        import time, struct
+        # Time step = 30 seconds
+        import time
+        import struct
+
         timestep = int(time.time()) // 30
         msg = struct.pack(">Q", timestep)
 
         h = hmac.new(key, msg, hashlib.sha1).digest()
-        o = h[-1] & 0x0F
-        dbc = struct.unpack(">I", h[o:o + 4])[0] & 0x7FFFFFFF
+        offset = h[-1] & 0x0F
+        dbc = struct.unpack(">I", h[offset : offset + 4])[0] & 0x7FFFFFFF
         otp = str(dbc % 1000000).zfill(6)
 
         return hmac.compare_digest(code, otp)
