@@ -4,9 +4,13 @@
   <meta charset="utf-8" />
   <title>{{ tenant }} — Admin • AI Sales Assistant</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="icon" href="{{ (branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg')) }}" />
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
+
+  <!-- Chart.js for real charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
@@ -14,6 +18,7 @@
 
   <main class="container">
 
+    <!-- Overview / KPIs -->
     <section class="panel panel--kpis">
       <header class="panel__header">
         <h2>Overview</h2>
@@ -29,14 +34,22 @@
         </div>
       </header>
 
-      {% include 'partials/_charts.html' ignore missing %}
+      <!-- Charts -->
+      <div class="card" style="margin-top: 12px;">
+        <h3>Message Volume</h3>
+        <div style="height:320px;">
+          <canvas id="chart-main"></canvas>
+        </div>
+      </div>
 
+      <!-- KPI JSON fallback -->
       <div class="card" style="margin-top:12px;">
         <h3>KPIs (fallback)</h3>
         <pre class="pre" id="kpi-output">Waiting for data…</pre>
       </div>
     </section>
 
+    <!-- CRM / Leads -->
     <section class="panel panel--crm">
       <header class="panel__header">
         <h2>Leads & Conversations</h2>
@@ -49,7 +62,12 @@
         <table class="table" id="leads-table">
           <thead>
             <tr>
-              <th>Updated</th><th>Name</th><th>Phone</th><th>Status</th><th>Tags</th><th>Session</th>
+              <th>Updated</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Tags</th>
+              <th>Session</th>
             </tr>
           </thead>
           <tbody>
@@ -59,6 +77,7 @@
       </div>
     </section>
 
+    <!-- Content & Data -->
     <section class="panel panel--content">
       <header class="panel__header">
         <h2>Content & Data</h2>
@@ -84,6 +103,7 @@
     };
   </script>
 
+  <!-- Your JS -->
   <script defer src="{{ url_for('static', filename='js/charts.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/admin.js') }}"></script>
 </body>
