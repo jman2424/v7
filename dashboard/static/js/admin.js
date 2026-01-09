@@ -1,20 +1,24 @@
-/* Admin dashboard controller.
-   Wires charts, CRUD, self-repair, uploads, mode toggles, and toasts.
+/* dashboard/static/js/admin.js
+   Clean Admin controller: KPIs + Leads + CSV export + Self-repair + Editor modal
 */
 
 (function () {
   const S = window.__ADMIN__ || {};
-  const CSRF = S.csrfToken;
+  const CSRF = S.csrfToken || "";
 
-  // ---------- Utilities ----------
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // ---------- Toast ----------
   function toast(msg, type = "ok") {
-    let tpl = $("#toast-template");
-    if (!tpl) { console.log("[toast]", msg); return; }
+    const tpl = $("#toast-template");
+    if (!tpl) {
+      console.log(`[${type}]`, msg);
+      return;
+    }
     const node = tpl.content.firstElementChild.cloneNode(true);
     node.querySelector(".toast__msg").textContent = msg;
+
     if (type === "error") {
       node.style.background = "#2a1b1b";
       node.style.borderColor = "#4d2828";
@@ -24,82 +28,45 @@
       node.style.borderColor = "#5f4313";
       node.style.color = "#fde68a";
     }
+
     document.body.appendChild(node);
-    const close = node.querySelector(".toast__close");
-    close.onclick = () => node.remove();
+    node.querySelector(".toast__close")?.addEventListener("click", () => node.remove());
     setTimeout(() => node.remove(), 4500);
   }
 
-  async function api(path, opts = {}) {
-    const headers = Object.assign({
-      "Content-Type": "application/json",
-      "X-CSRF-Token": CSRF
-    }, opts.headers || {});
-    const res = await fetch(path, Object.assign({}, opts, { headers }));
+  // ---------- HTTP helpers ----------
+  async function apiJSON(path, opts = {}) {
+    const headers = Object.assign(
+      { "Content-Type": "application/json" },
+      CSRF ? { "X-CSRF-Token": CSRF } : {},
+      opts.headers || {}
+    );
+
+    const res = await fetch(path, Object.assign({}, opts, { headers, credentials: "include" }));
+    const ct = res.headers.get("content-type") || "";
+
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
     }
-    const ct = res.headers.get("content-type") || "";
-    return ct.includes("application/json") ? res.json() : res.text();
+
+    if (ct.includes("application/json")) return res.json();
+    return res.text();
   }
 
-  function qsParams(obj) {
-    const p = new URLSearchParams();
-    Object.entries(obj).forEach(([k, v]) => {
-      if (v !== undefined && v !== null) p.set(k, v);
-    });
-    return p.toString();
+  async function apiText(path, opts = {}) {
+    const headers = Object.assign({}, CSRF ? { "X-CSRF-Token": CSRF } : {}, opts.headers || {});
+    const res = await fetch(path, Object.assign({}, opts, { headers, credentials: "include" }));
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
+    }
+    return res.text();
   }
 
-  // ---------- Charts ----------
-  let chartVolume, chartIntents, chartItems;
-
-  async function loadKpis() {
-    const period = $("#period-select").value || "1440";
-    const query = `?${qsParams({ period: period + "m" })}`; // backend may accept minutes or period string
-    const summary = await api(`/analytics/summary${query}`);
-    const series = await api(`/analytics/timeseries${query}`).catch(() => ({ series: [] }));
-
-    // Volume timeseries
-    const elVol = $("#chart-volume");
-    if (!chartVolume) chartVolume = window.DashCharts.line(elVol, series.series || []);
-    else chartVolume.update(series.series || []);
-
-    // Top intents bar
-    const elInt = $("#chart-intents");
-    const intents = (summary.top_intents || []).map(r => ({ key: r.key, count: r.count }));
-    if (!chartIntents) chartIntents = window.DashCharts.bar(elInt, intents);
-    else chartIntents.update(intents);
-
-    // Top items bar
-    const elItems = $("#chart-items");
-    const items = (summary.top_items || []).map(r => ({ key: r.key, count: r.count }));
-    if (!chartItems) chartItems = window.DashCharts.bar(elItems, items);
-    else chartItems.update(items);
-
-    // Mode + version labels
-    $("#mode-label").textContent = (await api("/mode").catch(() => ({ mode: "?" }))).mode || "?";
-    $("#version-label").textContent = (await api("/version").catch(() => ({ version: "?" }))).version || "?";
-  }
-
-  // ---------- Leads ----------
-  async function loadLeads() {
-    const rows = await api("/admin/api/leads").catch(() => []);
-    const tbody = $("#leads-table tbody");
-    tbody.innerHTML = "";
-    rows.forEach(l => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(l.updated_at || "")}</td>
-        <td>${escapeHtml(l.name || "")}</td>
-        <td>${escapeHtml(l.phone || "")}</td>
-        <td>${escapeHtml(l.status || "")}</td>
-        <td>${(l.tags || []).map(escapeHtml).join(", ")}</td>
-        <td>${escapeHtml(l.session_id || "")}</td>
-      `;
-      tbody.appendChild(tr);
-    });
+  function minutesFromSelect() {
+    const v = $("#period-select")?.value || "1440";
+    return parseInt(v, 10);
   }
 
   function escapeHtml(s) {
@@ -108,163 +75,202 @@
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  // ---------- Validation / Self-repair ----------
-  async function runSelfRepair() {
-    $("#validation-output").textContent = "Running…";
-    const rep = await api("/__diag/self_repair").catch(e => ({ status: "error", message: e.message }));
-    $("#validation-output").textContent = JSON.stringify(rep, null, 2);
-    toast("Self-repair report updated");
+  // ---------- KPIs ----------
+  async function loadKPIs() {
+    const minutes = minutesFromSelect();
+    const kpis = await apiJSON(`/admin/api/kpis?minutes=${minutes}`);
+
+    const out = $("#kpi-output");
+    if (out) out.textContent = JSON.stringify(kpis, null, 2);
+
+    // Optional labels (only if you have these endpoints)
+    try {
+      const mode = await apiJSON("/mode");
+      $("#mode-label") && ($("#mode-label").textContent = mode.mode || "?");
+    } catch (_) {}
+
+    try {
+      const ver = await apiJSON("/version");
+      $("#version-label") && ($("#version-label").textContent = ver.version || "?");
+    } catch (_) {}
+
+    return kpis;
   }
 
-  // ---------- Editors ----------
+  // ---------- Leads ----------
+  async function loadLeads() {
+    const tbody = $("#leads-table tbody");
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="6">Loading…</td></tr>`;
+
+    // Backend returns { tenant, items: [...] }
+    const data = await apiJSON(`/admin/api/leads?limit=50`);
+    const items = data.items || [];
+
+    tbody.innerHTML = "";
+
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
+      return;
+    }
+
+    for (const l of items) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(l.updated_utc || "")}</td>
+        <td>${escapeHtml(l.name || "")}</td>
+        <td>${escapeHtml(l.phone || "")}</td>
+        <td>${escapeHtml(l.status || "")}</td>
+        <td>${escapeHtml(l.tags || "")}</td>
+        <td>${escapeHtml(l.last_session_id || "")}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ---------- CSV export ----------
+  function exportLeadsCSV() {
+    // Download directly (cookies carry the session)
+    window.location.href = `/admin/api/leads.csv`;
+  }
+
+  // ---------- Self-repair (optional) ----------
+  async function runSelfRepair() {
+    const out = $("#validation-output");
+    if (out) out.textContent = "Running…";
+
+    // If you have this endpoint, keep it. If not, it will simply warn.
+    try {
+      const rep = await apiJSON("/__diag/self_repair");
+      if (out) out.textContent = JSON.stringify(rep, null, 2);
+      toast("Self-repair report updated");
+    } catch (e) {
+      if (out) out.textContent = `Self-repair not available: ${e.message}`;
+      toast("Self-repair endpoint missing", "warn");
+    }
+  }
+
+  // ---------- Editor modal (optional) ----------
   const modal = $("#editor-modal");
   const editorForm = $("#editor-form");
   const editorJson = $("#editor-json");
   const editorOutput = $("#editor-output");
-  const tabs = $$(".tab", modal);
+  const tabs = modal ? $$(".tab", modal) : [];
 
   function openEditor(kind) {
+    if (!modal) return toast("Editor UI missing", "warn");
     modal.hidden = false;
     setActiveTab(kind);
-    loadEditor(kind);
+    loadEditor(kind).catch(e => {
+      if (editorOutput) editorOutput.textContent = e.message;
+      toast(e.message, "error");
+    });
   }
 
   function closeEditor() {
+    if (!modal) return;
     modal.hidden = true;
-    editorJson.value = "";
-    editorOutput.textContent = "Awaiting input…";
+    if (editorJson) editorJson.value = "";
+    if (editorOutput) editorOutput.textContent = "Awaiting input…";
   }
 
   function setActiveTab(kind) {
+    if (!modal || !editorForm) return;
     tabs.forEach(t => t.classList.toggle("is-active", t.dataset.tab === kind));
     editorForm.dataset.kind = kind;
-    $("#editor-title").textContent = `Edit ${kind.toUpperCase()}`;
+    const title = $("#editor-title");
+    if (title) title.textContent = `Edit ${kind.toUpperCase()}`;
   }
 
   async function loadEditor(kind) {
+    if (!editorJson || !editorOutput) return;
     editorJson.value = "Loading…";
+    editorOutput.textContent = "";
+
     const path = kind === "catalog" ? "/admin/api/catalog" : "/admin/api/faq";
-    const data = await api(path);
+    const data = await apiJSON(path);
     editorJson.value = JSON.stringify(data, null, 2);
     editorOutput.textContent = "Loaded.";
   }
 
   async function validateEditor() {
-    try {
-      const data = JSON.parse(editorJson.value);
-      const kind = editorForm.dataset.kind;
-      const res = await api(`/admin/api/validate/${kind}`, { method: "POST", body: JSON.stringify({ data }) });
-      editorOutput.textContent = JSON.stringify(res, null, 2);
-      toast("Validation passed");
-    } catch (e) {
-      editorOutput.textContent = `Validation error: ${e.message}`;
-      toast("Validation failed", "error");
-    }
+    if (!editorJson || !editorOutput || !editorForm) return;
+    const kind = editorForm.dataset.kind;
+    const data = JSON.parse(editorJson.value);
+
+    const res = await apiJSON(`/admin/api/validate/${kind}`, {
+      method: "POST",
+      body: JSON.stringify({ data })
+    });
+
+    editorOutput.textContent = JSON.stringify(res, null, 2);
+    toast("Validation passed");
   }
 
   async function saveEditor(ev) {
     ev.preventDefault();
-    try {
-      const data = JSON.parse(editorJson.value);
-      const kind = editorForm.dataset.kind;
-      const res = await api(`/admin/api/${kind}`, { method: "PUT", body: JSON.stringify(data) });
-      editorOutput.textContent = JSON.stringify(res, null, 2);
-      toast(`${kind.toUpperCase()} saved`);
-    } catch (e) {
-      editorOutput.textContent = `Save error: ${e.message}`;
-      toast("Save failed", "error");
-    }
-  }
+    if (!editorJson || !editorOutput || !editorForm) return;
 
-  // ---------- Uploads / Snapshot ----------
-  async function uploadJson(file) {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("csrf_token", CSRF);
-    const res = await fetch("/files/upload", { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-    toast("Upload complete");
-  }
+    const kind = editorForm.dataset.kind;
+    const data = JSON.parse(editorJson.value);
 
-  async function downloadSnapshot() {
-    const res = await fetch("/files/snapshot?tenant=" + encodeURIComponent(S.tenant), {
-      headers: { "X-CSRF-Token": CSRF }
+    const res = await apiJSON(`/admin/api/${kind}`, {
+      method: "PUT",
+      body: JSON.stringify(data)
     });
-    if (!res.ok) return toast("Snapshot download failed", "error");
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${S.tenant}-snapshot.tar.gz`;
-    a.click();
-    toast("Snapshot downloaded");
+
+    editorOutput.textContent = JSON.stringify(res, null, 2);
+    toast(`${kind.toUpperCase()} saved`);
   }
 
-  // ---------- Mode toggles ----------
+  // ---------- Bind ----------
+  function bind() {
+    $("#refresh-kpis")?.addEventListener("click", () => {
+      Promise.all([loadKPIs(), window.DashChartsReload?.()]).catch(e => toast(e.message, "error"));
+    });
+
+    $("#period-select")?.addEventListener("change", () => {
+      Promise.all([loadKPIs(), window.DashChartsReload?.()]).catch(e => toast(e.message, "error"));
+    });
+
+    $("#export-leads")?.addEventListener("click", exportLeadsCSV);
+
+    // Editor
+    $$(".btn[data-editor-target]").forEach(btn => {
+      btn.addEventListener("click", () => openEditor(btn.dataset.editorTarget));
+    });
+    $("#editor-close")?.addEventListener("click", closeEditor);
+    $("#editor-validate")?.addEventListener("click", () => validateEditor().catch(e => toast(e.message, "error")));
+    $("#editor-save")?.addEventListener("click", (e) => saveEditor(e).catch(err => toast(err.message, "error")));
+
+    // Self-repair
+    $("#run-self-repair")?.addEventListener("click", () => runSelfRepair().catch(e => toast(e.message, "error")));
+
+    // Mode toggles (optional endpoints)
+    $("#toggle-mode-v5")?.addEventListener("click", () => setMode("V5"));
+    $("#toggle-mode-v6")?.addEventListener("click", () => setMode("AIV6"));
+    $("#toggle-mode-v7")?.addEventListener("click", () => setMode("AIV7"));
+  }
+
   async function setMode(mode) {
     try {
-      await api("/admin/api/mode", { method: "POST", body: JSON.stringify({ mode }) });
-      $("#mode-label").textContent = mode;
+      await apiJSON("/admin/api/mode", { method: "POST", body: JSON.stringify({ mode }) });
+      $("#mode-label") && ($("#mode-label").textContent = mode);
       toast(`Mode switched to ${mode}`);
     } catch (e) {
       toast(e.message, "error");
     }
   }
 
-  // ---------- Tenant switch ----------
-  function switchTenant(k) {
-    const url = new URL(window.location.href);
-    url.searchParams.set("tenant", k);
-    window.location.href = url.toString();
-  }
-
-  // ---------- Bindings ----------
-  function bind() {
-    $("#refresh-kpis").addEventListener("click", () => loadKpis().catch(e => toast(e.message, "error")));
-    $("#period-select").addEventListener("change", () => loadKpis().catch(e => toast(e.message, "error")));
-    $("#export-leads").addEventListener("click", async () => {
-      const res = await fetch("/analytics/export", { headers: { "X-CSRF-Token": CSRF } });
-      if (!res.ok) return toast("Export failed", "error");
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "analytics.csv";
-      a.click();
-    });
-
-    // Editor modal
-    $$(".btn[data-editor-target]").forEach(btn => {
-      btn.addEventListener("click", () => openEditor(btn.dataset.editorTarget));
-    });
-    $("#editor-close").addEventListener("click", closeEditor);
-    $$(".tab", modal).forEach(t => t.addEventListener("click", () => setActiveTab(t.dataset.tab)));
-    $("#editor-validate").addEventListener("click", () => validateEditor().catch(e => toast(e.message, "error")));
-    $("#editor-save").addEventListener("click", saveEditor);
-    $("#upload-json").addEventListener("click", () => $("#json-file").click());
-    $("#json-file").addEventListener("change", async (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      try { await uploadJson(f); } catch (err) { toast(err.message, "error"); }
-      finally { e.target.value = ""; }
-    });
-    $("#download-snapshot").addEventListener("click", () => downloadSnapshot());
-
-    // Mode buttons
-    $("#toggle-mode-v5").addEventListener("click", () => setMode("V5"));
-    $("#toggle-mode-v6").addEventListener("click", () => setMode("AIV6"));
-    $("#toggle-mode-v7").addEventListener("click", () => setMode("AIV7"));
-
-    // Tenant switcher
-    const selTenant = $("#tenant-select");
-    if (selTenant) selTenant.addEventListener("change", () => switchTenant(selTenant.value));
-
-    // Self-repair
-    $("#run-self-repair").addEventListener("click", () => runSelfRepair().catch(e => toast(e.message, "error")));
-  }
-
   // ---------- Init ----------
-  (function init() {
+  window.addEventListener("DOMContentLoaded", () => {
     bind();
-    Promise.all([loadKpis(), loadLeads(), runSelfRepair()])
-      .catch(e => toast(e.message, "error"));
-  })();
+    Promise.all([
+      loadKPIs(),
+      loadLeads(),
+      runSelfRepair(),
+      window.DashChartsReload?.()
+    ]).catch(e => toast(e.message, "error"));
+  });
 })();
