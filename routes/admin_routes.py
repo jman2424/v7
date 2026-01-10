@@ -1,9 +1,7 @@
 # routes/admin_routes.py
 from __future__ import annotations
 
-import secrets
 from flask import Blueprint, render_template, request, redirect, url_for, session
-
 from routes import get_container
 
 bp = Blueprint("admin_ui", __name__, url_prefix="/admin")
@@ -14,11 +12,6 @@ def _is_logged_in() -> bool:
 
 
 def _csrf_token() -> str:
-    """
-    Supports either:
-    - csrf_token stored on flask.g by middleware, OR
-    - csrf_token stored in session
-    """
     try:
         from flask import g  # type: ignore
         token = getattr(g, "csrf_token", None)
@@ -29,150 +22,101 @@ def _csrf_token() -> str:
     return session.get("csrf_token", "") or ""
 
 
-def _get_tenant() -> str:
+def _tenant() -> str:
     """
-    Tenant selection priority:
-    1) query param ?tenant=
-    2) saved in session
-    3) fallback "default"
+    Dashboard tenant selection:
+    1) ?tenant=XYZ
+    2) settings.BUSINESS_KEY
+    3) 'default'
     """
-    t = (request.args.get("tenant") or "").strip()
-    if t:
-        session["tenant"] = t
-        return t
-    return (session.get("tenant") or "default").strip() or "default"
+    c = get_container()
+    return (request.args.get("tenant") or getattr(c.settings, "BUSINESS_KEY", None) or "default").strip()
 
 
-def _get_role(user: dict) -> str:
-    """
-    Normalizes role for template checks.
-    Your templates use: ['Owner','Manager','Staff']
-    """
-    roles = user.get("roles") or []
-    if isinstance(roles, str):
-        roles = [roles]
-    roles = [r for r in roles if r]
-
-    # map legacy roles to display roles if needed
-    # (keep admin as Owner so UI buttons show up)
-    r0 = (roles[0] if roles else "Owner").strip()
-
-    if r0.lower() in ("admin", "owner"):
-        return "Owner"
-    if r0.lower() in ("manager",):
-        return "Manager"
-    if r0.lower() in ("staff", "support"):
-        return "Staff"
-    return r0 or "Owner"
-
-
-def _ensure_session_id() -> str:
-    """
-    Used by frontend to associate dashboard session.
-    """
-    sid = session.get("admin_session_id")
-    if not sid:
-        sid = secrets.token_urlsafe(16)
-        session["admin_session_id"] = sid
-    return sid
+def _redirect(endpoint: str, **kwargs):
+    # preserve tenant on every redirect
+    kwargs.setdefault("tenant", _tenant())
+    return redirect(url_for(endpoint, **kwargs))
 
 
 @bp.get("/")
 def dashboard():
     if not _is_logged_in():
-        # preserve tenant in redirect
-        tenant = _get_tenant()
-        return redirect(url_for("admin_ui.login_page", tenant=tenant))
+        return _redirect("admin_ui.login_page")
 
     user = session.get("user") or {}
-    tenant = _get_tenant()
-    role = _get_role(user)
-    session_id = _ensure_session_id()
+    role = (user.get("roles") or ["admin"])[0]
 
-    # branding is optional (template handles missing)
-    branding = None
+    # if you don't have a real session id, use something stable-ish for UI
+    session_id = session.get("rid") or session.get("_id") or "admin"
 
     return render_template(
         "dashboard.html",
-        tenant=tenant,
+        tenant=_tenant(),
         role=role,
         session_id=session_id,
-        branding=branding,
+        branding=None,
         csrf_token=_csrf_token(),
     )
 
 
 @bp.get("/login")
 def login_page():
-    tenant = _get_tenant()
-
     if _is_logged_in():
-        return redirect(url_for("admin_ui.dashboard", tenant=tenant))
+        return _redirect("admin_ui.dashboard")
 
     return render_template(
         "login.html",
+        tenant=_tenant(),
         error=None,
-        tenant=tenant,
         csrf_token=_csrf_token(),
     )
 
 
 @bp.post("/login")
 def login_submit():
-    tenant = _get_tenant()
+    tenant = _tenant()
 
-    email = (request.form.get("email") or "").strip().lower()
+    # Form POST
+    username = (request.form.get("email") or "").strip()  # your template uses email field name
     password = request.form.get("password") or ""
-    totp = (request.form.get("totp") or "").strip() or None
+    totp = (request.form.get("totp") or "").strip()
 
-    if not email or not password:
+    if not username or not password:
         return render_template(
             "login.html",
-            error="Missing email or password",
             tenant=tenant,
+            error="Missing username/password",
             csrf_token=_csrf_token(),
         ), 400
 
-    c = get_container()
+    # Your current security.py expects (username, password) and returns bool
     from service.security import authenticate_user, verify_totp
 
-    # authenticate_user must accept (container, email=..., password=...)
-    user = authenticate_user(c, email=email, password=password)
-
-    if not user:
+    ok = authenticate_user(username=username, password=password)
+    if not ok:
         return render_template(
             "login.html",
-            error="Invalid credentials",
             tenant=tenant,
+            error="Invalid credentials",
             csrf_token=_csrf_token(),
         ), 401
 
-    # Optional TOTP
-    if user.get("totp_secret"):
-        if not totp or not verify_totp(user["totp_secret"], totp):
-            return render_template(
-                "login.html",
-                error="TOTP required (check your authenticator code)",
-                tenant=tenant,
-                csrf_token=_csrf_token(),
-            ), 401
+    # Optional TOTP: security.verify_totp(code) returns True if disabled or valid
+    if not verify_totp(totp):
+        return render_template(
+            "login.html",
+            tenant=tenant,
+            error="Invalid TOTP code",
+            csrf_token=_csrf_token(),
+        ), 401
 
-    session["user"] = {
-        "id": user.get("id", "admin"),
-        "email": user.get("email", email),
-        "roles": user.get("roles", ["Owner"]),
-        # Optional: save tenant on user if you want server-side tenant enforcement later
-        # "tenant": tenant,
-    }
+    session["user"] = {"id": "admin", "email": username, "roles": ["admin"]}
 
-    _ensure_session_id()
-
-    return redirect(url_for("admin_ui.dashboard", tenant=tenant))
+    return _redirect("admin_ui.dashboard")
 
 
 @bp.get("/logout")
 def logout():
-    tenant = _get_tenant()
     session.pop("user", None)
-    session.pop("admin_session_id", None)
-    return redirect(url_for("admin_ui.login_page", tenant=tenant))
+    return _redirect("admin_ui.login_page")
