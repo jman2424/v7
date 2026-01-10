@@ -24,17 +24,21 @@ def _csrf_token() -> str:
 
 def _tenant() -> str:
     """
-    Dashboard tenant selection:
-    1) ?tenant=XYZ
-    2) settings.BUSINESS_KEY
-    3) 'default'
+    Tenant resolution priority:
+      1) URL query ?tenant=...
+      2) Container settings BUSINESS_KEY
+      3) 'default'
     """
+    t = (request.args.get("tenant") or "").strip()
+    if t:
+        return t
+
     c = get_container()
-    return (request.args.get("tenant") or getattr(c.settings, "BUSINESS_KEY", None) or "default").strip()
+    t2 = str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip()
+    return t2 or "default"
 
 
 def _redirect(endpoint: str, **kwargs):
-    # preserve tenant on every redirect
     kwargs.setdefault("tenant", _tenant())
     return redirect(url_for(endpoint, **kwargs))
 
@@ -47,8 +51,8 @@ def dashboard():
     user = session.get("user") or {}
     role = (user.get("roles") or ["admin"])[0]
 
-    # if you don't have a real session id, use something stable-ish for UI
-    session_id = session.get("rid") or session.get("_id") or "admin"
+    # not critical, but your template expects it
+    session_id = session.get("admin_session_id") or "admin"
 
     return render_template(
         "dashboard.html",
@@ -76,9 +80,7 @@ def login_page():
 @bp.post("/login")
 def login_submit():
     tenant = _tenant()
-
-    # Form POST
-    username = (request.form.get("email") or "").strip()  # your template uses email field name
+    username = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
     totp = (request.form.get("totp") or "").strip()
 
@@ -90,11 +92,10 @@ def login_submit():
             csrf_token=_csrf_token(),
         ), 400
 
-    # Your current security.py expects (username, password) and returns bool
+    # Your posted security.py uses env ADMIN_USERNAME/ADMIN_PASSWORD and returns bool
     from service.security import authenticate_user, verify_totp
 
-    ok = authenticate_user(username=username, password=password)
-    if not ok:
+    if not authenticate_user(username=username, password=password):
         return render_template(
             "login.html",
             tenant=tenant,
@@ -102,7 +103,7 @@ def login_submit():
             csrf_token=_csrf_token(),
         ), 401
 
-    # Optional TOTP: security.verify_totp(code) returns True if disabled or valid
+    # If ADMIN_TOTP_SECRET is not set, verify_totp returns True (disabled)
     if not verify_totp(totp):
         return render_template(
             "login.html",
@@ -112,6 +113,7 @@ def login_submit():
         ), 401
 
     session["user"] = {"id": "admin", "email": username, "roles": ["admin"]}
+    session["admin_session_id"] = "admin"
 
     return _redirect("admin_ui.dashboard")
 
@@ -119,4 +121,5 @@ def login_submit():
 @bp.get("/logout")
 def logout():
     session.pop("user", None)
+    session.pop("admin_session_id", None)
     return _redirect("admin_ui.login_page")
