@@ -6,9 +6,13 @@ MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 - Forces safe fallback if catalog resolution fails
 - Guarantees products are returned when intent requires it
 - Adds DISPATCH logging so we can find issues fast
+- Posts analytics in a way that CANNOT crash the bot
 """
 
 from __future__ import annotations
+
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -16,8 +20,7 @@ from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
 
-from . import HandlerDeps, DEFAULT_SESSION_TTL
-import logging
+from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
 
@@ -56,7 +59,6 @@ class MessageHandler:
         channel: str = "web",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-
         ctx = MessageContext(
             tenant=tenant,
             session_id=session_id,
@@ -111,8 +113,12 @@ class MessageHandler:
 
         # ---------------- PERSIST ----------------
         self._save_session(ctx, sess, reply)
-        self._log_crm(ctx, user_text, reply)
-        self._post_analytics(ctx, user_text, reply, mode)
+
+        # CRM first (so we can attach lead_id into analytics)
+        lead_id = self._log_crm(ctx, user_text, reply)
+
+        # Analytics must NEVER crash the pipeline
+        self._post_analytics(ctx, user_text, reply, mode, lead_id=lead_id)
 
         return reply
 
@@ -137,14 +143,14 @@ class MessageHandler:
         Prevents broken states like:
         - browse/search intent with zero items
         - catalog failure loops
-        - category single-word -> "tell me more" (must show products)
+        - category single-word -> must not pretend it has products
         """
 
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
 
-        # ---- NEW: If user typed a bare category word, force product results ----
+        # ---- If user typed a bare category word, force a helpful next step ----
         text = (user_text or "").strip().lower()
         known_category_words = {
             "chicken",
@@ -162,7 +168,6 @@ class MessageHandler:
 
         looks_like_bare_category = (len(text.split()) <= 2) and (text in known_category_words)
 
-        # If the pipeline returned "unknown" (or anything) but items are empty for bare category, that's a fail.
         if looks_like_bare_category and not items:
             logger.warning(
                 "PIPELINE FAILURE: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
@@ -185,7 +190,7 @@ class MessageHandler:
                 "entities": {"category": text},
             }
 
-        # Original rule: certain intents must return items
+        # Intents that MUST return items
         requires_items = intent in {
             "browse_category",
             "search_product",
@@ -201,7 +206,6 @@ class MessageHandler:
                 ctx.tenant,
                 ctx.session_id,
             )
-
             return {
                 "reply": (
                     "I’m having trouble pulling products right now.\n\n"
@@ -260,38 +264,94 @@ class MessageHandler:
     # CRM
     # ---------------------------------------------------------
 
-    def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]):
-        lead = self.crm.upsert_lead(
-            ctx.tenant,
-            name=None,
-            phone=reply.get("entities", {}).get("phone"),
-            channel=ctx.channel,
-            session_id=ctx.session_id,
-            tags=[reply.get("intent")] if reply.get("intent") else None,
-        )
+    def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> Optional[str]:
+        """
+        Returns lead_id if available, but NEVER allowed to crash.
+        """
+        try:
+            lead = self.crm.upsert_lead(
+                ctx.tenant,
+                name=None,
+                phone=(reply.get("entities") or {}).get("phone"),
+                channel=ctx.channel,
+                session_id=ctx.session_id,
+                tags=[reply.get("intent")] if reply.get("intent") else None,
+            )
 
-        lead_id = lead.get("id") or lead.get("_id") or "unknown"
+            lead_id = lead.get("id") or lead.get("_id") or lead.get("lead_id")
+            lead_id = str(lead_id) if lead_id else None
 
-        self.crm.append_conversation(
-            ctx.tenant, lead_id, {"from": "user", "text": user_text}
-        )
-        self.crm.append_conversation(
-            ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")}
-        )
+            if lead_id:
+                self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
+                self.crm.append_conversation(
+                    ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")}
+                )
+
+            return lead_id
+        except Exception:
+            logger.exception("CRM_FAILURE tenant=%s session=%s", ctx.tenant, ctx.session_id)
+            return None
 
     # ---------------------------------------------------------
     # ANALYTICS
     # ---------------------------------------------------------
 
-    def _post_analytics(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any], mode: str):
-        self.analytics.log_event(
-            ctx.tenant,
-            {
-                "type": "chat_turn",
-                "mode": mode,
-                "intent": reply.get("intent"),
-                "ok": True,
-                "channel": ctx.channel,
-                "session_id": ctx.session_id,
-            },
-        )
+    def _post_analytics(
+        self,
+        ctx: MessageContext,
+        user_text: str,
+        reply: Dict[str, Any],
+        mode: str,
+        *,
+        lead_id: Optional[str] = None,
+    ) -> None:
+        """
+        MUST match AnalyticsService.log_event(tenant, channel, session_id, event_type, lead_id=None, meta_json=None)
+        and MUST NEVER crash the bot.
+        """
+        try:
+            intent = (reply.get("intent") or "").strip() or "unknown"
+            reply_text = reply.get("reply") or ""
+
+            # inbound message event
+            self.analytics.log_event(
+                tenant=ctx.tenant,
+                channel=ctx.channel,
+                session_id=ctx.session_id,
+                event_type="msg_in",
+                lead_id=lead_id,
+                meta_json=json.dumps(
+                    {
+                        "mode": mode,
+                        "intent": intent,
+                        "text_len": len(user_text or ""),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+            # outbound message event
+            self.analytics.log_event(
+                tenant=ctx.tenant,
+                channel=ctx.channel,
+                session_id=ctx.session_id,
+                event_type="msg_out",
+                lead_id=lead_id,
+                meta_json=json.dumps(
+                    {
+                        "mode": mode,
+                        "intent": intent,
+                        "reply_len": len(reply_text),
+                        "resolved": bool(reply.get("resolved", True)),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+
+        except Exception:
+            logger.exception(
+                "ANALYTICS_FAILURE tenant=%s session=%s channel=%s",
+                ctx.tenant,
+                ctx.session_id,
+                ctx.channel,
+            )
