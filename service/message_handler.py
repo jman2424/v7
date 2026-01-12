@@ -3,7 +3,7 @@
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-- Dispatches to V5 / V6 / V7
+- Dispatches to V5 / V6 / V7 
 - VALIDATES product responses
 - Forces safe fallback if catalog resolution fails
 - Guarantees products are returned when intent requires it
