@@ -1,3 +1,5 @@
+# service/message_handler.py
+
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
@@ -6,7 +8,7 @@ MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 - Forces safe fallback if catalog resolution fails
 - Guarantees products are returned when intent requires it
 - Adds DISPATCH logging so we can find issues fast
-- POSTS analytics in the format AnalyticsService expects
+- Posts analytics in a backward-compatible way (supports both old/new AnalyticsService signatures)
 """
 
 from __future__ import annotations
@@ -46,21 +48,6 @@ class MessageHandler:
         self.memory = deps.memory
         self.overrides = deps.overrides
 
-        # Keep this list tight; you can expand later
-        self._known_category_words = {
-            "chicken",
-            "lamb",
-            "beef",
-            "groceries",
-            "grocery",
-            "frozen",
-            "frozen meats",
-            "frozen_meats",
-            "marinated",
-            "marinated meats",
-            "marinated_meats",
-        }
-
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT
     # ---------------------------------------------------------
@@ -83,7 +70,15 @@ class MessageHandler:
         user_text = (user_text or "").strip()
         sess = self._load_session(ctx)
         mode = self._decide_mode(ctx)
-        rid = self._resolve_rid(ctx)
+
+        # request correlation id (if your widget sends one)
+        rid = (
+            (metadata or {}).get("rid")
+            or (metadata or {}).get("request_id")
+            or ctx.metadata.get("rid")
+            or ctx.metadata.get("request_id")
+            or "no_rid"
+        )
 
         logger.info(
             "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
@@ -99,38 +94,12 @@ class MessageHandler:
         self._post_analytics_in(ctx, user_text, mode, rid)
 
         # dispatch
-        try:
-            if mode == "v5":
-                reply = self.h_v5.handle(user_text, ctx, sess)
-            elif mode == "v6":
-                reply = self.h_v6.handle(user_text, ctx, sess)
-            else:
-                reply = self.h_v7.handle(user_text, ctx, sess)
-        except Exception:
-            logger.exception(
-                "PIPELINE CRASH tenant=%s session=%s mode=%s rid=%s text=%r",
-                tenant,
-                session_id,
-                mode,
-                rid,
-                user_text[:120],
-            )
-            reply = {
-                "reply": (
-                    "Sorry — something broke on my side.\n\n"
-                    "Try again in a moment, or ask like:\n"
-                    "• **chicken wings**\n"
-                    "• **lamb chops**\n"
-                    "• **delivery to E1 6AN**"
-                ),
-                "intent": "system_error",
-                "resolved": False,
-                "facts": {},
-                "entities": {},
-                "meta": {"mode": mode, "rid": rid},
-            }
-
-        reply = self._ensure_reply_shape(reply, mode, rid)
+        if mode == "v5":
+            reply = self.h_v5.handle(user_text, ctx, sess)
+        elif mode == "v6":
+            reply = self.h_v6.handle(user_text, ctx, sess)
+        else:
+            reply = self.h_v7.handle(user_text, ctx, sess)
 
         logger.info(
             "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
@@ -142,50 +111,15 @@ class MessageHandler:
             sorted(list(reply.keys())),
         )
 
-        # validation / safety
+        # validate/safety
         reply = self._validate_reply(reply, user_text, ctx)
 
-        # persist session + crm
+        # persist
         self._save_session(ctx, sess, reply)
-        self._log_crm_and_sync_lead(ctx, user_text, reply)
+        lead_id = self._log_crm(ctx, user_text, reply)
 
-        # analytics: outbound (+ optional chat_turn marker)
-        self._post_analytics_out(ctx, user_text, reply, mode, rid)
-
-        return reply
-
-    # ---------------------------------------------------------
-    # HELPERS
-    # ---------------------------------------------------------
-    def _resolve_rid(self, ctx: MessageContext) -> str:
-        md = ctx.metadata or {}
-        return (
-            md.get("rid")
-            or md.get("request_id")
-            or md.get("x_request_id")
-            or "no_rid"
-        )
-
-    def _ensure_reply_shape(self, reply: Any, mode: str, rid: str) -> Dict[str, Any]:
-        """
-        Handlers sometimes return incomplete dicts. Normalize so UI/admin doesn't break.
-        """
-        if not isinstance(reply, dict):
-            reply = {"reply": str(reply)}
-
-        reply.setdefault("reply", "")
-        reply.setdefault("intent", "unknown")
-        reply.setdefault("resolved", True)
-        reply.setdefault("facts", {})
-        reply.setdefault("entities", {})
-        reply.setdefault("ui", {})
-
-        meta = reply.get("meta") or {}
-        if not isinstance(meta, dict):
-            meta = {"raw_meta": str(meta)}
-        meta.setdefault("mode", mode)
-        meta.setdefault("rid", rid)
-        reply["meta"] = meta
+        # analytics: outbound + chat_turn
+        self._post_analytics_out(ctx, user_text, reply, mode, rid, lead_id=lead_id)
 
         return reply
 
@@ -193,10 +127,7 @@ class MessageHandler:
     # MODE
     # ---------------------------------------------------------
     def _decide_mode(self, ctx: MessageContext) -> str:
-        try:
-            return (self.overrides.get("ai.mode") or "v7").lower()
-        except Exception:
-            return "v7"
+        return (self.overrides.get("ai.mode") or "v7").lower()
 
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
@@ -211,17 +142,29 @@ class MessageHandler:
         Prevents broken states like:
         - browse/search intent with zero items
         - catalog failure loops
-        - category single-word -> must not pretend to have products
+        - category single-word -> must guide user
         """
+
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
 
         text = (user_text or "").strip().lower()
+        known_category_words = {
+            "chicken",
+            "lamb",
+            "beef",
+            "groceries",
+            "grocery",
+            "frozen",
+            "frozen meats",
+            "frozen_meats",
+            "marinated",
+            "marinated meats",
+            "marinated_meats",
+        }
+        looks_like_bare_category = (len(text.split()) <= 2) and (text in known_category_words)
 
-        looks_like_bare_category = (len(text.split()) <= 2) and (text in self._known_category_words)
-
-        # bare category but no items -> steer user to specify cut/type
         if looks_like_bare_category and not items:
             logger.warning(
                 "PIPELINE FAILURE: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
@@ -233,20 +176,17 @@ class MessageHandler:
             return {
                 "reply": (
                     f"Got it — **{text}**.\n\n"
-                    "What exactly do you want?\n"
+                    "Tell me what you want and I’ll pull options:\n"
                     "• wings / thighs / breast\n"
                     "• mince / chops / ribs\n"
-                    "Or ask: **cheapest**, **BBQ**, **family pack**"
+                    "• or ask: **cheapest**, **best for BBQ**, **family pack**"
                 ),
                 "intent": "system_force_browse",
                 "resolved": False,
                 "facts": {"force_category": text},
                 "entities": {"category": text},
-                "meta": reply.get("meta", {}),
-                "ui": reply.get("ui", {}),
             }
 
-        # intents that MUST return items
         requires_items = intent in {
             "browse_category",
             "search_product",
@@ -274,8 +214,6 @@ class MessageHandler:
                 "resolved": False,
                 "facts": {},
                 "entities": {},
-                "meta": reply.get("meta", {}),
-                "ui": reply.get("ui", {}),
             }
 
         return reply
@@ -300,9 +238,8 @@ class MessageHandler:
         if entities.get("postcode"):
             self.memory.set(ctx.session_id, "postcode", entities["postcode"], ttl)
 
-        nearest_id = (facts.get("branch") or {}).get("nearest", {}).get("id")
-        if nearest_id:
-            self.memory.set(ctx.session_id, "nearest_branch_id", nearest_id, ttl)
+        if facts.get("branch", {}).get("nearest", {}).get("id"):
+            self.memory.set(ctx.session_id, "nearest_branch_id", facts["branch"]["nearest"]["id"], ttl)
 
         if entities.get("category"):
             self.memory.set(ctx.session_id, "last_category", entities["category"], ttl)
@@ -314,11 +251,13 @@ class MessageHandler:
             self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl)
 
     # ---------------------------------------------------------
-    # CRM (+ optional analytics lead sync)
+    # CRM
     # ---------------------------------------------------------
-    def _log_crm_and_sync_lead(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> None:
-        # Always keep CRM best-effort (never break the request)
-        lead_id = "unknown"
+    def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> Optional[str]:
+        """
+        Returns lead_id if available (string), else None.
+        """
+        lead_id: Optional[str] = None
 
         try:
             lead = self.crm.upsert_lead(
@@ -329,52 +268,80 @@ class MessageHandler:
                 session_id=ctx.session_id,
                 tags=[reply.get("intent")] if reply.get("intent") else None,
             )
-            lead_id = str(lead.get("id") or lead.get("_id") or "unknown")
+            raw_lead_id = lead.get("id") or lead.get("_id")
+            if raw_lead_id is not None:
+                lead_id = str(raw_lead_id)
 
-            self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
-            self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
+            self.crm.append_conversation(ctx.tenant, lead_id or "unknown", {"from": "user", "text": user_text})
+            self.crm.append_conversation(ctx.tenant, lead_id or "unknown", {"from": "assistant", "text": reply.get("reply")})
         except Exception:
-            logger.exception("crm log failed")
+            logger.exception("CRM logging failed")
 
-        # Optional: if your analytics service supports these helpers, keep best-effort
-        try:
-            if hasattr(self.analytics, "upsert_lead"):
-                self.analytics.upsert_lead(
-                    tenant=ctx.tenant,
-                    lead_id=lead_id,
-                    phone=(reply.get("entities") or {}).get("phone"),
-                    name=None,
-                )
-            if hasattr(self.analytics, "set_lead_session"):
-                self.analytics.set_lead_session(lead_id, ctx.session_id)
-        except Exception:
-            logger.exception("analytics lead sync failed")
+        return lead_id
 
     # ---------------------------------------------------------
-    # ANALYTICS (match AnalyticsService signature)
+    # ANALYTICS (backward compatible)
     # ---------------------------------------------------------
-    def _post_analytics_in(self, ctx: MessageContext, user_text: str, mode: str, rid: str) -> None:
+    def _analytics_log_event(
+        self,
+        *,
+        tenant: str,
+        channel: str,
+        session_id: str,
+        event_type: str,
+        lead_id: Optional[str],
+        meta: Dict[str, Any],
+    ) -> None:
         """
-        Expected AnalyticsService signature (based on your code):
-          log_event(tenant, channel, session_id, event_type, lead_id, meta_json)
+        Supports BOTH styles:
+          A) analytics.log_event(tenant, event_dict)                      [old]
+          B) analytics.log_event(tenant=..., channel=..., ..., meta_json=) [new]
         """
+        # --- style B (new) ---
         try:
-            meta = {
-                "dir": "in",
-                "mode": mode,
-                "rid": rid,
-                "text_len": len(user_text or ""),
-            }
             self.analytics.log_event(
-                tenant=ctx.tenant,
-                channel=ctx.channel,
-                session_id=ctx.session_id,
-                event_type="msg_in",
-                lead_id=None,
-                meta_json=json.dumps(meta, ensure_ascii=False),
+                tenant=tenant,
+                channel=channel,
+                session_id=session_id,
+                event_type=event_type,
+                lead_id=lead_id,
+                meta_json=json.dumps(meta),
             )
+            return
+        except TypeError:
+            pass
         except Exception:
-            logger.exception("analytics msg_in failed")
+            logger.exception("analytics.log_event(new) failed")
+            return
+
+        # --- style A (old) ---
+        try:
+            event = {
+                "type": event_type,
+                "channel": channel,
+                "session_id": session_id,
+                "lead_id": lead_id,
+                **meta,
+            }
+            self.analytics.log_event(tenant, event)
+        except Exception:
+            logger.exception("analytics.log_event(old) failed")
+
+    def _post_analytics_in(self, ctx: MessageContext, user_text: str, mode: str, rid: str) -> None:
+        meta = {
+            "dir": "in",
+            "mode": mode,
+            "rid": rid,
+            "text_len": len(user_text or ""),
+        }
+        self._analytics_log_event(
+            tenant=ctx.tenant,
+            channel=ctx.channel,
+            session_id=ctx.session_id,
+            event_type="msg_in",
+            lead_id=None,
+            meta=meta,
+        )
 
     def _post_analytics_out(
         self,
@@ -383,38 +350,41 @@ class MessageHandler:
         reply: Dict[str, Any],
         mode: str,
         rid: str,
+        *,
+        lead_id: Optional[str],
     ) -> None:
-        try:
-            meta_out = {
-                "dir": "out",
-                "mode": mode,
-                "rid": rid,
-                "intent": reply.get("intent"),
-                "reply_len": len((reply.get("reply") or "")),
-            }
-            self.analytics.log_event(
-                tenant=ctx.tenant,
-                channel=ctx.channel,
-                session_id=ctx.session_id,
-                event_type="msg_out",
-                lead_id=None,
-                meta_json=json.dumps(meta_out, ensure_ascii=False),
-            )
+        reply_text = (reply.get("reply") or "")
+        intent = reply.get("intent")
 
-            # Optional: extra event for charts if your /admin/api/kpis expects "chat_turn"
-            meta_turn = {
-                "mode": mode,
-                "rid": rid,
-                "intent": reply.get("intent"),
-                "ok": True,
-            }
-            self.analytics.log_event(
-                tenant=ctx.tenant,
-                channel=ctx.channel,
-                session_id=ctx.session_id,
-                event_type="chat_turn",
-                lead_id=None,
-                meta_json=json.dumps(meta_turn, ensure_ascii=False),
-            )
-        except Exception:
-            logger.exception("analytics msg_out failed")
+        # outbound message event
+        meta_out = {
+            "dir": "out",
+            "mode": mode,
+            "rid": rid,
+            "intent": intent,
+            "reply_len": len(reply_text),
+        }
+        self._analytics_log_event(
+            tenant=ctx.tenant,
+            channel=ctx.channel,
+            session_id=ctx.session_id,
+            event_type="msg_out",
+            lead_id=lead_id,
+            meta=meta_out,
+        )
+
+        # chat_turn summary event (useful for KPI/timeseries aggregation)
+        meta_turn = {
+            "mode": mode,
+            "rid": rid,
+            "intent": intent,
+            "ok": True,
+        }
+        self._analytics_log_event(
+            tenant=ctx.tenant,
+            channel=ctx.channel,
+            session_id=ctx.session_id,
+            event_type="chat_turn",
+            lead_id=lead_id,
+            meta=meta_turn,
+        )
