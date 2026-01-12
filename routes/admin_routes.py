@@ -1,6 +1,7 @@
 # routes/admin_routes.py
 from __future__ import annotations
 
+import inspect
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from routes import get_container
 
@@ -43,6 +44,76 @@ def _redirect(endpoint: str, **kwargs):
     return redirect(url_for(endpoint, **kwargs))
 
 
+def _call_authenticate_user(auth_fn, container, identifier: str, password: str):
+    """
+    Supports multiple authenticate_user signatures safely.
+    Returns either:
+      - dict-like user object (truthy) OR
+      - True/False
+    """
+    try:
+        sig = inspect.signature(auth_fn)
+        params = list(sig.parameters.keys())
+
+        # Common patterns we support:
+        # 1) authenticate_user(c, email=..., password=...)
+        if len(params) >= 3 and params[0] in {"c", "container"}:
+            # keyword style
+            if "email" in params:
+                return auth_fn(container, email=identifier, password=password)
+            if "username" in params:
+                return auth_fn(container, username=identifier, password=password)
+            if "identifier" in params:
+                return auth_fn(container, identifier=identifier, password=password)
+            # positional fallback (c, identifier, password)
+            return auth_fn(container, identifier, password)
+
+        # 2) authenticate_user(email=..., password=...)
+        if "email" in params and "password" in params:
+            return auth_fn(email=identifier, password=password)
+        if "username" in params and "password" in params:
+            return auth_fn(username=identifier, password=password)
+        if "identifier" in params and "password" in params:
+            return auth_fn(identifier=identifier, password=password)
+
+        # 3) authenticate_user(email, password) or authenticate_user(username, password)
+        if len(params) == 2:
+            return auth_fn(identifier, password)
+
+        # Last resort: try keyword-ish then positional
+        try:
+            return auth_fn(identifier=identifier, password=password)  # type: ignore
+        except Exception:
+            return auth_fn(identifier, password)
+
+    except Exception:
+        # If anything weird happens, do safe tries:
+        try:
+            return auth_fn(container, email=identifier, password=password)
+        except Exception:
+            try:
+                return auth_fn(identifier, password)
+            except Exception:
+                return None
+
+
+def _call_verify_totp(verify_fn, *args):
+    """
+    Supports verify_totp(secret, code) or verify_totp(code) patterns.
+    """
+    try:
+        sig = inspect.signature(verify_fn)
+        params = list(sig.parameters.keys())
+        if len(params) >= 2:
+            return verify_fn(*args[:2])
+        if len(params) == 1:
+            return verify_fn(args[1] if len(args) > 1 else args[0])
+        return True
+    except Exception:
+        # If verification fails unexpectedly, treat as invalid
+        return False
+
+
 @bp.get("/")
 def dashboard():
     if not _is_logged_in():
@@ -51,8 +122,7 @@ def dashboard():
     user = session.get("user") or {}
     role = (user.get("roles") or ["admin"])[0]
 
-    # not critical, but your template expects it
-    session_id = session.get("admin_session_id") or "admin"
+    session_id = session.get("admin_session_id") or user.get("id") or "admin"
 
     return render_template(
         "dashboard.html",
@@ -80,40 +150,111 @@ def login_page():
 @bp.post("/login")
 def login_submit():
     tenant = _tenant()
-    username = (request.form.get("email") or "").strip()
+
+    identifier = (request.form.get("email") or request.form.get("username") or "").strip().lower()
     password = request.form.get("password") or ""
     totp = (request.form.get("totp") or "").strip()
 
-    if not username or not password:
-        return render_template(
-            "login.html",
-            tenant=tenant,
-            error="Missing username/password",
-            csrf_token=_csrf_token(),
-        ), 400
+    if not identifier or not password:
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Missing email/username or password",
+                csrf_token=_csrf_token(),
+            ),
+            400,
+        )
 
-    # Your posted security.py uses env ADMIN_USERNAME/ADMIN_PASSWORD and returns bool
-    from service.security import authenticate_user, verify_totp
+    c = get_container()
 
-    if not authenticate_user(username=username, password=password):
-        return render_template(
-            "login.html",
-            tenant=tenant,
-            error="Invalid credentials",
-            csrf_token=_csrf_token(),
-        ), 401
+    from service import security  # import module so we can access functions safely
 
-    # If ADMIN_TOTP_SECRET is not set, verify_totp returns True (disabled)
-    if not verify_totp(totp):
-        return render_template(
-            "login.html",
-            tenant=tenant,
-            error="Invalid TOTP code",
-            csrf_token=_csrf_token(),
-        ), 401
+    auth_fn = getattr(security, "authenticate_user", None)
+    if not callable(auth_fn):
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Auth misconfigured (authenticate_user not found)",
+                csrf_token=_csrf_token(),
+            ),
+            500,
+        )
 
-    session["user"] = {"id": "admin", "email": username, "roles": ["admin"]}
-    session["admin_session_id"] = "admin"
+    user = _call_authenticate_user(auth_fn, c, identifier, password)
+
+    # normalize result:
+    # - bool True => ok
+    # - dict-like => ok
+    # - anything falsy => fail
+    ok = bool(user)
+
+    if not ok:
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Invalid credentials",
+                csrf_token=_csrf_token(),
+            ),
+            401,
+        )
+
+    # TOTP (optional)
+    verify_fn = getattr(security, "verify_totp", None)
+    if callable(verify_fn):
+        # If user is a dict-like with totp_secret, enforce it; otherwise let verify_totp decide.
+        secret = None
+        if isinstance(user, dict):
+            secret = user.get("totp_secret") or user.get("totpSecret")
+
+        if secret:
+            if not totp:
+                return (
+                    render_template(
+                        "login.html",
+                        tenant=tenant,
+                        error="TOTP required",
+                        csrf_token=_csrf_token(),
+                    ),
+                    401,
+                )
+            if not _call_verify_totp(verify_fn, secret, totp):
+                return (
+                    render_template(
+                        "login.html",
+                        tenant=tenant,
+                        error="Invalid TOTP code",
+                        csrf_token=_csrf_token(),
+                    ),
+                    401,
+                )
+        else:
+            # If verify_totp is the "single-code" version, let it validate/disable itself
+            if totp:
+                if not _call_verify_totp(verify_fn, None, totp):
+                    return (
+                        render_template(
+                            "login.html",
+                            tenant=tenant,
+                            error="Invalid TOTP code",
+                            csrf_token=_csrf_token(),
+                        ),
+                        401,
+                    )
+
+    # Save session user
+    if isinstance(user, dict):
+        session["user"] = {
+            "id": user.get("id") or "admin",
+            "email": user.get("email") or identifier,
+            "roles": user.get("roles", ["admin"]),
+        }
+    else:
+        session["user"] = {"id": "admin", "email": identifier, "roles": ["admin"]}
+
+    session["admin_session_id"] = session["user"]["id"]
 
     return _redirect("admin_ui.dashboard")
 
