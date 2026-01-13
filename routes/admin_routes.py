@@ -26,13 +26,19 @@ def _csrf_token() -> str:
 def _tenant() -> str:
     """
     Tenant resolution priority:
-      1) URL query ?tenant=...
-      2) Container settings BUSINESS_KEY
-      3) 'default'
+      1) URL query ?tenant=... (also persisted to session)
+      2) session['tenant'] (so JS API calls without tenant still work)
+      3) Container settings BUSINESS_KEY
+      4) 'default'
     """
     t = (request.args.get("tenant") or "").strip()
     if t:
+        session["tenant"] = t
         return t
+
+    t_sess = (session.get("tenant") or "").strip()
+    if t_sess:
+        return t_sess
 
     c = get_container()
     t2 = str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip()
@@ -55,17 +61,14 @@ def _call_authenticate_user(auth_fn, container, identifier: str, password: str):
         sig = inspect.signature(auth_fn)
         params = list(sig.parameters.keys())
 
-        # Common patterns we support:
         # 1) authenticate_user(c, email=..., password=...)
         if len(params) >= 3 and params[0] in {"c", "container"}:
-            # keyword style
             if "email" in params:
                 return auth_fn(container, email=identifier, password=password)
             if "username" in params:
                 return auth_fn(container, username=identifier, password=password)
             if "identifier" in params:
                 return auth_fn(container, identifier=identifier, password=password)
-            # positional fallback (c, identifier, password)
             return auth_fn(container, identifier, password)
 
         # 2) authenticate_user(email=..., password=...)
@@ -80,14 +83,14 @@ def _call_authenticate_user(auth_fn, container, identifier: str, password: str):
         if len(params) == 2:
             return auth_fn(identifier, password)
 
-        # Last resort: try keyword-ish then positional
+        # Last resort: keyword-ish then positional
         try:
             return auth_fn(identifier=identifier, password=password)  # type: ignore
         except Exception:
             return auth_fn(identifier, password)
 
     except Exception:
-        # If anything weird happens, do safe tries:
+        # Safe tries
         try:
             return auth_fn(container, email=identifier, password=password)
         except Exception:
@@ -110,7 +113,6 @@ def _call_verify_totp(verify_fn, *args):
             return verify_fn(args[1] if len(args) > 1 else args[0])
         return True
     except Exception:
-        # If verification fails unexpectedly, treat as invalid
         return False
 
 
@@ -119,9 +121,11 @@ def dashboard():
     if not _is_logged_in():
         return _redirect("admin_ui.login_page")
 
+    # Ensure tenant is persisted when landing on dashboard
+    _tenant()
+
     user = session.get("user") or {}
     role = (user.get("roles") or ["admin"])[0]
-
     session_id = session.get("admin_session_id") or user.get("id") or "admin"
 
     return render_template(
@@ -139,6 +143,9 @@ def login_page():
     if _is_logged_in():
         return _redirect("admin_ui.dashboard")
 
+    # Persist tenant when viewing login page too
+    _tenant()
+
     return render_template(
         "login.html",
         tenant=_tenant(),
@@ -149,7 +156,7 @@ def login_page():
 
 @bp.post("/login")
 def login_submit():
-    tenant = _tenant()
+    tenant = _tenant()  # persists tenant in session
 
     identifier = (request.form.get("email") or request.form.get("username") or "").strip().lower()
     password = request.form.get("password") or ""
@@ -183,11 +190,6 @@ def login_submit():
         )
 
     user = _call_authenticate_user(auth_fn, c, identifier, password)
-
-    # normalize result:
-    # - bool True => ok
-    # - dict-like => ok
-    # - anything falsy => fail
     ok = bool(user)
 
     if not ok:
@@ -204,7 +206,6 @@ def login_submit():
     # TOTP (optional)
     verify_fn = getattr(security, "verify_totp", None)
     if callable(verify_fn):
-        # If user is a dict-like with totp_secret, enforce it; otherwise let verify_totp decide.
         secret = None
         if isinstance(user, dict):
             secret = user.get("totp_secret") or user.get("totpSecret")
@@ -231,7 +232,7 @@ def login_submit():
                     401,
                 )
         else:
-            # If verify_totp is the "single-code" version, let it validate/disable itself
+            # If verify_totp is single-arg version, let it validate/disable itself
             if totp:
                 if not _call_verify_totp(verify_fn, None, totp):
                     return (
@@ -256,6 +257,9 @@ def login_submit():
 
     session["admin_session_id"] = session["user"]["id"]
 
+    # Make sure tenant is persisted for subsequent /admin/api/* calls
+    session["tenant"] = tenant
+
     return _redirect("admin_ui.dashboard")
 
 
@@ -263,4 +267,5 @@ def login_submit():
 def logout():
     session.pop("user", None)
     session.pop("admin_session_id", None)
+    # keep tenant by default so you don't bounce to default after logout
     return _redirect("admin_ui.login_page")
