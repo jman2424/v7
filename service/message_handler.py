@@ -1,22 +1,20 @@
-# service/message_handler.py
-
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-- Dispatches to V5 / V6 / V7 
+- Dispatches to V5 / V6 / V7
 - VALIDATES product responses
 - Forces safe fallback if catalog resolution fails
 - Guarantees products are returned when intent requires it
 - Adds DISPATCH logging so we can find issues fast
-- Posts analytics in a backward-compatible way (supports both old/new AnalyticsService signatures)
+- POSTS analytics safely (won't crash if analytics service differs)
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import json
 import logging
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
@@ -71,7 +69,6 @@ class MessageHandler:
         sess = self._load_session(ctx)
         mode = self._decide_mode(ctx)
 
-        # request correlation id (if your widget sends one)
         rid = (
             (metadata or {}).get("rid")
             or (metadata or {}).get("request_id")
@@ -90,10 +87,9 @@ class MessageHandler:
             user_text[:120],
         )
 
-        # analytics: inbound
-        self._post_analytics_in(ctx, user_text, mode, rid)
+        self._post_analytics(ctx, event_type="msg_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
 
-        # dispatch
+        # ---------------- DISPATCH ----------------
         if mode == "v5":
             reply = self.h_v5.handle(user_text, ctx, sess)
         elif mode == "v6":
@@ -111,15 +107,37 @@ class MessageHandler:
             sorted(list(reply.keys())),
         )
 
-        # validate/safety
+        # ---------------- VALIDATION ----------------
         reply = self._validate_reply(reply, user_text, ctx)
 
-        # persist
+        # ---------------- PERSIST ----------------
         self._save_session(ctx, sess, reply)
-        lead_id = self._log_crm(ctx, user_text, reply)
+        self._log_crm(ctx, user_text, reply)
 
-        # analytics: outbound + chat_turn
-        self._post_analytics_out(ctx, user_text, reply, mode, rid, lead_id=lead_id)
+        # ---------------- ANALYTICS OUT ----------------
+        self._post_analytics(
+            ctx,
+            event_type="msg_out",
+            meta={
+                "mode": mode,
+                "rid": rid,
+                "intent": reply.get("intent"),
+                "reply_len": len((reply.get("reply") or "")),
+            },
+        )
+
+        # Optional: one combined "chat_turn" event
+        self._post_analytics(
+            ctx,
+            event_type="chat_turn",
+            meta={
+                "mode": mode,
+                "rid": rid,
+                "intent": reply.get("intent"),
+                "ok": True,
+                "channel": ctx.channel,
+            },
+        )
 
         return reply
 
@@ -132,19 +150,7 @@ class MessageHandler:
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
     # ---------------------------------------------------------
-    def _validate_reply(
-        self,
-        reply: Dict[str, Any],
-        user_text: str,
-        ctx: MessageContext,
-    ) -> Dict[str, Any]:
-        """
-        Prevents broken states like:
-        - browse/search intent with zero items
-        - catalog failure loops
-        - category single-word -> must guide user
-        """
-
+    def _validate_reply(self, reply: Dict[str, Any], user_text: str, ctx: MessageContext) -> Dict[str, Any]:
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
@@ -187,12 +193,7 @@ class MessageHandler:
                 "entities": {"category": text},
             }
 
-        requires_items = intent in {
-            "browse_category",
-            "search_product",
-            "related_products",
-            "price_check",
-        }
+        requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
 
         if requires_items and not items:
             logger.warning(
@@ -238,8 +239,9 @@ class MessageHandler:
         if entities.get("postcode"):
             self.memory.set(ctx.session_id, "postcode", entities["postcode"], ttl)
 
-        if facts.get("branch", {}).get("nearest", {}).get("id"):
-            self.memory.set(ctx.session_id, "nearest_branch_id", facts["branch"]["nearest"]["id"], ttl)
+        nearest_id = (facts.get("branch") or {}).get("nearest", {}).get("id")
+        if nearest_id:
+            self.memory.set(ctx.session_id, "nearest_branch_id", nearest_id, ttl)
 
         if entities.get("category"):
             self.memory.set(ctx.session_id, "last_category", entities["category"], ttl)
@@ -253,138 +255,73 @@ class MessageHandler:
     # ---------------------------------------------------------
     # CRM
     # ---------------------------------------------------------
-    def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> Optional[str]:
-        """
-        Returns lead_id if available (string), else None.
-        """
-        lead_id: Optional[str] = None
+    def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> None:
+        lead = self.crm.upsert_lead(
+            ctx.tenant,
+            name=None,
+            phone=(reply.get("entities") or {}).get("phone"),
+            channel=ctx.channel,
+            session_id=ctx.session_id,
+            tags=[reply.get("intent")] if reply.get("intent") else None,
+        )
+        lead_id = lead.get("id") or lead.get("_id") or "unknown"
 
+        self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
+        self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
+
+        # Optional: if analytics has lead helpers, try them (never crash)
         try:
-            lead = self.crm.upsert_lead(
-                ctx.tenant,
-                name=None,
-                phone=(reply.get("entities") or {}).get("phone"),
-                channel=ctx.channel,
-                session_id=ctx.session_id,
-                tags=[reply.get("intent")] if reply.get("intent") else None,
-            )
-            raw_lead_id = lead.get("id") or lead.get("_id")
-            if raw_lead_id is not None:
-                lead_id = str(raw_lead_id)
-
-            self.crm.append_conversation(ctx.tenant, lead_id or "unknown", {"from": "user", "text": user_text})
-            self.crm.append_conversation(ctx.tenant, lead_id or "unknown", {"from": "assistant", "text": reply.get("reply")})
+            if hasattr(self.analytics, "upsert_lead"):
+                self.analytics.upsert_lead(
+                    tenant=ctx.tenant,
+                    lead_id=str(lead_id),
+                    phone=(reply.get("entities") or {}).get("phone"),
+                    name=None,
+                )
+            if hasattr(self.analytics, "set_lead_session"):
+                self.analytics.set_lead_session(str(lead_id), ctx.session_id)
         except Exception:
-            logger.exception("CRM logging failed")
-
-        return lead_id
+            logger.exception("analytics lead upsert failed")
 
     # ---------------------------------------------------------
-    # ANALYTICS (backward compatible)
+    # ANALYTICS (safe)
     # ---------------------------------------------------------
-    def _analytics_log_event(
-        self,
-        *,
-        tenant: str,
-        channel: str,
-        session_id: str,
-        event_type: str,
-        lead_id: Optional[str],
-        meta: Dict[str, Any],
-    ) -> None:
+    def _post_analytics(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
         """
-        Supports BOTH styles:
-          A) analytics.log_event(tenant, event_dict)                      [old]
-          B) analytics.log_event(tenant=..., channel=..., ..., meta_json=) [new]
+        Tries to call AnalyticsService in the common signatures without crashing your app.
         """
-        # --- style B (new) ---
         try:
-            self.analytics.log_event(
-                tenant=tenant,
-                channel=channel,
-                session_id=session_id,
-                event_type=event_type,
-                lead_id=lead_id,
-                meta_json=json.dumps(meta),
-            )
-            return
-        except TypeError:
-            pass
+            meta_json = json.dumps(meta, separators=(",", ":"), ensure_ascii=False)
+
+            # Signature A (your newer attempt)
+            if hasattr(self.analytics, "log_event"):
+                try:
+                    self.analytics.log_event(
+                        tenant=ctx.tenant,
+                        channel=ctx.channel,
+                        session_id=ctx.session_id,
+                        event_type=event_type,
+                        lead_id=None,
+                        meta_json=meta_json,
+                    )
+                    return
+                except TypeError:
+                    pass
+
+                # Signature B (older style)
+                try:
+                    self.analytics.log_event(
+                        ctx.tenant,
+                        {
+                            "type": event_type,
+                            "channel": ctx.channel,
+                            "session_id": ctx.session_id,
+                            "meta": meta,
+                        },
+                    )
+                    return
+                except TypeError:
+                    pass
+
         except Exception:
-            logger.exception("analytics.log_event(new) failed")
-            return
-
-        # --- style A (old) ---
-        try:
-            event = {
-                "type": event_type,
-                "channel": channel,
-                "session_id": session_id,
-                "lead_id": lead_id,
-                **meta,
-            }
-            self.analytics.log_event(tenant, event)
-        except Exception:
-            logger.exception("analytics.log_event(old) failed")
-
-    def _post_analytics_in(self, ctx: MessageContext, user_text: str, mode: str, rid: str) -> None:
-        meta = {
-            "dir": "in",
-            "mode": mode,
-            "rid": rid,
-            "text_len": len(user_text or ""),
-        }
-        self._analytics_log_event(
-            tenant=ctx.tenant,
-            channel=ctx.channel,
-            session_id=ctx.session_id,
-            event_type="msg_in",
-            lead_id=None,
-            meta=meta,
-        )
-
-    def _post_analytics_out(
-        self,
-        ctx: MessageContext,
-        user_text: str,
-        reply: Dict[str, Any],
-        mode: str,
-        rid: str,
-        *,
-        lead_id: Optional[str],
-    ) -> None:
-        reply_text = (reply.get("reply") or "")
-        intent = reply.get("intent")
-
-        # outbound message event
-        meta_out = {
-            "dir": "out",
-            "mode": mode,
-            "rid": rid,
-            "intent": intent,
-            "reply_len": len(reply_text),
-        }
-        self._analytics_log_event(
-            tenant=ctx.tenant,
-            channel=ctx.channel,
-            session_id=ctx.session_id,
-            event_type="msg_out",
-            lead_id=lead_id,
-            meta=meta_out,
-        )
-
-        # chat_turn summary event (useful for KPI/timeseries aggregation)
-        meta_turn = {
-            "mode": mode,
-            "rid": rid,
-            "intent": intent,
-            "ok": True,
-        }
-        self._analytics_log_event(
-            tenant=ctx.tenant,
-            channel=ctx.channel,
-            session_id=ctx.session_id,
-            event_type="chat_turn",
-            lead_id=lead_id,
-            meta=meta_turn,
-        )
+            logger.exception("analytics %s failed", event_type)
