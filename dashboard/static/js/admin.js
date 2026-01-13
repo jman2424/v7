@@ -1,276 +1,271 @@
-/* dashboard/static/js/admin.js
-   Clean Admin controller: KPIs + Leads + CSV export + Self-repair + Editor modal
-*/
+# routes/admin_routes.py
+from __future__ import annotations
 
-(function () {
-  const S = window.__ADMIN__ || {};
-  const CSRF = S.csrfToken || "";
+import inspect
+from flask import Blueprint, render_template, request, redirect, url_for, session
+from routes import get_container
 
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+bp = Blueprint("admin_ui", __name__, url_prefix="/admin")
 
-  // ---------- Toast ----------
-  function toast(msg, type = "ok") {
-    const tpl = $("#toast-template");
-    if (!tpl) {
-      console.log(`[${type}]`, msg);
-      return;
-    }
-    const node = tpl.content.firstElementChild.cloneNode(true);
-    node.querySelector(".toast__msg").textContent = msg;
 
-    if (type === "error") {
-      node.style.background = "#2a1b1b";
-      node.style.borderColor = "#4d2828";
-      node.style.color = "#fca5a5";
-    } else if (type === "warn") {
-      node.style.background = "#281f0f";
-      node.style.borderColor = "#5f4313";
-      node.style.color = "#fde68a";
-    }
+def _is_logged_in() -> bool:
+    return bool(session.get("user"))
 
-    document.body.appendChild(node);
-    node.querySelector(".toast__close")?.addEventListener("click", () => node.remove());
-    setTimeout(() => node.remove(), 4500);
-  }
 
-  // ---------- HTTP helpers ----------
-  async function apiJSON(path, opts = {}) {
-    const headers = Object.assign(
-      { "Content-Type": "application/json" },
-      CSRF ? { "X-CSRF-Token": CSRF } : {},
-      opts.headers || {}
-    );
+def _csrf_token() -> str:
+    try:
+        from flask import g  # type: ignore
+        token = getattr(g, "csrf_token", None)
+        if token:
+            return token
+    except Exception:
+        pass
+    return session.get("csrf_token", "") or ""
 
-    const res = await fetch(path, Object.assign({}, opts, { headers, credentials: "include" }));
-    const ct = res.headers.get("content-type") || "";
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
-    }
+def _tenant() -> str:
+    """
+    Tenant resolution priority:
+      1) URL query ?tenant=... (also persisted to session)
+      2) session['tenant'] (so JS API calls without tenant still work)
+      3) Container settings BUSINESS_KEY
+      4) 'default'
+    """
+    t = (request.args.get("tenant") or "").strip()
+    if t:
+        session["tenant"] = t
+        return t
 
-    if (ct.includes("application/json")) return res.json();
-    return res.text();
-  }
+    t_sess = (session.get("tenant") or "").strip()
+    if t_sess:
+        return t_sess
 
-  async function apiText(path, opts = {}) {
-    const headers = Object.assign({}, CSRF ? { "X-CSRF-Token": CSRF } : {}, opts.headers || {});
-    const res = await fetch(path, Object.assign({}, opts, { headers, credentials: "include" }));
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
-    }
-    return res.text();
-  }
+    c = get_container()
+    t2 = str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip()
+    return t2 or "default"
 
-  function minutesFromSelect() {
-    const v = $("#period-select")?.value || "1440";
-    return parseInt(v, 10);
-  }
 
-  function escapeHtml(s) {
-    return (s || "").toString()
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
+def _redirect(endpoint: str, **kwargs):
+    kwargs.setdefault("tenant", _tenant())
+    return redirect(url_for(endpoint, **kwargs))
 
-  // ---------- KPIs ----------
-  async function loadKPIs() {
-    const minutes = minutesFromSelect();
-    const kpis = await apiJSON(`/admin/api/kpis?minutes=${minutes}`);
 
-    const out = $("#kpi-output");
-    if (out) out.textContent = JSON.stringify(kpis, null, 2);
+def _call_authenticate_user(auth_fn, container, identifier: str, password: str):
+    """
+    Supports multiple authenticate_user signatures safely.
+    Returns either:
+      - dict-like user object (truthy) OR
+      - True/False
+    """
+    try:
+        sig = inspect.signature(auth_fn)
+        params = list(sig.parameters.keys())
 
-    // Optional labels (only if you have these endpoints)
-    try {
-      const mode = await apiJSON("/mode");
-      $("#mode-label") && ($("#mode-label").textContent = mode.mode || "?");
-    } catch (_) {}
+        # 1) authenticate_user(c, email=..., password=...)
+        if len(params) >= 3 and params[0] in {"c", "container"}:
+            if "email" in params:
+                return auth_fn(container, email=identifier, password=password)
+            if "username" in params:
+                return auth_fn(container, username=identifier, password=password)
+            if "identifier" in params:
+                return auth_fn(container, identifier=identifier, password=password)
+            return auth_fn(container, identifier, password)
 
-    try {
-      const ver = await apiJSON("/version");
-      $("#version-label") && ($("#version-label").textContent = ver.version || "?");
-    } catch (_) {}
+        # 2) authenticate_user(email=..., password=...)
+        if "email" in params and "password" in params:
+            return auth_fn(email=identifier, password=password)
+        if "username" in params and "password" in params:
+            return auth_fn(username=identifier, password=password)
+        if "identifier" in params and "password" in params:
+            return auth_fn(identifier=identifier, password=password)
 
-    return kpis;
-  }
+        # 3) authenticate_user(email, password) or authenticate_user(username, password)
+        if len(params) == 2:
+            return auth_fn(identifier, password)
 
-  // ---------- Leads ----------
-  async function loadLeads() {
-    const tbody = $("#leads-table tbody");
-    if (!tbody) return;
+        # Last resort: keyword-ish then positional
+        try:
+            return auth_fn(identifier=identifier, password=password)  # type: ignore
+        except Exception:
+            return auth_fn(identifier, password)
 
-    tbody.innerHTML = `<tr><td colspan="6">Loading…</td></tr>`;
+    except Exception:
+        # Safe tries
+        try:
+            return auth_fn(container, email=identifier, password=password)
+        except Exception:
+            try:
+                return auth_fn(identifier, password)
+            except Exception:
+                return None
 
-    // Backend returns { tenant, items: [...] }
-    const data = await apiJSON(`/admin/api/leads?limit=50`);
-    const items = data.items || [];
 
-    tbody.innerHTML = "";
+def _call_verify_totp(verify_fn, *args):
+    """
+    Supports verify_totp(secret, code) or verify_totp(code) patterns.
+    """
+    try:
+        sig = inspect.signature(verify_fn)
+        params = list(sig.parameters.keys())
+        if len(params) >= 2:
+            return verify_fn(*args[:2])
+        if len(params) == 1:
+            return verify_fn(args[1] if len(args) > 1 else args[0])
+        return True
+    except Exception:
+        return False
 
-    if (!items.length) {
-      tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
-      return;
-    }
 
-    for (const l of items) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(l.updated_utc || "")}</td>
-        <td>${escapeHtml(l.name || "")}</td>
-        <td>${escapeHtml(l.phone || "")}</td>
-        <td>${escapeHtml(l.status || "")}</td>
-        <td>${escapeHtml(l.tags || "")}</td>
-        <td>${escapeHtml(l.last_session_id || "")}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  }
+@bp.get("/")
+def dashboard():
+    if not _is_logged_in():
+        return _redirect("admin_ui.login_page")
 
-  // ---------- CSV export ----------
-  function exportLeadsCSV() {
-    // Download directly (cookies carry the session)
-    window.location.href = `/admin/api/leads.csv`;
-  }
+    # Ensure tenant is persisted when landing on dashboard
+    _tenant()
 
-  // ---------- Self-repair (optional) ----------
-  async function runSelfRepair() {
-    const out = $("#validation-output");
-    if (out) out.textContent = "Running…";
+    user = session.get("user") or {}
+    role = (user.get("roles") or ["admin"])[0]
+    session_id = session.get("admin_session_id") or user.get("id") or "admin"
 
-    // If you have this endpoint, keep it. If not, it will simply warn.
-    try {
-      const rep = await apiJSON("/__diag/self_repair");
-      if (out) out.textContent = JSON.stringify(rep, null, 2);
-      toast("Self-repair report updated");
-    } catch (e) {
-      if (out) out.textContent = `Self-repair not available: ${e.message}`;
-      toast("Self-repair endpoint missing", "warn");
-    }
-  }
+    return render_template(
+        "dashboard.html",
+        tenant=_tenant(),
+        role=role,
+        session_id=session_id,
+        branding=None,
+        csrf_token=_csrf_token(),
+    )
 
-  // ---------- Editor modal (optional) ----------
-  const modal = $("#editor-modal");
-  const editorForm = $("#editor-form");
-  const editorJson = $("#editor-json");
-  const editorOutput = $("#editor-output");
-  const tabs = modal ? $$(".tab", modal) : [];
 
-  function openEditor(kind) {
-    if (!modal) return toast("Editor UI missing", "warn");
-    modal.hidden = false;
-    setActiveTab(kind);
-    loadEditor(kind).catch(e => {
-      if (editorOutput) editorOutput.textContent = e.message;
-      toast(e.message, "error");
-    });
-  }
+@bp.get("/login")
+def login_page():
+    if _is_logged_in():
+        return _redirect("admin_ui.dashboard")
 
-  function closeEditor() {
-    if (!modal) return;
-    modal.hidden = true;
-    if (editorJson) editorJson.value = "";
-    if (editorOutput) editorOutput.textContent = "Awaiting input…";
-  }
+    # Persist tenant when viewing login page too
+    _tenant()
 
-  function setActiveTab(kind) {
-    if (!modal || !editorForm) return;
-    tabs.forEach(t => t.classList.toggle("is-active", t.dataset.tab === kind));
-    editorForm.dataset.kind = kind;
-    const title = $("#editor-title");
-    if (title) title.textContent = `Edit ${kind.toUpperCase()}`;
-  }
+    return render_template(
+        "login.html",
+        tenant=_tenant(),
+        error=None,
+        csrf_token=_csrf_token(),
+    )
 
-  async function loadEditor(kind) {
-    if (!editorJson || !editorOutput) return;
-    editorJson.value = "Loading…";
-    editorOutput.textContent = "";
 
-    const path = kind === "catalog" ? "/admin/api/catalog" : "/admin/api/faq";
-    const data = await apiJSON(path);
-    editorJson.value = JSON.stringify(data, null, 2);
-    editorOutput.textContent = "Loaded.";
-  }
+@bp.post("/login")
+def login_submit():
+    tenant = _tenant()  # persists tenant in session
 
-  async function validateEditor() {
-    if (!editorJson || !editorOutput || !editorForm) return;
-    const kind = editorForm.dataset.kind;
-    const data = JSON.parse(editorJson.value);
+    identifier = (request.form.get("email") or request.form.get("username") or "").strip().lower()
+    password = request.form.get("password") or ""
+    totp = (request.form.get("totp") or "").strip()
 
-    const res = await apiJSON(`/admin/api/validate/${kind}`, {
-      method: "POST",
-      body: JSON.stringify({ data })
-    });
+    if not identifier or not password:
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Missing email/username or password",
+                csrf_token=_csrf_token(),
+            ),
+            400,
+        )
 
-    editorOutput.textContent = JSON.stringify(res, null, 2);
-    toast("Validation passed");
-  }
+    c = get_container()
 
-  async function saveEditor(ev) {
-    ev.preventDefault();
-    if (!editorJson || !editorOutput || !editorForm) return;
+    from service import security  # import module so we can access functions safely
 
-    const kind = editorForm.dataset.kind;
-    const data = JSON.parse(editorJson.value);
+    auth_fn = getattr(security, "authenticate_user", None)
+    if not callable(auth_fn):
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Auth misconfigured (authenticate_user not found)",
+                csrf_token=_csrf_token(),
+            ),
+            500,
+        )
 
-    const res = await apiJSON(`/admin/api/${kind}`, {
-      method: "PUT",
-      body: JSON.stringify(data)
-    });
+    user = _call_authenticate_user(auth_fn, c, identifier, password)
+    ok = bool(user)
 
-    editorOutput.textContent = JSON.stringify(res, null, 2);
-    toast(`${kind.toUpperCase()} saved`);
-  }
+    if not ok:
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Invalid credentials",
+                csrf_token=_csrf_token(),
+            ),
+            401,
+        )
 
-  // ---------- Bind ----------
-  function bind() {
-    $("#refresh-kpis")?.addEventListener("click", () => {
-      Promise.all([loadKPIs(), window.DashChartsReload?.()]).catch(e => toast(e.message, "error"));
-    });
+    # TOTP (optional)
+    verify_fn = getattr(security, "verify_totp", None)
+    if callable(verify_fn):
+        secret = None
+        if isinstance(user, dict):
+            secret = user.get("totp_secret") or user.get("totpSecret")
 
-    $("#period-select")?.addEventListener("change", () => {
-      Promise.all([loadKPIs(), window.DashChartsReload?.()]).catch(e => toast(e.message, "error"));
-    });
+        if secret:
+            if not totp:
+                return (
+                    render_template(
+                        "login.html",
+                        tenant=tenant,
+                        error="TOTP required",
+                        csrf_token=_csrf_token(),
+                    ),
+                    401,
+                )
+            if not _call_verify_totp(verify_fn, secret, totp):
+                return (
+                    render_template(
+                        "login.html",
+                        tenant=tenant,
+                        error="Invalid TOTP code",
+                        csrf_token=_csrf_token(),
+                    ),
+                    401,
+                )
+        else:
+            # If verify_totp is single-arg version, let it validate/disable itself
+            if totp:
+                if not _call_verify_totp(verify_fn, None, totp):
+                    return (
+                        render_template(
+                            "login.html",
+                            tenant=tenant,
+                            error="Invalid TOTP code",
+                            csrf_token=_csrf_token(),
+                        ),
+                        401,
+                    )
 
-    $("#export-leads")?.addEventListener("click", exportLeadsCSV);
+    # Save session user
+    if isinstance(user, dict):
+        session["user"] = {
+            "id": user.get("id") or "admin",
+            "email": user.get("email") or identifier,
+            "roles": user.get("roles", ["admin"]),
+        }
+    else:
+        session["user"] = {"id": "admin", "email": identifier, "roles": ["admin"]}
 
-    // Editor
-    $$(".btn[data-editor-target]").forEach(btn => {
-      btn.addEventListener("click", () => openEditor(btn.dataset.editorTarget));
-    });
-    $("#editor-close")?.addEventListener("click", closeEditor);
-    $("#editor-validate")?.addEventListener("click", () => validateEditor().catch(e => toast(e.message, "error")));
-    $("#editor-save")?.addEventListener("click", (e) => saveEditor(e).catch(err => toast(err.message, "error")));
+    session["admin_session_id"] = session["user"]["id"]
 
-    // Self-repair
-    $("#run-self-repair")?.addEventListener("click", () => runSelfRepair().catch(e => toast(e.message, "error")));
+    # Make sure tenant is persisted for subsequent /admin/api/* calls
+    session["tenant"] = tenant
 
-    // Mode toggles (optional endpoints)
-    $("#toggle-mode-v5")?.addEventListener("click", () => setMode("V5"));
-    $("#toggle-mode-v6")?.addEventListener("click", () => setMode("AIV6"));
-    $("#toggle-mode-v7")?.addEventListener("click", () => setMode("AIV7"));
-  }
+    return _redirect("admin_ui.dashboard")
 
-  async function setMode(mode) {
-    try {
-      await apiJSON("/admin/api/mode", { method: "POST", body: JSON.stringify({ mode }) });
-      $("#mode-label") && ($("#mode-label").textContent = mode);
-      toast(`Mode switched to ${mode}`);
-    } catch (e) {
-      toast(e.message, "error");
-    }
-  }
 
-  // ---------- Init ----------
-  window.addEventListener("DOMContentLoaded", () => {
-    bind();
-    Promise.all([
-      loadKPIs(),
-      loadLeads(),
-      runSelfRepair(),
-      window.DashChartsReload?.()
-    ]).catch(e => toast(e.message, "error"));
-  });
-})();
+@bp.get("/logout")
+def logout():
+    session.pop("user", None)
+    session.pop("admin_session_id", None)
+    # keep tenant by default so you don't bounce to default after logout
+    return _redirect("admin_ui.login_page")
