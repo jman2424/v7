@@ -6,14 +6,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
-  <link rel="icon" href="{{ (branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg')) }}" />
-  <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
-  <!-- Chart.js for real charts -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  {# Favicon safe fallback #}
+  {% set _favicon = None %}
+  {% if branding and branding.favicon %}
+    {% set _favicon = branding.favicon %}
+  {% else %}
+    {% set _favicon = url_for('static', filename='img/logo.svg') %}
+  {% endif %}
+  <link rel="icon" href="{{ _favicon }}" />
+
+  <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 </head>
 
-<body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
+<body
+  data-tenant="{{ tenant }}"
+  data-role="{{ role }}"
+  data-session="{{ session_id }}"
+>
   {% include 'partials/_navbar.html' ignore missing %}
 
   <main class="container">
@@ -22,14 +32,17 @@
     <section class="panel panel--kpis">
       <header class="panel__header">
         <h2>Overview</h2>
+
         <div class="filters">
-          <label>Period
+          <label>
+            Period
             <select id="period-select">
               <option value="60">Last 60m</option>
               <option value="1440" selected>Last 24h</option>
               <option value="10080">Last 7d</option>
             </select>
           </label>
+
           <button id="refresh-kpis" class="btn" type="button">Refresh</button>
         </div>
       </header>
@@ -81,30 +94,52 @@
     <section class="panel panel--content">
       <header class="panel__header">
         <h2>Content & Data</h2>
+
         <div class="actions">
-          {% if role in ['Owner','Manager','Staff'] %}
+          {% if role in ['Owner','Manager','Staff','admin'] %}
             <button class="btn" type="button" data-editor-target="catalog">Edit Catalog</button>
             <button class="btn" type="button" data-editor-target="faq">Edit FAQ</button>
           {% endif %}
         </div>
       </header>
+
+      {# Optional self-repair output area if your UI has it #}
+      <div class="card" style="margin-top:12px;">
+        <h3>Diagnostics</h3>
+        <pre class="pre" id="validation-output">—</pre>
+        <button id="run-self-repair" class="btn btn--secondary" type="button" style="margin-top:10px;">
+          Run Self-Repair
+        </button>
+      </div>
     </section>
 
   </main>
 
   {% include 'partials/_editor.html' ignore missing %}
 
+  <!-- Admin bootstrap: MUST exist before admin.js -->
   <script>
-    window.__ADMIN__ = {
-      csrfToken: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "",
-      tenant: document.body.dataset.tenant || "",
-      role: document.body.dataset.role || "",
-      sessionId: document.body.dataset.session || ""
-    };
+    (function () {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "";
+      const tenant = document.body?.dataset?.tenant || "{{ tenant }}";
+      const role = document.body?.dataset?.role || "{{ role }}";
+      const sessionId = document.body?.dataset?.session || "{{ session_id }}";
+
+      window.__ADMIN__ = {
+        csrfToken: csrf,
+        tenant,
+        role,
+        sessionId
+      };
+    })();
   </script>
 
-  <!-- Your JS -->
-  <script defer src="{{ url_for('static', filename='js/charts.js') }}"></script>
-  <script defer src="{{ url_for('static', filename='js/admin.js') }}"></script>
+  <!-- Chart.js FIRST -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  {# Cache-busting prevents “admin.js is old/HTML” pain #}
+  {% set _v = (version if version else (csrf_token if csrf_token else '1')) %}
+  <script src="{{ url_for('static', filename='js/charts.js') }}?v={{ _v }}"></script>
+  <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ _v }}"></script>
 </body>
 </html>
