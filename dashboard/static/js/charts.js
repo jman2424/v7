@@ -1,135 +1,132 @@
 /* static/js/charts.js
-   Admin charts controller (tenant-safe)
-   Exposes: window.DashChartsReload()
+   Admin dashboard charts (Message Volume)
+   - Integer-only Y axis
+   - Safe reload
+   - No half-values ever
 */
-(function () {
-  const S = window.__ADMIN__ || {};
-  const $ = (sel, root = document) => root.querySelector(sel);
 
+(function () {
   let chart = null;
 
-  function getTenant() {
-    return (
-      S.tenant ||
-      document.body?.dataset?.tenant ||
-      new URLSearchParams(window.location.search).get("tenant") ||
-      "default"
-    );
+  function getMinutes() {
+    const sel = document.getElementById("period-select");
+    return sel ? parseInt(sel.value, 10) : 1440;
   }
 
-  function minutesFromSelect() {
-    const v = $("#period-select")?.value || "1440";
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : 1440;
-  }
+  async function fetchTimeseries(minutes) {
+    const res = await fetch(`/admin/api/timeseries?minutes=${minutes}`, {
+      credentials: "include",
+    });
 
-  async function apiJSON(path) {
-    const csrf = S.csrfToken || "";
-    const headers = csrf ? { "X-CSRF-Token": csrf } : {};
-    const res = await fetch(path, { headers, credentials: "include" });
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
+      throw new Error(`Timeseries HTTP ${res.status}`);
     }
+
     return res.json();
   }
 
-  function normalize(payload) {
-    if (Array.isArray(payload)) return payload;
-
-    if (Array.isArray(payload?.points)) return payload.points;
-    if (Array.isArray(payload?.items)) return payload.items;
-
-    if (Array.isArray(payload?.labels) && Array.isArray(payload?.inbound) && Array.isArray(payload?.outbound)) {
-      const out = [];
-      for (let i = 0; i < payload.labels.length; i++) {
-        out.push({
-          t: payload.labels[i],
-          inbound: Number(payload.inbound[i] ?? 0),
-          outbound: Number(payload.outbound[i] ?? 0),
-        });
-      }
-      return out;
-    }
-
-    return [];
-  }
-
-  function fmtLabel(t) {
-    if (!t) return "";
-    const s = String(t);
-    const m = s.match(/T(\d{2}:\d{2})/);
-    if (m) return m[1];
-    return s.length > 16 ? s.slice(0, 16) : s;
-  }
-
-  function ensureChart() {
-    const canvas = $("#chart-main");
-    if (!canvas) return null;
-    if (!window.Chart) return null;
-
-    if (chart) return chart;
-
-    const ctx = canvas.getContext("2d");
-    chart = new window.Chart(ctx, {
+  function buildChart(ctx, labels, inbound, outbound) {
+    return new Chart(ctx, {
       type: "line",
       data: {
-        labels: [],
+        labels,
         datasets: [
-          { label: "Inbound", data: [], tension: 0.25 },
-          { label: "Outbound", data: [], tension: 0.25 },
+          {
+            label: "Inbound",
+            data: inbound,
+            borderColor: "#38bdf8",
+            backgroundColor: "rgba(56,189,248,0.15)",
+            tension: 0.3,
+            fill: true,
+          },
+          {
+            label: "Outbound",
+            data: outbound,
+            borderColor: "#fb7185",
+            backgroundColor: "rgba(251,113,133,0.15)",
+            tension: 0.3,
+            fill: true,
+          },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: { legend: { display: true } },
         scales: {
-          x: { ticks: { maxTicksLimit: 12 } },
-          y: { beginAtZero: true },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1,     // 🔒 NO FRACTIONS
+              precision: 0,    // 🔒 NO DECIMALS
+            },
+          },
+          x: {
+            ticks: {
+              maxRotation: 0,
+              autoSkip: true,
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            labels: {
+              color: "#cbd5f5",
+            },
+          },
+          tooltip: {
+            mode: "index",
+            intersect: false,
+          },
         },
       },
     });
-
-    return chart;
   }
 
   async function reload() {
-    const minutes = minutesFromSelect();
-    const tenant = encodeURIComponent(getTenant());
+    const canvas = document.getElementById("chart-main");
+    if (!canvas) return;
 
-    // IMPORTANT: tenant included
-    const url = `/admin/api/timeseries?minutes=${minutes}&tenant=${tenant}`;
-    const payload = await apiJSON(url);
+    const ctx = canvas.getContext("2d");
+    const minutes = getMinutes();
 
-    const rows = normalize(payload);
+    const data = await fetchTimeseries(minutes);
 
-    const c = ensureChart();
-    if (!c) return;
+    const labels = (data.points || []).map(p => p.bucket);
+    const inbound = (data.points || []).map(p => Number(p.inbound || 0));
+    const outbound = (data.points || []).map(p => Number(p.outbound || 0));
 
-    const labels = rows.map((r) => fmtLabel(r.t ?? r.ts ?? r.time ?? r.label));
-    const inbound = rows.map((r) => Number(r.inbound ?? r.in ?? 0));
-    const outbound = rows.map((r) => Number(r.outbound ?? r.out ?? 0));
+    // Hard safety: ensure integers
+    for (let i = 0; i < inbound.length; i++) {
+      inbound[i] = Math.round(inbound[i]);
+      outbound[i] = Math.round(outbound[i]);
+    }
 
-    c.data.labels = labels;
-    c.data.datasets[0].data = inbound;
-    c.data.datasets[1].data = outbound;
-    c.update();
+    const maxVal = Math.max(0, ...inbound, ...outbound);
+
+    if (!chart) {
+      chart = buildChart(ctx, labels, inbound, outbound);
+    } else {
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = inbound;
+      chart.data.datasets[1].data = outbound;
+
+      chart.options.scales.y.suggestedMax = Math.max(3, maxVal);
+      chart.update("none");
+    }
   }
 
-  window.DashChartsReload = async function () {
-    try {
-      await reload();
-      return true;
-    } catch (e) {
-      console.error("DashChartsReload failed:", e);
-      return false;
-    }
+  // Expose for admin.js
+  window.DashChartsReload = function () {
+    reload().catch(err => {
+      console.error("Chart reload failed:", err);
+    });
   };
 
-  window.addEventListener("DOMContentLoaded", () => {
-    ensureChart();
-    window.DashChartsReload();
+  // Initial load
+  document.addEventListener("DOMContentLoaded", () => {
+    reload().catch(err => {
+      console.error("Chart init failed:", err);
+    });
   });
 })();
