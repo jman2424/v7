@@ -1,70 +1,163 @@
-/* dashboard/static/js/charts.js
-   Chart.js timeseries renderer
-   Requires: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+/* static/js/charts.js
+   Charts controller for Admin dashboard.
+   Exposes: window.DashChartsReload()
 */
 
 (function () {
-  let chart;
+  const S = window.__ADMIN__ || {};
+  const $ = (sel, root = document) => root.querySelector(sel);
 
-  async function fetchJSON(url) {
-    const res = await fetch(url, { credentials: "include" });
+  let chart = null;
+
+  function minutesFromSelect() {
+    const v = $("#period-select")?.value || "1440";
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : 1440;
+  }
+
+  async function apiJSON(path) {
+    const csrf = S.csrfToken || "";
+    const headers = Object.assign(
+      {},
+      csrf ? { "X-CSRF-Token": csrf } : {}
+    );
+
+    const res = await fetch(path, { headers, credentials: "include" });
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status}: ${txt || res.statusText}`);
     }
-    return await res.json();
+    return res.json();
   }
 
-  function minutesFromSelect() {
-    return parseInt(document.getElementById("period-select")?.value || "1440", 10);
+  function normalizeTimeseriesPayload(payload) {
+    // We accept a few common shapes:
+    // A) { points: [{t, inbound, outbound}, ...] }
+    // B) { items:  [{t, inbound, outbound}, ...] }
+    // C) { labels: [...], inbound: [...], outbound: [...] }
+    // D) [{t, inbound, outbound}, ...]  (raw array)
+
+    if (Array.isArray(payload)) {
+      return payload.map(p => ({
+        t: p.t ?? p.ts ?? p.time ?? p.label,
+        inbound: Number(p.inbound ?? p.in ?? 0),
+        outbound: Number(p.outbound ?? p.out ?? 0),
+      }));
+    }
+
+    const points = payload?.points || payload?.items;
+    if (Array.isArray(points)) {
+      return points.map(p => ({
+        t: p.t ?? p.ts ?? p.time ?? p.label,
+        inbound: Number(p.inbound ?? p.in ?? 0),
+        outbound: Number(p.outbound ?? p.out ?? 0),
+      }));
+    }
+
+    const labels = payload?.labels;
+    const inboundArr = payload?.inbound;
+    const outboundArr = payload?.outbound;
+    if (Array.isArray(labels) && Array.isArray(inboundArr) && Array.isArray(outboundArr)) {
+      const out = [];
+      for (let i = 0; i < labels.length; i++) {
+        out.push({
+          t: labels[i],
+          inbound: Number(inboundArr[i] ?? 0),
+          outbound: Number(outboundArr[i] ?? 0),
+        });
+      }
+      return out;
+    }
+
+    return [];
   }
 
-  async function renderTimeseries(minutes) {
-    const data = await fetchJSON(`/admin/api/timeseries?minutes=${minutes}`);
-    const points = data.points || [];
+  function fmtLabel(t) {
+    if (!t) return "";
+    // If it's ISO, make it shorter.
+    const s = String(t);
+    // 2026-01-12T03:52:41Z -> 03:52
+    const m = s.match(/T(\d{2}:\d{2})/);
+    if (m) return m[1];
+    return s.length > 16 ? s.slice(0, 16) : s;
+  }
 
-    const labels = points.map(p => p.t);
-    const inbound = points.map(p => p.inbound || 0);
-    const outbound = points.map(p => p.outbound || 0);
+  function ensureChart() {
+    const canvas = $("#chart-main");
+    if (!canvas) return null;
 
-    const canvas = document.getElementById("chart-main");
-    if (!canvas) return;
+    if (!window.Chart) {
+      console.warn("Chart.js not loaded");
+      return null;
+    }
 
-    if (chart) chart.destroy();
+    if (chart) return chart;
 
-    chart = new Chart(canvas, {
+    const ctx = canvas.getContext("2d");
+    chart = new window.Chart(ctx, {
       type: "line",
       data: {
-        labels,
+        labels: [],
         datasets: [
-          { label: "Inbound", data: inbound, tension: 0.3 },
-          { label: "Outbound", data: outbound, tension: 0.3 }
+          { label: "Inbound", data: [], tension: 0.25 },
+          { label: "Outbound", data: [], tension: 0.25 }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: true } },
+        animation: false,
+        plugins: {
+          legend: { display: true }
+        },
         scales: {
-          x: { ticks: { maxRotation: 0 } },
+          x: { ticks: { maxTicksLimit: 12 } },
           y: { beginAtZero: true }
         }
       }
     });
+
+    return chart;
   }
 
   async function reload() {
     const minutes = minutesFromSelect();
-    await renderTimeseries(minutes);
+    const url = `/admin/api/timeseries?minutes=${minutes}`;
+
+    const payload = await apiJSON(url);
+    const rows = normalizeTimeseriesPayload(payload);
+
+    const c = ensureChart();
+    if (!c) return;
+
+    const labels = rows.map(r => fmtLabel(r.t));
+    const inbound = rows.map(r => r.inbound);
+    const outbound = rows.map(r => r.outbound);
+
+    c.data.labels = labels;
+    c.data.datasets[0].data = inbound;
+    c.data.datasets[1].data = outbound;
+
+    // Force update
+    c.update();
+    return { labels: labels.length, points: rows.length };
   }
 
-  // Expose to admin.js so refresh button can reload charts too
-  window.DashChartsReload = reload;
+  // Expose for admin.js
+  window.DashChartsReload = async function () {
+    try {
+      return await reload();
+    } catch (e) {
+      console.error("DashChartsReload failed:", e);
+      // don’t throw, admin.js might call it inside Promise.all
+      return null;
+    }
+  };
 
+  // Auto init
   window.addEventListener("DOMContentLoaded", () => {
-    reload().catch(console.error);
-    document.getElementById("period-select")?.addEventListener("change", () => {
-      reload().catch(console.error);
-    });
+    // Create chart immediately so canvas isn’t blank forever
+    ensureChart();
+    window.DashChartsReload();
   });
 })();
