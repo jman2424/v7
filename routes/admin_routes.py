@@ -1,7 +1,6 @@
 # routes/admin_routes.py
 from __future__ import annotations
 
-import inspect
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from routes import get_container
 
@@ -13,7 +12,6 @@ def _is_logged_in() -> bool:
 
 
 def _csrf_token() -> str:
-    # If you have CSRF middleware putting it on g, use it. Otherwise session token.
     try:
         from flask import g  # type: ignore
         tok = getattr(g, "csrf_token", None)
@@ -43,41 +41,6 @@ def _tenant() -> str:
 def _redirect(endpoint: str, **kwargs):
     kwargs.setdefault("tenant", _tenant())
     return redirect(url_for(endpoint, **kwargs))
-
-
-def _call_auth(auth_fn, identifier: str, password: str):
-    """
-    Supports authenticate_user signatures like:
-      - authenticate_user(email=..., password=...)
-      - authenticate_user(identifier=..., password=...)
-      - authenticate_user(email, password)
-      - authenticate_user(identifier, password)
-    """
-    try:
-        sig = inspect.signature(auth_fn)
-        params = sig.parameters
-
-        if "email" in params and "password" in params:
-            return auth_fn(email=identifier, password=password)
-
-        if "identifier" in params and "password" in params:
-            return auth_fn(identifier=identifier, password=password)
-
-        # Positional (identifier, password)
-        if len(params) == 2:
-            return auth_fn(identifier, password)
-
-        # Last resort: try positional anyway
-        return auth_fn(identifier, password)
-    except Exception:
-        # Ultra-defensive fallback
-        try:
-            return auth_fn(email=identifier, password=password)
-        except Exception:
-            try:
-                return auth_fn(identifier=identifier, password=password)
-            except Exception:
-                return auth_fn(identifier, password)
 
 
 @bp.get("/")
@@ -117,7 +80,7 @@ def login_submit():
     tenant = _tenant()
     identifier = (request.form.get("email") or request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
-    totp = (request.form.get("totp") or "").strip()
+    totp_code = (request.form.get("totp") or "").strip()
 
     if not identifier or not password:
         return (
@@ -130,27 +93,12 @@ def login_submit():
             400,
         )
 
-    # Import the module so we can safely inspect/call
-    from service import security
+    from service.security import authenticate_user, verify_totp
+    c = get_container()
 
-    auth_fn = getattr(security, "authenticate_user", None)
-    verify_fn = getattr(security, "verify_totp", None)
-
-    if not callable(auth_fn):
-        return (
-            render_template(
-                "login.html",
-                tenant=tenant,
-                error="Auth misconfigured (authenticate_user missing)",
-                csrf_token=_csrf_token(),
-            ),
-            500,
-        )
-
-    user_ok = _call_auth(auth_fn, identifier, password)
-
-    # authenticate_user might return bool OR user dict; treat falsy as fail
-    if not user_ok:
+    # ✅ matches: authenticate_user(c, *, email="", password="")
+    user = authenticate_user(c, email=identifier, password=password)
+    if not user:
         return (
             render_template(
                 "login.html",
@@ -161,39 +109,23 @@ def login_submit():
             401,
         )
 
-    # If TOTP is disabled verify_totp should return True
-    if callable(verify_fn):
-        try:
-            if not verify_fn(totp):
-                return (
-                    render_template(
-                        "login.html",
-                        tenant=tenant,
-                        error="Invalid TOTP code",
-                        csrf_token=_csrf_token(),
-                    ),
-                    401,
-                )
-        except Exception:
-            # If verify_totp has a different signature, fail closed with a readable error
-            return (
-                render_template(
-                    "login.html",
-                    tenant=tenant,
-                    error="TOTP verification misconfigured",
-                    csrf_token=_csrf_token(),
-                ),
-                500,
-            )
+    # ✅ matches: verify_totp(secret, code)
+    secret = user.get("totp_secret") or ""
+    if not verify_totp(secret, totp_code):
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Invalid TOTP code",
+                csrf_token=_csrf_token(),
+            ),
+            401,
+        )
 
-    # ✅ IMPORTANT: store tenant so /admin/api defaults to the same tenant
-    session["user"] = {
-        "id": "admin",
-        "email": identifier,
-        "roles": ["admin"],
-        "tenant": tenant,
-    }
-    session["admin_session_id"] = "admin"
+    # ✅ IMPORTANT: store tenant so /admin/api defaults to correct tenant
+    user["tenant"] = tenant
+    session["user"] = user
+    session["admin_session_id"] = user.get("id") or "admin"
 
     return _redirect("admin_ui.dashboard")
 
