@@ -7,32 +7,32 @@
 
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
 
-  {# Favicon safe fallback #}
   {% set _favicon = (branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg')) %}
   <link rel="icon" href="{{ _favicon }}" />
 
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
-  <!-- Page-scoped polish (doesn't require editing admin.css) -->
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     :root{
-      --bg0:#070A10;
+      --bg0:#060812;
       --bg1:#0B1020;
-      --card:rgba(255,255,255,.04);
+      --card:rgba(255,255,255,.045);
       --card2:rgba(255,255,255,.06);
-      --line:rgba(255,255,255,.08);
+      --line:rgba(255,255,255,.09);
       --text:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.62);
       --muted2:rgba(255,255,255,.45);
-      --shadow:0 20px 60px rgba(0,0,0,.55);
-      --radius:18px;
-      --radius2:22px;
-      --pad:18px;
-      --pad2:22px;
+      --shadow:0 18px 55px rgba(0,0,0,.55);
+      --r:18px;
 
       --neonA:#6EE7FF; /* cyan */
       --neonB:#A78BFA; /* violet */
       --neonC:#34D399; /* green */
+      --neonD:#F59E0B; /* amber */
+      --neonE:#FB7185; /* pink */
     }
 
     body{
@@ -44,73 +44,25 @@
       color: var(--text);
     }
 
-    .container{
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 22px 16px 48px;
-    }
+    .container{ max-width: 1180px; margin:0 auto; padding: 22px 16px 56px; }
 
-    .dash{
-      display: grid;
-      grid-template-columns: 1.4fr .6fr;
-      gap: 16px;
-      align-items: start;
-    }
-
-    @media (max-width: 980px){
-      .dash{ grid-template-columns: 1fr; }
-    }
-
-    .hero{
-      position: relative;
-      border: 1px solid var(--line);
+    .topbar{
+      border:1px solid var(--line);
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-      border-radius: var(--radius2);
-      padding: 18px;
+      border-radius: 22px;
+      padding: 16px 16px;
       box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .hero::before{
-      content:"";
-      position:absolute;
-      inset:-2px;
-      background: radial-gradient(600px 250px at 12% 0%, rgba(110,231,255,.18), transparent 60%),
-                  radial-gradient(600px 250px at 88% 0%, rgba(167,139,250,.18), transparent 60%);
-      pointer-events:none;
-      opacity:.9;
-    }
-
-    .hero__top{
-      position: relative;
       display:flex;
-      gap:12px;
-      align-items:flex-start;
-      justify-content:space-between;
-      flex-wrap:wrap;
-      margin-bottom: 14px;
-    }
-
-    .titleblock h1{
-      margin: 0;
-      font-size: 18px;
-      letter-spacing: .2px;
-      font-weight: 650;
-    }
-
-    .titleblock p{
-      margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-
-    .controls{
-      display:flex;
-      gap:10px;
       align-items:center;
+      justify-content:space-between;
+      gap: 12px;
       flex-wrap:wrap;
     }
+
+    .topbar h1{ margin:0; font-size:16px; font-weight: 750; letter-spacing:.2px; }
+    .topbar p{ margin:4px 0 0; color: var(--muted); font-size: 12.5px; line-height:1.4; }
+
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 
     .pill{
       display:inline-flex;
@@ -122,174 +74,111 @@
       background: rgba(255,255,255,.04);
       backdrop-filter: blur(10px);
     }
-
-    .pill label{
-      color: var(--muted2);
-      font-size: 12px;
-      margin: 0;
-      white-space:nowrap;
-    }
-
+    .pill label{ color: var(--muted2); font-size: 12px; margin:0; white-space:nowrap; }
     .pill select{
-      background: transparent;
-      border: 0;
-      color: var(--text);
-      outline: none;
-      font-size: 12px;
-      padding-right: 2px;
-      cursor: pointer;
+      background: transparent; border:0; color: var(--text);
+      outline:none; font-size:12px; cursor:pointer;
     }
 
-    .btn, .btn.btn--secondary{
+    .btn{
       border-radius: 999px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,.05);
       color: var(--text);
       padding: 10px 14px;
-      font-weight: 600;
+      font-weight: 700;
       letter-spacing: .15px;
       transition: transform .06s ease, background .2s ease, border-color .2s ease;
+      cursor:pointer;
     }
-
-    .btn:hover{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+    .btn:hover{ background: rgba(255,255,255,.085); border-color: rgba(255,255,255,.14); }
     .btn:active{ transform: translateY(1px); }
-
     .btn--primary{
-      background: linear-gradient(90deg, rgba(110,231,255,.24), rgba(167,139,250,.24));
+      background: linear-gradient(90deg, rgba(110,231,255,.22), rgba(167,139,250,.22));
       border-color: rgba(255,255,255,.14);
     }
-    .btn--primary:hover{ background: linear-gradient(90deg, rgba(110,231,255,.30), rgba(167,139,250,.30)); }
 
-    .grid2{
-      position: relative;
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 16px;
+    .tabs{
+      margin-top: 14px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
     }
+    .tab{
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 750;
+      color: rgba(255,255,255,.78);
+      cursor:pointer;
+    }
+    .tab.is-active{
+      background: rgba(255,255,255,.07);
+      border-color: rgba(255,255,255,.16);
+      color: rgba(255,255,255,.92);
+    }
+
+    .grid{
+      margin-top: 16px;
+      display:grid;
+      grid-template-columns: 1.35fr .65fr;
+      gap: 16px;
+      align-items:start;
+    }
+    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
 
     .card{
-      position: relative;
       border: 1px solid var(--line);
       background: var(--card);
-      border-radius: var(--radius);
-      padding: var(--pad2);
+      border-radius: var(--r);
+      padding: 16px;
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
-      overflow: hidden;
+      overflow:hidden;
     }
-
     .card h3{
       margin: 0 0 10px;
       font-size: 13px;
       color: rgba(255,255,255,.78);
-      font-weight: 650;
-      letter-spacing: .2px;
+      font-weight: 800;
+      letter-spacing:.2px;
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:10px;
+      gap: 10px;
     }
+    .subtle{ color: var(--muted2); font-size: 12px; font-weight: 700; }
 
-    .subtle{
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .kpi-row{
+    .kpis{
       display:grid;
       grid-template-columns: repeat(4, minmax(0,1fr));
       gap: 10px;
-      margin-top: 12px;
+      margin-top: 10px;
     }
-
-    @media (max-width: 980px){
-      .kpi-row{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-    }
+    @media (max-width: 980px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
 
     .kpi{
-      border: 1px solid var(--line);
+      border:1px solid rgba(255,255,255,.08);
       background: rgba(255,255,255,.03);
       border-radius: 14px;
       padding: 12px;
     }
+    .kpi .k{ color: var(--muted2); font-size: 11px; font-weight: 900; letter-spacing:.18px; text-transform: uppercase; }
+    .kpi .v{ font-size: 22px; font-weight: 850; margin-top: 6px; line-height:1; }
+    .kpi .h{ font-size: 12px; color: var(--muted); margin-top: 6px; }
 
-    .kpi .k{
-      color: var(--muted2);
-      font-size: 11px;
-      margin-bottom: 6px;
-      font-weight: 700;
-      letter-spacing: .2px;
-      text-transform: uppercase;
-    }
-
-    .kpi .v{
-      font-size: 22px;
-      font-weight: 750;
-      letter-spacing: .2px;
-      line-height: 1.0;
-    }
-
-    .kpi .hint{
-      margin-top: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .chart-wrap{
-      height: 320px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.18);
-      padding: 10px;
-    }
-
-    .pre{
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(0,0,0,.22);
-      color: rgba(255,255,255,.80);
-      padding: 14px;
-      overflow: auto;
-      font-size: 12px;
-      line-height: 1.45;
-      max-height: 240px;
-    }
-
-    .section{
-      margin-top: 16px;
-    }
-
-    .section__head{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      flex-wrap:wrap;
-      margin-bottom: 10px;
-    }
-
-    .section__head h2{
-      margin: 0;
-      font-size: 14px;
-      color: rgba(255,255,255,.82);
-      font-weight: 700;
-      letter-spacing: .2px;
-    }
+    .chart{ height: 330px; border-radius: 14px; border:1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.16); padding: 10px; }
+    .chart2{ height: 240px; border-radius: 14px; border:1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.16); padding: 10px; }
 
     .table-wrap{
-      border-radius: var(--radius);
-      overflow: hidden;
+      border-radius: var(--r);
+      overflow:hidden;
       border: 1px solid var(--line);
       background: rgba(255,255,255,.03);
     }
-
-    table.table{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    table.table thead th{
+    table{ width:100%; border-collapse: collapse; font-size: 13px; }
+    thead th{
       background: rgba(255,255,255,.04);
       color: rgba(255,255,255,.70);
       font-size: 12px;
@@ -297,66 +186,28 @@
       letter-spacing: .18px;
       padding: 12px;
       border-bottom: 1px solid rgba(255,255,255,.08);
+      text-align:left;
     }
-
-    table.table td{
+    tbody td{
       padding: 12px;
       border-bottom: 1px solid rgba(255,255,255,.06);
       color: rgba(255,255,255,.86);
     }
+    tbody tr:hover td{ background: rgba(255,255,255,.03); }
 
-    table.table tbody tr:hover td{
-      background: rgba(255,255,255,.03);
-    }
-
-    .side{
-      display:flex;
-      flex-direction:column;
-      gap: 16px;
-    }
-
-    .mini{
-      padding: var(--pad);
-    }
-
-    .mini h3{ margin-bottom: 8px; }
-
-    .chiprow{
-      display:flex;
-      gap: 10px;
-      flex-wrap:wrap;
-      margin-top: 8px;
-    }
-
-    .chip{
-      padding: 8px 10px;
-      border-radius: 999px;
+    .pre{
+      border-radius: 14px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-      color: rgba(255,255,255,.78);
+      background: rgba(0,0,0,.22);
+      color: rgba(255,255,255,.80);
+      padding: 14px;
+      overflow:auto;
       font-size: 12px;
-      font-weight: 650;
+      line-height: 1.45;
+      max-height: 240px;
     }
 
-    /* Neon border accent (subtle) */
-    .neon-edge{
-      position: relative;
-    }
-    .neon-edge::after{
-      content:"";
-      position:absolute;
-      inset:-1px;
-      border-radius: inherit;
-      padding:1px;
-      background: linear-gradient(90deg, rgba(110,231,255,.55), rgba(167,139,250,.55), rgba(52,211,153,.45));
-      -webkit-mask:
-        linear-gradient(#000 0 0) content-box,
-        linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      opacity: .6;
-      pointer-events:none;
-    }
+    .hidden{ display:none !important; }
   </style>
 </head>
 
@@ -365,190 +216,438 @@
 
   <main class="container">
 
-    <div class="dash">
-
-      <!-- LEFT: Overview + Chart + Leads -->
-      <div class="grid2">
-
-        <!-- HERO / OVERVIEW -->
-        <section class="hero neon-edge">
-          <div class="hero__top">
-            <div class="titleblock">
-              <h1>Admin Dashboard — {{ tenant }}</h1>
-              <p>
-                Live KPIs + message volume chart + lead table.
-                <span class="subtle">Logged in as: {{ role }}</span>
-              </p>
-            </div>
-
-            <div class="controls">
-              <div class="pill">
-                <label for="period-select">Period</label>
-                <select id="period-select">
-                  <option value="60">Last 60m</option>
-                  <option value="1440" selected>Last 24h</option>
-                  <option value="10080">Last 7d</option>
-                </select>
-              </div>
-
-              <button id="refresh-kpis" class="btn btn--primary" type="button">Refresh</button>
-              <button id="export-leads" class="btn btn--secondary" type="button">Export CSV</button>
-            </div>
-          </div>
-
-          <!-- KPI tiles (admin.js can optionally fill kpi-output; tiles will still look fine even without JS changes) -->
-          <div class="kpi-row">
-            <div class="kpi">
-              <div class="k">Inbound</div>
-              <div class="v" id="kpi-inbound">—</div>
-              <div class="hint">Messages received</div>
-            </div>
-            <div class="kpi">
-              <div class="k">Outbound</div>
-              <div class="v" id="kpi-outbound">—</div>
-              <div class="hint">Messages sent</div>
-            </div>
-            <div class="kpi">
-              <div class="k">Sessions</div>
-              <div class="v" id="kpi-sessions">—</div>
-              <div class="hint">Unique conversations</div>
-            </div>
-            <div class="kpi">
-              <div class="k">Leads</div>
-              <div class="v" id="kpi-leads">—</div>
-              <div class="hint">Unique lead records</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- CHART -->
-        <section class="card neon-edge">
-          <h3>
-            Message Volume
-            <span class="subtle">Inbound vs Outbound</span>
-          </h3>
-          <div class="chart-wrap">
-            <canvas id="chart-main"></canvas>
-          </div>
-        </section>
-
-        <!-- LEADS TABLE -->
-        <section class="card">
-          <div class="section__head">
-            <h2>Leads & Conversations</h2>
-            <span class="subtle">Latest activity</span>
-          </div>
-
-          <div class="table-wrap">
-            <table class="table" id="leads-table">
-              <thead>
-                <tr>
-                  <th>Updated</th>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Status</th>
-                  <th>Tags</th>
-                  <th>Session</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td colspan="6">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
+    <section class="topbar">
+      <div>
+        <h1>Admin Dashboard — {{ tenant }}</h1>
+        <p>KPIs, message volume, lead activity, and “why users got fallback answers”.</p>
       </div>
 
-      <!-- RIGHT: Tools / Diagnostics -->
-      <aside class="side">
+      <div class="row">
+        <div class="pill">
+          <label for="period-select">Period</label>
+          <select id="period-select">
+            <option value="60">Last 60m</option>
+            <option value="1440" selected>Last 24h</option>
+            <option value="10080">Last 7d</option>
+          </select>
+        </div>
 
-        <section class="card mini neon-edge">
-          <h3>Quick Actions <span class="subtle">Content</span></h3>
+        <button id="refresh-kpis" class="btn btn--primary" type="button">Refresh</button>
+        <button id="export-leads" class="btn" type="button">Export CSV</button>
+      </div>
+    </section>
 
-          <div class="chiprow">
+    <div class="tabs">
+      <button class="tab is-active" data-tab="overview" type="button">Overview</button>
+      <button class="tab" data-tab="insights" type="button">Insights</button>
+      <button class="tab" data-tab="leads" type="button">Leads</button>
+      <button class="tab" data-tab="debug" type="button">Debug</button>
+    </div>
+
+    <section id="tab-overview">
+      <div class="grid">
+
+        <div>
+          <div class="card">
+            <h3>KPIs <span class="subtle">live</span></h3>
+            <div class="kpis">
+              <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-inbound">—</div><div class="h">Messages received</div></div>
+              <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-outbound">—</div><div class="h">Messages sent</div></div>
+              <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">—</div><div class="h">Unique chats</div></div>
+              <div class="kpi"><div class="k">Leads</div><div class="v" id="kpi-leads">—</div><div class="h">Known leads</div></div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <h3>Message Volume <span class="subtle">Inbound vs Outbound</span></h3>
+            <div class="chart">
+              <canvas id="chart-main"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <aside>
+          <div class="card">
+            <h3>Breakdown <span class="subtle">this period</span></h3>
+            <div class="chart2" style="margin-top:10px;">
+              <canvas id="chart-direction"></canvas>
+            </div>
+            <div class="chart2" style="margin-top:12px;">
+              <canvas id="chart-sessions"></canvas>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+    <section id="tab-insights" class="hidden">
+      <div class="grid">
+
+        <div>
+          <div class="card">
+            <h3>Top Questions <span class="subtle">most common inbound</span></h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Question</th><th style="width:120px;">Count</th></tr></thead>
+                <tbody id="tbl-questions">
+                  <tr><td colspan="2">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <h3>Fallback / Default Answers <span class="subtle">what users hit</span></h3>
+            <div class="chart">
+              <canvas id="chart-fallbacks"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <aside>
+          <div class="card">
+            <h3>Errors & Pipeline Failures <span class="subtle">top</span></h3>
+            <div class="chart2">
+              <canvas id="chart-errors"></canvas>
+            </div>
+
+            <h3 style="margin-top:14px;">Intent Mix <span class="subtle">top intents</span></h3>
+            <div class="chart2">
+              <canvas id="chart-intents"></canvas>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+    <section id="tab-leads" class="hidden">
+      <div class="card">
+        <h3>Leads <span class="subtle">latest activity</span></h3>
+        <div class="table-wrap">
+          <table id="leads-table">
+            <thead>
+              <tr>
+                <th>Updated</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Tags</th>
+                <th>Session</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="6">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-debug" class="hidden">
+      <div class="grid">
+        <div class="card">
+          <h3>KPIs Raw JSON <span class="subtle">fallback</span></h3>
+          <pre class="pre" id="kpi-output">Waiting for data…</pre>
+        </div>
+        <aside class="card">
+          <h3>Diagnostics <span class="subtle">optional</span></h3>
+          <pre class="pre" id="validation-output">—</pre>
+          <button id="run-self-repair" class="btn" type="button" style="margin-top:10px;">Run Self-Repair</button>
+
+          <div style="margin-top:14px;">
             {% if role in ['Owner','Manager','Staff','admin'] %}
               <button class="btn" type="button" data-editor-target="catalog">Edit Catalog</button>
               <button class="btn" type="button" data-editor-target="faq">Edit FAQ</button>
-            {% else %}
-              <span class="chip">Read-only access</span>
             {% endif %}
           </div>
+        </aside>
+      </div>
+    </section>
 
-          <div class="chiprow">
-            <span class="chip">Tenant: {{ tenant }}</span>
-            <span class="chip">Role: {{ role }}</span>
-          </div>
-        </section>
-
-        <section class="card mini">
-          <h3>KPIs (Raw JSON) <span class="subtle">fallback</span></h3>
-          <pre class="pre" id="kpi-output">Waiting for data…</pre>
-        </section>
-
-        <section class="card mini">
-          <h3>Diagnostics <span class="subtle">optional</span></h3>
-          <pre class="pre" id="validation-output">—</pre>
-          <button id="run-self-repair" class="btn btn--secondary" type="button" style="margin-top:10px;">
-            Run Self-Repair
-          </button>
-        </section>
-
-      </aside>
-
-    </div>
   </main>
 
   {% include 'partials/_editor.html' ignore missing %}
 
-  <!-- Admin bootstrap: MUST exist before JS -->
+  <!-- Bootstrap -->
   <script>
     (function () {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "";
-      const tenant = document.body?.dataset?.tenant || "{{ tenant }}";
-      const role = document.body?.dataset?.role || "{{ role }}";
-      const sessionId = document.body?.dataset?.session || "{{ session_id }}";
-
-      window.__ADMIN__ = { csrfToken: csrf, tenant, role, sessionId };
+      window.__ADMIN__ = {
+        csrfToken: csrf,
+        tenant: document.body?.dataset?.tenant || "{{ tenant }}",
+        role: document.body?.dataset?.role || "{{ role }}",
+        sessionId: document.body?.dataset?.session || "{{ session_id }}"
+      };
     })();
   </script>
 
-  <!-- Chart.js FIRST -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   {# Cache-busting #}
   {% set _v = (version if version else (csrf_token if csrf_token else '1')) %}
-  <script src="{{ url_for('static', filename='js/charts.js') }}?v={{ _v }}"></script>
   <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ _v }}"></script>
 
-  <!-- Tiny KPI tile hookup (no need to edit admin.js) -->
+  <!-- Dashboard controller (charts + tabs) -->
   <script>
     (function(){
-      // If admin.js already writes kpi-output, we still want the big tiles.
-      // We’ll hook into the same endpoint and fill tiles.
-      async function fillTiles(){
-        try{
-          const sel = document.getElementById("period-select");
-          const minutes = parseInt(sel?.value || "1440", 10);
-          const tenant = (window.__ADMIN__?.tenant || "default");
-          const csrf = (window.__ADMIN__?.csrfToken || "");
-          const headers = Object.assign({}, csrf ? {"X-CSRF-Token": csrf} : {});
-          const res = await fetch(`/admin/api/kpis?minutes=${minutes}&tenant=${encodeURIComponent(tenant)}`, {headers, credentials:"include"});
-          if(!res.ok) return;
-          const k = await res.json();
+      const S = window.__ADMIN__ || {};
+      const csrf = S.csrfToken || "";
+      const tenant = encodeURIComponent(S.tenant || "default");
 
-          const set = (id,val)=>{ const el=document.getElementById(id); if(el) el.textContent = String(val ?? "—"); };
-          set("kpi-inbound", k.inbound);
-          set("kpi-outbound", k.outbound);
-          set("kpi-sessions", k.sessions);
-          set("kpi-leads", k.leads);
-        }catch(_){}
+      const $ = (sel, root=document) => root.querySelector(sel);
+      const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+      function headersJSON(){
+        return Object.assign(
+          {"Content-Type":"application/json"},
+          csrf ? {"X-CSRF-Token": csrf} : {}
+        );
       }
 
-      window.addEventListener("DOMContentLoaded", () => {
-        fillTiles();
-        document.getElementById("period-select")?.addEventListener("change", fillTiles);
-        document.getElementById("refresh-kpis")?.addEventListener("click", fillTiles);
+      async function apiJSON(url){
+        const res = await fetch(url, {headers: headersJSON(), credentials:"include"});
+        if(!res.ok){
+          const t = await res.text().catch(()=> "");
+          throw new Error(`HTTP ${res.status}: ${t || res.statusText}`);
+        }
+        return res.json();
+      }
+
+      function minutes(){
+        const v = $("#period-select")?.value || "1440";
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? n : 1440;
+      }
+
+      // Tabs
+      function showTab(name){
+        ["overview","insights","leads","debug"].forEach(t=>{
+          $("#tab-"+t)?.classList.toggle("hidden", t !== name);
+          $(`.tab[data-tab="${t}"]`)?.classList.toggle("is-active", t === name);
+        });
+      }
+
+      $$(".tab").forEach(b=>{
+        b.addEventListener("click", ()=> showTab(b.dataset.tab));
+      });
+
+      // --- Charts
+      let chartMain=null, chartDir=null, chartSess=null, chartFallbacks=null, chartErrors=null, chartIntents=null;
+
+      function ensureLine(canvasId){
+        const c = document.getElementById(canvasId);
+        if(!c || !window.Chart) return null;
+        return new window.Chart(c.getContext("2d"), {
+          type:"line",
+          data:{ labels:[], datasets:[
+            {label:"Inbound", data:[], tension:.25},
+            {label:"Outbound", data:[], tension:.25},
+          ]},
+          options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            animation:{duration:300},
+            plugins:{ legend:{display:true}},
+            scales:{
+              y:{ beginAtZero:true, ticks:{ precision:0 } },
+              x:{ ticks:{ maxTicksLimit: 10 } }
+            }
+          }
+        });
+      }
+
+      function ensureDoughnut(canvasId){
+        const c = document.getElementById(canvasId);
+        if(!c || !window.Chart) return null;
+        return new window.Chart(c.getContext("2d"), {
+          type:"doughnut",
+          data:{ labels:[], datasets:[{ data:[] }] },
+          options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            animation:{duration:300},
+            plugins:{ legend:{display:true}},
+          }
+        });
+      }
+
+      function ensureBar(canvasId){
+        const c = document.getElementById(canvasId);
+        if(!c || !window.Chart) return null;
+        return new window.Chart(c.getContext("2d"), {
+          type:"bar",
+          data:{ labels:[], datasets:[{ label:"Count", data:[] }] },
+          options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            animation:{duration:300},
+            plugins:{ legend:{display:false}},
+            scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } }
+          }
+        });
+      }
+
+      function fmtLabel(iso){
+        if(!iso) return "";
+        const s = String(iso);
+        const m = s.match(/T(\d{2}:\d{2})/);
+        return m ? m[1] : (s.length>16? s.slice(0,16): s);
+      }
+
+      async function loadKPIs(){
+        const m = minutes();
+        const k = await apiJSON(`/admin/api/kpis?minutes=${m}&tenant=${tenant}`);
+
+        const set = (id,val)=>{ const el=document.getElementById(id); if(el) el.textContent = String(val ?? "—"); };
+        set("kpi-inbound", k.inbound);
+        set("kpi-outbound", k.outbound);
+        set("kpi-sessions", k.sessions);
+        set("kpi-leads", k.leads);
+
+        const out = $("#kpi-output");
+        if(out) out.textContent = JSON.stringify(k, null, 2);
+
+        // Direction doughnut
+        if(!chartDir) chartDir = ensureDoughnut("chart-direction");
+        if(chartDir){
+          chartDir.data.labels = ["Inbound","Outbound"];
+          chartDir.data.datasets[0].data = [Number(k.inbound||0), Number(k.outbound||0)];
+          chartDir.update();
+        }
+
+        // Sessions doughnut (simple split: sessions vs leads)
+        if(!chartSess) chartSess = ensureDoughnut("chart-sessions");
+        if(chartSess){
+          chartSess.data.labels = ["Sessions","Leads"];
+          chartSess.data.datasets[0].data = [Number(k.sessions||0), Number(k.leads||0)];
+          chartSess.update();
+        }
+
+        return k;
+      }
+
+      async function loadTimeseries(){
+        const m = minutes();
+        const payload = await apiJSON(`/admin/api/timeseries?minutes=${m}&bucket=60&tenant=${tenant}`);
+        const points = payload.points || [];
+
+        if(!chartMain) chartMain = ensureLine("chart-main");
+        if(!chartMain) return;
+
+        chartMain.data.labels = points.map(p => fmtLabel(p.t));
+        chartMain.data.datasets[0].data = points.map(p => Number(p.inbound||0));
+        chartMain.data.datasets[1].data = points.map(p => Number(p.outbound||0));
+        chartMain.update();
+      }
+
+      async function loadLeads(){
+        const tbody = $("#leads-table tbody");
+        if(!tbody) return;
+        tbody.innerHTML = `<tr><td colspan="6">Loading…</td></tr>`;
+
+        const data = await apiJSON(`/admin/api/leads?limit=50&tenant=${tenant}`);
+        const items = data.items || [];
+
+        tbody.innerHTML = "";
+        if(!items.length){
+          tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
+          return;
+        }
+
+        function esc(s){
+          return (s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        }
+
+        for(const l of items){
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${esc(l.updated_utc||"")}</td>
+            <td>${esc(l.name||"")}</td>
+            <td>${esc(l.phone||"")}</td>
+            <td>${esc(l.status||"")}</td>
+            <td>${esc(l.tags||"")}</td>
+            <td>${esc(l.last_session_id||"")}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      async function loadInsights(){
+        // This requires /admin/api/insights from the upgraded admin_api_routes.py.
+        // If it doesn't exist, we fail gracefully.
+        const qbody = $("#tbl-questions");
+        if(qbody) qbody.innerHTML = `<tr><td colspan="2">Loading…</td></tr>`;
+
+        try{
+          const m = minutes();
+          const ins = await apiJSON(`/admin/api/insights?minutes=${m}&tenant=${tenant}&top=12`);
+
+          // Questions table
+          if(qbody){
+            const qs = ins.common_questions || [];
+            qbody.innerHTML = "";
+            if(!qs.length){
+              qbody.innerHTML = `<tr><td colspan="2">No question text logged yet (events.text column missing or not being written).</td></tr>`;
+            }else{
+              for(const q of qs.slice(0,12)){
+                const tr = document.createElement("tr");
+                tr.innerHTML = `<td>${(q.text||"").toString()}</td><td>${Number(q.count||0)}</td>`;
+                qbody.appendChild(tr);
+              }
+            }
+          }
+
+          // Fallbacks bar
+          if(!chartFallbacks) chartFallbacks = ensureBar("chart-fallbacks");
+          if(chartFallbacks){
+            const fb = ins.fallback_hits || [];
+            chartFallbacks.data.labels = fb.map(x => x.intent || "fallback");
+            chartFallbacks.data.datasets[0].data = fb.map(x => Number(x.count||0));
+            chartFallbacks.update();
+          }
+
+          // Errors doughnut
+          if(!chartErrors) chartErrors = ensureDoughnut("chart-errors");
+          if(chartErrors){
+            const er = ins.errors || [];
+            chartErrors.data.labels = er.map(x => x.key || "error");
+            chartErrors.data.datasets[0].data = er.map(x => Number(x.count||0));
+            chartErrors.update();
+          }
+
+          // Intents doughnut
+          if(!chartIntents) chartIntents = ensureDoughnut("chart-intents");
+          if(chartIntents){
+            const it = ins.intents || [];
+            chartIntents.data.labels = it.map(x => x.intent || "intent");
+            chartIntents.data.datasets[0].data = it.map(x => Number(x.count||0));
+            chartIntents.update();
+          }
+
+        }catch(e){
+          // Graceful fallback
+          if(qbody){
+            qbody.innerHTML = `<tr><td colspan="2">Insights not available. Add /admin/api/insights endpoint (from the upgraded admin_api_routes.py).</td></tr>`;
+          }
+        }
+      }
+
+      function bind(){
+        $("#refresh-kpis")?.addEventListener("click", async ()=>{
+          await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
+        });
+        $("#period-select")?.addEventListener("change", async ()=>{
+          await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
+        });
+        $("#export-leads")?.addEventListener("click", ()=> {
+          window.location.href = `/admin/api/leads.csv?tenant=${tenant}`;
+        });
+      }
+
+      window.addEventListener("DOMContentLoaded", async ()=>{
+        bind();
+        showTab("overview");
+        await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
       });
     })();
   </script>
