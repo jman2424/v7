@@ -12,72 +12,124 @@
 
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+  <!-- Page-scoped polish (no need to touch admin.css) -->
   <style>
     :root{
       --bg0:#060812;
       --bg1:#0B1020;
-      --card:rgba(255,255,255,.045);
-      --card2:rgba(255,255,255,.06);
-      --line:rgba(255,255,255,.09);
-      --text:rgba(255,255,255,.92);
-      --muted:rgba(255,255,255,.62);
-      --muted2:rgba(255,255,255,.45);
-      --shadow:0 18px 55px rgba(0,0,0,.55);
-      --r:18px;
+
+      --card: rgba(255,255,255,.045);
+      --card2: rgba(255,255,255,.06);
+      --line: rgba(255,255,255,.085);
+
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.62);
+      --muted2: rgba(255,255,255,.45);
+
+      --shadow: 0 18px 55px rgba(0,0,0,.55);
+      --radius: 18px;
 
       --neonA:#6EE7FF; /* cyan */
       --neonB:#A78BFA; /* violet */
       --neonC:#34D399; /* green */
-      --neonD:#F59E0B; /* amber */
-      --neonE:#FB7185; /* pink */
+      --danger:#FCA5A5; /* red-ish */
+      --warn:#FDE68A;   /* yellow-ish */
     }
 
-    body{
+    html, body { height: 100%; min-height: 100%; background: var(--bg0); overflow-x: hidden; }
+    body { color: var(--text); }
+
+    /* ✅ Fixes the “random bottom color band” permanently */
+    body::before{
+      content:"";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
       background:
         radial-gradient(900px 600px at 18% 14%, rgba(110,231,255,.14), transparent 60%),
         radial-gradient(900px 600px at 78% 22%, rgba(167,139,250,.14), transparent 62%),
         radial-gradient(900px 600px at 60% 86%, rgba(52,211,153,.09), transparent 60%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
-      color: var(--text);
     }
 
-    .container{ max-width: 1180px; margin:0 auto; padding: 22px 16px 56px; }
+    main, header, section, aside, nav { position: relative; z-index: 1; }
+
+    .container{
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 18px 16px 52px;
+    }
 
     .topbar{
-      border:1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-      border-radius: 22px;
-      padding: 16px 16px;
-      box-shadow: var(--shadow);
       display:flex;
-      align-items:center;
+      align-items:flex-start;
       justify-content:space-between;
-      gap: 12px;
-      flex-wrap:wrap;
+      gap:12px;
+      margin: 10px 0 14px;
+      flex-wrap: wrap;
     }
 
-    .topbar h1{ margin:0; font-size:16px; font-weight: 750; letter-spacing:.2px; }
-    .topbar p{ margin:4px 0 0; color: var(--muted); font-size: 12.5px; line-height:1.4; }
+    .titleblock h1{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 750;
+      letter-spacing: .2px;
+    }
+    .titleblock p{
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .meta{
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .chip{
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: rgba(255,255,255,.78);
+      font-weight: 650;
+    }
 
-    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap: wrap;
+    }
 
     .pill{
       display:inline-flex;
       align-items:center;
       gap:8px;
-      padding: 10px 12px;
+      padding: 9px 12px;
       border-radius: 999px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,.04);
       backdrop-filter: blur(10px);
     }
-    .pill label{ color: var(--muted2); font-size: 12px; margin:0; white-space:nowrap; }
+    .pill label{
+      color: var(--muted2);
+      font-size: 12px;
+      margin: 0;
+      white-space: nowrap;
+      font-weight: 650;
+    }
     .pill select{
-      background: transparent; border:0; color: var(--text);
-      outline:none; font-size:12px; cursor:pointer;
+      background: transparent;
+      border: 0;
+      color: var(--text);
+      outline: none;
+      font-size: 12px;
+      padding-right: 2px;
+      cursor: pointer;
     }
 
     .btn{
@@ -87,97 +139,143 @@
       color: var(--text);
       padding: 10px 14px;
       font-weight: 700;
-      letter-spacing: .15px;
+      letter-spacing: .12px;
       transition: transform .06s ease, background .2s ease, border-color .2s ease;
-      cursor:pointer;
+      cursor: pointer;
     }
-    .btn:hover{ background: rgba(255,255,255,.085); border-color: rgba(255,255,255,.14); }
+    .btn:hover{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
     .btn:active{ transform: translateY(1px); }
     .btn--primary{
-      background: linear-gradient(90deg, rgba(110,231,255,.22), rgba(167,139,250,.22));
+      background: linear-gradient(90deg, rgba(110,231,255,.24), rgba(167,139,250,.24));
       border-color: rgba(255,255,255,.14);
     }
+    .btn--primary:hover{
+      background: linear-gradient(90deg, rgba(110,231,255,.30), rgba(167,139,250,.30));
+    }
+    .btn--secondary{ background: rgba(255,255,255,.04); }
 
     .tabs{
-      margin-top: 14px;
       display:flex;
-      gap:10px;
-      flex-wrap:wrap;
+      gap:8px;
+      flex-wrap: wrap;
+      margin: 6px 0 14px;
     }
     .tab{
-      border-radius: 999px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,.03);
-      padding: 10px 12px;
+      border-radius: 999px;
+      padding: 9px 12px;
       font-size: 12px;
       font-weight: 750;
-      color: rgba(255,255,255,.78);
-      cursor:pointer;
+      color: rgba(255,255,255,.76);
+      cursor: pointer;
+      user-select: none;
     }
     .tab.is-active{
-      background: rgba(255,255,255,.07);
-      border-color: rgba(255,255,255,.16);
+      background: rgba(255,255,255,.08);
       color: rgba(255,255,255,.92);
+      border-color: rgba(255,255,255,.16);
     }
 
     .grid{
-      margin-top: 16px;
       display:grid;
-      grid-template-columns: 1.35fr .65fr;
-      gap: 16px;
-      align-items:start;
+      grid-template-columns: 1.3fr .7fr;
+      gap: 14px;
+      align-items: start;
     }
-    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
+    @media(max-width: 1020px){
+      .grid{ grid-template-columns: 1fr; }
+    }
 
     .card{
       border: 1px solid var(--line);
       background: var(--card);
-      border-radius: var(--r);
+      border-radius: var(--radius);
       padding: 16px;
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
-      overflow:hidden;
     }
     .card h3{
       margin: 0 0 10px;
       font-size: 13px;
       color: rgba(255,255,255,.78);
       font-weight: 800;
-      letter-spacing:.2px;
+      letter-spacing: .2px;
       display:flex;
-      align-items:center;
       justify-content:space-between;
-      gap: 10px;
+      align-items:center;
+      gap:10px;
     }
     .subtle{ color: var(--muted2); font-size: 12px; font-weight: 700; }
 
-    .kpis{
+    .kpi-row{
       display:grid;
       grid-template-columns: repeat(4, minmax(0,1fr));
       gap: 10px;
-      margin-top: 10px;
     }
-    @media (max-width: 980px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media(max-width: 980px){
+      .kpi-row{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
 
     .kpi{
-      border:1px solid rgba(255,255,255,.08);
+      border: 1px solid var(--line);
       background: rgba(255,255,255,.03);
       border-radius: 14px;
       padding: 12px;
     }
-    .kpi .k{ color: var(--muted2); font-size: 11px; font-weight: 900; letter-spacing:.18px; text-transform: uppercase; }
-    .kpi .v{ font-size: 22px; font-weight: 850; margin-top: 6px; line-height:1; }
-    .kpi .h{ font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .kpi .k{
+      color: var(--muted2);
+      font-size: 11px;
+      margin-bottom: 6px;
+      font-weight: 850;
+      letter-spacing: .22px;
+      text-transform: uppercase;
+    }
+    .kpi .v{
+      font-size: 22px;
+      font-weight: 850;
+      letter-spacing: .2px;
+      line-height: 1.05;
+    }
+    .kpi .hint{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
 
-    .chart{ height: 330px; border-radius: 14px; border:1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.16); padding: 10px; }
-    .chart2{ height: 240px; border-radius: 14px; border:1px solid rgba(255,255,255,.07); background: rgba(0,0,0,.16); padding: 10px; }
+    .charts{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .chart-wrap{
+      height: 310px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(0,0,0,.18);
+      padding: 10px;
+    }
+    .chart-wrap.sm{ height: 240px; }
+
+    .split2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media(max-width: 980px){
+      .split2{ grid-template-columns: 1fr; }
+    }
 
     .table-wrap{
-      border-radius: var(--r);
-      overflow:hidden;
+      border-radius: var(--radius);
+      overflow: hidden;
       border: 1px solid var(--line);
       background: rgba(255,255,255,.03);
     }
-    table{ width:100%; border-collapse: collapse; font-size: 13px; }
+    table{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
     thead th{
       background: rgba(255,255,255,.04);
       color: rgba(255,255,255,.70);
@@ -188,10 +286,11 @@
       border-bottom: 1px solid rgba(255,255,255,.08);
       text-align:left;
     }
-    tbody td{
+    td{
       padding: 12px;
       border-bottom: 1px solid rgba(255,255,255,.06);
       color: rgba(255,255,255,.86);
+      vertical-align: top;
     }
     tbody tr:hover td{ background: rgba(255,255,255,.03); }
 
@@ -201,13 +300,30 @@
       background: rgba(0,0,0,.22);
       color: rgba(255,255,255,.80);
       padding: 14px;
-      overflow:auto;
+      overflow: auto;
       font-size: 12px;
       line-height: 1.45;
-      max-height: 240px;
+      max-height: 260px;
     }
 
     .hidden{ display:none !important; }
+
+    .badge{
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      color: rgba(255,255,255,.78);
+    }
+
+    .row-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap: wrap;
+      align-items:center;
+    }
   </style>
 </head>
 
@@ -216,13 +332,19 @@
 
   <main class="container">
 
-    <section class="topbar">
-      <div>
+    <!-- Top header -->
+    <div class="topbar">
+      <div class="titleblock">
         <h1>Admin Dashboard — {{ tenant }}</h1>
         <p>KPIs, message volume, lead activity, and “why users got fallback answers”.</p>
+        <div class="meta">
+          <span class="chip">Tenant: {{ tenant }}</span>
+          <span class="chip">Role: {{ role }}</span>
+          <span class="chip">Session: {{ session_id }}</span>
+        </div>
       </div>
 
-      <div class="row">
+      <div class="controls">
         <div class="pill">
           <label for="period-select">Period</label>
           <select id="period-select">
@@ -231,49 +353,76 @@
             <option value="10080">Last 7d</option>
           </select>
         </div>
-
         <button id="refresh-kpis" class="btn btn--primary" type="button">Refresh</button>
-        <button id="export-leads" class="btn" type="button">Export CSV</button>
+        <button id="export-leads" class="btn btn--secondary" type="button">Export CSV</button>
       </div>
-    </section>
-
-    <div class="tabs">
-      <button class="tab is-active" data-tab="overview" type="button">Overview</button>
-      <button class="tab" data-tab="insights" type="button">Insights</button>
-      <button class="tab" data-tab="leads" type="button">Leads</button>
-      <button class="tab" data-tab="debug" type="button">Debug</button>
     </div>
 
+    <!-- Tabs -->
+    <div class="tabs" role="tablist" aria-label="Dashboard tabs">
+      <div class="tab is-active" data-tab="overview">Overview</div>
+      <div class="tab" data-tab="insights">Insights</div>
+      <div class="tab" data-tab="leads">Leads</div>
+      <div class="tab" data-tab="debug">Debug</div>
+    </div>
+
+    <!-- Overview -->
     <section id="tab-overview">
       <div class="grid">
 
-        <div>
+        <div class="charts">
+
           <div class="card">
             <h3>KPIs <span class="subtle">live</span></h3>
-            <div class="kpis">
-              <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-inbound">—</div><div class="h">Messages received</div></div>
-              <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-outbound">—</div><div class="h">Messages sent</div></div>
-              <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">—</div><div class="h">Unique chats</div></div>
-              <div class="kpi"><div class="k">Leads</div><div class="v" id="kpi-leads">—</div><div class="h">Known leads</div></div>
+            <div class="kpi-row">
+              <div class="kpi">
+                <div class="k">Inbound</div>
+                <div class="v" id="kpi-inbound">—</div>
+                <div class="hint">Messages received</div>
+              </div>
+              <div class="kpi">
+                <div class="k">Outbound</div>
+                <div class="v" id="kpi-outbound">—</div>
+                <div class="hint">Messages sent</div>
+              </div>
+              <div class="kpi">
+                <div class="k">Sessions</div>
+                <div class="v" id="kpi-sessions">—</div>
+                <div class="hint">Unique chats</div>
+              </div>
+              <div class="kpi">
+                <div class="k">Leads</div>
+                <div class="v" id="kpi-leads">—</div>
+                <div class="hint">Known leads</div>
+              </div>
             </div>
           </div>
 
-          <div class="card" style="margin-top:16px;">
+          <div class="card">
             <h3>Message Volume <span class="subtle">Inbound vs Outbound</span></h3>
-            <div class="chart">
+            <div class="chart-wrap">
               <canvas id="chart-main"></canvas>
             </div>
           </div>
+
         </div>
 
-        <aside>
+        <aside class="charts">
           <div class="card">
             <h3>Breakdown <span class="subtle">this period</span></h3>
-            <div class="chart2" style="margin-top:10px;">
-              <canvas id="chart-direction"></canvas>
+            <div class="chart-wrap sm">
+              <canvas id="chart-donut"></canvas>
             </div>
-            <div class="chart2" style="margin-top:12px;">
-              <canvas id="chart-sessions"></canvas>
+            <div class="split2" style="margin-top:12px;">
+              <div class="badge">Inbound: <span id="donut-in">—</span></div>
+              <div class="badge">Outbound: <span id="donut-out">—</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Sessions vs Leads <span class="subtle">bar</span></h3>
+            <div class="chart-wrap sm">
+              <canvas id="chart-bar"></canvas>
             </div>
           </div>
         </aside>
@@ -281,50 +430,70 @@
       </div>
     </section>
 
+    <!-- Insights -->
     <section id="tab-insights" class="hidden">
       <div class="grid">
-
-        <div>
+        <div class="charts">
           <div class="card">
-            <h3>Top Questions <span class="subtle">most common inbound</span></h3>
+            <h3>Top Questions <span class="subtle">most common user text</span></h3>
             <div class="table-wrap">
-              <table>
-                <thead><tr><th>Question</th><th style="width:120px;">Count</th></tr></thead>
-                <tbody id="tbl-questions">
-                  <tr><td colspan="2">Loading…</td></tr>
+              <table id="tbl-top-questions">
+                <thead>
+                  <tr>
+                    <th>Question</th>
+                    <th>Count</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="3">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="subtle" style="margin-top:10px;">
+              Note: this requires an endpoint like <code>/admin/api/top_questions</code>. If it doesn’t exist, it will stay empty.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3>Fallback / Default Answers <span class="subtle">why users didn’t get a match</span></h3>
+            <div class="table-wrap">
+              <table id="tbl-fallbacks">
+                <thead>
+                  <tr>
+                    <th>Reason</th>
+                    <th>Count</th>
+                    <th>Example</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="3">Loading…</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
-
-          <div class="card" style="margin-top:16px;">
-            <h3>Fallback / Default Answers <span class="subtle">what users hit</span></h3>
-            <div class="chart">
-              <canvas id="chart-fallbacks"></canvas>
-            </div>
-          </div>
         </div>
 
-        <aside>
+        <aside class="charts">
           <div class="card">
-            <h3>Errors & Pipeline Failures <span class="subtle">top</span></h3>
-            <div class="chart2">
-              <canvas id="chart-errors"></canvas>
-            </div>
-
-            <h3 style="margin-top:14px;">Intent Mix <span class="subtle">top intents</span></h3>
-            <div class="chart2">
+            <h3>Top Intents <span class="subtle">this period</span></h3>
+            <div class="chart-wrap sm">
               <canvas id="chart-intents"></canvas>
             </div>
           </div>
-        </aside>
 
+          <div class="card">
+            <h3>Errors & Warnings <span class="subtle">latest</span></h3>
+            <pre class="pre" id="errors-output">Waiting…</pre>
+          </div>
+        </aside>
       </div>
     </section>
 
+    <!-- Leads -->
     <section id="tab-leads" class="hidden">
       <div class="card">
-        <h3>Leads <span class="subtle">latest activity</span></h3>
+        <h3>Leads & Conversations <span class="subtle">latest activity</span></h3>
         <div class="table-wrap">
           <table id="leads-table">
             <thead>
@@ -345,22 +514,32 @@
       </div>
     </section>
 
+    <!-- Debug -->
     <section id="tab-debug" class="hidden">
       <div class="grid">
-        <div class="card">
-          <h3>KPIs Raw JSON <span class="subtle">fallback</span></h3>
-          <pre class="pre" id="kpi-output">Waiting for data…</pre>
-        </div>
-        <aside class="card">
-          <h3>Diagnostics <span class="subtle">optional</span></h3>
-          <pre class="pre" id="validation-output">—</pre>
-          <button id="run-self-repair" class="btn" type="button" style="margin-top:10px;">Run Self-Repair</button>
+        <div class="charts">
+          <div class="card">
+            <h3>KPIs (Raw JSON) <span class="subtle">fallback</span></h3>
+            <pre class="pre" id="kpi-output">Waiting for data…</pre>
+          </div>
 
-          <div style="margin-top:14px;">
-            {% if role in ['Owner','Manager','Staff','admin'] %}
-              <button class="btn" type="button" data-editor-target="catalog">Edit Catalog</button>
-              <button class="btn" type="button" data-editor-target="faq">Edit FAQ</button>
-            {% endif %}
+          <div class="card">
+            <h3>Timeseries (Raw JSON) <span class="subtle">fallback</span></h3>
+            <pre class="pre" id="timeseries-output">Waiting for data…</pre>
+          </div>
+        </div>
+
+        <aside class="charts">
+          <div class="card">
+            <h3>Diagnostics <span class="subtle">optional</span></h3>
+            <pre class="pre" id="validation-output">—</pre>
+            <div class="row-actions" style="margin-top:10px;">
+              <button id="run-self-repair" class="btn btn--secondary" type="button">Run Self-Repair</button>
+              {% if role in ['Owner','Manager','Staff','admin'] %}
+                <button class="btn" type="button" data-editor-target="catalog">Edit Catalog</button>
+                <button class="btn" type="button" data-editor-target="faq">Edit FAQ</button>
+              {% endif %}
+            </div>
           </div>
         </aside>
       </div>
@@ -370,284 +549,171 @@
 
   {% include 'partials/_editor.html' ignore missing %}
 
-  <!-- Bootstrap -->
+  <!-- Admin bootstrap: MUST exist before JS -->
   <script>
     (function () {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "";
-      window.__ADMIN__ = {
-        csrfToken: csrf,
-        tenant: document.body?.dataset?.tenant || "{{ tenant }}",
-        role: document.body?.dataset?.role || "{{ role }}",
-        sessionId: document.body?.dataset?.session || "{{ session_id }}"
-      };
+      const tenant = document.body?.dataset?.tenant || "{{ tenant }}";
+      const role = document.body?.dataset?.role || "{{ role }}";
+      const sessionId = document.body?.dataset?.session || "{{ session_id }}";
+      window.__ADMIN__ = { csrfToken: csrf, tenant, role, sessionId };
     })();
   </script>
 
-  {# Cache-busting #}
+  <!-- Chart.js FIRST -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   {% set _v = (version if version else (csrf_token if csrf_token else '1')) %}
+  <script src="{{ url_for('static', filename='js/charts.js') }}?v={{ _v }}"></script>
   <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ _v }}"></script>
 
-  <!-- Dashboard controller (charts + tabs) -->
+  <!-- Tabs controller (pure HTML/JS, no dependencies) -->
+  <script>
+    (function(){
+      const tabs = Array.from(document.querySelectorAll(".tab"));
+      const panels = {
+        overview: document.getElementById("tab-overview"),
+        insights: document.getElementById("tab-insights"),
+        leads: document.getElementById("tab-leads"),
+        debug: document.getElementById("tab-debug"),
+      };
+
+      function setTab(name){
+        tabs.forEach(t => t.classList.toggle("is-active", t.dataset.tab === name));
+        Object.entries(panels).forEach(([k, el]) => {
+          if(!el) return;
+          el.classList.toggle("hidden", k !== name);
+        });
+      }
+
+      tabs.forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
+    })();
+  </script>
+
+  <!-- Extra optional loaders (won’t break if endpoints missing) -->
   <script>
     (function(){
       const S = window.__ADMIN__ || {};
       const csrf = S.csrfToken || "";
       const tenant = encodeURIComponent(S.tenant || "default");
 
-      const $ = (sel, root=document) => root.querySelector(sel);
-      const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
-
-      function headersJSON(){
-        return Object.assign(
-          {"Content-Type":"application/json"},
-          csrf ? {"X-CSRF-Token": csrf} : {}
-        );
-      }
-
-      async function apiJSON(url){
-        const res = await fetch(url, {headers: headersJSON(), credentials:"include"});
-        if(!res.ok){
-          const t = await res.text().catch(()=> "");
-          throw new Error(`HTTP ${res.status}: ${t || res.statusText}`);
-        }
+      async function apiJSON(path){
+        const headers = Object.assign({}, csrf ? {"X-CSRF-Token": csrf} : {});
+        const res = await fetch(path, { headers, credentials: "include" });
+        if(!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       }
 
-      function minutes(){
-        const v = $("#period-select")?.value || "1440";
-        const n = parseInt(v, 10);
-        return Number.isFinite(n) ? n : 1440;
+      function setText(id, v){
+        const el = document.getElementById(id);
+        if(el) el.textContent = (v === undefined || v === null) ? "—" : String(v);
       }
 
-      // Tabs
-      function showTab(name){
-        ["overview","insights","leads","debug"].forEach(t=>{
-          $("#tab-"+t)?.classList.toggle("hidden", t !== name);
-          $(`.tab[data-tab="${t}"]`)?.classList.toggle("is-active", t === name);
-        });
+      // Fill KPI tiles from your existing endpoint
+      async function fillKpis(){
+        const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
+        const k = await apiJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`);
+        setText("kpi-inbound", k.inbound);
+        setText("kpi-outbound", k.outbound);
+        setText("kpi-sessions", k.sessions);
+        setText("kpi-leads", k.leads);
+        setText("donut-in", k.inbound);
+        setText("donut-out", k.outbound);
+
+        // raw json
+        const pre = document.getElementById("kpi-output");
+        if(pre) pre.textContent = JSON.stringify(k, null, 2);
+
+        // update donut + bar if charts.js created them
+        window.DashChartsUpdateSide?.(k);
       }
 
-      $$(".tab").forEach(b=>{
-        b.addEventListener("click", ()=> showTab(b.dataset.tab));
-      });
-
-      // --- Charts
-      let chartMain=null, chartDir=null, chartSess=null, chartFallbacks=null, chartErrors=null, chartIntents=null;
-
-      function ensureLine(canvasId){
-        const c = document.getElementById(canvasId);
-        if(!c || !window.Chart) return null;
-        return new window.Chart(c.getContext("2d"), {
-          type:"line",
-          data:{ labels:[], datasets:[
-            {label:"Inbound", data:[], tension:.25},
-            {label:"Outbound", data:[], tension:.25},
-          ]},
-          options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            animation:{duration:300},
-            plugins:{ legend:{display:true}},
-            scales:{
-              y:{ beginAtZero:true, ticks:{ precision:0 } },
-              x:{ ticks:{ maxTicksLimit: 10 } }
-            }
-          }
-        });
+      // Load timeseries raw for debug tab
+      async function fillTimeseriesRaw(){
+        const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
+        const ts = await apiJSON(`/admin/api/timeseries?minutes=${minutes}&tenant=${tenant}`);
+        const pre = document.getElementById("timeseries-output");
+        if(pre) pre.textContent = JSON.stringify(ts, null, 2);
       }
 
-      function ensureDoughnut(canvasId){
-        const c = document.getElementById(canvasId);
-        if(!c || !window.Chart) return null;
-        return new window.Chart(c.getContext("2d"), {
-          type:"doughnut",
-          data:{ labels:[], datasets:[{ data:[] }] },
-          options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            animation:{duration:300},
-            plugins:{ legend:{display:true}},
-          }
-        });
-      }
-
-      function ensureBar(canvasId){
-        const c = document.getElementById(canvasId);
-        if(!c || !window.Chart) return null;
-        return new window.Chart(c.getContext("2d"), {
-          type:"bar",
-          data:{ labels:[], datasets:[{ label:"Count", data:[] }] },
-          options:{
-            responsive:true,
-            maintainAspectRatio:false,
-            animation:{duration:300},
-            plugins:{ legend:{display:false}},
-            scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } }
-          }
-        });
-      }
-
-      function fmtLabel(iso){
-        if(!iso) return "";
-        const s = String(iso);
-        const m = s.match(/T(\d{2}:\d{2})/);
-        return m ? m[1] : (s.length>16? s.slice(0,16): s);
-      }
-
-      async function loadKPIs(){
-        const m = minutes();
-        const k = await apiJSON(`/admin/api/kpis?minutes=${m}&tenant=${tenant}`);
-
-        const set = (id,val)=>{ const el=document.getElementById(id); if(el) el.textContent = String(val ?? "—"); };
-        set("kpi-inbound", k.inbound);
-        set("kpi-outbound", k.outbound);
-        set("kpi-sessions", k.sessions);
-        set("kpi-leads", k.leads);
-
-        const out = $("#kpi-output");
-        if(out) out.textContent = JSON.stringify(k, null, 2);
-
-        // Direction doughnut
-        if(!chartDir) chartDir = ensureDoughnut("chart-direction");
-        if(chartDir){
-          chartDir.data.labels = ["Inbound","Outbound"];
-          chartDir.data.datasets[0].data = [Number(k.inbound||0), Number(k.outbound||0)];
-          chartDir.update();
-        }
-
-        // Sessions doughnut (simple split: sessions vs leads)
-        if(!chartSess) chartSess = ensureDoughnut("chart-sessions");
-        if(chartSess){
-          chartSess.data.labels = ["Sessions","Leads"];
-          chartSess.data.datasets[0].data = [Number(k.sessions||0), Number(k.leads||0)];
-          chartSess.update();
-        }
-
-        return k;
-      }
-
-      async function loadTimeseries(){
-        const m = minutes();
-        const payload = await apiJSON(`/admin/api/timeseries?minutes=${m}&bucket=60&tenant=${tenant}`);
-        const points = payload.points || [];
-
-        if(!chartMain) chartMain = ensureLine("chart-main");
-        if(!chartMain) return;
-
-        chartMain.data.labels = points.map(p => fmtLabel(p.t));
-        chartMain.data.datasets[0].data = points.map(p => Number(p.inbound||0));
-        chartMain.data.datasets[1].data = points.map(p => Number(p.outbound||0));
-        chartMain.update();
-      }
-
-      async function loadLeads(){
-        const tbody = $("#leads-table tbody");
+      // Optional insights endpoints (safe if missing)
+      async function tryTopQuestions(){
+        const tbody = document.querySelector("#tbl-top-questions tbody");
         if(!tbody) return;
-        tbody.innerHTML = `<tr><td colspan="6">Loading…</td></tr>`;
-
-        const data = await apiJSON(`/admin/api/leads?limit=50&tenant=${tenant}`);
-        const items = data.items || [];
-
-        tbody.innerHTML = "";
-        if(!items.length){
-          tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
-          return;
-        }
-
-        function esc(s){
-          return (s||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-        }
-
-        for(const l of items){
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${esc(l.updated_utc||"")}</td>
-            <td>${esc(l.name||"")}</td>
-            <td>${esc(l.phone||"")}</td>
-            <td>${esc(l.status||"")}</td>
-            <td>${esc(l.tags||"")}</td>
-            <td>${esc(l.last_session_id||"")}</td>
-          `;
-          tbody.appendChild(tr);
-        }
-      }
-
-      async function loadInsights(){
-        // This requires /admin/api/insights from the upgraded admin_api_routes.py.
-        // If it doesn't exist, we fail gracefully.
-        const qbody = $("#tbl-questions");
-        if(qbody) qbody.innerHTML = `<tr><td colspan="2">Loading…</td></tr>`;
-
+        tbody.innerHTML = `<tr><td colspan="3">Loading…</td></tr>`;
         try{
-          const m = minutes();
-          const ins = await apiJSON(`/admin/api/insights?minutes=${m}&tenant=${tenant}&top=12`);
-
-          // Questions table
-          if(qbody){
-            const qs = ins.common_questions || [];
-            qbody.innerHTML = "";
-            if(!qs.length){
-              qbody.innerHTML = `<tr><td colspan="2">No question text logged yet (events.text column missing or not being written).</td></tr>`;
-            }else{
-              for(const q of qs.slice(0,12)){
-                const tr = document.createElement("tr");
-                tr.innerHTML = `<td>${(q.text||"").toString()}</td><td>${Number(q.count||0)}</td>`;
-                qbody.appendChild(tr);
-              }
-            }
+          const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
+          const data = await apiJSON(`/admin/api/top_questions?minutes=${minutes}&tenant=${tenant}`);
+          const items = data.items || [];
+          if(!items.length){ tbody.innerHTML = `<tr><td colspan="3">No data.</td></tr>`; return; }
+          tbody.innerHTML = "";
+          for(const it of items){
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${escapeHtml(it.text || "")}</td><td>${it.count || 0}</td><td>${escapeHtml(it.last_seen || "")}</td>`;
+            tbody.appendChild(tr);
           }
-
-          // Fallbacks bar
-          if(!chartFallbacks) chartFallbacks = ensureBar("chart-fallbacks");
-          if(chartFallbacks){
-            const fb = ins.fallback_hits || [];
-            chartFallbacks.data.labels = fb.map(x => x.intent || "fallback");
-            chartFallbacks.data.datasets[0].data = fb.map(x => Number(x.count||0));
-            chartFallbacks.update();
-          }
-
-          // Errors doughnut
-          if(!chartErrors) chartErrors = ensureDoughnut("chart-errors");
-          if(chartErrors){
-            const er = ins.errors || [];
-            chartErrors.data.labels = er.map(x => x.key || "error");
-            chartErrors.data.datasets[0].data = er.map(x => Number(x.count||0));
-            chartErrors.update();
-          }
-
-          // Intents doughnut
-          if(!chartIntents) chartIntents = ensureDoughnut("chart-intents");
-          if(chartIntents){
-            const it = ins.intents || [];
-            chartIntents.data.labels = it.map(x => x.intent || "intent");
-            chartIntents.data.datasets[0].data = it.map(x => Number(x.count||0));
-            chartIntents.update();
-          }
-
-        }catch(e){
-          // Graceful fallback
-          if(qbody){
-            qbody.innerHTML = `<tr><td colspan="2">Insights not available. Add /admin/api/insights endpoint (from the upgraded admin_api_routes.py).</td></tr>`;
-          }
+        }catch(_){
+          tbody.innerHTML = `<tr><td colspan="3">Endpoint missing: /admin/api/top_questions</td></tr>`;
         }
       }
 
-      function bind(){
-        $("#refresh-kpis")?.addEventListener("click", async ()=>{
-          await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
-        });
-        $("#period-select")?.addEventListener("change", async ()=>{
-          await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
-        });
-        $("#export-leads")?.addEventListener("click", ()=> {
-          window.location.href = `/admin/api/leads.csv?tenant=${tenant}`;
-        });
+      async function tryFallbacks(){
+        const tbody = document.querySelector("#tbl-fallbacks tbody");
+        if(!tbody) return;
+        tbody.innerHTML = `<tr><td colspan="3">Loading…</td></tr>`;
+        try{
+          const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
+          const data = await apiJSON(`/admin/api/fallbacks?minutes=${minutes}&tenant=${tenant}`);
+          const items = data.items || [];
+          if(!items.length){ tbody.innerHTML = `<tr><td colspan="3">No data.</td></tr>`; return; }
+          tbody.innerHTML = "";
+          for(const it of items){
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${escapeHtml(it.reason || "")}</td><td>${it.count || 0}</td><td>${escapeHtml(it.example || "")}</td>`;
+            tbody.appendChild(tr);
+          }
+        }catch(_){
+          tbody.innerHTML = `<tr><td colspan="3">Endpoint missing: /admin/api/fallbacks</td></tr>`;
+        }
       }
 
-      window.addEventListener("DOMContentLoaded", async ()=>{
-        bind();
-        showTab("overview");
-        await Promise.all([loadKPIs(), loadTimeseries(), loadLeads(), loadInsights()]);
+      async function tryErrors(){
+        const out = document.getElementById("errors-output");
+        if(!out) return;
+        out.textContent = "Loading…";
+        try{
+          const data = await apiJSON(`/admin/api/errors?tenant=${tenant}`);
+          out.textContent = JSON.stringify(data, null, 2);
+        }catch(_){
+          out.textContent = "Endpoint missing: /admin/api/errors";
+        }
+      }
+
+      function escapeHtml(s){
+        return (s || "").toString()
+          .replace(/&/g,"&amp;")
+          .replace(/</g,"&lt;")
+          .replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;");
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        // hook your existing buttons too
+        document.getElementById("refresh-kpis")?.addEventListener("click", async () => {
+          await fillKpis(); await fillTimeseriesRaw();
+          await tryTopQuestions(); await tryFallbacks(); await tryErrors();
+        });
+        document.getElementById("period-select")?.addEventListener("change", async () => {
+          await fillKpis(); await fillTimeseriesRaw();
+          await tryTopQuestions(); await tryFallbacks(); await tryErrors();
+        });
+
+        // initial
+        fillKpis().catch(()=>{});
+        fillTimeseriesRaw().catch(()=>{});
+        tryTopQuestions().catch(()=>{});
+        tryFallbacks().catch(()=>{});
+        tryErrors().catch(()=>{});
       });
     })();
   </script>
