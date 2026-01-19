@@ -19,13 +19,8 @@ STATIC_DIR = DASHBOARD_DIR / "static"
 
 
 def _wants_json_response() -> bool:
-    """
-    We return JSON for API-ish routes and for requests that explicitly ask for JSON.
-    We return HTML for dashboard/UI routes so the browser doesn't show blank JSON.
-    """
     p = (request.path or "").lower()
 
-    # Treat these as API routes
     if p.startswith((
         "/admin/api",
         "/analytics",
@@ -37,36 +32,34 @@ def _wants_json_response() -> bool:
         "/health",
         "/catalog",
         "/auth",
+        "/mode",
+        "/version",
     )):
         return True
 
     accept = (request.headers.get("Accept") or "").lower()
     xrw = (request.headers.get("X-Requested-With") or "").lower()
-    if "application/json" in accept or xrw == "xmlhttprequest":
-        return True
-
-    return False
+    return ("application/json" in accept) or (xrw == "xmlhttprequest")
 
 
 def _register_blueprints(app: Flask) -> None:
-    # Import inside function to avoid circular import problems
     from routes.health_routes import bp as health_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
     from routes.analytics_routes import bp as analytics_bp
     from routes.admin_routes import bp as admin_bp
-
-    # ✅ If you have this file, register it. If you don't, create it.
-    # This is what your dashboard JS should call for charts/leads.
-    try:
-        from routes.admin_api_routes import bp as admin_api_bp  # type: ignore
-    except Exception:
-        admin_api_bp = None  # noqa
-
     from routes.files_routes import bp as files_bp
     from routes.auth_routes import bp as auth_bp
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
+    from routes.mode_routes import bp as mode_bp  # ✅ add
+
+    admin_api_bp = None
+    try:
+        from routes.admin_api_routes import bp as admin_api_bp  # type: ignore
+    except Exception as e:
+        # ✅ DO NOT silently skip (this is why your dashboard shows no data)
+        app.logger.exception("Failed to import routes.admin_api_routes: %s", e)
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -79,6 +72,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
+    app.register_blueprint(mode_bp)
 
 
 def _install_error_handlers(app: Flask) -> None:
@@ -90,7 +84,6 @@ def _install_error_handlers(app: Flask) -> None:
             key = (err.name or "error").lower().replace(" ", "_")
             return jsonify({"error": key}), err.code
 
-        # Basic HTML fallback for UI routes
         return (
             f"<h1>{err.code} {err.name}</h1>"
             f"<p>{err.description}</p>",
@@ -104,7 +97,6 @@ def _install_error_handlers(app: Flask) -> None:
         if _wants_json_response():
             return jsonify({"error": "server_error"}), 500
 
-        # Basic HTML fallback for UI routes
         return (
             "<h1>500 Server error</h1>"
             "<p>Something crashed. Check Render logs.</p>",
@@ -113,10 +105,6 @@ def _install_error_handlers(app: Flask) -> None:
 
 
 def _ensure_container_ready(app: Flask) -> None:
-    """
-    Optionally initializes analytics DB or other services.
-    Safe: it won't crash if your container doesn't have analytics.
-    """
     try:
         container = getattr(app, "container", None)
         if not container:
@@ -146,24 +134,18 @@ def create_app(config_override: Dict[str, Any] | None = None) -> Flask:
         REPO_ROOT, TEMPLATES_DIR, STATIC_DIR
     )
 
-    # Flask session signing secret
     app.config["SECRET_KEY"] = settings.SECRET_KEY
 
-    # DI container
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
-    # Middleware
     middleware.install_request_id(app)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
     middleware.install_timing_metrics(app, container)
 
-    # Routes + error handling
     _register_blueprints(app)
     _install_error_handlers(app)
-
-    # Optional readiness checks (analytics DB, etc.)
     _ensure_container_ready(app)
 
     @app.get("/")
