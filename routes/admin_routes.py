@@ -12,10 +12,8 @@ def _is_logged_in() -> bool:
 
 
 def _csrf_token() -> str:
-    # If you have CSRF middleware putting it on g, use it. Otherwise session token.
     try:
         from flask import g  # type: ignore
-
         tok = getattr(g, "csrf_token", None)
         if tok:
             return tok
@@ -25,19 +23,11 @@ def _csrf_token() -> str:
 
 
 def _tenant() -> str:
-    """
-    Tenant resolution priority:
-      1) URL query ?tenant=...
-      2) Container settings BUSINESS_KEY
-      3) 'default'
-    """
     t = (request.args.get("tenant") or "").strip()
     if t:
         return t
-
     c = get_container()
-    t2 = str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip()
-    return t2 or "default"
+    return (str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip() or "default")
 
 
 def _redirect(endpoint: str, **kwargs):
@@ -61,7 +51,7 @@ def dashboard():
         session_id=session_id,
         branding=None,
         csrf_token=_csrf_token(),
-        version=None,
+        version="7",
     )
 
 
@@ -75,7 +65,6 @@ def login_page():
         tenant=_tenant(),
         error=None,
         csrf_token=_csrf_token(),
-        version=None,
     )
 
 
@@ -101,7 +90,7 @@ def login_submit():
 
     c = get_container()
 
-    # ✅ matches: authenticate_user(c, *, email="", password="")
+    # ✅ IMPORTANT: your authenticate_user signature is (c, *, email=, password=)
     user = authenticate_user(c, email=identifier, password=password)
     if not user:
         return (
@@ -114,7 +103,6 @@ def login_submit():
             401,
         )
 
-    # ✅ matches: verify_totp(secret, code)
     secret = user.get("totp_secret") or ""
     if not verify_totp(secret, totp_code):
         return (
@@ -127,17 +115,8 @@ def login_submit():
             401,
         )
 
-    # ✅ IMPORTANT: store tenant so /admin/api defaults to correct tenant
+    # ✅ store tenant in session so admin_api defaults correctly
     user["tenant"] = tenant
-
-    # ✅ IMPORTANT: make roles compatible with require_auth() expecting Owner/Manager/Staff
-    roles = list(user.get("roles") or [])
-    if "Owner" not in roles:
-        roles.insert(0, "Owner")
-    if "admin" not in roles:
-        roles.append("admin")
-    user["roles"] = roles
-
     session["user"] = user
     session["admin_session_id"] = user.get("id") or "admin"
 
