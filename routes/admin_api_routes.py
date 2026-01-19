@@ -4,7 +4,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, session
 from datetime import datetime, timedelta, timezone
 import csv, io, re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from service.analytics_db import _conn
 
@@ -30,7 +30,6 @@ def _tenant() -> str:
     t = (request.args.get("tenant") or "").strip()
     if t:
         return t
-
     user = session.get("user") or {}
     t2 = (user.get("tenant") or "").strip()
     return t2 or "default"
@@ -62,7 +61,6 @@ def _json_error(where: str, e: Exception, status: int = 500):
 
 def _table_cols(con, table: str) -> List[str]:
     rows = con.execute(f"PRAGMA table_info({table});").fetchall()
-    # row fields: cid, name, type, notnull, dflt_value, pk
     return [r["name"] for r in rows]
 
 
@@ -76,8 +74,18 @@ def _norm_text(s: str) -> str:
     if not s:
         return ""
     s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"[^\w\s\-\?\!\.\,\'\"]+", "", s)  # keep it readable
+    s = re.sub(r"[^\w\s\-\?\!\.\,\'\"]+", "", s)
     return s[:160]
+
+
+def _parse_iso_to_epoch(ts: str) -> Optional[int]:
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    except Exception:
+        return None
 
 
 def _bucket_seconds(bucket_minutes: int) -> int:
@@ -88,18 +96,134 @@ def _bucket_start_epoch(ts_epoch: int, bucket_sec: int) -> int:
     return (ts_epoch // bucket_sec) * bucket_sec
 
 
-def _parse_iso_to_epoch(ts: str) -> Optional[int]:
+def _build_insights(con, tenant: str, since_dt: datetime, topn: int) -> Dict[str, Any]:
     """
-    We store ts_utc as ISO in SQLite. Parse safely.
+    Builds a single JSON blob with the most useful admin insight slices.
+    Works even if some columns don't exist.
     """
-    try:
-        # supports "2026-01-16T02:47:16+00:00" and "2026-01-16T02:47:16"
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
-    except Exception:
-        return None
+    cols = _has_cols(con, "events", [
+        "tenant", "ts_utc", "event_type", "session_id", "lead_id",
+        "channel", "intent", "text", "meta_json",
+        "error_type", "error_code", "redirect_to"
+    ])
+
+    since_iso = _iso(since_dt)
+
+    # ------------------
+    # Common inbound questions (grouped + normalized)
+    # ------------------
+    common_questions: List[Dict[str, Any]] = []
+    if cols.get("text"):
+        qrows = con.execute("""
+            SELECT COALESCE(text,'') AS text, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND event_type='msg_in' AND ts_utc >= ?
+            GROUP BY COALESCE(text,'')
+            ORDER BY n DESC
+            LIMIT ?;
+        """, (tenant, since_iso, topn * 3)).fetchall()
+
+        merged: Dict[str, int] = {}
+        for r in qrows:
+            t = _norm_text(r["text"])
+            if not t:
+                continue
+            merged[t] = merged.get(t, 0) + int(r["n"] or 0)
+
+        common_questions = [
+            {"text": k, "count": v}
+            for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)[:topn]
+        ]
+
+    # ------------------
+    # Fallbacks + pipeline failures
+    # ------------------
+    fb_rows = con.execute("""
+        SELECT COALESCE(intent,'system_fallback') AS intent, COUNT(*) AS n
+        FROM events
+        WHERE tenant=? AND ts_utc >= ?
+          AND (event_type IN ('fallback','pipeline_failure') OR COALESCE(intent,'')='system_fallback')
+        GROUP BY COALESCE(intent,'system_fallback')
+        ORDER BY n DESC
+        LIMIT ?;
+    """, (tenant, since_iso, topn)).fetchall()
+    fallback_hits = [{"intent": r["intent"], "count": int(r["n"] or 0)} for r in fb_rows]
+
+    # ------------------
+    # Errors (group by error_code/error_type/intent)
+    # ------------------
+    # If none exist, group under "error"
+    key_expr = "COALESCE(error_code, error_type, intent, 'unknown')" if (
+        cols.get("error_code") or cols.get("error_type") or cols.get("intent")
+    ) else "'error'"
+
+    er_rows = con.execute(f"""
+        SELECT {key_expr} AS key, COUNT(*) AS n
+        FROM events
+        WHERE tenant=? AND ts_utc >= ?
+          AND event_type IN ('error','pipeline_failure')
+        GROUP BY key
+        ORDER BY n DESC
+        LIMIT ?;
+    """, (tenant, since_iso, topn)).fetchall()
+    errors = [{"key": r["key"], "count": int(r["n"] or 0)} for r in er_rows]
+
+    # ------------------
+    # Top intents
+    # ------------------
+    intents: List[Dict[str, Any]] = []
+    if cols.get("intent"):
+        ir = con.execute("""
+            SELECT intent, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc >= ?
+              AND COALESCE(intent,'') != ''
+            GROUP BY intent
+            ORDER BY n DESC
+            LIMIT ?;
+        """, (tenant, since_iso, topn)).fetchall()
+        intents = [{"intent": r["intent"], "count": int(r["n"] or 0)} for r in ir]
+
+    # ------------------
+    # Top channels
+    # ------------------
+    channels: List[Dict[str, Any]] = []
+    if cols.get("channel"):
+        cr = con.execute("""
+            SELECT channel, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc >= ?
+              AND COALESCE(channel,'') != ''
+            GROUP BY channel
+            ORDER BY n DESC
+            LIMIT ?;
+        """, (tenant, since_iso, topn)).fetchall()
+        channels = [{"channel": r["channel"], "count": int(r["n"] or 0)} for r in cr]
+
+    # ------------------
+    # Redirects (only if you log event_type='redirect')
+    # ------------------
+    redirects: List[Dict[str, Any]] = []
+    rr = con.execute("""
+        SELECT COALESCE(redirect_to, intent, 'unknown') AS to_key, COUNT(*) AS n
+        FROM events
+        WHERE tenant=? AND ts_utc >= ?
+          AND event_type='redirect'
+        GROUP BY to_key
+        ORDER BY n DESC
+        LIMIT ?;
+    """, (tenant, since_iso, topn)).fetchall()
+    redirects = [{"to": r["to_key"], "count": int(r["n"] or 0)} for r in rr]
+
+    return {
+        "common_questions": common_questions,
+        "fallback_hits": fallback_hits,
+        "errors": errors,
+        "intents": intents,
+        "channels": channels,
+        "redirects": redirects,
+        "events_columns": cols,
+    }
 
 
 # -----------------------------
@@ -132,7 +256,6 @@ def health():
                     "last_session_id", "updated_utc"
                 ])
 
-            # Count recent events for tenant
             since = _since(1440)
             ev_count = 0
             if "events" in tables and events_cols.get("tenant") and events_cols.get("ts_utc"):
@@ -155,7 +278,7 @@ def health():
 
 
 # -----------------------------
-# 2) KPIs (improved)
+# 2) KPIs
 # -----------------------------
 @bp.get("/kpis")
 def kpis():
@@ -165,11 +288,10 @@ def kpis():
 
     tenant = _tenant()
     minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
-    since = _since(minutes)
+    since_dt = _since(minutes)
 
     try:
         with _conn() as con:
-            # We guard for missing columns by relying on event_type/session_id/lead_id.
             row = con.execute("""
                 SELECT
                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
@@ -180,7 +302,7 @@ def kpis():
                   SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
                 FROM events
                 WHERE tenant=? AND ts_utc >= ?;
-            """, (tenant, _iso(since))).fetchone()
+            """, (tenant, _iso(since_dt))).fetchone()
 
         inbound = int(row["inbound"] or 0)
         outbound = int(row["outbound"] or 0)
@@ -189,7 +311,6 @@ def kpis():
         fallbacks = int(row["fallbacks"] or 0)
         errors = int(row["errors"] or 0)
 
-        # Derived rates (safe)
         total_msgs = inbound + outbound
         fallback_rate = (fallbacks / inbound) if inbound else 0.0
         error_rate = (errors / max(1, total_msgs))
@@ -222,34 +343,36 @@ def timeseries():
 
     tenant = _tenant()
     minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
-    bucket = _clamp_int(request.args.get("bucket", "60"), 60, 1, 24 * 60)  # minutes
-    since = _since(minutes)
+    bucket = _clamp_int(request.args.get("bucket", "60"), 60, 1, 24 * 60)
+    since_dt = _since(minutes)
 
     try:
-        # Pull events in range, then bucket in Python to avoid SQLite time math pain
         with _conn() as con:
             rows = con.execute("""
                 SELECT ts_utc, event_type, session_id
                 FROM events
                 WHERE tenant=? AND ts_utc >= ?
                 ORDER BY ts_utc ASC;
-            """, (tenant, _iso(since))).fetchall()
+            """, (tenant, _iso(since_dt))).fetchall()
 
         bucket_sec = _bucket_seconds(bucket)
-
         buckets: Dict[int, Dict[str, Any]] = {}
+
         for r in rows:
             ts_epoch = _parse_iso_to_epoch(r["ts_utc"])
             if ts_epoch is None:
                 continue
             b = _bucket_start_epoch(ts_epoch, bucket_sec)
+
             if b not in buckets:
                 buckets[b] = {"inbound": 0, "outbound": 0, "sessions_set": set()}
+
             et = (r["event_type"] or "")
             if et == "msg_in":
                 buckets[b]["inbound"] += 1
             elif et == "msg_out":
                 buckets[b]["outbound"] += 1
+
             sid = r["session_id"]
             if sid:
                 buckets[b]["sessions_set"].add(sid)
@@ -335,7 +458,7 @@ def leads_csv():
 
 
 # -----------------------------
-# 5) Insights (common questions, fallbacks, errors, intents, channels)
+# 5) Insights (the main endpoint)
 # -----------------------------
 @bp.get("/insights")
 def insights():
@@ -345,116 +468,82 @@ def insights():
 
     tenant = _tenant()
     minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
-    since = _since(minutes)
     topn = _clamp_int(request.args.get("top", "20"), 20, 5, 100)
+    since_dt = _since(minutes)
 
     try:
         with _conn() as con:
-            cols = _has_cols(con, "events", ["text", "intent", "channel", "error_type", "error_code", "redirect_to"])
-            # Common inbound questions (requires text)
-            common_questions: List[Dict[str, Any]] = []
-            if cols.get("text"):
-                q = con.execute(f"""
-                    SELECT COALESCE(text,'') AS text, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND event_type='msg_in' AND ts_utc >= ?
-                    GROUP BY COALESCE(text,'')
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, _iso(since), topn)).fetchall()
-
-                merged: Dict[str, int] = {}
-                for r in q:
-                    t = _norm_text(r["text"])
-                    if not t:
-                        continue
-                    merged[t] = merged.get(t, 0) + int(r["n"] or 0)
-                common_questions = [{"text": k, "count": v} for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)]
-
-            # Fallbacks (event_type based; plus optional intent)
-            fb = con.execute(f"""
-                SELECT COALESCE(intent,'system_fallback') AS intent, COUNT(*) AS n
-                FROM events
-                WHERE tenant=? AND ts_utc >= ?
-                  AND (event_type IN ('fallback','pipeline_failure') OR COALESCE(intent,'')='system_fallback')
-                GROUP BY COALESCE(intent,'system_fallback')
-                ORDER BY n DESC
-                LIMIT ?;
-            """, (tenant, _iso(since), topn)).fetchall()
-            fallback_hits = [{"intent": r["intent"], "count": int(r["n"] or 0)} for r in fb]
-
-            # Errors
-            err_key = "COALESCE(error_code, error_type, intent, 'unknown')" if (cols.get("error_code") or cols.get("error_type") or cols.get("intent")) else "'error'"
-            er = con.execute(f"""
-                SELECT {err_key} AS key, COUNT(*) AS n
-                FROM events
-                WHERE tenant=? AND ts_utc >= ?
-                  AND event_type IN ('error','pipeline_failure')
-                GROUP BY key
-                ORDER BY n DESC
-                LIMIT ?;
-            """, (tenant, _iso(since), topn)).fetchall()
-            errors = [{"key": r["key"], "count": int(r["n"] or 0)} for r in er]
-
-            # Top intents (if intent column exists)
-            intents = []
-            if cols.get("intent"):
-                ir = con.execute(f"""
-                    SELECT intent, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND COALESCE(intent,'') != ''
-                    GROUP BY intent
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, _iso(since), topn)).fetchall()
-                intents = [{"intent": r["intent"], "count": int(r["n"] or 0)} for r in ir]
-
-            # Top channels (if channel exists)
-            channels = []
-            if cols.get("channel"):
-                cr = con.execute(f"""
-                    SELECT channel, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND COALESCE(channel,'') != ''
-                    GROUP BY channel
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, _iso(since), topn)).fetchall()
-                channels = [{"channel": r["channel"], "count": int(r["n"] or 0)} for r in cr]
-
-            # Redirects (only if you log event_type='redirect' OR redirect_to exists)
-            redirects = []
-            if cols.get("redirect_to") or cols.get("intent"):
-                rr = con.execute(f"""
-                    SELECT COALESCE(redirect_to, intent, 'unknown') AS to_key, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type='redirect'
-                    GROUP BY to_key
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, _iso(since), topn)).fetchall()
-                redirects = [{"to": r["to_key"], "count": int(r["n"] or 0)} for r in rr]
+            data = _build_insights(con, tenant, since_dt, topn)
 
         return jsonify({
             "tenant": tenant,
             "minutes": minutes,
             "top": topn,
-            "common_questions": common_questions,
-            "fallback_hits": fallback_hits,
-            "errors": errors,
-            "intents": intents,
-            "channels": channels,
-            "redirects": redirects,
+            **data,
         })
     except Exception as e:
         return _json_error("insights", e)
 
 
 # -----------------------------
-# 6) Session drilldown (timeline)
+# 6) Compatibility endpoints (stop UI 404s)
+# -----------------------------
+@bp.get("/errors")
+def errors():
+    gate = _require_login()
+    if gate:
+        return gate
+
+    tenant = _tenant()
+    minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
+    topn = _clamp_int(request.args.get("top", "20"), 20, 5, 100)
+
+    try:
+        with _conn() as con:
+            data = _build_insights(con, tenant, _since(minutes), topn)
+        return jsonify({"tenant": tenant, "minutes": minutes, "items": data["errors"]})
+    except Exception as e:
+        return _json_error("errors", e)
+
+
+@bp.get("/fallbacks")
+def fallbacks():
+    gate = _require_login()
+    if gate:
+        return gate
+
+    tenant = _tenant()
+    minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
+    topn = _clamp_int(request.args.get("top", "20"), 20, 5, 100)
+
+    try:
+        with _conn() as con:
+            data = _build_insights(con, tenant, _since(minutes), topn)
+        return jsonify({"tenant": tenant, "minutes": minutes, "items": data["fallback_hits"]})
+    except Exception as e:
+        return _json_error("fallbacks", e)
+
+
+@bp.get("/top_questions")
+def top_questions():
+    gate = _require_login()
+    if gate:
+        return gate
+
+    tenant = _tenant()
+    minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
+    topn = _clamp_int(request.args.get("top", "20"), 20, 5, 100)
+
+    try:
+        with _conn() as con:
+            data = _build_insights(con, tenant, _since(minutes), topn)
+        return jsonify({"tenant": tenant, "minutes": minutes, "items": data["common_questions"]})
+    except Exception as e:
+        return _json_error("top_questions", e)
+
+
+# -----------------------------
+# 7) Session drilldown + top sessions
 # -----------------------------
 @bp.get("/session")
 def session_timeline():
@@ -465,8 +554,8 @@ def session_timeline():
     tenant = _tenant()
     session_id = (request.args.get("session_id") or "").strip()
     minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
-    since = _since(minutes)
     limit = _clamp_int(request.args.get("limit", "80"), 80, 1, 500)
+    since_dt = _since(minutes)
 
     if not session_id:
         return jsonify({"error": "missing_session_id"}), 400
@@ -485,7 +574,7 @@ def session_timeline():
                 WHERE tenant=? AND session_id=? AND ts_utc >= ?
                 ORDER BY ts_utc DESC
                 LIMIT ?;
-            """, (tenant, session_id, _iso(since), limit)).fetchall()
+            """, (tenant, session_id, _iso(since_dt), limit)).fetchall()
 
         items = []
         for r in rows[::-1]:
@@ -509,9 +598,6 @@ def session_timeline():
         return _json_error("session", e)
 
 
-# -----------------------------
-# 7) Quick “top sessions” list
-# -----------------------------
 @bp.get("/sessions")
 def sessions_top():
     gate = _require_login()
@@ -520,8 +606,8 @@ def sessions_top():
 
     tenant = _tenant()
     minutes = _clamp_int(request.args.get("minutes", "1440"), 1440, 1, 60 * 24 * 30)
-    since = _since(minutes)
     limit = _clamp_int(request.args.get("limit", "25"), 25, 1, 200)
+    since_dt = _since(minutes)
 
     try:
         with _conn() as con:
@@ -536,7 +622,7 @@ def sessions_top():
                 GROUP BY session_id
                 ORDER BY events DESC
                 LIMIT ?;
-            """, (tenant, _iso(since), limit)).fetchall()
+            """, (tenant, _iso(since_dt), limit)).fetchall()
 
         return jsonify({
             "tenant": tenant,
