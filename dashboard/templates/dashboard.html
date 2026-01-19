@@ -2,327 +2,146 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>{{ tenant }} — Admin • AI Sales Assistant</title>
+  <title>{{ tenant }} — Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
-
-  {% set _favicon = (branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg')) %}
-  <link rel="icon" href="{{ _favicon }}" />
 
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
-  <!-- Page-scoped polish (no need to touch admin.css) -->
   <style>
     :root{
-      --bg0:#060812;
-      --bg1:#0B1020;
-
-      --card: rgba(255,255,255,.045);
-      --card2: rgba(255,255,255,.06);
-      --line: rgba(255,255,255,.085);
-
+      --bg:#070A10;
+      --panel: rgba(255,255,255,.05);
+      --panel2: rgba(255,255,255,.07);
+      --line: rgba(255,255,255,.10);
       --text: rgba(255,255,255,.92);
       --muted: rgba(255,255,255,.62);
       --muted2: rgba(255,255,255,.45);
-
-      --shadow: 0 18px 55px rgba(0,0,0,.55);
       --radius: 18px;
-
-      --neonA:#6EE7FF; /* cyan */
-      --neonB:#A78BFA; /* violet */
-      --neonC:#34D399; /* green */
-      --danger:#FCA5A5; /* red-ish */
-      --warn:#FDE68A;   /* yellow-ish */
     }
 
-    html, body { height: 100%; min-height: 100%; background: var(--bg0); overflow-x: hidden; }
-    body { color: var(--text); }
-
-    /* ✅ Fixes the “random bottom color band” permanently */
-    body::before{
-      content:"";
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
+    body{
       background:
-        radial-gradient(900px 600px at 18% 14%, rgba(110,231,255,.14), transparent 60%),
-        radial-gradient(900px 600px at 78% 22%, rgba(167,139,250,.14), transparent 62%),
-        radial-gradient(900px 600px at 60% 86%, rgba(52,211,153,.09), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
+        radial-gradient(900px 600px at 10% 10%, rgba(110,231,255,.14), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(167,139,250,.14), transparent 60%),
+        radial-gradient(900px 600px at 60% 90%, rgba(52,211,153,.10), transparent 60%),
+        linear-gradient(180deg, #05060B, #0B1020);
+      color: var(--text);
     }
 
-    main, header, section, aside, nav { position: relative; z-index: 1; }
-
-    .container{
-      max-width: 1180px;
-      margin: 0 auto;
-      padding: 18px 16px 52px;
-    }
+    .wrap{ max-width: 1180px; margin: 0 auto; padding: 22px 16px 60px; }
 
     .topbar{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      margin: 10px 0 14px;
-      flex-wrap: wrap;
+      display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;
+      margin-bottom: 16px;
     }
+    .title h1{ margin:0; font-size:18px; font-weight:800; letter-spacing:.2px; }
+    .title p{ margin:6px 0 0; color: var(--muted); font-size:13px; line-height:1.35; }
 
-    .titleblock h1{
-      margin: 0;
-      font-size: 18px;
-      font-weight: 750;
-      letter-spacing: .2px;
-    }
-    .titleblock p{
-      margin: 6px 0 0;
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.45;
-    }
-    .meta{
-      display:flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-    }
-    .chip{
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-      border-radius: 999px;
-      padding: 7px 10px;
-      font-size: 12px;
-      color: rgba(255,255,255,.78);
-      font-weight: 650;
-    }
-
-    .controls{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap: wrap;
-    }
-
+    .controls{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding: 9px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.04);
+      display:inline-flex; gap:8px; align-items:center;
+      padding:10px 12px; border-radius:999px;
+      border:1px solid var(--line); background: rgba(255,255,255,.04);
       backdrop-filter: blur(10px);
     }
-    .pill label{
-      color: var(--muted2);
-      font-size: 12px;
-      margin: 0;
-      white-space: nowrap;
-      font-weight: 650;
-    }
+    .pill label{ font-size:12px; color: var(--muted2); font-weight:700; }
     .pill select{
-      background: transparent;
-      border: 0;
-      color: var(--text);
-      outline: none;
-      font-size: 12px;
-      padding-right: 2px;
-      cursor: pointer;
+      background: transparent; border:0; color: var(--text); outline:none;
+      font-size:12px; cursor:pointer;
     }
 
     .btn{
       border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.05);
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.06);
       color: var(--text);
-      padding: 10px 14px;
-      font-weight: 700;
-      letter-spacing: .12px;
-      transition: transform .06s ease, background .2s ease, border-color .2s ease;
-      cursor: pointer;
+      padding:10px 14px;
+      font-weight:800;
+      cursor:pointer;
     }
-    .btn:hover{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); }
+    .btn:hover{ background: rgba(255,255,255,.10); }
     .btn:active{ transform: translateY(1px); }
-    .btn--primary{
-      background: linear-gradient(90deg, rgba(110,231,255,.24), rgba(167,139,250,.24));
-      border-color: rgba(255,255,255,.14);
-    }
-    .btn--primary:hover{
-      background: linear-gradient(90deg, rgba(110,231,255,.30), rgba(167,139,250,.30));
-    }
-    .btn--secondary{ background: rgba(255,255,255,.04); }
-
-    .tabs{
-      display:flex;
-      gap:8px;
-      flex-wrap: wrap;
-      margin: 6px 0 14px;
-    }
-    .tab{
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-      border-radius: 999px;
-      padding: 9px 12px;
-      font-size: 12px;
-      font-weight: 750;
-      color: rgba(255,255,255,.76);
-      cursor: pointer;
-      user-select: none;
-    }
-    .tab.is-active{
-      background: rgba(255,255,255,.08);
-      color: rgba(255,255,255,.92);
-      border-color: rgba(255,255,255,.16);
-    }
 
     .grid{
       display:grid;
-      grid-template-columns: 1.3fr .7fr;
+      grid-template-columns: 1.35fr .65fr;
       gap: 14px;
-      align-items: start;
+      align-items:start;
     }
-    @media(max-width: 1020px){
-      .grid{ grid-template-columns: 1fr; }
-    }
+    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
 
     .card{
-      border: 1px solid var(--line);
-      background: var(--card);
+      border:1px solid var(--line);
+      background: var(--panel);
       border-radius: var(--radius);
       padding: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      box-shadow: 0 14px 40px rgba(0,0,0,.45);
     }
-    .card h3{
-      margin: 0 0 10px;
+    .card h2{
+      margin:0 0 10px;
       font-size: 13px;
-      color: rgba(255,255,255,.78);
-      font-weight: 800;
-      letter-spacing: .2px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
+      text-transform: uppercase;
+      letter-spacing: .22px;
+      color: rgba(255,255,255,.75);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
     }
-    .subtle{ color: var(--muted2); font-size: 12px; font-weight: 700; }
 
-    .kpi-row{
+    .kpis{
       display:grid;
       grid-template-columns: repeat(4, minmax(0,1fr));
       gap: 10px;
+      margin-top: 10px;
     }
-    @media(max-width: 980px){
-      .kpi-row{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-    }
+    @media (max-width: 980px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
 
     .kpi{
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-      border-radius: 14px;
-      padding: 12px;
-    }
-    .kpi .k{
-      color: var(--muted2);
-      font-size: 11px;
-      margin-bottom: 6px;
-      font-weight: 850;
-      letter-spacing: .22px;
-      text-transform: uppercase;
-    }
-    .kpi .v{
-      font-size: 22px;
-      font-weight: 850;
-      letter-spacing: .2px;
-      line-height: 1.05;
-    }
-    .kpi .hint{
-      margin-top: 6px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .charts{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap: 14px;
-    }
-    .chart-wrap{
-      height: 310px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.18);
-      padding: 10px;
-    }
-    .chart-wrap.sm{ height: 240px; }
-
-    .split2{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-    }
-    @media(max-width: 980px){
-      .split2{ grid-template-columns: 1fr; }
-    }
-
-    .table-wrap{
-      border-radius: var(--radius);
-      overflow: hidden;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-    }
-    table{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    thead th{
+      border:1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.04);
-      color: rgba(255,255,255,.70);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .18px;
+      border-radius: 14px;
       padding: 12px;
-      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .kpi .k{ font-size:11px; color: var(--muted2); font-weight:900; letter-spacing:.2px; text-transform:uppercase; }
+    .kpi .v{ margin-top:6px; font-size:22px; font-weight:900; }
+    .kpi .s{ margin-top:6px; font-size:12px; color: var(--muted); }
+
+    .chartbox{ height: 320px; border-radius: 14px; border:1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.18); padding: 10px; }
+    .chartbox.small{ height: 240px; }
+
+    .tablewrap{
+      border-radius: 14px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+    }
+    table{ width:100%; border-collapse: collapse; font-size:13px; }
+    th{
       text-align:left;
+      padding: 12px;
+      font-size: 11px;
+      letter-spacing: .18px;
+      color: rgba(255,255,255,.72);
+      text-transform: uppercase;
+      background: rgba(255,255,255,.04);
+      border-bottom: 1px solid rgba(255,255,255,.08);
     }
     td{
       padding: 12px;
       border-bottom: 1px solid rgba(255,255,255,.06);
-      color: rgba(255,255,255,.86);
-      vertical-align: top;
+      color: rgba(255,255,255,.88);
     }
-    tbody tr:hover td{ background: rgba(255,255,255,.03); }
+    tr:hover td{ background: rgba(255,255,255,.03); }
 
+    .muted{ color: var(--muted); font-size:12px; }
     .pre{
       border-radius: 14px;
-      border: 1px solid var(--line);
+      border:1px solid rgba(255,255,255,.10);
       background: rgba(0,0,0,.22);
+      padding: 12px;
+      overflow:auto;
+      font-size: 12px;
       color: rgba(255,255,255,.80);
-      padding: 14px;
-      overflow: auto;
-      font-size: 12px;
-      line-height: 1.45;
       max-height: 260px;
-    }
-
-    .hidden{ display:none !important; }
-
-    .badge{
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.03);
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 12px;
-      font-weight: 800;
-      color: rgba(255,255,255,.78);
-    }
-
-    .row-actions{
-      display:flex;
-      gap:10px;
-      flex-wrap: wrap;
-      align-items:center;
     }
   </style>
 </head>
@@ -330,392 +149,283 @@
 <body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
   {% include 'partials/_navbar.html' ignore missing %}
 
-  <main class="container">
+  <main class="wrap">
 
-    <!-- Top header -->
     <div class="topbar">
-      <div class="titleblock">
+      <div class="title">
         <h1>Admin Dashboard — {{ tenant }}</h1>
-        <p>KPIs, message volume, lead activity, and “why users got fallback answers”.</p>
-        <div class="meta">
-          <span class="chip">Tenant: {{ tenant }}</span>
-          <span class="chip">Role: {{ role }}</span>
-          <span class="chip">Session: {{ session_id }}</span>
-        </div>
+        <p>
+          KPI + charts + common questions + fallbacks + errors.
+          <span class="muted">Logged in as: {{ role }}</span>
+        </p>
       </div>
 
       <div class="controls">
         <div class="pill">
-          <label for="period-select">Period</label>
-          <select id="period-select">
+          <label for="period">Period</label>
+          <select id="period">
             <option value="60">Last 60m</option>
             <option value="1440" selected>Last 24h</option>
             <option value="10080">Last 7d</option>
+            <option value="43200">Last 30d</option>
           </select>
         </div>
-        <button id="refresh-kpis" class="btn btn--primary" type="button">Refresh</button>
-        <button id="export-leads" class="btn btn--secondary" type="button">Export CSV</button>
+        <button id="refresh" class="btn" type="button">Refresh</button>
+        <button id="export" class="btn" type="button">Export Leads CSV</button>
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="tabs" role="tablist" aria-label="Dashboard tabs">
-      <div class="tab is-active" data-tab="overview">Overview</div>
-      <div class="tab" data-tab="insights">Insights</div>
-      <div class="tab" data-tab="leads">Leads</div>
-      <div class="tab" data-tab="debug">Debug</div>
+    <section class="card">
+      <h2>KPIs <span class="muted" id="kpi-sub">—</span></h2>
+      <div class="kpis">
+        <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">messages received</div></div>
+        <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">messages sent</div></div>
+        <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique conversations</div></div>
+        <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default/system replies</div></div>
+      </div>
+    </section>
+
+    <div class="grid" style="margin-top:14px;">
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <section class="card">
+          <h2>Message Volume (Inbound vs Outbound)</h2>
+          <div class="chartbox"><canvas id="chart-volume"></canvas></div>
+        </section>
+
+        <section class="card">
+          <h2>Most Common Questions</h2>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Question</th><th>Count</th></tr></thead>
+              <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Leads</h2>
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr><th>Updated</th><th>Name</th><th>Phone</th><th>Status</th><th>Tags</th><th>Session</th></tr>
+              </thead>
+              <tbody id="tbl-leads"><tr><td colspan="6">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside style="display:flex; flex-direction:column; gap:14px;">
+        <section class="card">
+          <h2>Channels (Pie)</h2>
+          <div class="chartbox small"><canvas id="chart-channels"></canvas></div>
+        </section>
+
+        <section class="card">
+          <h2>Top Intents (Bar)</h2>
+          <div class="chartbox small"><canvas id="chart-intents"></canvas></div>
+        </section>
+
+        <section class="card">
+          <h2>Fallback Reasons (Bar)</h2>
+          <div class="chartbox small"><canvas id="chart-fallbacks"></canvas></div>
+        </section>
+
+        <section class="card">
+          <h2>Top Errors (Bar)</h2>
+          <div class="chartbox small"><canvas id="chart-errors"></canvas></div>
+        </section>
+
+        <section class="card">
+          <h2>Raw Debug (optional)</h2>
+          <pre class="pre" id="raw">—</pre>
+        </section>
+      </aside>
     </div>
-
-    <!-- Overview -->
-    <section id="tab-overview">
-      <div class="grid">
-
-        <div class="charts">
-
-          <div class="card">
-            <h3>KPIs <span class="subtle">live</span></h3>
-            <div class="kpi-row">
-              <div class="kpi">
-                <div class="k">Inbound</div>
-                <div class="v" id="kpi-inbound">—</div>
-                <div class="hint">Messages received</div>
-              </div>
-              <div class="kpi">
-                <div class="k">Outbound</div>
-                <div class="v" id="kpi-outbound">—</div>
-                <div class="hint">Messages sent</div>
-              </div>
-              <div class="kpi">
-                <div class="k">Sessions</div>
-                <div class="v" id="kpi-sessions">—</div>
-                <div class="hint">Unique chats</div>
-              </div>
-              <div class="kpi">
-                <div class="k">Leads</div>
-                <div class="v" id="kpi-leads">—</div>
-                <div class="hint">Known leads</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3>Message Volume <span class="subtle">Inbound vs Outbound</span></h3>
-            <div class="chart-wrap">
-              <canvas id="chart-main"></canvas>
-            </div>
-          </div>
-
-        </div>
-
-        <aside class="charts">
-          <div class="card">
-            <h3>Breakdown <span class="subtle">this period</span></h3>
-            <div class="chart-wrap sm">
-              <canvas id="chart-donut"></canvas>
-            </div>
-            <div class="split2" style="margin-top:12px;">
-              <div class="badge">Inbound: <span id="donut-in">—</span></div>
-              <div class="badge">Outbound: <span id="donut-out">—</span></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3>Sessions vs Leads <span class="subtle">bar</span></h3>
-            <div class="chart-wrap sm">
-              <canvas id="chart-bar"></canvas>
-            </div>
-          </div>
-        </aside>
-
-      </div>
-    </section>
-
-    <!-- Insights -->
-    <section id="tab-insights" class="hidden">
-      <div class="grid">
-        <div class="charts">
-          <div class="card">
-            <h3>Top Questions <span class="subtle">most common user text</span></h3>
-            <div class="table-wrap">
-              <table id="tbl-top-questions">
-                <thead>
-                  <tr>
-                    <th>Question</th>
-                    <th>Count</th>
-                    <th>Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td colspan="3">Loading…</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <p class="subtle" style="margin-top:10px;">
-              Note: this requires an endpoint like <code>/admin/api/top_questions</code>. If it doesn’t exist, it will stay empty.
-            </p>
-          </div>
-
-          <div class="card">
-            <h3>Fallback / Default Answers <span class="subtle">why users didn’t get a match</span></h3>
-            <div class="table-wrap">
-              <table id="tbl-fallbacks">
-                <thead>
-                  <tr>
-                    <th>Reason</th>
-                    <th>Count</th>
-                    <th>Example</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td colspan="3">Loading…</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <aside class="charts">
-          <div class="card">
-            <h3>Top Intents <span class="subtle">this period</span></h3>
-            <div class="chart-wrap sm">
-              <canvas id="chart-intents"></canvas>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3>Errors & Warnings <span class="subtle">latest</span></h3>
-            <pre class="pre" id="errors-output">Waiting…</pre>
-          </div>
-        </aside>
-      </div>
-    </section>
-
-    <!-- Leads -->
-    <section id="tab-leads" class="hidden">
-      <div class="card">
-        <h3>Leads & Conversations <span class="subtle">latest activity</span></h3>
-        <div class="table-wrap">
-          <table id="leads-table">
-            <thead>
-              <tr>
-                <th>Updated</th>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th>Tags</th>
-                <th>Session</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td colspan="6">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- Debug -->
-    <section id="tab-debug" class="hidden">
-      <div class="grid">
-        <div class="charts">
-          <div class="card">
-            <h3>KPIs (Raw JSON) <span class="subtle">fallback</span></h3>
-            <pre class="pre" id="kpi-output">Waiting for data…</pre>
-          </div>
-
-          <div class="card">
-            <h3>Timeseries (Raw JSON) <span class="subtle">fallback</span></h3>
-            <pre class="pre" id="timeseries-output">Waiting for data…</pre>
-          </div>
-        </div>
-
-        <aside class="charts">
-          <div class="card">
-            <h3>Diagnostics <span class="subtle">optional</span></h3>
-            <pre class="pre" id="validation-output">—</pre>
-            <div class="row-actions" style="margin-top:10px;">
-              <button id="run-self-repair" class="btn btn--secondary" type="button">Run Self-Repair</button>
-              {% if role in ['Owner','Manager','Staff','admin'] %}
-                <button class="btn" type="button" data-editor-target="catalog">Edit Catalog</button>
-                <button class="btn" type="button" data-editor-target="faq">Edit FAQ</button>
-              {% endif %}
-            </div>
-          </div>
-        </aside>
-      </div>
-    </section>
-
   </main>
 
-  {% include 'partials/_editor.html' ignore missing %}
-
-  <!-- Admin bootstrap: MUST exist before JS -->
   <script>
     (function () {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || "";
       const tenant = document.body?.dataset?.tenant || "{{ tenant }}";
-      const role = document.body?.dataset?.role || "{{ role }}";
-      const sessionId = document.body?.dataset?.session || "{{ session_id }}";
-      window.__ADMIN__ = { csrfToken: csrf, tenant, role, sessionId };
+      window.__ADMIN__ = { csrfToken: csrf, tenant };
     })();
   </script>
 
-  <!-- Chart.js FIRST -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  {% set _v = (version if version else (csrf_token if csrf_token else '1')) %}
-  <script src="{{ url_for('static', filename='js/charts.js') }}?v={{ _v }}"></script>
-  <script src="{{ url_for('static', filename='js/admin.js') }}?v={{ _v }}"></script>
-
-  <!-- Tabs controller (pure HTML/JS, no dependencies) -->
   <script>
-    (function(){
-      const tabs = Array.from(document.querySelectorAll(".tab"));
-      const panels = {
-        overview: document.getElementById("tab-overview"),
-        insights: document.getElementById("tab-insights"),
-        leads: document.getElementById("tab-leads"),
-        debug: document.getElementById("tab-debug"),
-      };
+    const $ = (id) => document.getElementById(id);
 
-      function setTab(name){
-        tabs.forEach(t => t.classList.toggle("is-active", t.dataset.tab === name));
-        Object.entries(panels).forEach(([k, el]) => {
-          if(!el) return;
-          el.classList.toggle("hidden", k !== name);
-        });
-      }
+    const state = { charts: {} };
 
-      tabs.forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
-    })();
-  </script>
+    function int(n){ return Number.isFinite(Number(n)) ? Math.trunc(Number(n)) : 0; }
 
-  <!-- Extra optional loaders (won’t break if endpoints missing) -->
-  <script>
-    (function(){
-      const S = window.__ADMIN__ || {};
-      const csrf = S.csrfToken || "";
-      const tenant = encodeURIComponent(S.tenant || "default");
+    function headers(){
+      const h = {};
+      if (window.__ADMIN__?.csrfToken) h["X-CSRF-Token"] = window.__ADMIN__.csrfToken;
+      return h;
+    }
 
-      async function apiJSON(path){
-        const headers = Object.assign({}, csrf ? {"X-CSRF-Token": csrf} : {});
-        const res = await fetch(path, { headers, credentials: "include" });
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      }
+    async function getJSON(url){
+      const res = await fetch(url, { credentials:"include", headers: headers() });
+      if(!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+      return await res.json();
+    }
 
-      function setText(id, v){
-        const el = document.getElementById(id);
-        if(el) el.textContent = (v === undefined || v === null) ? "—" : String(v);
-      }
+    function destroyChart(key){
+      if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; }
+    }
 
-      // Fill KPI tiles from your existing endpoint
-      async function fillKpis(){
-        const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
-        const k = await apiJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`);
-        setText("kpi-inbound", k.inbound);
-        setText("kpi-outbound", k.outbound);
-        setText("kpi-sessions", k.sessions);
-        setText("kpi-leads", k.leads);
-        setText("donut-in", k.inbound);
-        setText("donut-out", k.outbound);
-
-        // raw json
-        const pre = document.getElementById("kpi-output");
-        if(pre) pre.textContent = JSON.stringify(k, null, 2);
-
-        // update donut + bar if charts.js created them
-        window.DashChartsUpdateSide?.(k);
-      }
-
-      // Load timeseries raw for debug tab
-      async function fillTimeseriesRaw(){
-        const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
-        const ts = await apiJSON(`/admin/api/timeseries?minutes=${minutes}&tenant=${tenant}`);
-        const pre = document.getElementById("timeseries-output");
-        if(pre) pre.textContent = JSON.stringify(ts, null, 2);
-      }
-
-      // Optional insights endpoints (safe if missing)
-      async function tryTopQuestions(){
-        const tbody = document.querySelector("#tbl-top-questions tbody");
-        if(!tbody) return;
-        tbody.innerHTML = `<tr><td colspan="3">Loading…</td></tr>`;
-        try{
-          const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
-          const data = await apiJSON(`/admin/api/top_questions?minutes=${minutes}&tenant=${tenant}`);
-          const items = data.items || [];
-          if(!items.length){ tbody.innerHTML = `<tr><td colspan="3">No data.</td></tr>`; return; }
-          tbody.innerHTML = "";
-          for(const it of items){
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${escapeHtml(it.text || "")}</td><td>${it.count || 0}</td><td>${escapeHtml(it.last_seen || "")}</td>`;
-            tbody.appendChild(tr);
+    function renderBar(canvasId, key, labels, values){
+      destroyChart(key);
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{ label: "Count", data: values.map(int) }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { ticks: { callback: (v) => int(v) }, beginAtZero: true }
           }
-        }catch(_){
-          tbody.innerHTML = `<tr><td colspan="3">Endpoint missing: /admin/api/top_questions</td></tr>`;
         }
-      }
-
-      async function tryFallbacks(){
-        const tbody = document.querySelector("#tbl-fallbacks tbody");
-        if(!tbody) return;
-        tbody.innerHTML = `<tr><td colspan="3">Loading…</td></tr>`;
-        try{
-          const minutes = parseInt(document.getElementById("period-select")?.value || "1440", 10);
-          const data = await apiJSON(`/admin/api/fallbacks?minutes=${minutes}&tenant=${tenant}`);
-          const items = data.items || [];
-          if(!items.length){ tbody.innerHTML = `<tr><td colspan="3">No data.</td></tr>`; return; }
-          tbody.innerHTML = "";
-          for(const it of items){
-            const tr = document.createElement("tr");
-            tr.innerHTML = `<td>${escapeHtml(it.reason || "")}</td><td>${it.count || 0}</td><td>${escapeHtml(it.example || "")}</td>`;
-            tbody.appendChild(tr);
-          }
-        }catch(_){
-          tbody.innerHTML = `<tr><td colspan="3">Endpoint missing: /admin/api/fallbacks</td></tr>`;
-        }
-      }
-
-      async function tryErrors(){
-        const out = document.getElementById("errors-output");
-        if(!out) return;
-        out.textContent = "Loading…";
-        try{
-          const data = await apiJSON(`/admin/api/errors?tenant=${tenant}`);
-          out.textContent = JSON.stringify(data, null, 2);
-        }catch(_){
-          out.textContent = "Endpoint missing: /admin/api/errors";
-        }
-      }
-
-      function escapeHtml(s){
-        return (s || "").toString()
-          .replace(/&/g,"&amp;")
-          .replace(/</g,"&lt;")
-          .replace(/>/g,"&gt;")
-          .replace(/"/g,"&quot;");
-      }
-
-      window.addEventListener("DOMContentLoaded", () => {
-        // hook your existing buttons too
-        document.getElementById("refresh-kpis")?.addEventListener("click", async () => {
-          await fillKpis(); await fillTimeseriesRaw();
-          await tryTopQuestions(); await tryFallbacks(); await tryErrors();
-        });
-        document.getElementById("period-select")?.addEventListener("change", async () => {
-          await fillKpis(); await fillTimeseriesRaw();
-          await tryTopQuestions(); await tryFallbacks(); await tryErrors();
-        });
-
-        // initial
-        fillKpis().catch(()=>{});
-        fillTimeseriesRaw().catch(()=>{});
-        tryTopQuestions().catch(()=>{});
-        tryFallbacks().catch(()=>{});
-        tryErrors().catch(()=>{});
       });
-    })();
+    }
+
+    function renderPie(canvasId, key, labels, values){
+      destroyChart(key);
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "pie",
+        data: {
+          labels,
+          datasets: [{ data: values.map(int) }]
+        },
+        options: { responsive:true, maintainAspectRatio:false }
+      });
+    }
+
+    function renderLine(canvasId, key, labels, inbound, outbound){
+      destroyChart(key);
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Inbound", data: inbound.map(int), tension: 0.25 },
+            { label: "Outbound", data: outbound.map(int), tension: 0.25 }
+          ]
+        },
+        options: {
+          responsive:true,
+          maintainAspectRatio:false,
+          scales: {
+            y: { ticks: { callback: (v) => int(v) }, beginAtZero:true }
+          }
+        }
+      });
+    }
+
+    function renderQuestions(items){
+      const tbody = $("tbl-questions");
+      if(!items || !items.length){
+        tbody.innerHTML = `<tr><td colspan="2">No questions logged (or text column missing).</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = items.slice(0,20).map(x =>
+        `<tr><td>${escapeHtml(x.text || "")}</td><td>${int(x.count)}</td></tr>`
+      ).join("");
+    }
+
+    function renderLeads(items){
+      const tbody = $("tbl-leads");
+      if(!items || !items.length){
+        tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = items.slice(0,50).map(r =>
+        `<tr>
+          <td>${escapeHtml(r.updated_utc || "")}</td>
+          <td>${escapeHtml(r.name || "")}</td>
+          <td>${escapeHtml(r.phone || "")}</td>
+          <td>${escapeHtml(r.status || "")}</td>
+          <td>${escapeHtml(r.tags || "")}</td>
+          <td>${escapeHtml(r.last_session_id || "")}</td>
+        </tr>`
+      ).join("");
+    }
+
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    async function refreshAll(){
+      const minutes = parseInt($("period").value || "1440", 10);
+      const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
+
+      const [k, ts, ins, ld] = await Promise.all([
+        getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
+        getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60&tenant=${tenant}`),
+        getJSON(`/admin/api/insights?minutes=${minutes}&top=20&tenant=${tenant}`),
+        getJSON(`/admin/api/leads?limit=50&tenant=${tenant}`),
+      ]);
+
+      $("kpi-in").textContent = int(k.inbound);
+      $("kpi-out").textContent = int(k.outbound);
+      $("kpi-sessions").textContent = int(k.sessions);
+      $("kpi-fb").textContent = int(k.fallbacks);
+      $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
+
+      // Volume line
+      const labels = (ts.points || []).map(p => (p.t || "").slice(5,16).replace("T"," "));
+      const inb = (ts.points || []).map(p => int(p.inbound));
+      const outb = (ts.points || []).map(p => int(p.outbound));
+      renderLine("chart-volume", "volume", labels, inb, outb);
+
+      // Channels pie
+      const ch = (ins.channels || []);
+      renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>int(x.count)));
+
+      // Intents bar
+      const intents = (ins.intents || []);
+      renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>int(x.count)));
+
+      // Fallbacks bar
+      const fbs = (ins.fallbacks || []);
+      renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>int(x.count)));
+
+      // Errors bar
+      const errs = (ins.errors || []);
+      renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>int(x.count)));
+
+      // Tables
+      renderQuestions(ins.common_questions || []);
+      renderLeads(ld.items || []);
+
+      $("raw").textContent = JSON.stringify({kpis:k, timeseries:ts, insights:ins}, null, 2);
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      $("refresh").addEventListener("click", () => refreshAll().catch(e => $("raw").textContent = String(e)));
+      $("period").addEventListener("change", () => refreshAll().catch(e => $("raw").textContent = String(e)));
+      $("export").addEventListener("click", () => {
+        const minutes = parseInt($("period").value || "1440", 10);
+        const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
+        window.location.href = `/admin/api/leads.csv?tenant=${tenant}&minutes=${minutes}`;
+      });
+      refreshAll().catch(e => $("raw").textContent = String(e));
+    });
   </script>
 </body>
 </html>
