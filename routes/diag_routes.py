@@ -1,7 +1,7 @@
+# routes/diag_routes.py
 from __future__ import annotations
 
 import os
-
 from flask import Blueprint, jsonify, request, current_app
 
 from routes import get_container, require_auth
@@ -22,12 +22,18 @@ def selfrepair_report():
     return jsonify({"ok": True, "report": report})
 
 
+# ✅ alias for the UI typo / mismatch
+@bp.get("/self_repair")
+@require_auth(roles=("Owner", "Manager"))
+def self_repair_alias():
+    return selfrepair_report()
+
+
 @bp.post("/apply-fixes")
 @require_auth(roles=("Owner", "Manager"))
 def apply_fixes():
     """
     Body: { fixes: [{file, path, value}], dry_run: bool }
-
     Applies self-repair fixes to the tenant's data files.
     """
     c = get_container()
