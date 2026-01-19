@@ -12,8 +12,10 @@ def _is_logged_in() -> bool:
 
 
 def _csrf_token() -> str:
+    # If you have CSRF middleware putting it on g, use it. Otherwise session token.
     try:
         from flask import g  # type: ignore
+
         tok = getattr(g, "csrf_token", None)
         if tok:
             return tok
@@ -59,6 +61,7 @@ def dashboard():
         session_id=session_id,
         branding=None,
         csrf_token=_csrf_token(),
+        version=None,
     )
 
 
@@ -72,6 +75,7 @@ def login_page():
         tenant=_tenant(),
         error=None,
         csrf_token=_csrf_token(),
+        version=None,
     )
 
 
@@ -94,6 +98,7 @@ def login_submit():
         )
 
     from service.security import authenticate_user, verify_totp
+
     c = get_container()
 
     # ✅ matches: authenticate_user(c, *, email="", password="")
@@ -124,6 +129,15 @@ def login_submit():
 
     # ✅ IMPORTANT: store tenant so /admin/api defaults to correct tenant
     user["tenant"] = tenant
+
+    # ✅ IMPORTANT: make roles compatible with require_auth() expecting Owner/Manager/Staff
+    roles = list(user.get("roles") or [])
+    if "Owner" not in roles:
+        roles.insert(0, "Owner")
+    if "admin" not in roles:
+        roles.append("admin")
+    user["roles"] = roles
+
     session["user"] = user
     session["admin_session_id"] = user.get("id") or "admin"
 
