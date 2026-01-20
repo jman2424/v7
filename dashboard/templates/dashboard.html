@@ -5,37 +5,46 @@
   <title>{{ tenant }} — Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
-
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 
   <style>
     :root{
-      --bg:#070A10;
-      --panel: rgba(255,255,255,.05);
-      --panel2: rgba(255,255,255,.07);
+      --bg0:#05060B;
+      --bg1:#0B1020;
+      --panel: rgba(255,255,255,.06);
+      --panel2: rgba(255,255,255,.08);
       --line: rgba(255,255,255,.10);
+      --line2: rgba(255,255,255,.14);
       --text: rgba(255,255,255,.92);
       --muted: rgba(255,255,255,.62);
       --muted2: rgba(255,255,255,.45);
       --radius: 18px;
+      --shadow: 0 18px 50px rgba(0,0,0,.55);
+      --pad: 16px;
     }
 
+    /* Kill the random bottom color band: make the gradient own the entire viewport */
+    html, body { height: 100%; }
     body{
+      margin: 0;
+      min-height: 100%;
       background:
         radial-gradient(900px 600px at 10% 10%, rgba(110,231,255,.14), transparent 60%),
         radial-gradient(900px 600px at 80% 20%, rgba(167,139,250,.14), transparent 60%),
         radial-gradient(900px 600px at 60% 90%, rgba(52,211,153,.10), transparent 60%),
-        linear-gradient(180deg, #05060B, #0B1020);
+        linear-gradient(180deg, var(--bg0), var(--bg1));
       color: var(--text);
+      background-attachment: fixed; /* important */
     }
 
-    .wrap{ max-width: 1180px; margin: 0 auto; padding: 22px 16px 60px; }
+    .wrap{ max-width: 1220px; margin: 0 auto; padding: 22px 16px 70px; }
 
     .topbar{
-      display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;
-      margin-bottom: 16px;
+      display:flex; align-items:flex-start; justify-content:space-between;
+      gap:14px; flex-wrap:wrap; margin-bottom: 14px;
     }
-    .title h1{ margin:0; font-size:18px; font-weight:800; letter-spacing:.2px; }
+
+    .title h1{ margin:0; font-size:18px; font-weight:900; letter-spacing:.2px; }
     .title p{ margin:6px 0 0; color: var(--muted); font-size:13px; line-height:1.35; }
 
     .controls{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -45,7 +54,7 @@
       border:1px solid var(--line); background: rgba(255,255,255,.04);
       backdrop-filter: blur(10px);
     }
-    .pill label{ font-size:12px; color: var(--muted2); font-weight:700; }
+    .pill label{ font-size:12px; color: var(--muted2); font-weight:800; }
     .pill select{
       background: transparent; border:0; color: var(--text); outline:none;
       font-size:12px; cursor:pointer;
@@ -57,43 +66,37 @@
       background: rgba(255,255,255,.06);
       color: var(--text);
       padding:10px 14px;
-      font-weight:800;
+      font-weight:900;
       cursor:pointer;
     }
-    .btn:hover{ background: rgba(255,255,255,.10); }
+    .btn:hover{ background: rgba(255,255,255,.10); border-color: var(--line2); }
     .btn:active{ transform: translateY(1px); }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1.35fr .65fr;
-      gap: 14px;
-      align-items:start;
-    }
-    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
 
     .card{
       border:1px solid var(--line);
       background: var(--panel);
       border-radius: var(--radius);
-      padding: 16px;
-      box-shadow: 0 14px 40px rgba(0,0,0,.45);
+      padding: var(--pad);
+      box-shadow: var(--shadow);
     }
     .card h2{
       margin:0 0 10px;
-      font-size: 13px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: .22px;
-      color: rgba(255,255,255,.75);
+      color: rgba(255,255,255,.76);
       display:flex; align-items:center; justify-content:space-between; gap:10px;
     }
+    .muted{ color: var(--muted); font-size:12px; }
 
     .kpis{
       display:grid;
-      grid-template-columns: repeat(4, minmax(0,1fr));
+      grid-template-columns: repeat(6, minmax(0,1fr));
       gap: 10px;
       margin-top: 10px;
     }
-    @media (max-width: 980px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 1100px){ .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
+    @media (max-width: 700px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
 
     .kpi{
       border:1px solid rgba(255,255,255,.10);
@@ -102,11 +105,39 @@
       padding: 12px;
     }
     .kpi .k{ font-size:11px; color: var(--muted2); font-weight:900; letter-spacing:.2px; text-transform:uppercase; }
-    .kpi .v{ margin-top:6px; font-size:22px; font-weight:900; }
+    .kpi .v{ margin-top:6px; font-size:22px; font-weight:950; }
     .kpi .s{ margin-top:6px; font-size:12px; color: var(--muted); }
 
-    .chartbox{ height: 320px; border-radius: 14px; border:1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.18); padding: 10px; }
-    .chartbox.small{ height: 240px; }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.4fr .6fr;
+      gap: 14px;
+      align-items:start;
+      margin-top: 14px;
+    }
+    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
+
+    .stack{ display:flex; flex-direction:column; gap:14px; }
+
+    .chartbox{
+      height: 320px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.18);
+      padding: 10px;
+      position: relative;
+    }
+    .chartbox.small{ height: 220px; }
+
+    .empty{
+      position:absolute; inset:0;
+      display:flex; align-items:center; justify-content:center;
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      padding: 14px;
+      text-align: center;
+      pointer-events:none;
+    }
 
     .tablewrap{
       border-radius: 14px;
@@ -129,10 +160,22 @@
       padding: 12px;
       border-bottom: 1px solid rgba(255,255,255,.06);
       color: rgba(255,255,255,.88);
+      vertical-align: top;
     }
     tr:hover td{ background: rgba(255,255,255,.03); }
 
-    .muted{ color: var(--muted); font-size:12px; }
+    .pilltag{
+      display:inline-flex;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      color: rgba(255,255,255,.78);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .1px;
+    }
+
     .pre{
       border-radius: 14px;
       border:1px solid rgba(255,255,255,.10);
@@ -143,6 +186,13 @@
       color: rgba(255,255,255,.80);
       max-height: 260px;
     }
+
+    .two{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 980px){ .two{ grid-template-columns: 1fr; } }
   </style>
 </head>
 
@@ -150,12 +200,11 @@
   {% include 'partials/_navbar.html' ignore missing %}
 
   <main class="wrap">
-
     <div class="topbar">
       <div class="title">
         <h1>Admin Dashboard — {{ tenant }}</h1>
         <p>
-          KPI + charts + common questions + fallbacks + errors.
+          KPIs + charts + common questions + fallbacks + redirects + errors.
           <span class="muted">Logged in as: {{ role }}</span>
         </p>
       </div>
@@ -170,6 +219,7 @@
             <option value="43200">Last 30d</option>
           </select>
         </div>
+
         <button id="refresh" class="btn" type="button">Refresh</button>
         <button id="export" class="btn" type="button">Export Leads CSV</button>
       </div>
@@ -177,19 +227,34 @@
 
     <section class="card">
       <h2>KPIs <span class="muted" id="kpi-sub">—</span></h2>
+
       <div class="kpis">
-        <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">messages received</div></div>
-        <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">messages sent</div></div>
-        <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique conversations</div></div>
-        <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default/system replies</div></div>
+        <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div></div>
+        <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
+        <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">msgs</div></div>
+        <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div></div>
+        <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default replies</div></div>
+        <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline errors</div></div>
       </div>
     </section>
 
-    <div class="grid" style="margin-top:14px;">
-      <div style="display:flex; flex-direction:column; gap:14px;">
+    <div class="grid">
+      <!-- LEFT -->
+      <div class="stack">
         <section class="card">
-          <h2>Message Volume (Inbound vs Outbound)</h2>
-          <div class="chartbox"><canvas id="chart-volume"></canvas></div>
+          <h2>Message Volume</h2>
+          <div class="chartbox">
+            <div class="empty" id="empty-volume" style="display:none;">No data yet for this period.</div>
+            <canvas id="chart-volume"></canvas>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Sessions Over Time</h2>
+          <div class="chartbox">
+            <div class="empty" id="empty-sessions" style="display:none;">No session data yet.</div>
+            <canvas id="chart-sessions"></canvas>
+          </div>
         </section>
 
         <section class="card">
@@ -215,33 +280,99 @@
         </section>
       </div>
 
-      <aside style="display:flex; flex-direction:column; gap:14px;">
+      <!-- RIGHT -->
+      <aside class="stack">
         <section class="card">
-          <h2>Channels (Pie)</h2>
-          <div class="chartbox small"><canvas id="chart-channels"></canvas></div>
+          <h2>Channels</h2>
+          <div class="chartbox small">
+            <div class="empty" id="empty-channels" style="display:none;">No channels logged.</div>
+            <canvas id="chart-channels"></canvas>
+          </div>
         </section>
 
         <section class="card">
-          <h2>Top Intents (Bar)</h2>
-          <div class="chartbox small"><canvas id="chart-intents"></canvas></div>
+          <h2>Top Intents</h2>
+          <div class="chartbox small">
+            <div class="empty" id="empty-intents" style="display:none;">No intents logged.</div>
+            <canvas id="chart-intents"></canvas>
+          </div>
         </section>
 
         <section class="card">
-          <h2>Fallback Reasons (Bar)</h2>
-          <div class="chartbox small"><canvas id="chart-fallbacks"></canvas></div>
+          <h2>Fallbacks (Default Answers)</h2>
+          <div class="chartbox small">
+            <div class="empty" id="empty-fallbacks" style="display:none;">No fallbacks in this period.</div>
+            <canvas id="chart-fallbacks"></canvas>
+          </div>
+          <div class="muted" style="margin-top:10px;" id="fallback-note">—</div>
         </section>
 
         <section class="card">
-          <h2>Top Errors (Bar)</h2>
-          <div class="chartbox small"><canvas id="chart-errors"></canvas></div>
+          <h2>Errors</h2>
+          <div class="chartbox small">
+            <div class="empty" id="empty-errors" style="display:none;">No errors logged.</div>
+            <canvas id="chart-errors"></canvas>
+          </div>
+        </section>
+
+        <section class="card" id="redirects-card" style="display:none;">
+          <h2>Redirects</h2>
+          <div class="chartbox small">
+            <div class="empty" id="empty-redirects" style="display:none;">No redirects logged.</div>
+            <canvas id="chart-redirects"></canvas>
+          </div>
         </section>
 
         <section class="card">
-          <h2>Raw Debug (optional)</h2>
+          <h2>Debug</h2>
           <pre class="pre" id="raw">—</pre>
         </section>
       </aside>
     </div>
+
+    <div class="two" style="margin-top:14px;">
+      <section class="card">
+        <h2>Fallback / Default Answer Breakdown</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Key</th><th>Count</th></tr></thead>
+            <tbody id="tbl-fallbacks"><tr><td colspan="2">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Error Breakdown</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Key</th><th>Count</th></tr></thead>
+            <tbody id="tbl-errors"><tr><td colspan="2">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="two" style="margin-top:14px;">
+      <section class="card" id="tbl-redirects-card" style="display:none;">
+        <h2>Redirect Breakdown</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>To</th><th>Count</th></tr></thead>
+            <tbody id="tbl-redirects"><tr><td colspan="2">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Notes</h2>
+        <div class="muted" style="line-height:1.5;">
+          <div><span class="pilltag">Fallbacks</span> are when your bot returns a default answer or pipeline failure.</div>
+          <div style="margin-top:8px;"><span class="pilltag">Errors</span> are logged exceptions or failures during message processing.</div>
+          <div style="margin-top:8px;"><span class="pilltag">Redirects</span> show where users get routed (if event_type='redirect' exists).</div>
+        </div>
+      </section>
+    </div>
+
   </main>
 
   <script>
@@ -256,10 +387,18 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-
     const state = { charts: {} };
 
-    function int(n){ return Number.isFinite(Number(n)) ? Math.trunc(Number(n)) : 0; }
+    function toInt(n){
+      const x = Number(n);
+      return Number.isFinite(x) ? Math.trunc(x) : 0;
+    }
+
+    function esc(s){
+      return String(s ?? "")
+        .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    }
 
     function headers(){
       const h = {};
@@ -274,100 +413,166 @@
     }
 
     function destroyChart(key){
-      if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; }
+      if(state.charts[key]){
+        state.charts[key].destroy();
+        delete state.charts[key];
+      }
     }
 
-    function renderBar(canvasId, key, labels, values){
+    function setEmpty(id, on){
+      const el = $(id);
+      if(el) el.style.display = on ? "flex" : "none";
+    }
+
+    function chartBaseOptions(){
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        normalized: true,
+        parsing: false,
+      };
+    }
+
+    function renderBar(canvasId, key, labels, values, emptyId){
       destroyChart(key);
+
+      if(!labels.length){
+        setEmpty(emptyId, true);
+        return;
+      }
+      setEmpty(emptyId, false);
+
       const ctx = $(canvasId);
       state.charts[key] = new Chart(ctx, {
         type: "bar",
         data: {
           labels,
-          datasets: [{ label: "Count", data: values.map(int) }]
+          datasets: [{ label: "Count", data: values.map(toInt) }]
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
+        options: Object.assign(chartBaseOptions(), {
           plugins: { legend: { display: false } },
           scales: {
-            y: { ticks: { callback: (v) => int(v) }, beginAtZero: true }
+            y: { beginAtZero: true, ticks: { callback: (v) => toInt(v) } }
           }
-        }
+        })
       });
     }
 
-    function renderPie(canvasId, key, labels, values){
+    function renderPie(canvasId, key, labels, values, emptyId){
       destroyChart(key);
+
+      if(!labels.length){
+        setEmpty(emptyId, true);
+        return;
+      }
+      setEmpty(emptyId, false);
+
       const ctx = $(canvasId);
       state.charts[key] = new Chart(ctx, {
         type: "pie",
-        data: {
-          labels,
-          datasets: [{ data: values.map(int) }]
-        },
-        options: { responsive:true, maintainAspectRatio:false }
+        data: { labels, datasets: [{ data: values.map(toInt) }] },
+        options: Object.assign(chartBaseOptions(), {
+          plugins: { legend: { position: "bottom" } }
+        })
       });
     }
 
-    function renderLine(canvasId, key, labels, inbound, outbound){
+    function renderLine(canvasId, key, labels, seriesA, seriesB, emptyId, labelA="Series A", labelB="Series B"){
       destroyChart(key);
+
+      if(!labels.length){
+        setEmpty(emptyId, true);
+        return;
+      }
+      setEmpty(emptyId, false);
+
       const ctx = $(canvasId);
       state.charts[key] = new Chart(ctx, {
         type: "line",
         data: {
           labels,
           datasets: [
-            { label: "Inbound", data: inbound.map(int), tension: 0.25 },
-            { label: "Outbound", data: outbound.map(int), tension: 0.25 }
+            { label: labelA, data: seriesA.map(toInt), tension: 0.25, pointRadius: 0 },
+            { label: labelB, data: seriesB.map(toInt), tension: 0.25, pointRadius: 0 }
           ]
         },
-        options: {
-          responsive:true,
-          maintainAspectRatio:false,
+        options: Object.assign(chartBaseOptions(), {
           scales: {
-            y: { ticks: { callback: (v) => int(v) }, beginAtZero:true }
+            y: { beginAtZero: true, ticks: { callback: (v) => toInt(v) } }
           }
-        }
+        })
       });
     }
 
-    function renderQuestions(items){
-      const tbody = $("tbl-questions");
-      if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="2">No questions logged (or text column missing).</td></tr>`;
+    function renderSingleLine(canvasId, key, labels, series, emptyId, label="Sessions"){
+      destroyChart(key);
+
+      if(!labels.length){
+        setEmpty(emptyId, true);
         return;
       }
-      tbody.innerHTML = items.slice(0,20).map(x =>
-        `<tr><td>${escapeHtml(x.text || "")}</td><td>${int(x.count)}</td></tr>`
+      setEmpty(emptyId, false);
+
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets: [{ label, data: series.map(toInt), tension: 0.25, pointRadius: 0 }] },
+        options: Object.assign(chartBaseOptions(), {
+          scales: {
+            y: { beginAtZero: true, ticks: { callback: (v) => toInt(v) } }
+          }
+        })
+      });
+    }
+
+    function renderTable2(tbodyId, rows, colA="Key", colB="Count"){
+      const tb = $(tbodyId);
+      if(!tb) return;
+
+      if(!rows || !rows.length){
+        tb.innerHTML = `<tr><td colspan="2">No data.</td></tr>`;
+        return;
+      }
+
+      tb.innerHTML = rows.slice(0, 30).map(r => {
+        const a = esc(r.text ?? r.key ?? r.intent ?? r.to ?? r.to_key ?? "");
+        const b = toInt(r.count ?? r.n ?? 0);
+        return `<tr><td>${a}</td><td>${b}</td></tr>`;
+      }).join("");
+    }
+
+    function renderQuestions(items){
+      const tb = $("tbl-questions");
+      if(!tb) return;
+      if(!items || !items.length){
+        tb.innerHTML = `<tr><td colspan="2">No questions logged (or text column missing).</td></tr>`;
+        return;
+      }
+      tb.innerHTML = items.slice(0, 25).map(x =>
+        `<tr><td>${esc(x.text || "")}</td><td>${toInt(x.count)}</td></tr>`
       ).join("");
     }
 
     function renderLeads(items){
-      const tbody = $("tbl-leads");
+      const tb = $("tbl-leads");
+      if(!tb) return;
+
       if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
         return;
       }
-      tbody.innerHTML = items.slice(0,50).map(r =>
+
+      tb.innerHTML = items.slice(0, 60).map(r =>
         `<tr>
-          <td>${escapeHtml(r.updated_utc || "")}</td>
-          <td>${escapeHtml(r.name || "")}</td>
-          <td>${escapeHtml(r.phone || "")}</td>
-          <td>${escapeHtml(r.status || "")}</td>
-          <td>${escapeHtml(r.tags || "")}</td>
-          <td>${escapeHtml(r.last_session_id || "")}</td>
+          <td>${esc(r.updated_utc || "")}</td>
+          <td>${esc(r.name || "")}</td>
+          <td>${esc(r.phone || "")}</td>
+          <td>${esc(r.status || "")}</td>
+          <td>${esc(r.tags || "")}</td>
+          <td>${esc(r.last_session_id || "")}</td>
         </tr>`
       ).join("");
-    }
-
-    function escapeHtml(s){
-      return String(s)
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
     }
 
     async function refreshAll(){
@@ -377,41 +582,91 @@
       const [k, ts, ins, ld] = await Promise.all([
         getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
         getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60&tenant=${tenant}`),
-        getJSON(`/admin/api/insights?minutes=${minutes}&top=20&tenant=${tenant}`),
-        getJSON(`/admin/api/leads?limit=50&tenant=${tenant}`),
+        getJSON(`/admin/api/insights?minutes=${minutes}&top=25&tenant=${tenant}`),
+        getJSON(`/admin/api/leads?limit=60&tenant=${tenant}`),
       ]);
 
-      $("kpi-in").textContent = int(k.inbound);
-      $("kpi-out").textContent = int(k.outbound);
-      $("kpi-sessions").textContent = int(k.sessions);
-      $("kpi-fb").textContent = int(k.fallbacks);
-      $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
+      $("kpi-in").textContent = toInt(k.inbound);
+      $("kpi-out").textContent = toInt(k.outbound);
+      $("kpi-total").textContent = toInt(k.total_messages);
+      $("kpi-sessions").textContent = toInt(k.sessions);
+      $("kpi-fb").textContent = toInt(k.fallbacks);
+      $("kpi-err").textContent = toInt(k.errors);
+      $("kpi-sub").textContent = `Last ${toInt(k.minutes)} minutes`;
 
-      // Volume line
-      const labels = (ts.points || []).map(p => (p.t || "").slice(5,16).replace("T"," "));
-      const inb = (ts.points || []).map(p => int(p.inbound));
-      const outb = (ts.points || []).map(p => int(p.outbound));
-      renderLine("chart-volume", "volume", labels, inb, outb);
+      // Timeseries
+      const pts = (ts.points || []);
+      const labels = pts.map(p => (p.t || "").slice(5,16).replace("T"," "));
+      const inb = pts.map(p => toInt(p.inbound));
+      const outb = pts.map(p => toInt(p.outbound));
+      const ses = pts.map(p => toInt(p.sessions));
 
-      // Channels pie
-      const ch = (ins.channels || []);
-      renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>int(x.count)));
+      renderLine("chart-volume", "volume", labels, inb, outb, "empty-volume", "Inbound", "Outbound");
+      renderSingleLine("chart-sessions", "sessions", labels, ses, "empty-sessions", "Sessions");
 
-      // Intents bar
+      // Insights charts
+      const channels = (ins.channels || []);
+      renderPie(
+        "chart-channels",
+        "channels",
+        channels.map(x => x.key),
+        channels.map(x => toInt(x.count)),
+        "empty-channels"
+      );
+
       const intents = (ins.intents || []);
-      renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>int(x.count)));
+      renderBar(
+        "chart-intents",
+        "intents",
+        intents.map(x => x.key),
+        intents.map(x => toInt(x.count)),
+        "empty-intents"
+      );
 
-      // Fallbacks bar
       const fbs = (ins.fallbacks || []);
-      renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>int(x.count)));
+      renderBar(
+        "chart-fallbacks",
+        "fallbacks",
+        fbs.map(x => x.key),
+        fbs.map(x => toInt(x.count)),
+        "empty-fallbacks"
+      );
+      $("fallback-note").textContent = fbs.length
+        ? `Top fallback bucket: ${fbs[0].key} (${toInt(fbs[0].count)})`
+        : "—";
 
-      // Errors bar
       const errs = (ins.errors || []);
-      renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>int(x.count)));
+      renderBar(
+        "chart-errors",
+        "errors",
+        errs.map(x => x.key),
+        errs.map(x => toInt(x.count)),
+        "empty-errors"
+      );
+
+      // Redirects (only show if present)
+      const redirects = (ins.redirects || []);
+      const showRedirects = Array.isArray(redirects) && redirects.length > 0;
+
+      $("redirects-card").style.display = showRedirects ? "" : "none";
+      $("tbl-redirects-card").style.display = showRedirects ? "" : "none";
+
+      if(showRedirects){
+        renderBar(
+          "chart-redirects",
+          "redirects",
+          redirects.map(x => x.key),
+          redirects.map(x => toInt(x.count)),
+          "empty-redirects"
+        );
+        renderTable2("tbl-redirects", redirects);
+      }
 
       // Tables
       renderQuestions(ins.common_questions || []);
       renderLeads(ld.items || []);
+      renderTable2("tbl-fallbacks", fbs);
+      renderTable2("tbl-errors", errs);
 
       $("raw").textContent = JSON.stringify({kpis:k, timeseries:ts, insights:ins}, null, 2);
     }
@@ -420,10 +675,10 @@
       $("refresh").addEventListener("click", () => refreshAll().catch(e => $("raw").textContent = String(e)));
       $("period").addEventListener("change", () => refreshAll().catch(e => $("raw").textContent = String(e)));
       $("export").addEventListener("click", () => {
-        const minutes = parseInt($("period").value || "1440", 10);
         const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-        window.location.href = `/admin/api/leads.csv?tenant=${tenant}&minutes=${minutes}`;
+        window.location.href = `/admin/api/leads.csv?tenant=${tenant}`;
       });
+
       refreshAll().catch(e => $("raw").textContent = String(e));
     });
   </script>
