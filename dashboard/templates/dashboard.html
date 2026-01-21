@@ -11,27 +11,25 @@
       --bg0:#060812;
       --bg1:#0b1020;
       --panel: rgba(255,255,255,.06);
-      --panel2: rgba(255,255,255,.08);
       --line: rgba(255,255,255,.12);
       --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.64);
+      --muted: rgba(255,255,255,.62);
       --muted2: rgba(255,255,255,.46);
-      --radius: 14px;
-      --gap: 10px;
-      --pad: 12px;
-      --shadow: 0 18px 55px rgba(0,0,0,.55);
-      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      --radius: 12px;
+      --gap: 8px;
+      --pad: 10px;
+      --shadow: 0 16px 46px rgba(0,0,0,.55);
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
     }
 
-    /* ✅ Zero patchiness: paint once, fixed overlay */
     html, body { height: 100%; }
     body{
       margin:0;
-      min-height:100%;
+      height:100%;
+      overflow:hidden; /* ✅ whole page never scrolls */
       background: linear-gradient(180deg, var(--bg0), var(--bg1));
       color: var(--text);
       font-family: var(--font);
-      overflow-x:hidden;
     }
     body::before{
       content:"";
@@ -39,110 +37,85 @@
       inset:0;
       z-index:-1;
       background:
-        radial-gradient(900px 600px at 12% 10%, rgba(110,231,255,.14), transparent 60%),
-        radial-gradient(900px 600px at 82% 18%, rgba(167,139,250,.14), transparent 60%),
-        radial-gradient(900px 600px at 66% 92%, rgba(52,211,153,.10), transparent 60%),
-        linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.18));
+        radial-gradient(780px 520px at 12% 12%, rgba(110,231,255,.12), transparent 60%),
+        radial-gradient(780px 520px at 85% 18%, rgba(167,139,250,.12), transparent 60%),
+        radial-gradient(780px 520px at 70% 92%, rgba(52,211,153,.08), transparent 60%);
       transform: translateZ(0);
     }
 
-    /* Layout: tight, no wasted space */
-    .wrap{
-      max-width: 1320px;
-      margin: 0 auto;
-      padding: 12px 12px 20px;
+    /* =========================================
+       ✅ NAVBAR / LOGO FORCE-FIX (your partial)
+       ========================================= */
+    /* If your partial uses <nav> or .navbar etc, this clamps it */
+    nav, .navbar, .top-nav, header{
+      max-height: 44px !important;
+      height: 44px !important;
+      overflow: hidden !important;
+      padding: 6px 10px !important;
+      margin: 0 !important;
+      display:flex !important;
+      align-items:center !important;
+      border-bottom: 1px solid rgba(255,255,255,.06) !important;
+      background: rgba(0,0,0,.12) !important;
+      backdrop-filter: blur(10px) !important;
     }
 
-    .topbar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: var(--gap);
-      padding: 6px 2px 10px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-      margin-bottom: 10px;
+    /* Kill huge logo blocks */
+    nav img, header img, .navbar img,
+    nav svg, header svg, .navbar svg{
+      width: 22px !important;
+      height: 22px !important;
+      max-width: 22px !important;
+      max-height: 22px !important;
     }
-    .brand{
+
+    /* Kill giant brand text */
+    nav .brand, header .brand, .navbar .brand,
+    nav .logo, header .logo, .navbar .logo{
+      font-size: 12px !important;
+      font-weight: 900 !important;
+      line-height: 1 !important;
+    }
+
+    /* If the partial has a left sidebar-ish block, nuke it */
+    .sidebar, .side, .drawer, .nav-left, .brand-block{
+      height: 44px !important;
+      max-height: 44px !important;
+      padding: 0 10px !important;
+    }
+
+    /* =========================================
+       ✅ APP LAYOUT
+       ========================================= */
+    .app{
+      height:100vh;
       display:flex;
       flex-direction:column;
-      gap: 2px;
-      min-width: 260px;
-    }
-    .brand .h{
-      font-size: 15px;
-      font-weight: 950;
-      letter-spacing:.2px;
-      margin:0;
-      line-height:1.1;
-    }
-    .brand .s{
-      font-size: 12px;
-      color: var(--muted);
-      margin:0;
-      line-height:1.2;
+      min-height:0;
     }
 
-    .controls{
+    /* If navbar partial exists, it sits above this main.
+       Main must take remaining height. */
+    .main{
+      flex: 1 1 auto;
+      min-height: 0;        /* ✅ key for internal scroll areas */
+      padding: 8px 10px 10px;
       display:flex;
-      align-items:center;
-      gap: 8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
+      flex-direction:column;
+      gap: var(--gap);
     }
 
-    .pill{
-      display:flex;
-      align-items:center;
-      gap: 8px;
-      padding: 8px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.05);
-      backdrop-filter: blur(10px);
-    }
-    .pill label{
-      font-size: 11px;
-      font-weight: 900;
-      text-transform: uppercase;
-      letter-spacing:.16px;
-      color: var(--muted2);
-    }
-    .pill select{
-      border:0;
-      outline:0;
-      background: transparent;
-      color: var(--text);
-      font-size: 12px;
-      font-weight: 900;
-      cursor: pointer;
-    }
-
-    .btn{
-      padding: 8px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
-      font-weight: 950;
-      font-size: 12px;
-      cursor:pointer;
-      letter-spacing:.12px;
-      white-space:nowrap;
-    }
-    .btn:hover{ background: rgba(255,255,255,.10); }
-    .btn:active{ transform: translateY(1px); }
-
-    /* Cards */
     .card{
       border: 1px solid var(--line);
       background: var(--panel);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       padding: var(--pad);
+      min-height: 0;
     }
     .card h2{
-      margin: 0 0 8px;
-      font-size: 11px;
+      margin: 0 0 6px;
+      font-size: 10px;
       font-weight: 950;
       text-transform: uppercase;
       letter-spacing:.2px;
@@ -152,124 +125,146 @@
       justify-content:space-between;
       gap: 8px;
     }
-    .subtle{
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 800;
-      text-transform:none;
-      letter-spacing:0;
-    }
+    .subtle{ font-size: 10px; color: var(--muted); font-weight: 850; text-transform:none; }
 
-    /* KPI strip (tight) */
+    /* KPI strip */
     .kpis{
       display:grid;
       grid-template-columns: repeat(6, minmax(0,1fr));
-      gap: 8px;
+      gap: 6px;
     }
-    @media (max-width: 1100px){ .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
-    @media (max-width: 700px){ .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
-
     .kpi{
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.04);
-      border-radius: 12px;
-      padding: 10px;
+      border-radius: 10px;
+      padding: 8px;
       display:flex;
       flex-direction:column;
       gap: 2px;
-      min-height: 68px;
+      min-height: 52px;
     }
-    .kpi .k{
-      font-size: 10px;
-      font-weight: 950;
-      text-transform: uppercase;
-      letter-spacing:.2px;
-      color: var(--muted2);
-    }
-    .kpi .v{
-      font-size: 20px;
-      font-weight: 1000;
-      line-height:1.05;
-      margin-top: 2px;
-    }
-    .kpi .s{
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 800;
-    }
+    .kpi .k{ font-size: 9px; font-weight: 950; color: var(--muted2); text-transform:uppercase; letter-spacing:.18px; }
+    .kpi .v{ font-size: 16px; font-weight: 1000; line-height:1.05; }
+    .kpi .s{ font-size: 10px; color: var(--muted); font-weight: 800; }
 
-    /* Main grid: dense, no dead areas */
-    .grid{
-      margin-top: 10px;
-      display:grid;
-      grid-template-columns: 1.25fr .75fr;
-      gap: var(--gap);
-      align-items:start;
+    /* Top controls row inside KPI card */
+    .kpiRow{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      flex-wrap:wrap;
     }
-    @media (max-width: 980px){
-      .grid{ grid-template-columns: 1fr; }
+    .controls{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      justify-content:flex-end;
+      flex-wrap:wrap;
     }
-
-    .stack{ display:flex; flex-direction:column; gap: var(--gap); }
-
-    /* Charts */
-    .chartbox{
-      height: 270px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.18);
-      padding: 8px;
+    .pill{
+      display:flex;
+      align-items:center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.05);
     }
-    .chartbox.small{ height: 210px; }
-
-    /* Tables */
-    .tablewrap{
-      border-radius: 12px;
-      overflow:hidden;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-    }
-    table{ width:100%; border-collapse: collapse; font-size:12px; }
-    th{
-      padding: 10px;
+    .pill label{
       font-size: 10px;
       font-weight: 950;
       text-transform: uppercase;
       letter-spacing:.18px;
+      color: var(--muted2);
+    }
+    .pill select{
+      border:0;
+      outline:0;
+      background: transparent;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 950;
+      cursor: pointer;
+    }
+    .btn{
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      font-weight: 950;
+      font-size: 11px;
+      cursor:pointer;
+      letter-spacing:.12px;
+      white-space:nowrap;
+    }
+    .btn:hover{ background: rgba(255,255,255,.10); }
+
+    /* ✅ The grid must fill remaining space and NOT exceed it */
+    .grid{
+      flex: 1 1 auto;
+      min-height: 0;
+      display:grid;
+      grid-template-columns: 1.35fr .65fr;
+      grid-template-rows: minmax(0,1fr) minmax(0,1fr); /* ✅ equal height rows */
+      gap: var(--gap);
+    }
+
+    .panelFill{
+      height: calc(100% - 18px); /* title space */
+      min-height: 0;
+    }
+
+    .chartbox{
+      height: 100%;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.18);
+      padding: 6px;
+    }
+
+    .tablewrap{
+      height: 100%;
+      border-radius: 10px;
+      overflow:auto; /* ✅ scroll INSIDE only */
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+    }
+
+    table{ width:100%; border-collapse: collapse; font-size:11px; }
+    th{
+      position: sticky; top: 0;
+      padding: 8px;
+      font-size: 9px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing:.18px;
       color: rgba(255,255,255,.75);
-      background: rgba(255,255,255,.04);
+      background: rgba(10,12,22,.95);
       border-bottom: 1px solid rgba(255,255,255,.08);
       text-align:left;
       white-space:nowrap;
+      z-index: 2;
     }
     td{
-      padding: 10px;
+      padding: 8px;
       border-bottom: 1px solid rgba(255,255,255,.06);
       color: rgba(255,255,255,.88);
       vertical-align: top;
       word-break: break-word;
-      line-height:1.25;
-    }
-    tr:hover td{ background: rgba(255,255,255,.03); }
-
-    /* Debug */
-    .pre{
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.25);
-      padding: 10px;
-      overflow:auto;
-      font-size: 11px;
-      color: rgba(255,255,255,.80);
-      max-height: 240px;
-      margin:0;
+      line-height:1.2;
     }
 
-    /* Small footer spacing only */
-    .footnote{
-      margin-top: 10px;
-      font-size: 11px;
-      color: var(--muted2);
+    /* Mobile fallback: allow scroll (inevitable) */
+    @media (max-width: 980px){
+      body{ overflow:auto; }
+      .main{ overflow:auto; }
+      .grid{
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+      }
+      .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
     }
   </style>
 </head>
@@ -277,111 +272,80 @@
 <body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
   {% include 'partials/_navbar.html' ignore missing %}
 
-  <main class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <p class="h">Admin — {{ tenant }}</p>
-        <p class="s">Messages • questions • fallbacks • errors • leads <span class="subtle">({{ role }})</span></p>
-      </div>
+  <div class="app">
+    <div class="main">
 
-      <div class="controls">
-        <div class="pill">
-          <label for="period">Period</label>
-          <select id="period">
-            <option value="60">60m</option>
-            <option value="1440" selected>24h</option>
-            <option value="10080">7d</option>
-            <option value="43200">30d</option>
-          </select>
+      <section class="card">
+        <div class="kpiRow">
+          <h2 style="margin:0;">KPIs <span class="subtle" id="kpi-sub">—</span></h2>
+          <div class="controls">
+            <div class="pill">
+              <label for="period">Period</label>
+              <select id="period">
+                <option value="60">60m</option>
+                <option value="1440" selected>24h</option>
+                <option value="10080">7d</option>
+                <option value="43200">30d</option>
+              </select>
+            </div>
+            <button id="refresh" class="btn" type="button">Refresh</button>
+            <button id="export" class="btn" type="button">Export CSV</button>
+          </div>
         </div>
-        <button id="refresh" class="btn" type="button">Refresh</button>
-        <button id="export" class="btn" type="button">Export CSV</button>
-      </div>
-    </div>
 
-    <section class="card">
-      <h2>KPIs <span class="subtle" id="kpi-sub">—</span></h2>
-      <div class="kpis">
-        <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div></div>
-        <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
-        <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div></div>
-        <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div></div>
-        <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default</div></div>
-        <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div></div>
-      </div>
-    </section>
+        <div class="kpis" style="margin-top:8px;">
+          <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">recv</div></div>
+          <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
+          <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">msgs</div></div>
+          <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">uniq</div></div>
+          <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">def</div></div>
+          <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipe</div></div>
+        </div>
+      </section>
 
-    <div class="grid">
-      <!-- Left column -->
-      <div class="stack">
-        <section class="card">
-          <h2>Message Volume</h2>
-          <div class="chartbox"><canvas id="chart-volume"></canvas></div>
-        </section>
-
-        <section class="card">
-          <h2>Most Common Questions</h2>
-          <div class="tablewrap">
-            <table>
-              <thead><tr><th>Question</th><th style="width:110px;">Count</th></tr></thead>
-              <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
-            </table>
+      <div class="grid">
+        <!-- Row 1 -->
+        <section class="card" style="min-height:0;">
+          <h2>Volume</h2>
+          <div class="panelFill">
+            <div class="chartbox"><canvas id="chart-volume"></canvas></div>
           </div>
         </section>
 
-        <section class="card">
-          <h2>Leads</h2>
-          <div class="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:160px;">Updated</th>
-                  <th style="width:160px;">Name</th>
-                  <th style="width:160px;">Phone</th>
-                  <th style="width:120px;">Status</th>
-                  <th>Tags</th>
-                  <th style="width:180px;">Session</th>
-                </tr>
-              </thead>
-              <tbody id="tbl-leads"><tr><td colspan="6">Loading…</td></tr></tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <!-- Right column -->
-      <aside class="stack">
-        <section class="card">
+        <section class="card" style="min-height:0;">
           <h2>Channels</h2>
-          <div class="chartbox small"><canvas id="chart-channels"></canvas></div>
+          <div class="panelFill">
+            <div class="chartbox"><canvas id="chart-channels"></canvas></div>
+          </div>
         </section>
 
-        <section class="card">
-          <h2>Top Intents</h2>
-          <div class="chartbox small"><canvas id="chart-intents"></canvas></div>
+        <!-- Row 2 -->
+        <section class="card" style="min-height:0;">
+          <h2>Common Questions</h2>
+          <div class="panelFill">
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Question</th><th style="width:90px;">Count</th></tr></thead>
+                <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
-        <section class="card">
-          <h2>Fallback Breakdown</h2>
-          <div class="chartbox small"><canvas id="chart-fallbacks"></canvas></div>
+        <section class="card" style="min-height:0;">
+          <h2>Intents / Fallbacks / Errors <span class="subtle" id="mini-status">—</span></h2>
+          <div class="panelFill" style="display:grid; grid-template-rows: minmax(0,1fr) minmax(0,1fr); gap: var(--gap); min-height:0;">
+            <div class="chartbox"><canvas id="chart-intents"></canvas></div>
+            <div class="chartbox" style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-height:0;">
+              <div class="chartbox" style="padding:6px;"><canvas id="chart-fallbacks"></canvas></div>
+              <div class="chartbox" style="padding:6px;"><canvas id="chart-errors"></canvas></div>
+            </div>
+          </div>
         </section>
+      </div>
 
-        <section class="card">
-          <h2>Error Breakdown</h2>
-          <div class="chartbox small"><canvas id="chart-errors"></canvas></div>
-        </section>
-
-        <section class="card">
-          <h2>Debug <span class="subtle">API errors show here</span></h2>
-          <pre class="pre" id="debug">—</pre>
-        </section>
-      </aside>
     </div>
-
-    <div class="footnote">
-      Tip: If you see empty charts, it usually means your events table exists but no events were logged for this tenant/time range.
-    </div>
-  </main>
+  </div>
 
   <script>
     (function () {
@@ -430,7 +394,7 @@
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { callback: (v) => int(v) } } }
+          scales: { y: { beginAtZero: true, ticks: { callback: (v)=>int(v) } } }
         }
       });
     }
@@ -440,7 +404,7 @@
       state.charts[key] = new Chart($(canvasId), {
         type: "pie",
         data: { labels, datasets: [{ data: values.map(int) }] },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { responsive:true, maintainAspectRatio:false }
       });
     }
 
@@ -456,9 +420,9 @@
           ]
         },
         options: {
-          responsive: true, maintainAspectRatio: false,
+          responsive:true, maintainAspectRatio:false,
           plugins: { legend: { display: true } },
-          scales: { y: { beginAtZero: true, ticks: { callback: (v)=>int(v) } } }
+          scales: { y: { beginAtZero:true, ticks:{ callback:(v)=>int(v) } } }
         }
       });
     }
@@ -475,42 +439,28 @@
     function renderQuestions(items){
       const tbody = $("tbl-questions");
       if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="2">No questions logged yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="2">No questions yet.</td></tr>`;
         return;
       }
-      tbody.innerHTML = items.slice(0,20).map(x =>
+      tbody.innerHTML = items.slice(0,50).map(x =>
         `<tr><td>${escapeHtml(x.text || "")}</td><td>${int(x.count)}</td></tr>`
       ).join("");
     }
 
-    function renderLeads(items){
-      const tbody = $("tbl-leads");
-      if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="6">No leads yet.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = items.slice(0,50).map(r =>
-        `<tr>
-          <td>${escapeHtml(r.updated_utc || "")}</td>
-          <td>${escapeHtml(r.name || "")}</td>
-          <td>${escapeHtml(r.phone || "")}</td>
-          <td>${escapeHtml(r.status || "")}</td>
-          <td>${escapeHtml(r.tags || "")}</td>
-          <td>${escapeHtml(r.last_session_id || "")}</td>
-        </tr>`
-      ).join("");
+    function showErr(e){
+      $("mini-status").textContent = "ERROR";
+      console.error(e);
     }
 
     async function refreshAll(){
       const minutes = parseInt($("period").value || "1440", 10);
       const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-      $("debug").textContent = "Loading…";
+      $("mini-status").textContent = "Loading…";
 
-      const [k, ts, ins, ld] = await Promise.all([
+      const [k, ts, ins] = await Promise.all([
         getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
         getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60&tenant=${tenant}`),
         getJSON(`/admin/api/insights?minutes=${minutes}&top=25&tenant=${tenant}`),
-        getJSON(`/admin/api/leads?limit=50&tenant=${tenant}`),
       ]);
 
       $("kpi-in").textContent = int(k.inbound);
@@ -519,35 +469,29 @@
       $("kpi-sessions").textContent = int(k.sessions);
       $("kpi-fb").textContent = int(k.fallbacks);
       $("kpi-err").textContent = int(k.errors);
-      $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
+      $("kpi-sub").textContent = `Last ${int(k.minutes)}m`;
 
-      const labels = (ts.points || []).map(p => (p.t || "").slice(5,16).replace("T"," "));
+      const labels = (ts.points || []).map(p => (p.t || "").slice(11,16));
       renderLine("chart-volume", "volume", labels,
         (ts.points || []).map(p => p.inbound),
         (ts.points || []).map(p => p.outbound)
       );
 
-      const ch = ins.channels || [];
+      const ch = (ins.channels || []);
       renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>x.count));
 
-      const intents = ins.intents || [];
+      const intents = (ins.intents || []);
       renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>x.count));
 
-      const fbs = ins.fallbacks || [];
+      const fbs = (ins.fallbacks || []);
       renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>x.count));
 
-      const errs = ins.errors || [];
+      const errs = (ins.errors || []);
       renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>x.count));
 
       renderQuestions(ins.common_questions || []);
-      renderLeads(ld.items || []);
 
-      $("debug").textContent = JSON.stringify({ kpis:k, timeseries:ts, insights:ins }, null, 2);
-    }
-
-    function showErr(e){
-      const payload = e?.payload ? JSON.stringify(e.payload, null, 2) : "";
-      $("debug").textContent = `${String(e)}\n\n${payload}`;
+      $("mini-status").textContent = "OK";
     }
 
     window.addEventListener("DOMContentLoaded", () => {
