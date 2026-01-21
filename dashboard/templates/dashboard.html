@@ -4,475 +4,470 @@
   <meta charset="utf-8" />
   <title>{{ tenant }} — Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <meta name="csrf-token" content="{{ csrf_token or '' }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
 
   <style>
     :root{
-      --bg0:#060812;
-      --bg1:#0b1020;
-      --panel: rgba(255,255,255,.06);
-      --panel2: rgba(255,255,255,.08);
-      --line: rgba(255,255,255,.12);
+      --bg:#070A10;
+      --panel: rgba(255,255,255,.05);
+      --panel2: rgba(255,255,255,.07);
+      --line: rgba(255,255,255,.10);
       --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.64);
-      --muted2: rgba(255,255,255,.46);
+      --muted: rgba(255,255,255,.62);
+      --muted2: rgba(255,255,255,.45);
       --radius: 14px;
-      --shadow: 0 18px 60px rgba(0,0,0,.55);
-      --gap: 14px;
-      --pad: 16px;
-      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      --pad: 12px;
+      --gap: 10px;
+      --hdr: 54px; /* header height */
     }
 
-    html, body { height:100%; }
+    html, body { height: 100%; }
     body{
       margin:0;
-      height:100%;
-      color: var(--text);
-      font-family: var(--font);
-      background: linear-gradient(180deg, var(--bg0), var(--bg1));
-    }
-    body::before{
-      content:"";
-      position:fixed;
-      inset:0;
-      z-index:-1;
       background:
-        radial-gradient(900px 600px at 12% 12%, rgba(110,231,255,.12), transparent 60%),
-        radial-gradient(900px 600px at 85% 18%, rgba(167,139,250,.12), transparent 60%),
-        radial-gradient(900px 600px at 70% 92%, rgba(52,211,153,.08), transparent 60%);
+        radial-gradient(900px 600px at 10% 10%, rgba(110,231,255,.12), transparent 60%),
+        radial-gradient(900px 600px at 80% 20%, rgba(167,139,250,.12), transparent 60%),
+        radial-gradient(900px 600px at 60% 90%, rgba(52,211,153,.08), transparent 60%),
+        linear-gradient(180deg, #05060B, #0B1020);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      overflow: hidden; /* key: prevent page scroll */
     }
 
-    /* =========================
-       NAVBAR PARTIAL: FORCE SMALL
-       ========================= */
-    nav, header, .navbar, .top-nav{
-      height: 52px !important;
-      max-height: 52px !important;
-      overflow:hidden !important;
-      display:flex !important;
-      align-items:center !important;
-      padding: 0 14px !important;
-      margin:0 !important;
-      background: rgba(0,0,0,.14) !important;
-      backdrop-filter: blur(10px) !important;
-      border-bottom: 1px solid rgba(255,255,255,.06) !important;
-    }
-    nav img, header img, .navbar img,
-    nav svg, header svg, .navbar svg{
-      width: 22px !important;
-      height: 22px !important;
-      max-width: 22px !important;
-      max-height: 22px !important;
-    }
-    .sidebar, .drawer, .brand-block{ display:none !important; }
-
-    /* =========================
-       APP LAYOUT
-       ========================= */
-    .app{
-      height:100vh;
+    /* Layout: fixed header + grid fills remaining screen */
+    .page{
+      height: 100vh;
       display:flex;
       flex-direction:column;
-      overflow:hidden;
     }
 
-    /* Sticky top bar inside dashboard (separate from partial navbar) */
-    .dashTop{
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      padding: 14px 16px;
-      border-bottom: 1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.10);
-      backdrop-filter: blur(12px);
-    }
-    .dashTopInner{
-      max-width: 1280px;
-      margin: 0 auto;
+    .header{
+      height: var(--hdr);
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap: 14px;
-      flex-wrap:wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.20);
+      backdrop-filter: blur(10px);
     }
 
     .brand{
-      display:flex;
-      align-items:center;
-      gap: 10px;
-      min-width: 240px;
+      display:flex; align-items:center; gap:10px; min-width: 220px;
     }
-    .logoDot{
-      width: 10px; height: 10px; border-radius: 999px;
-      background: rgba(110,231,255,.9);
-      box-shadow: 0 0 18px rgba(110,231,255,.55);
+    .logo{
+      width: 26px; height: 26px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.12);
+      display:grid; place-items:center;
+      font-weight:900; font-size:12px;
+      letter-spacing:.2px;
     }
-    .brand h1{
-      margin:0;
-      font-size: 14px;
-      font-weight: 950;
-      letter-spacing: .2px;
-      line-height: 1.15;
+    .brand .meta{
+      display:flex; flex-direction:column; line-height:1.1;
     }
-    .brand p{
-      margin: 3px 0 0;
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 700;
+    .brand .meta .t{
+      font-weight:900; font-size:13px;
+    }
+    .brand .meta .s{
+      font-size:11px; color: var(--muted);
     }
 
-    .controls{
-      display:flex;
-      align-items:center;
-      gap: 10px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
+    .actions{
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
     }
+
     .pill{
-      display:flex;
-      align-items:center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.05);
+      display:inline-flex; gap:8px; align-items:center;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid var(--line); background: rgba(255,255,255,.04);
     }
-    .pill label{
-      font-size: 11px;
-      color: var(--muted2);
-      font-weight: 900;
-      text-transform: uppercase;
-      letter-spacing:.16px;
-    }
+    .pill label{ font-size:11px; color: var(--muted2); font-weight:800; letter-spacing:.15px; }
     .pill select{
-      background: transparent;
-      border:0;
-      outline:0;
-      color: var(--text);
-      font-size: 12px;
-      font-weight: 900;
-      cursor:pointer;
+      background: transparent; border:0; color: var(--text); outline:none;
+      font-size:11px; cursor:pointer;
     }
+
     .btn{
-      padding: 9px 12px;
       border-radius: 999px;
-      border: 1px solid var(--line);
+      border:1px solid var(--line);
       background: rgba(255,255,255,.06);
       color: var(--text);
-      font-weight: 950;
-      font-size: 12px;
+      padding:8px 12px;
+      font-weight:900;
+      font-size:11px;
       cursor:pointer;
-      letter-spacing:.12px;
-      white-space:nowrap;
+      letter-spacing:.15px;
     }
     .btn:hover{ background: rgba(255,255,255,.10); }
+    .btn:active{ transform: translateY(1px); }
 
-    /* Main scroll area */
-    .content{
-      flex: 1 1 auto;
-      overflow:auto;
-      padding: 16px;
+    .logout{
+      text-decoration:none;
+      display:inline-flex; align-items:center;
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      color: var(--text);
+      font-weight:900;
+      font-size:11px;
+      background: rgba(255,255,255,.04);
     }
-    .wrap{
-      max-width: 1280px;
-      margin: 0 auto;
-      display:flex;
-      flex-direction:column;
+    .logout:hover{ background: rgba(255,255,255,.08); }
+
+    .content{
+      flex:1;
+      padding: 12px 14px 14px;
+      overflow: hidden; /* no page scroll */
+    }
+
+    /* Main grid fills remaining area */
+    .grid{
+      height: 100%;
+      display:grid;
+      grid-template-columns: 1.35fr .65fr;
+      grid-template-rows: auto 1fr;
+      gap: var(--gap);
+    }
+
+    /* KPIs row spans both columns */
+    .kpis{
+      grid-column: 1 / -1;
+      display:grid;
+      grid-template-columns: repeat(6, minmax(0,1fr));
       gap: var(--gap);
     }
 
     .card{
-      border: 1px solid var(--line);
-      background: var(--panel);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: var(--pad);
-    }
-    .cardHeader{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .cardTitle{
-      font-size: 12px;
-      font-weight: 1000;
-      text-transform: uppercase;
-      letter-spacing:.18px;
-      color: rgba(255,255,255,.78);
-      margin:0;
-    }
-    .cardHint{
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 750;
-    }
-
-    /* KPI row */
-    .kpis{
-      display:grid;
-      grid-template-columns: repeat(6, minmax(0,1fr));
-      gap: 10px;
-    }
-    .kpi{
-      border: 1px solid rgba(255,255,255,.12);
+      border:1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.05);
-      border-radius: 12px;
-      padding: 12px;
-      min-height: 72px;
-      display:flex;
-      flex-direction:column;
-      justify-content:space-between;
-    }
-    .kpi .k{
-      font-size: 10px;
-      font-weight: 950;
-      color: var(--muted2);
-      text-transform: uppercase;
-      letter-spacing:.16px;
-    }
-    .kpi .v{
-      font-size: 22px;
-      font-weight: 1000;
-      line-height: 1.0;
-      margin-top: 8px;
-    }
-    .kpi .s{
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 750;
-      margin-top: 6px;
-    }
-
-    /* Section grid */
-    .grid2{
-      display:grid;
-      grid-template-columns: 1.45fr .55fr;
-      gap: var(--gap);
-      align-items:stretch;
-    }
-    .grid3{
-      display:grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: var(--gap);
-      align-items:stretch;
-    }
-
-    .chartBox{
-      height: 320px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.18);
-      padding: 10px;
-    }
-    .chartBox.sm{ height: 240px; }
-
-    .tableWrap{
-      border-radius: 12px;
+      border-radius: var(--radius);
+      box-shadow: 0 10px 28px rgba(0,0,0,.45);
       overflow:hidden;
-      border: 1px solid rgba(255,255,255,.10);
+      min-height: 0; /* key for internal scrolling */
+    }
+
+    .card .hd{
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 10px 12px;
+      border-bottom:1px solid rgba(255,255,255,.07);
       background: rgba(255,255,255,.03);
     }
-    table{ width:100%; border-collapse: collapse; font-size: 12px; }
-    th{
-      text-align:left;
-      padding: 10px 12px;
-      font-size: 10px;
-      font-weight: 950;
+    .card .hd .h{
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.18px;
       text-transform: uppercase;
-      letter-spacing:.16px;
-      color: rgba(255,255,255,.74);
-      background: rgba(255,255,255,.04);
-      border-bottom: 1px solid rgba(255,255,255,.08);
-      white-space:nowrap;
+      color: rgba(255,255,255,.78);
     }
-    td{
-      padding: 10px 12px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-      color: rgba(255,255,255,.88);
-      vertical-align: top;
+    .card .hd .sub{
+      font-size:11px;
+      color: var(--muted);
     }
-    tr:hover td{ background: rgba(255,255,255,.03); }
 
-    .split2{
+    .kpi{
+      padding: 10px 12px;
+    }
+    .kpi .k{ font-size:10px; color: var(--muted2); font-weight:900; letter-spacing:.18px; text-transform:uppercase; }
+    .kpi .v{ margin-top:6px; font-size:18px; font-weight:900; }
+    .kpi .s{ margin-top:4px; font-size:11px; color: var(--muted); }
+
+    .two{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap: var(--gap);
+      height: 100%;
+      min-height: 0;
     }
 
-    .notice{
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.04);
+    .leftcol, .rightcol{
+      display:grid;
+      gap: var(--gap);
+      height: 100%;
+      min-height: 0;
+    }
+
+    /* Left column: big line chart + two tables */
+    .leftcol{
+      grid-template-rows: 1.05fr .95fr;
+    }
+
+    .leftTop{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--gap);
+      height:100%;
+      min-height:0;
+    }
+
+    /* Make the main line chart bigger, right chart smaller */
+    .lineCard{ min-height:0; }
+    .lineCard .bd{ height: calc(100% - 41px); padding: 8px 10px; }
+    .miniCard .bd{ height: calc(100% - 41px); padding: 8px 10px; }
+
+    .bd{
+      min-height:0;
+    }
+
+    .canvasWrap{
+      height: 100%;
       border-radius: 12px;
-      padding: 12px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 750;
-      line-height: 1.35;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.18);
+      padding: 8px;
     }
-    .notice b{ color: rgba(255,255,255,.88); }
 
-    /* Responsive */
-    @media (max-width: 1100px){
+    .tables{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--gap);
+      height:100%;
+      min-height:0;
+    }
+
+    .tableWrap{
+      height: calc(100% - 41px);
+      overflow:auto; /* internal scroll */
+    }
+
+    table{ width:100%; border-collapse: collapse; font-size:12px; }
+    th{
+      position: sticky; top:0;
+      text-align:left;
+      padding: 10px;
+      font-size:10px;
+      letter-spacing: .18px;
+      color: rgba(255,255,255,.72);
+      text-transform: uppercase;
+      background: rgba(255,255,255,.06);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      z-index: 1;
+    }
+    td{
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      color: rgba(255,255,255,.88);
+      vertical-align: top;
+      word-break: break-word;
+    }
+    tr:hover td{ background: rgba(255,255,255,.03); }
+
+    /* Right column: 2x2 charts + debug */
+    .rightcol{
+      grid-template-rows: 1fr 1fr auto;
+      min-height:0;
+    }
+
+    .quad{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: var(--gap);
+      height:100%;
+      min-height:0;
+    }
+    .quad .bd{
+      height: calc(100% - 41px);
+      padding: 8px 10px;
+    }
+
+    .debug{
+      max-height: 160px;
+    }
+    .pre{
+      margin:0;
+      height: calc(100% - 41px);
+      padding: 10px 12px;
+      overflow:auto;
+      font-size: 11px;
+      color: rgba(255,255,255,.80);
+      background: rgba(0,0,0,.22);
+    }
+
+    .muted{ color: var(--muted); }
+
+    /* Responsive: stack columns if too narrow */
+    @media (max-width: 980px){
+      body{ overflow:auto; } /* allow scroll on small screens */
+      .page{ height:auto; }
+      .content{ overflow: visible; }
+      .grid{
+        height:auto;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+      }
       .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .grid2{ grid-template-columns: 1fr; }
-      .grid3{ grid-template-columns: 1fr; }
-      .split2{ grid-template-columns: 1fr; }
-      .chartBox{ height: 280px; }
+      .leftcol{ grid-template-rows: 420px auto; }
+      .tables{ grid-template-columns: 1fr; }
+      .rightcol{ grid-template-rows: 420px 420px auto; }
     }
   </style>
 </head>
 
 <body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
-  {% include 'partials/_navbar.html' ignore missing %}
+  <div class="page">
 
-  <div class="app">
-
-    <div class="dashTop">
-      <div class="dashTopInner">
-        <div class="brand">
-          <div class="logoDot"></div>
-          <div>
-            <h1>Admin Dashboard — {{ tenant }}</h1>
-            <p>Messages · charts · insights · leads · errors <span style="opacity:.7;">(role: {{ role }})</span></p>
-          </div>
-        </div>
-
-        <div class="controls">
-          <div class="pill">
-            <label for="period">Period</label>
-            <select id="period">
-              <option value="60">Last 60m</option>
-              <option value="1440" selected>Last 24h</option>
-              <option value="10080">Last 7d</option>
-              <option value="43200">Last 30d</option>
-            </select>
-          </div>
-          <button id="refresh" class="btn" type="button">Refresh</button>
-          <button id="export" class="btn" type="button">Export Leads CSV</button>
+    <!-- Header (small logo, no wasted space) -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo">AI</div>
+        <div class="meta">
+          <div class="t">AI Sales Assistant</div>
+          <div class="s">{{ tenant }} • Role: {{ role }}</div>
         </div>
       </div>
-    </div>
 
-    <div class="content">
-      <div class="wrap">
+      <div class="actions">
+        <div class="pill">
+          <label for="period">Period</label>
+          <select id="period">
+            <option value="60">60m</option>
+            <option value="1440" selected>24h</option>
+            <option value="10080">7d</option>
+            <option value="43200">30d</option>
+          </select>
+        </div>
 
-        <!-- KPIs -->
-        <section class="card">
-          <div class="cardHeader">
-            <h2 class="cardTitle">KPIs</h2>
-            <div class="cardHint" id="kpi-sub">—</div>
+        <button id="refresh" class="btn" type="button">Refresh</button>
+        <button id="export" class="btn" type="button">Export CSV</button>
+        <a class="logout" href="{{ url_for('admin_ui.logout', tenant=tenant) }}">Logout</a>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="grid">
+
+        <!-- KPIs row -->
+        <section class="card kpis">
+          <div class="kpi">
+            <div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div>
           </div>
-
-          <div class="kpis">
-            <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div></div>
-            <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
-            <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div></div>
-            <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div></div>
-            <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default/system</div></div>
-            <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div></div>
+          <div class="kpi">
+            <div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div>
           </div>
-        </section>
-
-        <!-- Main charts -->
-        <section class="grid2">
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Message Volume</h2>
-              <div class="cardHint">Inbound vs Outbound</div>
-            </div>
-            <div class="chartBox"><canvas id="chart-volume"></canvas></div>
+          <div class="kpi">
+            <div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div>
           </div>
-
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Channels</h2>
-              <div class="cardHint" id="status">—</div>
-            </div>
-            <div class="chartBox"><canvas id="chart-channels"></canvas></div>
+          <div class="kpi">
+            <div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div>
           </div>
-        </section>
-
-        <!-- Breakdown row -->
-        <section class="grid3">
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Top Intents</h2>
-              <div class="cardHint">Most common</div>
-            </div>
-            <div class="chartBox sm"><canvas id="chart-intents"></canvas></div>
+          <div class="kpi">
+            <div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">defaults</div>
           </div>
-
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Fallbacks</h2>
-              <div class="cardHint">Why defaults happen</div>
-            </div>
-            <div class="chartBox sm"><canvas id="chart-fallbacks"></canvas></div>
-          </div>
-
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Errors</h2>
-              <div class="cardHint">Top error keys</div>
-            </div>
-            <div class="chartBox sm"><canvas id="chart-errors"></canvas></div>
+          <div class="kpi">
+            <div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div>
           </div>
         </section>
 
-        <!-- Tables -->
-        <section class="split2">
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Most Common Questions</h2>
-              <div class="cardHint">Normalized</div>
+        <!-- Main columns -->
+        <div class="two" style="grid-column: 1 / -1;">
+
+          <!-- Left -->
+          <div class="leftcol">
+
+            <div class="leftTop">
+              <section class="card lineCard">
+                <div class="hd">
+                  <div class="h">Message Volume</div>
+                  <div class="sub" id="kpi-sub">—</div>
+                </div>
+                <div class="bd">
+                  <div class="canvasWrap"><canvas id="chart-volume"></canvas></div>
+                </div>
+              </section>
+
+              <section class="card miniCard">
+                <div class="hd">
+                  <div class="h">Channels</div>
+                  <div class="sub muted">share</div>
+                </div>
+                <div class="bd">
+                  <div class="canvasWrap"><canvas id="chart-channels"></canvas></div>
+                </div>
+              </section>
             </div>
-            <div class="tableWrap">
-              <table>
-                <thead><tr><th>Question</th><th style="width:90px;">Count</th></tr></thead>
-                <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
-              </table>
+
+            <div class="tables">
+              <section class="card">
+                <div class="hd">
+                  <div class="h">Common Questions</div>
+                  <div class="sub muted">top</div>
+                </div>
+                <div class="tableWrap">
+                  <table>
+                    <thead><tr><th>Question</th><th style="width:70px;">Count</th></tr></thead>
+                    <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="hd">
+                  <div class="h">Leads</div>
+                  <div class="sub muted">latest</div>
+                </div>
+                <div class="tableWrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style="width:120px;">Updated</th>
+                        <th style="width:140px;">Name</th>
+                        <th style="width:130px;">Phone</th>
+                        <th style="width:90px;">Status</th>
+                        <th>Tags</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody>
+                  </table>
+                </div>
+              </section>
             </div>
+
           </div>
 
-          <div class="card">
-            <div class="cardHeader">
-              <h2 class="cardTitle">Leads</h2>
-              <div class="cardHint">Most recent</div>
-            </div>
-            <div class="tableWrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:160px;">Updated</th>
-                    <th>Name</th>
-                    <th style="width:160px;">Phone</th>
-                    <th style="width:120px;">Status</th>
-                    <th style="width:180px;">Tags</th>
-                  </tr>
-                </thead>
-                <tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
+          <!-- Right -->
+          <div class="rightcol">
 
-        <!-- Notes + Debug -->
-        <section class="card">
-          <div class="cardHeader">
-            <h2 class="cardTitle">Notes</h2>
-            <div class="cardHint">Quick meaning</div>
+            <div class="quad">
+              <section class="card">
+                <div class="hd"><div class="h">Top Intents</div><div class="sub muted">bar</div></div>
+                <div class="bd"><div class="canvasWrap"><canvas id="chart-intents"></canvas></div></div>
+              </section>
+
+              <section class="card">
+                <div class="hd"><div class="h">Fallbacks</div><div class="sub muted">bar</div></div>
+                <div class="bd"><div class="canvasWrap"><canvas id="chart-fallbacks"></canvas></div></div>
+              </section>
+
+              <section class="card">
+                <div class="hd"><div class="h">Errors</div><div class="sub muted">bar</div></div>
+                <div class="bd"><div class="canvasWrap"><canvas id="chart-errors"></canvas></div></div>
+              </section>
+
+              <section class="card">
+                <div class="hd"><div class="h">Sessions</div><div class="sub muted">per bucket</div></div>
+                <div class="bd"><div class="canvasWrap"><canvas id="chart-sessions"></canvas></div></div>
+              </section>
+            </div>
+
+            <section class="card debug">
+              <div class="hd">
+                <div class="h">Debug</div>
+                <div class="sub muted" id="dbg-status">—</div>
+              </div>
+              <pre class="pre" id="raw">—</pre>
+            </section>
+
           </div>
-          <div class="notice">
-            <b>Fallbacks</b> = default replies or pipeline failures.<br/>
-            <b>Errors</b> = exceptions during processing.<br/>
-            If a chart is empty, it usually means <b>no events were logged</b> in this time range.
-          </div>
-        </section>
+
+        </div>
 
       </div>
-    </div>
+    </main>
   </div>
 
   <script>
@@ -489,7 +484,7 @@
     const $ = (id) => document.getElementById(id);
     const state = { charts: {} };
 
-    function int(n){ n = Number(n); return Number.isFinite(n) ? Math.trunc(n) : 0; }
+    function int(n){ return Number.isFinite(Number(n)) ? Math.trunc(Number(n)) : 0; }
 
     function headers(){
       const h = {};
@@ -500,15 +495,11 @@
     async function getJSON(url){
       const res = await fetch(url, { credentials:"include", headers: headers() });
       const txt = await res.text();
-      let data = null;
-      try { data = txt ? JSON.parse(txt) : null; }
-      catch { data = { raw: txt }; }
       if(!res.ok){
-        const err = new Error(`HTTP ${res.status} ${url}`);
-        err.payload = data;
-        throw err;
+        throw new Error(`HTTP ${res.status} ${url}\n${txt}`);
       }
-      return data;
+      try { return JSON.parse(txt); }
+      catch { throw new Error(`Bad JSON from ${url}\n${txt}`); }
     }
 
     function destroyChart(key){
@@ -517,42 +508,61 @@
 
     function renderBar(canvasId, key, labels, values){
       destroyChart(key);
-      state.charts[key] = new Chart($(canvasId), {
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
         type: "bar",
         data: { labels, datasets: [{ label: "Count", data: values.map(int) }] },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
-          scales: { y: { beginAtZero: true, ticks: { callback: (v)=>int(v) } } }
+          scales: { y: { ticks: { callback: (v) => int(v) }, beginAtZero: true } }
         }
       });
     }
 
     function renderPie(canvasId, key, labels, values){
       destroyChart(key);
-      state.charts[key] = new Chart($(canvasId), {
-        type: "doughnut",
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "pie",
         data: { labels, datasets: [{ data: values.map(int) }] },
-        options: { responsive:true, maintainAspectRatio:false, cutout: "65%" }
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }
       });
     }
 
     function renderLine(canvasId, key, labels, inbound, outbound){
       destroyChart(key);
-      state.charts[key] = new Chart($(canvasId), {
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
         type: "line",
         data: {
           labels,
           datasets: [
-            { label: "Inbound", data: inbound.map(int), tension: 0.25 },
-            { label: "Outbound", data: outbound.map(int), tension: 0.25 }
+            { label: "Inbound", data: inbound.map(int), tension: 0.25, pointRadius: 0 },
+            { label: "Outbound", data: outbound.map(int), tension: 0.25, pointRadius: 0 }
           ]
         },
         options: {
           responsive:true,
           maintainAspectRatio:false,
-          scales: { y: { beginAtZero:true, ticks:{ callback:(v)=>int(v) } } }
+          plugins:{ legend:{ position:"bottom" } },
+          scales:{ y:{ ticks:{ callback:(v)=>int(v) }, beginAtZero:true } }
+        }
+      });
+    }
+
+    function renderSessionsLine(canvasId, key, labels, sessions){
+      destroyChart(key);
+      const ctx = $(canvasId);
+      state.charts[key] = new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets: [{ label: "Sessions", data: sessions.map(int), tension: 0.25, pointRadius: 0 }] },
+        options: {
+          responsive:true,
+          maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          scales:{ y:{ ticks:{ callback:(v)=>int(v) }, beginAtZero:true } }
         }
       });
     }
@@ -583,9 +593,9 @@
         tbody.innerHTML = `<tr><td colspan="5">No leads yet.</td></tr>`;
         return;
       }
-      tbody.innerHTML = items.slice(0,25).map(r =>
+      tbody.innerHTML = items.slice(0,35).map(r =>
         `<tr>
-          <td>${escapeHtml(r.updated_utc || "")}</td>
+          <td>${escapeHtml((r.updated_utc || "").slice(0,19).replace("T"," "))}</td>
           <td>${escapeHtml(r.name || "")}</td>
           <td>${escapeHtml(r.phone || "")}</td>
           <td>${escapeHtml(r.status || "")}</td>
@@ -594,17 +604,15 @@
       ).join("");
     }
 
-    function normalizeKV(items, keyField, valField){
-      if(!Array.isArray(items)) return { labels:[], values:[] };
-      const labels = items.map(x => String(x?.[keyField] ?? "")).filter(Boolean);
-      const values = items.map(x => int(x?.[valField]));
-      return { labels, values };
+    function topN(arr, n){
+      return (arr || []).slice(0,n);
     }
 
     async function refreshAll(){
       const minutes = parseInt($("period").value || "1440", 10);
       const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-      $("status").textContent = "Loading…";
+
+      $("dbg-status").textContent = "Loading…";
 
       const [k, ts, ins, ld] = await Promise.all([
         getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
@@ -622,47 +630,55 @@
       $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
 
       // Volume line
-      const labels = (ts.points || []).map(p => (p.t || "").slice(11,16));
-      const inbound = (ts.points || []).map(p => p.inbound);
-      const outbound = (ts.points || []).map(p => p.outbound);
-      renderLine("chart-volume", "volume", labels, inbound, outbound);
+      const labels = (ts.points || []).map(p => (p.t || "").slice(5,16).replace("T"," "));
+      const inb = (ts.points || []).map(p => int(p.inbound));
+      const outb = (ts.points || []).map(p => int(p.outbound));
+      const sess = (ts.points || []).map(p => int(p.sessions));
+      renderLine("chart-volume", "volume", labels, inb, outb);
+      renderSessionsLine("chart-sessions", "sessions", labels, sess);
 
-      // Channels (API returns: [{channel, count}])
-      const ch = normalizeKV(ins.channels, "channel", "count");
-      renderPie("chart-channels", "channels", ch.labels, ch.values);
+      // Channels pie
+      const ch = topN(ins.channels, 8);
+      renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>x.count));
 
-      // Intents (API returns: [{intent, count}])
-      const intents = normalizeKV(ins.intents, "intent", "count");
-      renderBar("chart-intents", "intents", intents.labels, intents.values);
+      // Intents bar
+      const intents = topN(ins.intents, 10);
+      renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>x.count));
 
-      // Fallbacks (API returns: [{intent, count}] as fallback_hits)
-      const fbs = normalizeKV(ins.fallback_hits, "intent", "count");
-      renderBar("chart-fallbacks", "fallbacks", fbs.labels, fbs.values);
+      // Fallbacks bar
+      const fbs = topN(ins.fallbacks, 10);
+      renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>x.count));
 
-      // Errors (API returns: [{key, count}])
-      const errs = normalizeKV(ins.errors, "key", "count");
-      renderBar("chart-errors", "errors", errs.labels, errs.values);
+      // Errors bar
+      const errs = topN(ins.errors, 10);
+      renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>x.count));
 
       // Tables
       renderQuestions(ins.common_questions || []);
       renderLeads(ld.items || []);
 
-      $("status").textContent = "OK";
-    }
-
-    function showErr(e){
-      console.error(e);
-      $("status").textContent = "ERROR";
+      $("raw").textContent = JSON.stringify({kpis:k, timeseries:ts, insights:ins}, null, 2);
+      $("dbg-status").textContent = "OK";
     }
 
     window.addEventListener("DOMContentLoaded", () => {
-      $("refresh").addEventListener("click", () => refreshAll().catch(showErr));
-      $("period").addEventListener("change", () => refreshAll().catch(showErr));
+      $("refresh").addEventListener("click", () => refreshAll().catch(e => {
+        $("dbg-status").textContent = "ERROR";
+        $("raw").textContent = String(e);
+      }));
+      $("period").addEventListener("change", () => refreshAll().catch(e => {
+        $("dbg-status").textContent = "ERROR";
+        $("raw").textContent = String(e);
+      }));
       $("export").addEventListener("click", () => {
         const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
         window.location.href = `/admin/api/leads.csv?tenant=${tenant}`;
       });
-      refreshAll().catch(showErr);
+
+      refreshAll().catch(e => {
+        $("dbg-status").textContent = "ERROR";
+        $("raw").textContent = String(e);
+      });
     });
   </script>
 </body>
