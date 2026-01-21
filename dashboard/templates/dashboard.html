@@ -11,25 +11,25 @@
       --bg0:#060812;
       --bg1:#0b1020;
       --panel: rgba(255,255,255,.06);
+      --panel2: rgba(255,255,255,.08);
       --line: rgba(255,255,255,.12);
       --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.62);
+      --muted: rgba(255,255,255,.64);
       --muted2: rgba(255,255,255,.46);
-      --radius: 12px;
-      --gap: 8px;
-      --pad: 10px;
-      --shadow: 0 16px 46px rgba(0,0,0,.55);
+      --radius: 14px;
+      --shadow: 0 18px 60px rgba(0,0,0,.55);
+      --gap: 14px;
+      --pad: 16px;
       --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
     }
 
-    html, body { height: 100%; }
+    html, body { height:100%; }
     body{
       margin:0;
       height:100%;
-      overflow:hidden; /* ✅ whole page never scrolls */
-      background: linear-gradient(180deg, var(--bg0), var(--bg1));
       color: var(--text);
       font-family: var(--font);
+      background: linear-gradient(180deg, var(--bg0), var(--bg1));
     }
     body::before{
       content:"";
@@ -37,30 +37,26 @@
       inset:0;
       z-index:-1;
       background:
-        radial-gradient(780px 520px at 12% 12%, rgba(110,231,255,.12), transparent 60%),
-        radial-gradient(780px 520px at 85% 18%, rgba(167,139,250,.12), transparent 60%),
-        radial-gradient(780px 520px at 70% 92%, rgba(52,211,153,.08), transparent 60%);
-      transform: translateZ(0);
+        radial-gradient(900px 600px at 12% 12%, rgba(110,231,255,.12), transparent 60%),
+        radial-gradient(900px 600px at 85% 18%, rgba(167,139,250,.12), transparent 60%),
+        radial-gradient(900px 600px at 70% 92%, rgba(52,211,153,.08), transparent 60%);
     }
 
-    /* =========================================
-       ✅ NAVBAR / LOGO FORCE-FIX (your partial)
-       ========================================= */
-    /* If your partial uses <nav> or .navbar etc, this clamps it */
-    nav, .navbar, .top-nav, header{
-      max-height: 44px !important;
-      height: 44px !important;
-      overflow: hidden !important;
-      padding: 6px 10px !important;
-      margin: 0 !important;
+    /* =========================
+       NAVBAR PARTIAL: FORCE SMALL
+       ========================= */
+    nav, header, .navbar, .top-nav{
+      height: 52px !important;
+      max-height: 52px !important;
+      overflow:hidden !important;
       display:flex !important;
       align-items:center !important;
-      border-bottom: 1px solid rgba(255,255,255,.06) !important;
-      background: rgba(0,0,0,.12) !important;
+      padding: 0 14px !important;
+      margin:0 !important;
+      background: rgba(0,0,0,.14) !important;
       backdrop-filter: blur(10px) !important;
+      border-bottom: 1px solid rgba(255,255,255,.06) !important;
     }
-
-    /* Kill huge logo blocks */
     nav img, header img, .navbar img,
     nav svg, header svg, .navbar svg{
       width: 22px !important;
@@ -68,38 +64,118 @@
       max-width: 22px !important;
       max-height: 22px !important;
     }
+    .sidebar, .drawer, .brand-block{ display:none !important; }
 
-    /* Kill giant brand text */
-    nav .brand, header .brand, .navbar .brand,
-    nav .logo, header .logo, .navbar .logo{
-      font-size: 12px !important;
-      font-weight: 900 !important;
-      line-height: 1 !important;
-    }
-
-    /* If the partial has a left sidebar-ish block, nuke it */
-    .sidebar, .side, .drawer, .nav-left, .brand-block{
-      height: 44px !important;
-      max-height: 44px !important;
-      padding: 0 10px !important;
-    }
-
-    /* =========================================
-       ✅ APP LAYOUT
-       ========================================= */
+    /* =========================
+       APP LAYOUT
+       ========================= */
     .app{
       height:100vh;
       display:flex;
       flex-direction:column;
-      min-height:0;
+      overflow:hidden;
     }
 
-    /* If navbar partial exists, it sits above this main.
-       Main must take remaining height. */
-    .main{
+    /* Sticky top bar inside dashboard (separate from partial navbar) */
+    .dashTop{
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.10);
+      backdrop-filter: blur(12px);
+    }
+    .dashTopInner{
+      max-width: 1280px;
+      margin: 0 auto;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 14px;
+      flex-wrap:wrap;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      min-width: 240px;
+    }
+    .logoDot{
+      width: 10px; height: 10px; border-radius: 999px;
+      background: rgba(110,231,255,.9);
+      box-shadow: 0 0 18px rgba(110,231,255,.55);
+    }
+    .brand h1{
+      margin:0;
+      font-size: 14px;
+      font-weight: 950;
+      letter-spacing: .2px;
+      line-height: 1.15;
+    }
+    .brand p{
+      margin: 3px 0 0;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .controls{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .pill{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.05);
+    }
+    .pill label{
+      font-size: 11px;
+      color: var(--muted2);
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing:.16px;
+    }
+    .pill select{
+      background: transparent;
+      border:0;
+      outline:0;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 900;
+      cursor:pointer;
+    }
+    .btn{
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      font-weight: 950;
+      font-size: 12px;
+      cursor:pointer;
+      letter-spacing:.12px;
+      white-space:nowrap;
+    }
+    .btn:hover{ background: rgba(255,255,255,.10); }
+
+    /* Main scroll area */
+    .content{
       flex: 1 1 auto;
-      min-height: 0;        /* ✅ key for internal scroll areas */
-      padding: 8px 10px 10px;
+      overflow:auto;
+      padding: 16px;
+    }
+    .wrap{
+      max-width: 1280px;
+      margin: 0 auto;
       display:flex;
       flex-direction:column;
       gap: var(--gap);
@@ -111,160 +187,139 @@
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       padding: var(--pad);
-      min-height: 0;
     }
-    .card h2{
-      margin: 0 0 6px;
-      font-size: 10px;
-      font-weight: 950;
-      text-transform: uppercase;
-      letter-spacing:.2px;
-      color: rgba(255,255,255,.78);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 8px;
-    }
-    .subtle{ font-size: 10px; color: var(--muted); font-weight: 850; text-transform:none; }
-
-    /* KPI strip */
-    .kpis{
-      display:grid;
-      grid-template-columns: repeat(6, minmax(0,1fr));
-      gap: 6px;
-    }
-    .kpi{
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.04);
-      border-radius: 10px;
-      padding: 8px;
-      display:flex;
-      flex-direction:column;
-      gap: 2px;
-      min-height: 52px;
-    }
-    .kpi .k{ font-size: 9px; font-weight: 950; color: var(--muted2); text-transform:uppercase; letter-spacing:.18px; }
-    .kpi .v{ font-size: 16px; font-weight: 1000; line-height:1.05; }
-    .kpi .s{ font-size: 10px; color: var(--muted); font-weight: 800; }
-
-    /* Top controls row inside KPI card */
-    .kpiRow{
+    .cardHeader{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap: 10px;
-      flex-wrap:wrap;
+      margin-bottom: 10px;
     }
-    .controls{
-      display:flex;
-      align-items:center;
-      gap: 8px;
-      justify-content:flex-end;
-      flex-wrap:wrap;
-    }
-    .pill{
-      display:flex;
-      align-items:center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.05);
-    }
-    .pill label{
-      font-size: 10px;
-      font-weight: 950;
+    .cardTitle{
+      font-size: 12px;
+      font-weight: 1000;
       text-transform: uppercase;
       letter-spacing:.18px;
-      color: var(--muted2);
+      color: rgba(255,255,255,.78);
+      margin:0;
     }
-    .pill select{
-      border:0;
-      outline:0;
-      background: transparent;
-      color: var(--text);
+    .cardHint{
       font-size: 11px;
-      font-weight: 950;
-      cursor: pointer;
+      color: var(--muted);
+      font-weight: 750;
     }
-    .btn{
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
-      font-weight: 950;
-      font-size: 11px;
-      cursor:pointer;
-      letter-spacing:.12px;
-      white-space:nowrap;
-    }
-    .btn:hover{ background: rgba(255,255,255,.10); }
 
-    /* ✅ The grid must fill remaining space and NOT exceed it */
-    .grid{
-      flex: 1 1 auto;
-      min-height: 0;
+    /* KPI row */
+    .kpis{
       display:grid;
-      grid-template-columns: 1.35fr .65fr;
-      grid-template-rows: minmax(0,1fr) minmax(0,1fr); /* ✅ equal height rows */
+      grid-template-columns: repeat(6, minmax(0,1fr));
+      gap: 10px;
+    }
+    .kpi{
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05);
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 72px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .kpi .k{
+      font-size: 10px;
+      font-weight: 950;
+      color: var(--muted2);
+      text-transform: uppercase;
+      letter-spacing:.16px;
+    }
+    .kpi .v{
+      font-size: 22px;
+      font-weight: 1000;
+      line-height: 1.0;
+      margin-top: 8px;
+    }
+    .kpi .s{
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 750;
+      margin-top: 6px;
+    }
+
+    /* Section grid */
+    .grid2{
+      display:grid;
+      grid-template-columns: 1.45fr .55fr;
       gap: var(--gap);
+      align-items:stretch;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--gap);
+      align-items:stretch;
     }
 
-    .panelFill{
-      height: calc(100% - 18px); /* title space */
-      min-height: 0;
-    }
-
-    .chartbox{
-      height: 100%;
-      border-radius: 10px;
+    .chartBox{
+      height: 320px;
+      border-radius: 12px;
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(0,0,0,.18);
-      padding: 6px;
+      padding: 10px;
     }
+    .chartBox.sm{ height: 240px; }
 
-    .tablewrap{
-      height: 100%;
-      border-radius: 10px;
-      overflow:auto; /* ✅ scroll INSIDE only */
+    .tableWrap{
+      border-radius: 12px;
+      overflow:hidden;
       border: 1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.03);
     }
-
-    table{ width:100%; border-collapse: collapse; font-size:11px; }
+    table{ width:100%; border-collapse: collapse; font-size: 12px; }
     th{
-      position: sticky; top: 0;
-      padding: 8px;
-      font-size: 9px;
+      text-align:left;
+      padding: 10px 12px;
+      font-size: 10px;
       font-weight: 950;
       text-transform: uppercase;
-      letter-spacing:.18px;
-      color: rgba(255,255,255,.75);
-      background: rgba(10,12,22,.95);
+      letter-spacing:.16px;
+      color: rgba(255,255,255,.74);
+      background: rgba(255,255,255,.04);
       border-bottom: 1px solid rgba(255,255,255,.08);
-      text-align:left;
       white-space:nowrap;
-      z-index: 2;
     }
     td{
-      padding: 8px;
+      padding: 10px 12px;
       border-bottom: 1px solid rgba(255,255,255,.06);
       color: rgba(255,255,255,.88);
       vertical-align: top;
-      word-break: break-word;
-      line-height:1.2;
+    }
+    tr:hover td{ background: rgba(255,255,255,.03); }
+
+    .split2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--gap);
     }
 
-    /* Mobile fallback: allow scroll (inevitable) */
-    @media (max-width: 980px){
-      body{ overflow:auto; }
-      .main{ overflow:auto; }
-      .grid{
-        grid-template-columns: 1fr;
-        grid-template-rows: auto;
-      }
+    .notice{
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      border-radius: 12px;
+      padding: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.35;
+    }
+    .notice b{ color: rgba(255,255,255,.88); }
+
+    /* Responsive */
+    @media (max-width: 1100px){
       .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .split2{ grid-template-columns: 1fr; }
+      .chartBox{ height: 280px; }
     }
   </style>
 </head>
@@ -273,77 +328,150 @@
   {% include 'partials/_navbar.html' ignore missing %}
 
   <div class="app">
-    <div class="main">
 
-      <section class="card">
-        <div class="kpiRow">
-          <h2 style="margin:0;">KPIs <span class="subtle" id="kpi-sub">—</span></h2>
-          <div class="controls">
-            <div class="pill">
-              <label for="period">Period</label>
-              <select id="period">
-                <option value="60">60m</option>
-                <option value="1440" selected>24h</option>
-                <option value="10080">7d</option>
-                <option value="43200">30d</option>
-              </select>
+    <div class="dashTop">
+      <div class="dashTopInner">
+        <div class="brand">
+          <div class="logoDot"></div>
+          <div>
+            <h1>Admin Dashboard — {{ tenant }}</h1>
+            <p>Messages · charts · insights · leads · errors <span style="opacity:.7;">(role: {{ role }})</span></p>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="pill">
+            <label for="period">Period</label>
+            <select id="period">
+              <option value="60">Last 60m</option>
+              <option value="1440" selected>Last 24h</option>
+              <option value="10080">Last 7d</option>
+              <option value="43200">Last 30d</option>
+            </select>
+          </div>
+          <button id="refresh" class="btn" type="button">Refresh</button>
+          <button id="export" class="btn" type="button">Export Leads CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="wrap">
+
+        <!-- KPIs -->
+        <section class="card">
+          <div class="cardHeader">
+            <h2 class="cardTitle">KPIs</h2>
+            <div class="cardHint" id="kpi-sub">—</div>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div></div>
+            <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
+            <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div></div>
+            <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div></div>
+            <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">default/system</div></div>
+            <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div></div>
+          </div>
+        </section>
+
+        <!-- Main charts -->
+        <section class="grid2">
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Message Volume</h2>
+              <div class="cardHint">Inbound vs Outbound</div>
             </div>
-            <button id="refresh" class="btn" type="button">Refresh</button>
-            <button id="export" class="btn" type="button">Export CSV</button>
+            <div class="chartBox"><canvas id="chart-volume"></canvas></div>
           </div>
-        </div>
 
-        <div class="kpis" style="margin-top:8px;">
-          <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">recv</div></div>
-          <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
-          <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">msgs</div></div>
-          <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">uniq</div></div>
-          <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">def</div></div>
-          <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipe</div></div>
-        </div>
-      </section>
-
-      <div class="grid">
-        <!-- Row 1 -->
-        <section class="card" style="min-height:0;">
-          <h2>Volume</h2>
-          <div class="panelFill">
-            <div class="chartbox"><canvas id="chart-volume"></canvas></div>
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Channels</h2>
+              <div class="cardHint" id="status">—</div>
+            </div>
+            <div class="chartBox"><canvas id="chart-channels"></canvas></div>
           </div>
         </section>
 
-        <section class="card" style="min-height:0;">
-          <h2>Channels</h2>
-          <div class="panelFill">
-            <div class="chartbox"><canvas id="chart-channels"></canvas></div>
+        <!-- Breakdown row -->
+        <section class="grid3">
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Top Intents</h2>
+              <div class="cardHint">Most common</div>
+            </div>
+            <div class="chartBox sm"><canvas id="chart-intents"></canvas></div>
+          </div>
+
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Fallbacks</h2>
+              <div class="cardHint">Why defaults happen</div>
+            </div>
+            <div class="chartBox sm"><canvas id="chart-fallbacks"></canvas></div>
+          </div>
+
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Errors</h2>
+              <div class="cardHint">Top error keys</div>
+            </div>
+            <div class="chartBox sm"><canvas id="chart-errors"></canvas></div>
           </div>
         </section>
 
-        <!-- Row 2 -->
-        <section class="card" style="min-height:0;">
-          <h2>Common Questions</h2>
-          <div class="panelFill">
-            <div class="tablewrap">
+        <!-- Tables -->
+        <section class="split2">
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Most Common Questions</h2>
+              <div class="cardHint">Normalized</div>
+            </div>
+            <div class="tableWrap">
               <table>
                 <thead><tr><th>Question</th><th style="width:90px;">Count</th></tr></thead>
                 <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
-        </section>
 
-        <section class="card" style="min-height:0;">
-          <h2>Intents / Fallbacks / Errors <span class="subtle" id="mini-status">—</span></h2>
-          <div class="panelFill" style="display:grid; grid-template-rows: minmax(0,1fr) minmax(0,1fr); gap: var(--gap); min-height:0;">
-            <div class="chartbox"><canvas id="chart-intents"></canvas></div>
-            <div class="chartbox" style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); min-height:0;">
-              <div class="chartbox" style="padding:6px;"><canvas id="chart-fallbacks"></canvas></div>
-              <div class="chartbox" style="padding:6px;"><canvas id="chart-errors"></canvas></div>
+          <div class="card">
+            <div class="cardHeader">
+              <h2 class="cardTitle">Leads</h2>
+              <div class="cardHint">Most recent</div>
+            </div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:160px;">Updated</th>
+                    <th>Name</th>
+                    <th style="width:160px;">Phone</th>
+                    <th style="width:120px;">Status</th>
+                    <th style="width:180px;">Tags</th>
+                  </tr>
+                </thead>
+                <tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody>
+              </table>
             </div>
           </div>
         </section>
-      </div>
 
+        <!-- Notes + Debug -->
+        <section class="card">
+          <div class="cardHeader">
+            <h2 class="cardTitle">Notes</h2>
+            <div class="cardHint">Quick meaning</div>
+          </div>
+          <div class="notice">
+            <b>Fallbacks</b> = default replies or pipeline failures.<br/>
+            <b>Errors</b> = exceptions during processing.<br/>
+            If a chart is empty, it usually means <b>no events were logged</b> in this time range.
+          </div>
+        </section>
+
+      </div>
     </div>
   </div>
 
@@ -371,9 +499,10 @@
 
     async function getJSON(url){
       const res = await fetch(url, { credentials:"include", headers: headers() });
-      const text = await res.text();
+      const txt = await res.text();
       let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+      try { data = txt ? JSON.parse(txt) : null; }
+      catch { data = { raw: txt }; }
       if(!res.ok){
         const err = new Error(`HTTP ${res.status} ${url}`);
         err.payload = data;
@@ -392,7 +521,8 @@
         type: "bar",
         data: { labels, datasets: [{ label: "Count", data: values.map(int) }] },
         options: {
-          responsive: true, maintainAspectRatio: false,
+          responsive: true,
+          maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: { y: { beginAtZero: true, ticks: { callback: (v)=>int(v) } } }
         }
@@ -402,9 +532,9 @@
     function renderPie(canvasId, key, labels, values){
       destroyChart(key);
       state.charts[key] = new Chart($(canvasId), {
-        type: "pie",
+        type: "doughnut",
         data: { labels, datasets: [{ data: values.map(int) }] },
-        options: { responsive:true, maintainAspectRatio:false }
+        options: { responsive:true, maintainAspectRatio:false, cutout: "65%" }
       });
     }
 
@@ -420,8 +550,8 @@
           ]
         },
         options: {
-          responsive:true, maintainAspectRatio:false,
-          plugins: { legend: { display: true } },
+          responsive:true,
+          maintainAspectRatio:false,
           scales: { y: { beginAtZero:true, ticks:{ callback:(v)=>int(v) } } }
         }
       });
@@ -439,28 +569,48 @@
     function renderQuestions(items){
       const tbody = $("tbl-questions");
       if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="2">No questions yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="2">No questions logged.</td></tr>`;
         return;
       }
-      tbody.innerHTML = items.slice(0,50).map(x =>
+      tbody.innerHTML = items.slice(0,25).map(x =>
         `<tr><td>${escapeHtml(x.text || "")}</td><td>${int(x.count)}</td></tr>`
       ).join("");
     }
 
-    function showErr(e){
-      $("mini-status").textContent = "ERROR";
-      console.error(e);
+    function renderLeads(items){
+      const tbody = $("tbl-leads");
+      if(!items || !items.length){
+        tbody.innerHTML = `<tr><td colspan="5">No leads yet.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = items.slice(0,25).map(r =>
+        `<tr>
+          <td>${escapeHtml(r.updated_utc || "")}</td>
+          <td>${escapeHtml(r.name || "")}</td>
+          <td>${escapeHtml(r.phone || "")}</td>
+          <td>${escapeHtml(r.status || "")}</td>
+          <td>${escapeHtml(r.tags || "")}</td>
+        </tr>`
+      ).join("");
+    }
+
+    function normalizeKV(items, keyField, valField){
+      if(!Array.isArray(items)) return { labels:[], values:[] };
+      const labels = items.map(x => String(x?.[keyField] ?? "")).filter(Boolean);
+      const values = items.map(x => int(x?.[valField]));
+      return { labels, values };
     }
 
     async function refreshAll(){
       const minutes = parseInt($("period").value || "1440", 10);
       const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-      $("mini-status").textContent = "Loading…";
+      $("status").textContent = "Loading…";
 
-      const [k, ts, ins] = await Promise.all([
+      const [k, ts, ins, ld] = await Promise.all([
         getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
         getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60&tenant=${tenant}`),
-        getJSON(`/admin/api/insights?minutes=${minutes}&top=25&tenant=${tenant}`),
+        getJSON(`/admin/api/insights?minutes=${minutes}&top=20&tenant=${tenant}`),
+        getJSON(`/admin/api/leads?limit=50&tenant=${tenant}`),
       ]);
 
       $("kpi-in").textContent = int(k.inbound);
@@ -469,29 +619,40 @@
       $("kpi-sessions").textContent = int(k.sessions);
       $("kpi-fb").textContent = int(k.fallbacks);
       $("kpi-err").textContent = int(k.errors);
-      $("kpi-sub").textContent = `Last ${int(k.minutes)}m`;
+      $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
 
+      // Volume line
       const labels = (ts.points || []).map(p => (p.t || "").slice(11,16));
-      renderLine("chart-volume", "volume", labels,
-        (ts.points || []).map(p => p.inbound),
-        (ts.points || []).map(p => p.outbound)
-      );
+      const inbound = (ts.points || []).map(p => p.inbound);
+      const outbound = (ts.points || []).map(p => p.outbound);
+      renderLine("chart-volume", "volume", labels, inbound, outbound);
 
-      const ch = (ins.channels || []);
-      renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>x.count));
+      // Channels (API returns: [{channel, count}])
+      const ch = normalizeKV(ins.channels, "channel", "count");
+      renderPie("chart-channels", "channels", ch.labels, ch.values);
 
-      const intents = (ins.intents || []);
-      renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>x.count));
+      // Intents (API returns: [{intent, count}])
+      const intents = normalizeKV(ins.intents, "intent", "count");
+      renderBar("chart-intents", "intents", intents.labels, intents.values);
 
-      const fbs = (ins.fallbacks || []);
-      renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>x.count));
+      // Fallbacks (API returns: [{intent, count}] as fallback_hits)
+      const fbs = normalizeKV(ins.fallback_hits, "intent", "count");
+      renderBar("chart-fallbacks", "fallbacks", fbs.labels, fbs.values);
 
-      const errs = (ins.errors || []);
-      renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>x.count));
+      // Errors (API returns: [{key, count}])
+      const errs = normalizeKV(ins.errors, "key", "count");
+      renderBar("chart-errors", "errors", errs.labels, errs.values);
 
+      // Tables
       renderQuestions(ins.common_questions || []);
+      renderLeads(ld.items || []);
 
-      $("mini-status").textContent = "OK";
+      $("status").textContent = "OK";
+    }
+
+    function showErr(e){
+      console.error(e);
+      $("status").textContent = "ERROR";
     }
 
     window.addEventListener("DOMContentLoaded", () => {
