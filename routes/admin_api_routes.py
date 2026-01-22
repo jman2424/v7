@@ -1,14 +1,27 @@
 # routes/admin_api_routes.py
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, session
 from datetime import datetime, timedelta, timezone
-import csv, io, re
 from typing import Any, Dict, List, Optional
+import csv, io, re
 
-from service.analytics_db import _conn
+from flask import Blueprint, jsonify, request, session
+
+from service.analytics_db import _conn, init_db
 
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
+
+
+# -----------------------------
+# Boot safety: ensure DB + migrations
+# -----------------------------
+@bp.before_app_request
+def _ensure_db():
+    # Cheap and safe: init_db is idempotent and WAL makes it OK.
+    try:
+        init_db()
+    except Exception:
+        pass
 
 
 # -----------------------------
@@ -49,7 +62,6 @@ def _clamp_int(val: str, default: int, lo: int, hi: int) -> int:
 
 
 def _json_error(where: str, e: Exception, status: int = 500):
-    # Safe detail (admin-only routes anyway)
     return jsonify({"error": "server_error", "where": where, "detail": str(e)}), status
 
 
@@ -61,14 +73,13 @@ def _table_exists(con, table: str) -> bool:
     return bool(row)
 
 
-def _table_cols(con, table: str) -> List[str]:
+def _table_cols(con, table: str) -> set[str]:
     rows = con.execute(f"PRAGMA table_info({table});").fetchall()
-    return [r["name"] for r in rows]
+    return {r["name"] for r in rows}
 
 
-def _has_cols(con, table: str, cols: List[str]) -> Dict[str, bool]:
-    existing = set(_table_cols(con, table))
-    return {c: (c in existing) for c in cols}
+def _has(con, col: str) -> bool:
+    return col in _table_cols(con, "events")
 
 
 def _norm_text(s: str) -> str:
@@ -95,7 +106,7 @@ def _bucket_start_epoch(ts_epoch: int, bucket_sec: int) -> int:
 
 
 # -----------------------------
-# Diagnostics (optional)
+# Health / schema visibility
 # -----------------------------
 @bp.get("/health")
 def health():
@@ -113,25 +124,11 @@ def health():
             out: Dict[str, Any] = {"ok": True, "tenant": tenant, "tables": tables}
 
             if "events" in tables:
-                out["events_columns"] = _has_cols(con, "events", [
-                    "tenant", "ts_utc", "event_type", "session_id", "lead_id",
-                    "channel", "intent", "text",
-                    "error_type", "error_code", "redirect_to",
-                ])
+                cols = _table_cols(con, "events")
+                out["events_columns"] = sorted(list(cols))
             if "leads" in tables:
-                out["leads_columns"] = _has_cols(con, "leads", [
-                    "tenant", "lead_id", "name", "phone", "status", "tags",
-                    "last_session_id", "updated_utc",
-                ])
-
-            # recent events count
-            if "events" in tables:
-                since = _iso(_since(1440))
-                row = con.execute(
-                    "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc >= ?;",
-                    (tenant, since),
-                ).fetchone()
-                out["events_last_24h"] = int(row["n"] or 0)
+                cols = _table_cols(con, "leads")
+                out["leads_columns"] = sorted(list(cols))
 
         return jsonify(out)
     except Exception as e:
@@ -303,27 +300,23 @@ def leads_csv():
 
     try:
         with _conn() as con:
-            if not _table_exists(con, "leads"):
-                out = io.StringIO()
-                w = csv.writer(out)
-                w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
-                return (out.getvalue(), 200, {
-                    "Content-Type": "text/csv; charset=utf-8",
-                    "Content-Disposition": 'attachment; filename="leads.csv"',
-                })
-
-            rows = con.execute("""
-                SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
-                FROM leads
-                WHERE tenant=?
-                ORDER BY updated_utc DESC;
-            """, (tenant,)).fetchall()
+            rows = []
+            if _table_exists(con, "leads"):
+                rows = con.execute("""
+                    SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
+                    FROM leads
+                    WHERE tenant=?
+                    ORDER BY updated_utc DESC;
+                """, (tenant,)).fetchall()
 
         out = io.StringIO()
         w = csv.writer(out)
         w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
         for r in rows:
-            w.writerow([r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"], r["last_session_id"], r["lead_id"]])
+            w.writerow([
+                r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"],
+                r["last_session_id"], r["lead_id"]
+            ])
 
         return (out.getvalue(), 200, {
             "Content-Type": "text/csv; charset=utf-8",
@@ -334,14 +327,7 @@ def leads_csv():
 
 
 # -----------------------------
-# Insights (the main one)
-# Returns shapes the frontend can rely on:
-#   channels: [{key, count}]
-#   intents: [{key, count}]
-#   fallbacks: [{key, count}]
-#   errors: [{key, count}]
-#   common_questions: [{text, count}]
-#   redirects: [{key, count}]
+# Insights (NEVER 500 on missing columns)
 # -----------------------------
 @bp.get("/insights")
 def insights():
@@ -363,10 +349,17 @@ def insights():
                     "fallbacks": [], "errors": [], "redirects": [],
                 })
 
-            cols = _has_cols(con, "events", ["text", "intent", "channel", "error_type", "error_code", "redirect_to"])
+            cols = _table_cols(con, "events")
+            has_text = "text" in cols
+            has_intent = "intent" in cols
+            has_channel = "channel" in cols
+            has_error_type = "error_type" in cols
+            has_error_code = "error_code" in cols
+            has_redirect_to = "redirect_to" in cols
 
+            # --- Common questions
             common_questions: List[Dict[str, Any]] = []
-            if cols.get("text"):
+            if has_text:
                 rows = con.execute("""
                     SELECT COALESCE(text,'') AS t, COUNT(*) AS n
                     FROM events
@@ -383,22 +376,27 @@ def insights():
                         continue
                     merged[t] = merged.get(t, 0) + int(r["n"] or 0)
 
-                common_questions = [{"text": k, "count": v} for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)[:topn]]
+                common_questions = [
+                    {"text": k, "count": v}
+                    for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)[:topn]
+                ]
 
+            # --- Channels
             channels: List[Dict[str, Any]] = []
-            if cols.get("channel"):
+            if has_channel:
                 rows = con.execute("""
                     SELECT COALESCE(channel,'unknown') AS k, COUNT(*) AS n
                     FROM events
-                    WHERE tenant=? AND ts_utc >= ? AND COALESCE(channel,'') != ''
+                    WHERE tenant=? AND ts_utc >= ?
                     GROUP BY k
                     ORDER BY n DESC
                     LIMIT ?;
                 """, (tenant, since, topn)).fetchall()
                 channels = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
+            # --- Intents
             intents: List[Dict[str, Any]] = []
-            if cols.get("intent"):
+            if has_intent:
                 rows = con.execute("""
                     SELECT COALESCE(intent,'unknown') AS k, COUNT(*) AS n
                     FROM events
@@ -409,34 +407,63 @@ def insights():
                 """, (tenant, since, topn)).fetchall()
                 intents = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
-            # fallbacks: both explicit + pipeline failures + "system_fallback" intent
-            rows = con.execute("""
-                SELECT COALESCE(intent,'system_fallback') AS k, COUNT(*) AS n
-                FROM events
-                WHERE tenant=? AND ts_utc >= ?
-                  AND (event_type IN ('fallback','pipeline_failure') OR COALESCE(intent,'')='system_fallback')
-                GROUP BY k
-                ORDER BY n DESC
-                LIMIT ?;
-            """, (tenant, since, topn)).fetchall()
+            # --- Fallbacks
+            if has_intent:
+                rows = con.execute("""
+                    SELECT COALESCE(intent,'system_fallback') AS k, COUNT(*) AS n
+                    FROM events
+                    WHERE tenant=? AND ts_utc >= ?
+                      AND (event_type IN ('fallback','pipeline_failure') OR COALESCE(intent,'')='system_fallback')
+                    GROUP BY k
+                    ORDER BY n DESC
+                    LIMIT ?;
+                """, (tenant, since, topn)).fetchall()
+            else:
+                rows = con.execute("""
+                    SELECT 'system_fallback' AS k, COUNT(*) AS n
+                    FROM events
+                    WHERE tenant=? AND ts_utc >= ?
+                      AND event_type IN ('fallback','pipeline_failure')
+                    GROUP BY k
+                    ORDER BY n DESC
+                    LIMIT ?;
+                """, (tenant, since, topn)).fetchall()
+
             fallbacks = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
-            # errors: group by error_code > error_type > intent > unknown
-            key_expr = "COALESCE(error_code, error_type, intent, 'unknown')" if (cols.get("error_code") or cols.get("error_type") or cols.get("intent")) else "'error'"
-            rows = con.execute(f"""
-                SELECT {key_expr} AS k, COUNT(*) AS n
-                FROM events
-                WHERE tenant=? AND ts_utc >= ?
-                  AND event_type IN ('error','pipeline_failure')
-                GROUP BY k
-                ORDER BY n DESC
-                LIMIT ?;
-            """, (tenant, since, topn)).fetchall()
+            # --- Errors
+            if has_error_code or has_error_type or has_intent:
+                parts = []
+                if has_error_code: parts.append("error_code")
+                if has_error_type: parts.append("error_type")
+                if has_intent: parts.append("intent")
+                key_expr = "COALESCE(" + ", ".join(parts) + ", 'unknown')"
+
+                rows = con.execute(f"""
+                    SELECT {key_expr} AS k, COUNT(*) AS n
+                    FROM events
+                    WHERE tenant=? AND ts_utc >= ?
+                      AND event_type IN ('error','pipeline_failure')
+                    GROUP BY k
+                    ORDER BY n DESC
+                    LIMIT ?;
+                """, (tenant, since, topn)).fetchall()
+            else:
+                rows = con.execute("""
+                    SELECT 'error' AS k, COUNT(*) AS n
+                    FROM events
+                    WHERE tenant=? AND ts_utc >= ?
+                      AND event_type IN ('error','pipeline_failure')
+                    GROUP BY k
+                    ORDER BY n DESC
+                    LIMIT ?;
+                """, (tenant, since, topn)).fetchall()
+
             errors = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
+            # --- Redirects
             redirects: List[Dict[str, Any]] = []
-            # only if you actually log event_type='redirect'
-            if cols.get("redirect_to"):
+            if has_redirect_to:
                 rows = con.execute("""
                     SELECT COALESCE(redirect_to,'unknown') AS k, COUNT(*) AS n
                     FROM events
@@ -463,8 +490,7 @@ def insights():
 
 
 # -----------------------------
-# Missing endpoints your old JS was calling (now exist)
-# These just proxy /insights so nothing breaks.
+# Compatibility endpoints (older JS)
 # -----------------------------
 @bp.get("/top_questions")
 def top_questions():
@@ -479,7 +505,7 @@ def top_questions():
 
 
 @bp.get("/fallbacks")
-def fallbacks():
+def fallbacks_proxy():
     gate = _require_login()
     if gate:
         return gate
@@ -491,7 +517,7 @@ def fallbacks():
 
 
 @bp.get("/errors")
-def errors():
+def errors_proxy():
     gate = _require_login()
     if gate:
         return gate
