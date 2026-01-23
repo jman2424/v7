@@ -10,39 +10,21 @@ from twilio.twiml.messaging_response import MessagingResponse
 from routes import get_container
 from service.security import verify_webhook_signature
 from connectors.whatsapp import parse_inbound, send_reply
+from service.analytics_db import log_event, upsert_lead, set_lead_session
 
 logger = logging.getLogger("WA.Webhook")
-
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
 
-# ---------- helper to get the orchestrator ----------
-
 def _get_handler(container):
-    """
-    Fetch the MessageHandler instance from the DI container.
-    Supports both `container.handler` and `container.message_handler`.
-    """
     h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
     if h is None:
         logger.error("WA: No MessageHandler instance found on container.")
     return h
 
 
-# ---------- Meta verification (for WhatsApp Cloud API only) ----------
-
 @bp.get("/webhook")
 def webhook_verify():
-    """
-    Facebook/WhatsApp Cloud API verification echo.
-
-    Expects:
-      - hub.mode
-      - hub.verify_token
-      - hub.challenge
-
-    Twilio sandbox does NOT use this.
-    """
     c = get_container()
     verify = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge", "")
@@ -50,51 +32,34 @@ def webhook_verify():
     if verify != getattr(c.settings, "WHATSAPP_VERIFY_TOKEN", ""):
         abort(403)
 
-    # Meta expects raw challenge text/plain
     return challenge, 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
-# ---------- Main webhook (Twilio + Cloud API) ----------
-
 @bp.post("/webhook")
 def webhook_receive():
-    """
-    Receive inbound WhatsApp messages.
-
-    Supports:
-      - Twilio WhatsApp (form-encoded; User-Agent contains TwilioProxy)
-      - Meta WhatsApp Cloud API (JSON + X-Hub-Signature-256)
-    """
     c = get_container()
 
     ua = request.headers.get("User-Agent") or ""
     content_type = request.headers.get("Content-Type") or ""
-    is_twilio = "TwilioProxy" in ua or content_type.startswith(
-        "application/x-www-form-urlencoded"
-    )
+    is_twilio = "TwilioProxy" in ua or content_type.startswith("application/x-www-form-urlencoded")
 
-    # ----- Meta signature verification (Cloud API only) -----
+    # Meta signature verification (Cloud API only)
     app_secret = getattr(c.settings, "WHATSAPP_APP_SECRET", "") or ""
     sig_header = request.headers.get("X-Hub-Signature-256")
-
     if not is_twilio and app_secret and sig_header:
         if not verify_webhook_signature(request, app_secret):
             logger.warning("WA WEBHOOK: invalid X-Hub-Signature, aborting 403.")
             abort(403)
-    elif not is_twilio:
-        logger.debug(
-            "WA WEBHOOK: no X-Hub-Signature-256 present; skipping Meta signature check."
-        )
 
     handler = _get_handler(c)
 
-    # ------------------------------------------------------------------
-    #                       TWILIO PATH (FORM)
-    # ------------------------------------------------------------------
+    # --------------------------
+    # TWILIO (FORM)
+    # --------------------------
     if is_twilio:
         form = request.form.to_dict()
         body = (form.get("Body") or "").strip()
-        from_raw = (form.get("From") or "").strip()  # e.g. "whatsapp:+4473..."
+        from_raw = (form.get("From") or "").strip()  # "whatsapp:+447..."
         from_id = from_raw.replace("whatsapp:", "").replace("+", "")
 
         if not body:
@@ -104,56 +69,89 @@ def webhook_receive():
 
         tenant = getattr(c.settings, "BUSINESS_KEY", "DEFAULT")
         session_id = from_id or "wa_unknown"
+        lead_id = f"wa:{from_id or session_id}"
+        phone = f"+{from_id}" if from_id else None
 
-        logger.info(
-            "WA IN: source=twilio tenant=%s session=%s from=%s text=%r",
-            tenant,
-            session_id,
-            from_id,
-            body,
+        upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
+        set_lead_session(lead_id=lead_id, session_id=session_id)
+
+        log_event(
+            tenant=tenant,
+            channel="whatsapp",
+            session_id=session_id,
+            lead_id=lead_id,
+            event_type="msg_in",
+            text=body,
+            meta={"source": "twilio", "from": from_id},
         )
+
+        logger.info("WA IN: source=twilio tenant=%s session=%s from=%s text=%r", tenant, session_id, from_id, body)
 
         if handler is None:
-            reply = "Sorry—my chatbot brain isn’t configured yet. Please contact support."
-            intent = "system_error"
-            entities: Dict[str, Any] = {}
+            result: Dict[str, Any] = {"reply": "Sorry—bot not configured yet.", "intent": "system_error", "entities": {}}
         else:
-            # Use your orchestrator (MessageHandler.handle)
-            result = handler.handle(
-                body,
-                tenant=tenant,
-                session_id=session_id,
-                channel="whatsapp",
-                metadata={"wa_id": from_id},
-            ) or {}
+            try:
+                result = handler.handle(
+                    body,
+                    tenant=tenant,
+                    session_id=session_id,
+                    channel="whatsapp",
+                    metadata={"wa_id": from_id},
+                ) or {}
+            except Exception as exc:
+                logger.exception("WA: handler.handle crashed: %s", exc)
+                log_event(
+                    tenant=tenant,
+                    channel="whatsapp",
+                    session_id=session_id,
+                    lead_id=lead_id,
+                    event_type="error",
+                    error_type=type(exc).__name__,
+                    error_code="wa_handler_crash",
+                    meta={"error": str(exc)},
+                )
+                result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
-            reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
-            intent = result.get("intent", "unknown")
-            entities = result.get("entities", {}) or {}
+        reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
+        intent = (result.get("intent") or "unknown").strip()
+        entities = result.get("entities", {}) or {}
 
-        # OUTBOUND LOG
-        logger.info(
-            "WA OUT: source=twilio tenant=%s session=%s intent=%s entities=%s reply=%r",
-            tenant,
-            session_id,
-            intent,
-            entities,
-            reply,
+        logger.info("WA OUT: source=twilio tenant=%s session=%s intent=%s entities=%s reply=%r", tenant, session_id, intent, entities, reply)
+
+        log_event(
+            tenant=tenant,
+            channel="whatsapp",
+            session_id=session_id,
+            lead_id=lead_id,
+            event_type="msg_out",
+            text=reply,
+            intent=intent,
+            meta={"source": "twilio"},
         )
+
+        if intent == "system_fallback":
+            log_event(
+                tenant=tenant,
+                channel="whatsapp",
+                session_id=session_id,
+                lead_id=lead_id,
+                event_type="fallback",
+                text=body,
+                intent=intent,
+            )
 
         resp = MessagingResponse()
         resp.message(reply)
         return Response(str(resp), status=200, mimetype="application/xml")
 
-    # ------------------------------------------------------------------
-    #                     CLOUD API PATH (JSON)
-    # ------------------------------------------------------------------
+    # --------------------------
+    # CLOUD (JSON)
+    # --------------------------
     try:
         payload = request.get_json(force=True, silent=True) or {}
-        logger.debug("WA WEBHOOK JSON payload: %s", str(payload)[:2000])
     except Exception as exc:
         logger.exception("WA WEBHOOK: invalid JSON payload: %s", exc)
-        return jsonify({"error": "invalid payload"}), 400
+        return jsonify({"error": "invalid_payload"}), 400
 
     try:
         events = parse_inbound(payload)
@@ -162,7 +160,6 @@ def webhook_receive():
         return jsonify({"ok": True, "events": 0}), 200
 
     if not events:
-        logger.debug("WA WEBHOOK: no text events in payload.")
         return jsonify({"ok": True, "events": 0}), 200
 
     handled = 0
@@ -178,72 +175,100 @@ def webhook_receive():
             session_id = ev.get("session_id") or from_id
             tenant = ev.get("tenant") or tenant_default
 
-            logger.info(
-                "WA IN: source=cloud tenant=%s session=%s from=%s text=%r",
-                tenant,
-                session_id,
-                from_id,
-                text,
+            lead_id = f"wa:{from_id}"
+            upsert_lead(tenant=tenant, lead_id=lead_id)
+            set_lead_session(lead_id=lead_id, session_id=session_id)
+
+            log_event(
+                tenant=tenant,
+                channel="whatsapp",
+                session_id=session_id,
+                lead_id=lead_id,
+                event_type="msg_in",
+                text=text,
+                meta={"source": "cloud", "from": from_id},
             )
+
+            logger.info("WA IN: source=cloud tenant=%s session=%s from=%s text=%r", tenant, session_id, from_id, text)
 
             if handler is None:
-                result: Dict[str, Any] = {
-                    "reply": "Sorry—my chatbot brain isn’t configured yet. Please contact support.",
-                    "intent": "system_error",
-                    "entities": {},
-                }
+                result: Dict[str, Any] = {"reply": "Sorry—bot not configured yet.", "intent": "system_error", "entities": {}}
             else:
-                result = handler.handle(
-                    text,
-                    tenant=tenant,
-                    session_id=session_id,
-                    channel="whatsapp",
-                    metadata={"wa_id": from_id},
-                ) or {}
+                try:
+                    result = handler.handle(
+                        text,
+                        tenant=tenant,
+                        session_id=session_id,
+                        channel="whatsapp",
+                        metadata={"wa_id": from_id},
+                    ) or {}
+                except Exception as exc:
+                    logger.exception("WA: handler.handle crashed: %s", exc)
+                    log_event(
+                        tenant=tenant,
+                        channel="whatsapp",
+                        session_id=session_id,
+                        lead_id=lead_id,
+                        event_type="error",
+                        error_type=type(exc).__name__,
+                        error_code="wa_handler_crash",
+                        meta={"error": str(exc)},
+                    )
+                    result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
             reply = (result.get("reply") or "").strip()
-            intent = result.get("intent", "unknown")
+            intent = (result.get("intent") or "unknown").strip()
             entities = result.get("entities", {}) or {}
 
-            # OUTBOUND LOG
-            logger.info(
-                "WA OUT: source=cloud tenant=%s session=%s intent=%s entities=%s reply=%r",
-                tenant,
-                session_id,
-                intent,
-                entities,
-                reply,
+            logger.info("WA OUT: source=cloud tenant=%s session=%s intent=%s entities=%s reply=%r", tenant, session_id, intent, entities, reply)
+
+            log_event(
+                tenant=tenant,
+                channel="whatsapp",
+                session_id=session_id,
+                lead_id=lead_id,
+                event_type="msg_out",
+                text=reply,
+                intent=intent,
+                meta={"source": "cloud"},
             )
+
+            if intent == "system_fallback":
+                log_event(
+                    tenant=tenant,
+                    channel="whatsapp",
+                    session_id=session_id,
+                    lead_id=lead_id,
+                    event_type="fallback",
+                    text=text,
+                    intent=intent,
+                )
 
             if reply:
                 try:
                     send_reply(ev, reply, settings=c.settings)
                 except Exception as send_exc:
-                    logger.exception(
-                        "WA WEBHOOK: send_reply failed",
-                        extra={"wa_id": from_id, "error": str(send_exc)},
+                    logger.exception("WA WEBHOOK: send_reply failed: %s", send_exc)
+                    log_event(
+                        tenant=tenant,
+                        channel="whatsapp",
+                        session_id=session_id,
+                        lead_id=lead_id,
+                        event_type="error",
+                        error_type=type(send_exc).__name__,
+                        error_code="wa_send_reply_failed",
+                        meta={"error": str(send_exc)},
                     )
 
             handled += 1
-
-        except Exception as ev_exc:
-            logger.exception("Error processing WA event: %s", ev_exc)
+        except Exception:
+            logger.exception("Error processing WA event")
 
     return jsonify({"ok": True, "events": handled}), 200
 
 
-# ---------- Twilio status callback (optional) ----------
-
 @bp.route("/status", methods=["POST", "GET"])
 def whatsapp_status():
-    """
-    Twilio message status callback endpoint.
-
-    If you set the Twilio status callback URL to:
-      https://v7-52g3.onrender.com/whatsapp/status
-
-    this will stop the 404s and just log the status events.
-    """
     form = request.form.to_dict()
     logger.info("WA STATUS: %s", form)
     return Response(status=204)
