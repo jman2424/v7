@@ -1,27 +1,17 @@
 # routes/admin_api_routes.py
 from __future__ import annotations
 
+import csv
+import io
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-import csv, io, re
 
 from flask import Blueprint, jsonify, request, session
 
-from service.analytics_db import _conn, init_db
+from service.analytics_db import _conn
 
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
-
-
-# -----------------------------
-# Boot safety: ensure DB + migrations
-# -----------------------------
-@bp.before_app_request
-def _ensure_db():
-    # Cheap and safe: init_db is idempotent and WAL makes it OK.
-    try:
-        init_db()
-    except Exception:
-        pass
 
 
 # -----------------------------
@@ -73,13 +63,14 @@ def _table_exists(con, table: str) -> bool:
     return bool(row)
 
 
-def _table_cols(con, table: str) -> set[str]:
+def _table_cols(con, table: str) -> List[str]:
     rows = con.execute(f"PRAGMA table_info({table});").fetchall()
-    return {r["name"] for r in rows}
+    return [r["name"] for r in rows]
 
 
-def _has(con, col: str) -> bool:
-    return col in _table_cols(con, "events")
+def _has_cols(con, table: str, cols: List[str]) -> Dict[str, bool]:
+    existing = set(_table_cols(con, table))
+    return {c: (c in existing) for c in cols}
 
 
 def _norm_text(s: str) -> str:
@@ -106,7 +97,7 @@ def _bucket_start_epoch(ts_epoch: int, bucket_sec: int) -> int:
 
 
 # -----------------------------
-# Health / schema visibility
+# Health (optional)
 # -----------------------------
 @bp.get("/health")
 def health():
@@ -122,13 +113,24 @@ def health():
             ).fetchall()]
 
             out: Dict[str, Any] = {"ok": True, "tenant": tenant, "tables": tables}
+            if "events" in tables:
+                out["events_columns"] = _has_cols(con, "events", [
+                    "tenant", "ts_utc", "event_type", "session_id", "lead_id",
+                    "channel", "intent", "text", "error_type", "error_code", "redirect_to",
+                ])
+            if "leads" in tables:
+                out["leads_columns"] = _has_cols(con, "leads", [
+                    "tenant", "lead_id", "name", "phone", "status", "tags",
+                    "last_session_id", "updated_utc",
+                ])
 
             if "events" in tables:
-                cols = _table_cols(con, "events")
-                out["events_columns"] = sorted(list(cols))
-            if "leads" in tables:
-                cols = _table_cols(con, "leads")
-                out["leads_columns"] = sorted(list(cols))
+                since = _iso(_since(1440))
+                row = con.execute(
+                    "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc >= ?;",
+                    (tenant, since),
+                ).fetchone()
+                out["events_last_24h"] = int(row["n"] or 0)
 
         return jsonify(out)
     except Exception as e:
@@ -199,7 +201,7 @@ def kpis():
 
 
 # -----------------------------
-# Timeseries (bucket in python)
+# Timeseries
 # -----------------------------
 @bp.get("/timeseries")
 def timeseries():
@@ -250,12 +252,7 @@ def timeseries():
                 "sessions": int(len(buckets[b]["sessions"])),
             })
 
-        return jsonify({
-            "tenant": tenant,
-            "minutes": minutes,
-            "bucket_minutes": bucket,
-            "points": points,
-        })
+        return jsonify({"tenant": tenant, "minutes": minutes, "bucket_minutes": bucket, "points": points})
     except Exception as e:
         return _json_error("timeseries", e)
 
@@ -297,26 +294,29 @@ def leads_csv():
         return gate
 
     tenant = _tenant()
-
     try:
         with _conn() as con:
-            rows = []
-            if _table_exists(con, "leads"):
-                rows = con.execute("""
-                    SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
-                    FROM leads
-                    WHERE tenant=?
-                    ORDER BY updated_utc DESC;
-                """, (tenant,)).fetchall()
+            if not _table_exists(con, "leads"):
+                out = io.StringIO()
+                w = csv.writer(out)
+                w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
+                return (out.getvalue(), 200, {
+                    "Content-Type": "text/csv; charset=utf-8",
+                    "Content-Disposition": 'attachment; filename="leads.csv"',
+                })
+
+            rows = con.execute("""
+                SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
+                FROM leads
+                WHERE tenant=?
+                ORDER BY updated_utc DESC;
+            """, (tenant,)).fetchall()
 
         out = io.StringIO()
         w = csv.writer(out)
         w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
         for r in rows:
-            w.writerow([
-                r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"],
-                r["last_session_id"], r["lead_id"]
-            ])
+            w.writerow([r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"], r["last_session_id"], r["lead_id"]])
 
         return (out.getvalue(), 200, {
             "Content-Type": "text/csv; charset=utf-8",
@@ -327,7 +327,7 @@ def leads_csv():
 
 
 # -----------------------------
-# Insights (NEVER 500 on missing columns)
+# Insights
 # -----------------------------
 @bp.get("/insights")
 def insights():
@@ -349,17 +349,11 @@ def insights():
                     "fallbacks": [], "errors": [], "redirects": [],
                 })
 
-            cols = _table_cols(con, "events")
-            has_text = "text" in cols
-            has_intent = "intent" in cols
-            has_channel = "channel" in cols
-            has_error_type = "error_type" in cols
-            has_error_code = "error_code" in cols
-            has_redirect_to = "redirect_to" in cols
+            cols = _has_cols(con, "events", ["text", "intent", "channel", "error_type", "error_code", "redirect_to"])
 
-            # --- Common questions
+            # Common questions
             common_questions: List[Dict[str, Any]] = []
-            if has_text:
+            if cols["text"]:
                 rows = con.execute("""
                     SELECT COALESCE(text,'') AS t, COUNT(*) AS n
                     FROM events
@@ -376,14 +370,11 @@ def insights():
                         continue
                     merged[t] = merged.get(t, 0) + int(r["n"] or 0)
 
-                common_questions = [
-                    {"text": k, "count": v}
-                    for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)[:topn]
-                ]
+                common_questions = [{"text": k, "count": v} for k, v in sorted(merged.items(), key=lambda x: x[1], reverse=True)[:topn]]
 
-            # --- Channels
+            # Channels
             channels: List[Dict[str, Any]] = []
-            if has_channel:
+            if cols["channel"]:
                 rows = con.execute("""
                     SELECT COALESCE(channel,'unknown') AS k, COUNT(*) AS n
                     FROM events
@@ -394,9 +385,9 @@ def insights():
                 """, (tenant, since, topn)).fetchall()
                 channels = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
-            # --- Intents
+            # Intents
             intents: List[Dict[str, Any]] = []
-            if has_intent:
+            if cols["intent"]:
                 rows = con.execute("""
                     SELECT COALESCE(intent,'unknown') AS k, COUNT(*) AS n
                     FROM events
@@ -407,8 +398,8 @@ def insights():
                 """, (tenant, since, topn)).fetchall()
                 intents = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
-            # --- Fallbacks
-            if has_intent:
+            # Fallbacks
+            if cols["intent"]:
                 rows = con.execute("""
                     SELECT COALESCE(intent,'system_fallback') AS k, COUNT(*) AS n
                     FROM events
@@ -418,52 +409,41 @@ def insights():
                     ORDER BY n DESC
                     LIMIT ?;
                 """, (tenant, since, topn)).fetchall()
+                fallbacks = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
             else:
                 rows = con.execute("""
-                    SELECT 'system_fallback' AS k, COUNT(*) AS n
+                    SELECT 'fallback' AS k, COUNT(*) AS n
                     FROM events
                     WHERE tenant=? AND ts_utc >= ?
                       AND event_type IN ('fallback','pipeline_failure')
-                    GROUP BY k
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, since, topn)).fetchall()
+                    LIMIT 1;
+                """, (tenant, since)).fetchall()
+                fallbacks = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows if int(r["n"] or 0) > 0]
 
-            fallbacks = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
+            # Errors
+            key_parts = []
+            if cols["error_code"]:
+                key_parts.append("error_code")
+            if cols["error_type"]:
+                key_parts.append("error_type")
+            if cols["intent"]:
+                key_parts.append("intent")
+            key_expr = "COALESCE(" + ", ".join(key_parts) + ", 'unknown')" if key_parts else "'error'"
 
-            # --- Errors
-            if has_error_code or has_error_type or has_intent:
-                parts = []
-                if has_error_code: parts.append("error_code")
-                if has_error_type: parts.append("error_type")
-                if has_intent: parts.append("intent")
-                key_expr = "COALESCE(" + ", ".join(parts) + ", 'unknown')"
-
-                rows = con.execute(f"""
-                    SELECT {key_expr} AS k, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type IN ('error','pipeline_failure')
-                    GROUP BY k
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, since, topn)).fetchall()
-            else:
-                rows = con.execute("""
-                    SELECT 'error' AS k, COUNT(*) AS n
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type IN ('error','pipeline_failure')
-                    GROUP BY k
-                    ORDER BY n DESC
-                    LIMIT ?;
-                """, (tenant, since, topn)).fetchall()
-
+            rows = con.execute(f"""
+                SELECT {key_expr} AS k, COUNT(*) AS n
+                FROM events
+                WHERE tenant=? AND ts_utc >= ?
+                  AND event_type IN ('error','pipeline_failure')
+                GROUP BY k
+                ORDER BY n DESC
+                LIMIT ?;
+            """, (tenant, since, topn)).fetchall()
             errors = [{"key": r["k"], "count": int(r["n"] or 0)} for r in rows]
 
-            # --- Redirects
+            # Redirects
             redirects: List[Dict[str, Any]] = []
-            if has_redirect_to:
+            if cols["redirect_to"]:
                 rows = con.execute("""
                     SELECT COALESCE(redirect_to,'unknown') AS k, COUNT(*) AS n
                     FROM events
@@ -487,42 +467,3 @@ def insights():
         })
     except Exception as e:
         return _json_error("insights", e)
-
-
-# -----------------------------
-# Compatibility endpoints (older JS)
-# -----------------------------
-@bp.get("/top_questions")
-def top_questions():
-    gate = _require_login()
-    if gate:
-        return gate
-    try:
-        payload = insights().get_json()  # type: ignore[union-attr]
-        return jsonify({"items": payload.get("common_questions", [])})
-    except Exception as e:
-        return _json_error("top_questions", e)
-
-
-@bp.get("/fallbacks")
-def fallbacks_proxy():
-    gate = _require_login()
-    if gate:
-        return gate
-    try:
-        payload = insights().get_json()  # type: ignore[union-attr]
-        return jsonify({"items": payload.get("fallbacks", [])})
-    except Exception as e:
-        return _json_error("fallbacks", e)
-
-
-@bp.get("/errors")
-def errors_proxy():
-    gate = _require_login()
-    if gate:
-        return gate
-    try:
-        payload = insights().get_json()  # type: ignore[union-attr]
-        return jsonify({"items": payload.get("errors", [])})
-    except Exception as e:
-        return _json_error("errors", e)
