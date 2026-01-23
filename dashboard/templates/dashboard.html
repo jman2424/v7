@@ -18,9 +18,8 @@
       --muted: rgba(255,255,255,.62);
       --muted2: rgba(255,255,255,.45);
       --radius: 14px;
-      --pad: 12px;
       --gap: 10px;
-      --hdr: 54px; /* header height */
+      --hdr: 54px;
     }
 
     html, body { height: 100%; }
@@ -33,16 +32,10 @@
         linear-gradient(180deg, #05060B, #0B1020);
       color: var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      overflow: hidden; /* key: prevent page scroll */
+      overflow: hidden;
     }
 
-    /* Layout: fixed header + grid fills remaining screen */
-    .page{
-      height: 100vh;
-      display:flex;
-      flex-direction:column;
-    }
-
+    .page{ height: 100vh; display:flex; flex-direction:column; }
     .header{
       height: var(--hdr);
       display:flex;
@@ -55,9 +48,7 @@
       backdrop-filter: blur(10px);
     }
 
-    .brand{
-      display:flex; align-items:center; gap:10px; min-width: 220px;
-    }
+    .brand{ display:flex; align-items:center; gap:10px; min-width: 220px; }
     .logo{
       width: 26px; height: 26px;
       border-radius: 8px;
@@ -65,21 +56,12 @@
       border:1px solid rgba(255,255,255,.12);
       display:grid; place-items:center;
       font-weight:900; font-size:12px;
-      letter-spacing:.2px;
     }
-    .brand .meta{
-      display:flex; flex-direction:column; line-height:1.1;
-    }
-    .brand .meta .t{
-      font-weight:900; font-size:13px;
-    }
-    .brand .meta .s{
-      font-size:11px; color: var(--muted);
-    }
+    .brand .meta{ display:flex; flex-direction:column; line-height:1.1; }
+    .brand .meta .t{ font-weight:900; font-size:13px; }
+    .brand .meta .s{ font-size:11px; color: var(--muted); }
 
-    .actions{
-      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-    }
+    .actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
     .pill{
       display:inline-flex; gap:8px; align-items:center;
@@ -119,13 +101,8 @@
     }
     .logout:hover{ background: rgba(255,255,255,.08); }
 
-    .content{
-      flex:1;
-      padding: 12px 14px 14px;
-      overflow: hidden; /* no page scroll */
-    }
+    .content{ flex:1; padding: 12px 14px 14px; overflow: hidden; }
 
-    /* Main grid fills remaining area */
     .grid{
       height: 100%;
       display:grid;
@@ -134,7 +111,6 @@
       gap: var(--gap);
     }
 
-    /* KPIs row spans both columns */
     .kpis{
       grid-column: 1 / -1;
       display:grid;
@@ -148,7 +124,7 @@
       border-radius: var(--radius);
       box-shadow: 0 10px 28px rgba(0,0,0,.45);
       overflow:hidden;
-      min-height: 0; /* key for internal scrolling */
+      min-height: 0;
     }
 
     .card .hd{
@@ -164,14 +140,9 @@
       text-transform: uppercase;
       color: rgba(255,255,255,.78);
     }
-    .card .hd .sub{
-      font-size:11px;
-      color: var(--muted);
-    }
+    .card .hd .sub{ font-size:11px; color: var(--muted); }
 
-    .kpi{
-      padding: 10px 12px;
-    }
+    .kpi{ padding: 10px 12px; }
     .kpi .k{ font-size:10px; color: var(--muted2); font-weight:900; letter-spacing:.18px; text-transform:uppercase; }
     .kpi .v{ margin-top:6px; font-size:18px; font-weight:900; }
     .kpi .s{ margin-top:4px; font-size:11px; color: var(--muted); }
@@ -182,6 +153,7 @@
       gap: var(--gap);
       height: 100%;
       min-height: 0;
+      grid-column: 1 / -1;
     }
 
     .leftcol, .rightcol{
@@ -191,11 +163,7 @@
       min-height: 0;
     }
 
-    /* Left column: big line chart + two tables */
-    .leftcol{
-      grid-template-rows: 1.05fr .95fr;
-    }
-
+    .leftcol{ grid-template-rows: 1.05fr .95fr; }
     .leftTop{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -204,14 +172,8 @@
       min-height:0;
     }
 
-    /* Make the main line chart bigger, right chart smaller */
-    .lineCard{ min-height:0; }
     .lineCard .bd{ height: calc(100% - 41px); padding: 8px 10px; }
     .miniCard .bd{ height: calc(100% - 41px); padding: 8px 10px; }
-
-    .bd{
-      min-height:0;
-    }
 
     .canvasWrap{
       height: 100%;
@@ -219,6 +181,7 @@
       border:1px solid rgba(255,255,255,.08);
       background: rgba(0,0,0,.18);
       padding: 8px;
+      position: relative;
     }
 
     .tables{
@@ -229,10 +192,7 @@
       min-height:0;
     }
 
-    .tableWrap{
-      height: calc(100% - 41px);
-      overflow:auto; /* internal scroll */
-    }
+    .tableWrap{ height: calc(100% - 41px); overflow:auto; }
 
     table{ width:100%; border-collapse: collapse; font-size:12px; }
     th{
@@ -256,11 +216,7 @@
     }
     tr:hover td{ background: rgba(255,255,255,.03); }
 
-    /* Right column: 2x2 charts + debug */
-    .rightcol{
-      grid-template-rows: 1fr 1fr auto;
-      min-height:0;
-    }
+    .rightcol{ grid-template-rows: 1fr auto; min-height:0; }
 
     .quad{
       display:grid;
@@ -270,13 +226,11 @@
       height:100%;
       min-height:0;
     }
-    .quad .bd{
-      height: calc(100% - 41px);
-      padding: 8px 10px;
-    }
+    .quad .bd{ height: calc(100% - 41px); padding: 8px 10px; }
 
     .debug{
-      max-height: 160px;
+      min-height: 0;
+      max-height: 220px;
     }
     .pre{
       margin:0;
@@ -286,32 +240,27 @@
       font-size: 11px;
       color: rgba(255,255,255,.80);
       background: rgba(0,0,0,.22);
+      white-space: pre-wrap;        /* ✅ uses space better */
+      word-break: break-word;       /* ✅ no horizontal scroll */
     }
 
     .muted{ color: var(--muted); }
 
-    /* Responsive: stack columns if too narrow */
     @media (max-width: 980px){
-      body{ overflow:auto; } /* allow scroll on small screens */
+      body{ overflow:auto; }
       .page{ height:auto; }
       .content{ overflow: visible; }
-      .grid{
-        height:auto;
-        grid-template-columns: 1fr;
-        grid-template-rows: auto auto auto;
-      }
+      .grid{ height:auto; grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
       .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
       .leftcol{ grid-template-rows: 420px auto; }
       .tables{ grid-template-columns: 1fr; }
-      .rightcol{ grid-template-rows: 420px 420px auto; }
+      .rightcol{ grid-template-rows: 520px auto; }
     }
   </style>
 </head>
 
 <body data-tenant="{{ tenant }}" data-role="{{ role }}" data-session="{{ session_id }}">
   <div class="page">
-
-    <!-- Header (small logo, no wasted space) -->
     <header class="header">
       <div class="brand">
         <div class="logo">AI</div>
@@ -341,34 +290,18 @@
     <main class="content">
       <div class="grid">
 
-        <!-- KPIs row -->
         <section class="card kpis">
-          <div class="kpi">
-            <div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div>
-          </div>
-          <div class="kpi">
-            <div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div>
-          </div>
-          <div class="kpi">
-            <div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div>
-          </div>
-          <div class="kpi">
-            <div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div>
-          </div>
-          <div class="kpi">
-            <div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">defaults</div>
-          </div>
-          <div class="kpi">
-            <div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div>
-          </div>
+          <div class="kpi"><div class="k">Inbound</div><div class="v" id="kpi-in">0</div><div class="s">received</div></div>
+          <div class="kpi"><div class="k">Outbound</div><div class="v" id="kpi-out">0</div><div class="s">sent</div></div>
+          <div class="kpi"><div class="k">Total</div><div class="v" id="kpi-total">0</div><div class="s">messages</div></div>
+          <div class="kpi"><div class="k">Sessions</div><div class="v" id="kpi-sessions">0</div><div class="s">unique</div></div>
+          <div class="kpi"><div class="k">Fallbacks</div><div class="v" id="kpi-fb">0</div><div class="s">defaults</div></div>
+          <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div></div>
         </section>
 
-        <!-- Main columns -->
-        <div class="two" style="grid-column: 1 / -1;">
+        <div class="two">
 
-          <!-- Left -->
           <div class="leftcol">
-
             <div class="leftTop">
               <section class="card lineCard">
                 <div class="hd">
@@ -393,10 +326,7 @@
 
             <div class="tables">
               <section class="card">
-                <div class="hd">
-                  <div class="h">Common Questions</div>
-                  <div class="sub muted">top</div>
-                </div>
+                <div class="hd"><div class="h">Common Questions</div><div class="sub muted">top</div></div>
                 <div class="tableWrap">
                   <table>
                     <thead><tr><th>Question</th><th style="width:70px;">Count</th></tr></thead>
@@ -406,10 +336,7 @@
               </section>
 
               <section class="card">
-                <div class="hd">
-                  <div class="h">Leads</div>
-                  <div class="sub muted">latest</div>
-                </div>
+                <div class="hd"><div class="h">Leads</div><div class="sub muted">latest</div></div>
                 <div class="tableWrap">
                   <table>
                     <thead>
@@ -426,30 +353,27 @@
                 </div>
               </section>
             </div>
-
           </div>
 
-          <!-- Right -->
           <div class="rightcol">
-
             <div class="quad">
               <section class="card">
-                <div class="hd"><div class="h">Top Intents</div><div class="sub muted">bar</div></div>
+                <div class="hd"><div class="h">Top Intents</div><div class="sub muted" id="sub-intents">bar</div></div>
                 <div class="bd"><div class="canvasWrap"><canvas id="chart-intents"></canvas></div></div>
               </section>
 
               <section class="card">
-                <div class="hd"><div class="h">Fallbacks</div><div class="sub muted">bar</div></div>
+                <div class="hd"><div class="h">Fallbacks</div><div class="sub muted" id="sub-fallbacks">bar</div></div>
                 <div class="bd"><div class="canvasWrap"><canvas id="chart-fallbacks"></canvas></div></div>
               </section>
 
               <section class="card">
-                <div class="hd"><div class="h">Errors</div><div class="sub muted">bar</div></div>
+                <div class="hd"><div class="h">Errors</div><div class="sub muted" id="sub-errors">bar</div></div>
                 <div class="bd"><div class="canvasWrap"><canvas id="chart-errors"></canvas></div></div>
               </section>
 
               <section class="card">
-                <div class="hd"><div class="h">Sessions</div><div class="sub muted">per bucket</div></div>
+                <div class="hd"><div class="h">Sessions</div><div class="sub muted" id="sub-sessions">per bucket</div></div>
                 <div class="bd"><div class="canvasWrap"><canvas id="chart-sessions"></canvas></div></div>
               </section>
             </div>
@@ -461,11 +385,9 @@
               </div>
               <pre class="pre" id="raw">—</pre>
             </section>
-
           </div>
 
         </div>
-
       </div>
     </main>
   </div>
@@ -479,207 +401,6 @@
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const state = { charts: {} };
-
-    function int(n){ return Number.isFinite(Number(n)) ? Math.trunc(Number(n)) : 0; }
-
-    function headers(){
-      const h = {};
-      if (window.__ADMIN__?.csrfToken) h["X-CSRF-Token"] = window.__ADMIN__.csrfToken;
-      return h;
-    }
-
-    async function getJSON(url){
-      const res = await fetch(url, { credentials:"include", headers: headers() });
-      const txt = await res.text();
-      if(!res.ok){
-        throw new Error(`HTTP ${res.status} ${url}\n${txt}`);
-      }
-      try { return JSON.parse(txt); }
-      catch { throw new Error(`Bad JSON from ${url}\n${txt}`); }
-    }
-
-    function destroyChart(key){
-      if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; }
-    }
-
-    function renderBar(canvasId, key, labels, values){
-      destroyChart(key);
-      const ctx = $(canvasId);
-      state.charts[key] = new Chart(ctx, {
-        type: "bar",
-        data: { labels, datasets: [{ label: "Count", data: values.map(int) }] },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { y: { ticks: { callback: (v) => int(v) }, beginAtZero: true } }
-        }
-      });
-    }
-
-    function renderPie(canvasId, key, labels, values){
-      destroyChart(key);
-      const ctx = $(canvasId);
-      state.charts[key] = new Chart(ctx, {
-        type: "pie",
-        data: { labels, datasets: [{ data: values.map(int) }] },
-        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } } }
-      });
-    }
-
-    function renderLine(canvasId, key, labels, inbound, outbound){
-      destroyChart(key);
-      const ctx = $(canvasId);
-      state.charts[key] = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels,
-          datasets: [
-            { label: "Inbound", data: inbound.map(int), tension: 0.25, pointRadius: 0 },
-            { label: "Outbound", data: outbound.map(int), tension: 0.25, pointRadius: 0 }
-          ]
-        },
-        options: {
-          responsive:true,
-          maintainAspectRatio:false,
-          plugins:{ legend:{ position:"bottom" } },
-          scales:{ y:{ ticks:{ callback:(v)=>int(v) }, beginAtZero:true } }
-        }
-      });
-    }
-
-    function renderSessionsLine(canvasId, key, labels, sessions){
-      destroyChart(key);
-      const ctx = $(canvasId);
-      state.charts[key] = new Chart(ctx, {
-        type: "line",
-        data: { labels, datasets: [{ label: "Sessions", data: sessions.map(int), tension: 0.25, pointRadius: 0 }] },
-        options: {
-          responsive:true,
-          maintainAspectRatio:false,
-          plugins:{ legend:{ display:false } },
-          scales:{ y:{ ticks:{ callback:(v)=>int(v) }, beginAtZero:true } }
-        }
-      });
-    }
-
-    function escapeHtml(s){
-      return String(s)
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
-
-    function renderQuestions(items){
-      const tbody = $("tbl-questions");
-      if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="2">No questions logged.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = items.slice(0,25).map(x =>
-        `<tr><td>${escapeHtml(x.text || "")}</td><td>${int(x.count)}</td></tr>`
-      ).join("");
-    }
-
-    function renderLeads(items){
-      const tbody = $("tbl-leads");
-      if(!items || !items.length){
-        tbody.innerHTML = `<tr><td colspan="5">No leads yet.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = items.slice(0,35).map(r =>
-        `<tr>
-          <td>${escapeHtml((r.updated_utc || "").slice(0,19).replace("T"," "))}</td>
-          <td>${escapeHtml(r.name || "")}</td>
-          <td>${escapeHtml(r.phone || "")}</td>
-          <td>${escapeHtml(r.status || "")}</td>
-          <td>${escapeHtml(r.tags || "")}</td>
-        </tr>`
-      ).join("");
-    }
-
-    function topN(arr, n){
-      return (arr || []).slice(0,n);
-    }
-
-    async function refreshAll(){
-      const minutes = parseInt($("period").value || "1440", 10);
-      const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-
-      $("dbg-status").textContent = "Loading…";
-
-      const [k, ts, ins, ld] = await Promise.all([
-        getJSON(`/admin/api/kpis?minutes=${minutes}&tenant=${tenant}`),
-        getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60&tenant=${tenant}`),
-        getJSON(`/admin/api/insights?minutes=${minutes}&top=20&tenant=${tenant}`),
-        getJSON(`/admin/api/leads?limit=50&tenant=${tenant}`),
-      ]);
-
-      $("kpi-in").textContent = int(k.inbound);
-      $("kpi-out").textContent = int(k.outbound);
-      $("kpi-total").textContent = int(k.total_messages);
-      $("kpi-sessions").textContent = int(k.sessions);
-      $("kpi-fb").textContent = int(k.fallbacks);
-      $("kpi-err").textContent = int(k.errors);
-      $("kpi-sub").textContent = `Last ${int(k.minutes)} minutes`;
-
-      // Volume line
-      const labels = (ts.points || []).map(p => (p.t || "").slice(5,16).replace("T"," "));
-      const inb = (ts.points || []).map(p => int(p.inbound));
-      const outb = (ts.points || []).map(p => int(p.outbound));
-      const sess = (ts.points || []).map(p => int(p.sessions));
-      renderLine("chart-volume", "volume", labels, inb, outb);
-      renderSessionsLine("chart-sessions", "sessions", labels, sess);
-
-      // Channels pie
-      const ch = topN(ins.channels, 8);
-      renderPie("chart-channels", "channels", ch.map(x=>x.key), ch.map(x=>x.count));
-
-      // Intents bar
-      const intents = topN(ins.intents, 10);
-      renderBar("chart-intents", "intents", intents.map(x=>x.key), intents.map(x=>x.count));
-
-      // Fallbacks bar
-      const fbs = topN(ins.fallbacks, 10);
-      renderBar("chart-fallbacks", "fallbacks", fbs.map(x=>x.key), fbs.map(x=>x.count));
-
-      // Errors bar
-      const errs = topN(ins.errors, 10);
-      renderBar("chart-errors", "errors", errs.map(x=>x.key), errs.map(x=>x.count));
-
-      // Tables
-      renderQuestions(ins.common_questions || []);
-      renderLeads(ld.items || []);
-
-      $("raw").textContent = JSON.stringify({kpis:k, timeseries:ts, insights:ins}, null, 2);
-      $("dbg-status").textContent = "OK";
-    }
-
-    window.addEventListener("DOMContentLoaded", () => {
-      $("refresh").addEventListener("click", () => refreshAll().catch(e => {
-        $("dbg-status").textContent = "ERROR";
-        $("raw").textContent = String(e);
-      }));
-      $("period").addEventListener("change", () => refreshAll().catch(e => {
-        $("dbg-status").textContent = "ERROR";
-        $("raw").textContent = String(e);
-      }));
-      $("export").addEventListener("click", () => {
-        const tenant = encodeURIComponent(window.__ADMIN__.tenant || "default");
-        window.location.href = `/admin/api/leads.csv?tenant=${tenant}`;
-      });
-
-      refreshAll().catch(e => {
-        $("dbg-status").textContent = "ERROR";
-        $("raw").textContent = String(e);
-      });
-    });
-  </script>
+  <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 </body>
 </html>
