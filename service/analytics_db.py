@@ -1,139 +1,195 @@
 # service/analytics_db.py
 from __future__ import annotations
 
-import os
+import csv
+import io
 import sqlite3
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from flask import Response
 
-DB_PATH = os.getenv("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
+DB_PATH = "logs/analytics.db"  # change if yours differs
 
+def _conn():
+    c = sqlite3.connect(DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
 
-def _conn() -> sqlite3.Connection:
-    con = sqlite3.connect(DB_PATH, timeout=30)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL;")
-    con.execute("PRAGMA synchronous=NORMAL;")
-    return con
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
-def _has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
-    rows = con.execute(f"PRAGMA table_info({table});").fetchall()
-    return any(r["name"] == col for r in rows)
-
-
-def _ensure_events_columns(con: sqlite3.Connection) -> None:
+def get_kpis(*, tenant: str, minutes: int) -> dict:
+    # assumes events table has: tenant, ts_utc, event_type, session_id
+    q = """
+    WITH w AS (
+      SELECT *
+      FROM events
+      WHERE tenant = ?
+        AND ts_utc >= datetime('now', ?)
+    )
+    SELECT
+      (SELECT COUNT(*) FROM w WHERE event_type='msg_in')  AS inbound,
+      (SELECT COUNT(*) FROM w WHERE event_type='msg_out') AS outbound,
+      (SELECT COUNT(*) FROM w WHERE event_type IN ('msg_in','msg_out')) AS total_messages,
+      (SELECT COUNT(DISTINCT session_id) FROM w WHERE event_type IN ('msg_in','msg_out')) AS sessions,
+      (SELECT COUNT(*) FROM w WHERE event_type='fallback') AS fallbacks,
+      (SELECT COUNT(*) FROM w WHERE event_type='error') AS errors
+    ;
     """
-    Auto-migrate existing DBs so your dashboard never breaks
-    when you add fields later.
+    window = f"-{int(minutes)} minutes"
+    with _conn() as con:
+        row = con.execute(q, (tenant, window)).fetchone()
+    return {
+        "tenant": tenant,
+        "minutes": int(minutes),
+        "inbound": int(row["inbound"] or 0),
+        "outbound": int(row["outbound"] or 0),
+        "total_messages": int(row["total_messages"] or 0),
+        "sessions": int(row["sessions"] or 0),
+        "fallbacks": int(row["fallbacks"] or 0),
+        "errors": int(row["errors"] or 0),
+    }
+
+def get_timeseries(*, tenant: str, minutes: int, bucket_minutes: int) -> dict:
+    # Bucket by hour-ish using integer division on unix epoch
+    q = """
+    WITH w AS (
+      SELECT *
+      FROM events
+      WHERE tenant = ?
+        AND ts_utc >= datetime('now', ?)
+        AND event_type IN ('msg_in','msg_out')
+    ),
+    b AS (
+      SELECT
+        datetime((strftime('%s', ts_utc) / (? * 60)) * (? * 60), 'unixepoch') AS t_bucket,
+        SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+        SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+        COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') THEN session_id END) AS sessions
+      FROM w
+      GROUP BY t_bucket
+      ORDER BY t_bucket ASC
+    )
+    SELECT * FROM b;
     """
-    # If events table doesn't exist yet, init_db() will create it fresh.
-    # If it exists, add missing columns.
-    add_cols = [
-        ("text", "TEXT"),
-        ("intent", "TEXT"),
-        ("error_type", "TEXT"),
-        ("error_code", "TEXT"),
-        ("redirect_to", "TEXT"),
-    ]
-    for name, ddl in add_cols:
-        if not _has_column(con, "events", name):
-            con.execute(f"ALTER TABLE events ADD COLUMN {name} {ddl};")
-
-
-def init_db() -> None:
+    window = f"-{int(minutes)} minutes"
+    bm = int(bucket_minutes)
     with _conn() as con:
-        con.execute("""
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts_utc TEXT NOT NULL,
-            tenant TEXT NOT NULL,
-            channel TEXT NOT NULL,          -- 'whatsapp' | 'web' | etc
-            session_id TEXT NOT NULL,
-            lead_id TEXT,                   -- optional stable ID (phone/email hash)
-            event_type TEXT NOT NULL,       -- 'msg_in'|'msg_out'|'fallback'|'error'|'redirect' etc
-            meta_json TEXT,                 -- optional JSON string
+        rows = con.execute(q, (tenant, window, bm, bm)).fetchall()
 
-            -- ✅ structured columns used by dashboard insights
-            text TEXT,
-            intent TEXT,
-            error_type TEXT,
-            error_code TEXT,
-            redirect_to TEXT
-        );
-        """)
+    points = []
+    for r in rows:
+        points.append({
+            "t": r["t_bucket"],
+            "inbound": int(r["inbound"] or 0),
+            "outbound": int(r["outbound"] or 0),
+            "sessions": int(r["sessions"] or 0),
+        })
 
-        # ✅ migrate older DBs
-        _ensure_events_columns(con)
+    return {"tenant": tenant, "minutes": int(minutes), "bucket": bm, "points": points}
 
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead ON events(lead_id);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);")
+def _top_kv(con, sql: str, params: tuple) -> list[dict]:
+    rows = con.execute(sql, params).fetchall()
+    return [{"key": r["key"], "count": int(r["count"] or 0)} for r in rows]
 
-        con.execute("""
-        CREATE TABLE IF NOT EXISTS leads (
-            lead_id TEXT PRIMARY KEY,
-            tenant TEXT NOT NULL,
-            name TEXT,
-            phone TEXT,
-            status TEXT DEFAULT 'Open',
-            tags TEXT DEFAULT '',
-            last_session_id TEXT,
-            updated_utc TEXT NOT NULL
-        );
-        """)
-        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc);")
+def get_insights(*, tenant: str, minutes: int, top: int) -> dict:
+    window = f"-{int(minutes)} minutes"
+    topn = int(top)
 
-
-def upsert_lead(tenant: str, lead_id: str, phone: str | None = None, name: str | None = None) -> None:
-    now = utc_now_iso()
     with _conn() as con:
-        con.execute("""
-        INSERT INTO leads (lead_id, tenant, phone, name, updated_utc)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(lead_id) DO UPDATE SET
-            phone=COALESCE(excluded.phone, leads.phone),
-            name=COALESCE(excluded.name, leads.name),
-            updated_utc=excluded.updated_utc;
-        """, (lead_id, tenant, phone, name, now))
+        # Channels: ONLY messages, not lead_upsert/session events
+        channels = _top_kv(con, """
+          SELECT channel AS key, COUNT(*) AS count
+          FROM events
+          WHERE tenant=?
+            AND ts_utc >= datetime('now', ?)
+            AND event_type IN ('msg_in','msg_out')
+          GROUP BY channel
+          ORDER BY count DESC
+          LIMIT ?;
+        """, (tenant, window, topn))
 
+        # Intents: take from msg_out only (where intent exists)
+        intents = _top_kv(con, """
+          SELECT COALESCE(intent,'unknown') AS key, COUNT(*) AS count
+          FROM events
+          WHERE tenant=?
+            AND ts_utc >= datetime('now', ?)
+            AND event_type='msg_out'
+          GROUP BY COALESCE(intent,'unknown')
+          ORDER BY count DESC
+          LIMIT ?;
+        """, (tenant, window, topn))
 
-def set_lead_session(lead_id: str, session_id: str) -> None:
-    now = utc_now_iso()
+        # Fallbacks: use explicit fallback events
+        fallbacks = _top_kv(con, """
+          SELECT COALESCE(intent,'fallback') AS key, COUNT(*) AS count
+          FROM events
+          WHERE tenant=?
+            AND ts_utc >= datetime('now', ?)
+            AND event_type='fallback'
+          GROUP BY COALESCE(intent,'fallback')
+          ORDER BY count DESC
+          LIMIT ?;
+        """, (tenant, window, topn))
+
+        # Errors
+        errors = _top_kv(con, """
+          SELECT COALESCE(error_type,'error') AS key, COUNT(*) AS count
+          FROM events
+          WHERE tenant=?
+            AND ts_utc >= datetime('now', ?)
+            AND event_type='error'
+          GROUP BY COALESCE(error_type,'error')
+          ORDER BY count DESC
+          LIMIT ?;
+        """, (tenant, window, topn))
+
+        # Common questions: count msg_in text (basic)
+        common_questions = []
+        rows = con.execute("""
+          SELECT text AS text, COUNT(*) AS count
+          FROM events
+          WHERE tenant=?
+            AND ts_utc >= datetime('now', ?)
+            AND event_type='msg_in'
+            AND text IS NOT NULL
+            AND length(trim(text)) > 0
+          GROUP BY text
+          ORDER BY count DESC
+          LIMIT ?;
+        """, (tenant, window, topn)).fetchall()
+        for r in rows:
+            common_questions.append({"text": r["text"], "count": int(r["count"] or 0)})
+
+    return {
+        "tenant": tenant,
+        "minutes": int(minutes),
+        "channels": channels,
+        "intents": intents,
+        "fallbacks": fallbacks,
+        "errors": errors,
+        "common_questions": common_questions,
+    }
+
+def get_leads(*, tenant: str, limit: int) -> dict:
+    q = """
+    SELECT updated_utc, name, phone, status, tags
+    FROM leads
+    WHERE tenant=?
+    ORDER BY updated_utc DESC
+    LIMIT ?;
+    """
     with _conn() as con:
-        con.execute("""
-        UPDATE leads SET last_session_id=?, updated_utc=?
-        WHERE lead_id=?;
-        """, (session_id, now, lead_id))
+        rows = con.execute(q, (tenant, int(limit))).fetchall()
+    return {"items": [dict(r) for r in rows]}
 
+def export_leads_csv(*, tenant: str) -> Response:
+    data = get_leads(tenant=tenant, limit=5000)["items"]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["updated_utc", "name", "phone", "status", "tags"])
+    for r in data:
+        w.writerow([r.get("updated_utc",""), r.get("name",""), r.get("phone",""), r.get("status",""), r.get("tags","")])
+    buf.seek(0)
 
-def log_event(
-    tenant: str,
-    channel: str,
-    session_id: str,
-    event_type: str,
-    lead_id: str | None = None,
-    meta_json: str | None = None,
-    *,
-    text: str | None = None,
-    intent: str | None = None,
-    error_type: str | None = None,
-    error_code: str | None = None,
-    redirect_to: str | None = None,
-) -> None:
-    with _conn() as con:
-        con.execute("""
-        INSERT INTO events(
-          ts_utc, tenant, channel, session_id, lead_id, event_type, meta_json,
-          text, intent, error_type, error_code, redirect_to
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        """, (
-            utc_now_iso(), tenant, channel, session_id, lead_id, event_type, meta_json,
-            text, intent, error_type, error_code, redirect_to
-        ))
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="leads_{tenant}.csv"'},
+    )
