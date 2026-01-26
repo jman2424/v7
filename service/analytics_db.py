@@ -4,35 +4,31 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
-from typing import Any, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional, Iterable
 
-# Default DB location (Render-friendly). Override with ANALYTICS_DB_PATH env var.
 DB_PATH = os.environ.get("ANALYTICS_DB_PATH") or os.path.join("logs", "analytics.db")
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
+# ----------------------------
+# Basics
+# ----------------------------
 def _utc_now_iso() -> str:
-    # 2026-01-24T12:34:56Z (no microseconds)
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _ensure_dir(path: str) -> None:
-    d = os.path.dirname(path)
-    if d:
-        os.makedirs(d, exist_ok=True)
+def _parse_iso_z(s: str) -> datetime:
+    # expects "....Z"
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
 
 
 def _conn() -> sqlite3.Connection:
-    _ensure_dir(DB_PATH)
-    con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    con = sqlite3.connect(DB_PATH, timeout=30)
     con.row_factory = sqlite3.Row
-    # Safer concurrency + better durability on Render
-    con.execute("PRAGMA journal_mode=WAL;")
-    con.execute("PRAGMA synchronous=NORMAL;")
-    con.execute("PRAGMA foreign_keys=ON;")
     return con
 
 
@@ -41,29 +37,31 @@ def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
     return {r["name"] for r in rows}
 
 
-def _add_column_if_missing(con: sqlite3.Connection, table: str, col: str, ddl_type: str) -> None:
-    cols = _table_columns(con, table)
-    if col not in cols:
-        con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl_type}")
+def _ensure_columns(con: sqlite3.Connection, table: str, columns_sql: dict[str, str]) -> None:
+    existing = _table_columns(con, table)
+    for col, ddl in columns_sql.items():
+        if col not in existing:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
 def _json_dumps_safe(obj: Any) -> str:
+    if obj is None:
+        return ""
     try:
-        return json.dumps(obj, ensure_ascii=False, default=str)
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     except Exception:
-        return json.dumps({"_meta_error": "serialize_failed"}, ensure_ascii=False)
+        return json.dumps({"_meta_error": "serialize_failed"}, separators=(",", ":"))
 
 
-# -----------------------------
-# Public API (used by app_factory + routes)
-# -----------------------------
+# ----------------------------
+# Schema + migration
+# ----------------------------
 def init_db() -> None:
     """
-    Creates tables if missing and performs lightweight, safe schema migrations
-    (ADD COLUMN only). This keeps the dashboard/API stable across deploys.
+    Must exist (app_factory imports init_db).
+    Creates tables and migrates missing columns safely.
     """
     with _conn() as con:
-        # Events table (append-only)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -73,7 +71,7 @@ def init_db() -> None:
               channel     TEXT NOT NULL,
               session_id  TEXT NOT NULL,
               lead_id     TEXT,
-              event_type  TEXT NOT NULL,
+              event_type  TEXT NOT NULL,   -- msg_in | msg_out | fallback | error | ...
               text        TEXT,
               intent      TEXT,
               error_type  TEXT,
@@ -82,98 +80,110 @@ def init_db() -> None:
             );
             """
         )
-
-        # Leads table (dashboard expects name/phone/status/tags)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS leads (
               id              INTEGER PRIMARY KEY AUTOINCREMENT,
               tenant          TEXT NOT NULL,
               lead_id         TEXT NOT NULL,
-              name            TEXT,
-              phone           TEXT,
-              status          TEXT DEFAULT 'open',
-              tags            TEXT,
               last_session_id TEXT,
               updated_utc     TEXT NOT NULL,
+
+              -- dashboard expects these:
+              name            TEXT,
+              phone           TEXT,
+              status          TEXT,
+              tags_json       TEXT,
+
               UNIQUE(tenant, lead_id)
             );
             """
         )
 
-        # Lightweight migration path (if an older leads table exists without new columns)
-        # Works even when the CREATE TABLE above didn’t run because the table already existed.
-        for col, ddl in (
-            ("name", "TEXT"),
-            ("phone", "TEXT"),
-            ("status", "TEXT DEFAULT 'open'"),
-            ("tags", "TEXT"),
-            ("last_session_id", "TEXT"),
-        ):
-            _add_column_if_missing(con, "leads", col, ddl)
+        # If the table already existed from older versions, make sure required columns exist.
+        _ensure_columns(
+            con,
+            "leads",
+            {
+                "name": "name TEXT",
+                "phone": "phone TEXT",
+                "status": "status TEXT",
+                "tags_json": "tags_json TEXT",
+            },
+        )
 
-        # Helpful indices for dashboard queries
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_type ON events(tenant, event_type);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_session ON events(tenant, session_id);")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc);")
+        # Helpful indexes (fast dashboard)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_type ON events(tenant, event_type)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_session ON events(tenant, session_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
 
 
-def upsert_lead(
-    *,
-    tenant: str,
-    lead_id: str,
-    name: str | None = None,
-    phone: str | None = None,
-    status: str | None = None,
-    tags: str | None = None,
-) -> None:
-    """
-    Ensures a lead exists. Safe to call frequently.
-    Does not overwrite non-null fields unless you pass new values.
-    """
+# ----------------------------
+# Writes
+# ----------------------------
+def upsert_lead(*, tenant: str, lead_id: str) -> None:
     tenant = (tenant or "default").strip()
     lead_id = (lead_id or "unknown").strip()
-    now = _utc_now_iso()
-
     with _conn() as con:
-        # Insert if missing
         con.execute(
             """
-            INSERT INTO leads (tenant, lead_id, name, phone, status, tags, last_session_id, updated_utc)
-            VALUES (?, ?, ?, ?, COALESCE(?, 'open'), ?, '', ?)
+            INSERT INTO leads (tenant, lead_id, last_session_id, updated_utc, status, tags_json)
+            VALUES (?, ?, '', ?, 'Open', '[]')
             ON CONFLICT(tenant, lead_id) DO UPDATE SET
-              updated_utc=excluded.updated_utc,
-              name=COALESCE(excluded.name, leads.name),
-              phone=COALESCE(excluded.phone, leads.phone),
-              status=COALESCE(excluded.status, leads.status),
-              tags=COALESCE(excluded.tags, leads.tags);
+              updated_utc = excluded.updated_utc;
             """,
-            (tenant, lead_id, name, phone, status, tags, now),
+            (tenant, lead_id, _utc_now_iso()),
         )
 
 
-def set_lead_session(*, lead_id: str, session_id: str, tenant: Optional[str] = None) -> None:
-    """
-    Updates last_session_id for a lead. Prefer passing tenant for correctness.
-    """
+def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
+    tenant = (tenant or "default").strip()
     lead_id = (lead_id or "unknown").strip()
     session_id = (session_id or "unknown").strip()
-    now = _utc_now_iso()
-
     with _conn() as con:
-        if tenant:
-            tenant = (tenant or "default").strip()
-            con.execute(
-                "UPDATE leads SET last_session_id=?, updated_utc=? WHERE tenant=? AND lead_id=?",
-                (session_id, now, tenant, lead_id),
-            )
-        else:
-            # Fallback (not ideal if you share lead_id across tenants)
-            con.execute(
-                "UPDATE leads SET last_session_id=?, updated_utc=? WHERE lead_id=?",
-                (session_id, now, lead_id),
-            )
+        con.execute(
+            """
+            UPDATE leads
+               SET last_session_id = ?,
+                   updated_utc = ?
+             WHERE tenant = ? AND lead_id = ?
+            """,
+            (session_id, _utc_now_iso(), tenant, lead_id),
+        )
+
+
+def update_lead(
+    *,
+    tenant: str,
+    lead_id: str,
+    name: Optional[str] = None,
+    phone: Optional[str] = None,
+    status: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> None:
+    tenant = (tenant or "default").strip()
+    lead_id = (lead_id or "unknown").strip()
+    with _conn() as con:
+        cols = _table_columns(con, "leads")
+        sets = ["updated_utc=?"]
+        vals: list[Any] = [_utc_now_iso()]
+
+        if "name" in cols and name is not None:
+            sets.append("name=?")
+            vals.append(name.strip() if name else "")
+        if "phone" in cols and phone is not None:
+            sets.append("phone=?")
+            vals.append(phone.strip() if phone else "")
+        if "status" in cols and status is not None:
+            sets.append("status=?")
+            vals.append(status.strip() if status else "")
+        if "tags_json" in cols and tags is not None:
+            sets.append("tags_json=?")
+            vals.append(_json_dumps_safe(tags))
+
+        vals.extend([tenant, lead_id])
+        con.execute(f"UPDATE leads SET {', '.join(sets)} WHERE tenant=? AND lead_id=?", vals)
 
 
 def log_event(
@@ -189,22 +199,15 @@ def log_event(
     error_code: str = "",
     meta: Optional[dict[str, Any]] = None,
     metadata: Optional[dict[str, Any]] = None,
+    **_ignore: Any,  # IMPORTANT: prevents crashes if callers pass extra kwargs
 ) -> None:
-    """
-    Stores an analytics event. Accepts either meta= or metadata= (compat).
-    """
     tenant = (tenant or "default").strip()
     channel = (channel or "unknown").strip()
     session_id = (session_id or "unknown").strip()
     event_type = (event_type or "unknown").strip()
-    lead_id = (lead_id or "").strip()
-    text = text or ""
-    intent = intent or ""
-    error_type = error_type or ""
-    error_code = error_code or ""
 
     payload = meta if meta is not None else metadata
-    meta_json = _json_dumps_safe(payload) if payload is not None else ""
+    meta_json = _json_dumps_safe(payload)
 
     with _conn() as con:
         con.execute(
@@ -218,57 +221,309 @@ def log_event(
                 tenant,
                 channel,
                 session_id,
-                lead_id,
+                (lead_id or "").strip(),
                 event_type,
-                text,
-                intent,
-                error_type,
-                error_code,
+                (text or "").strip(),
+                (intent or "").strip(),
+                (error_type or "").strip(),
+                (error_code or "").strip(),
                 meta_json,
             ),
         )
 
 
-# -----------------------------
-# Optional helper queries (safe for admin APIs)
-# -----------------------------
-def fetch_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+# ----------------------------
+# Reads for dashboard
+# ----------------------------
+@dataclass
+class Kpis:
+    inbound: int
+    outbound: int
+    total: int
+    sessions: int
+    fallbacks: int
+    errors: int
+
+
+def _since_utc(minutes: int) -> str:
+    dt = datetime.now(timezone.utc) - timedelta(minutes=max(1, int(minutes)))
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def get_kpis(*, tenant: str, minutes: int) -> Kpis:
+    tenant = (tenant or "default").strip()
+    since = _since_utc(minutes)
+
+    with _conn() as con:
+        inbound = con.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'",
+            (tenant, since),
+        ).fetchone()["n"]
+        outbound = con.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'",
+            (tenant, since),
+        ).fetchone()["n"]
+        fallbacks = con.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='fallback'",
+            (tenant, since),
+        ).fetchone()["n"]
+        errors = con.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='error'",
+            (tenant, since),
+        ).fetchone()["n"]
+        sessions = con.execute(
+            """
+            SELECT COUNT(DISTINCT session_id) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+    total = int(inbound) + int(outbound)
+    return Kpis(int(inbound), int(outbound), int(total), int(sessions), int(fallbacks), int(errors))
+
+
+def get_channels_split(*, tenant: str, minutes: int) -> dict[str, int]:
     """
-    Returns leads for admin dashboard.
+    Returns keys like:
+      web_in, web_out, whatsapp_in, whatsapp_out
     """
     tenant = (tenant or "default").strip()
-    limit = max(1, min(int(limit or 50), 500))
+    since = _since_utc(minutes)
 
     with _conn() as con:
         rows = con.execute(
             """
-            SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
-            FROM leads
-            WHERE tenant=?
-            ORDER BY updated_utc DESC
-            LIMIT ?
+            SELECT channel, event_type, COUNT(*) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=?
+               AND event_type IN ('msg_in','msg_out')
+             GROUP BY channel, event_type
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    out: dict[str, int] = {"web_in": 0, "web_out": 0, "whatsapp_in": 0, "whatsapp_out": 0}
+    for r in rows:
+        ch = (r["channel"] or "unknown").lower()
+        et = r["event_type"]
+        key = None
+        if ch.startswith("web"):
+            key = "web_in" if et == "msg_in" else "web_out"
+        elif ch.startswith("whatsapp") or ch.startswith("wa"):
+            key = "whatsapp_in" if et == "msg_in" else "whatsapp_out"
+        else:
+            # bucket unknown into web for now (prevents blank charts)
+            key = "web_in" if et == "msg_in" else "web_out"
+        out[key] = out.get(key, 0) + int(r["n"])
+    return out
+
+
+def get_timeseries(*, tenant: str, minutes: int, bucket: int) -> list[dict[str, Any]]:
+    """
+    Returns list of buckets:
+      [{ts:'2026-01-26T03:00:00Z', inbound: 2, outbound: 2}, ...]
+    """
+    tenant = (tenant or "default").strip()
+    since = _since_utc(minutes)
+    bucket = max(1, int(bucket))  # minutes per bucket
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT ts_utc, event_type
+              FROM events
+             WHERE tenant=? AND ts_utc>=?
+               AND event_type IN ('msg_in','msg_out')
+             ORDER BY ts_utc ASC
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    # build buckets in python (portable + easy)
+    start_dt = _parse_iso_z(since)
+    end_dt = datetime.now(timezone.utc).replace(microsecond=0)
+    # align start to bucket boundary
+    aligned = start_dt.replace(second=0, microsecond=0)
+    minute = (aligned.minute // bucket) * bucket
+    aligned = aligned.replace(minute=minute)
+
+    buckets: list[dict[str, Any]] = []
+    cur = aligned
+    while cur <= end_dt:
+        buckets.append(
+            {
+                "ts": cur.isoformat().replace("+00:00", "Z"),
+                "inbound": 0,
+                "outbound": 0,
+            }
+        )
+        cur = cur + timedelta(minutes=bucket)
+
+    def _bucket_index(ts: datetime) -> int:
+        delta = ts - aligned
+        return max(0, min(len(buckets) - 1, int(delta.total_seconds() // (bucket * 60))))
+
+    for r in rows:
+        ts = _parse_iso_z(r["ts_utc"])
+        i = _bucket_index(ts)
+        if r["event_type"] == "msg_in":
+            buckets[i]["inbound"] += 1
+        else:
+            buckets[i]["outbound"] += 1
+
+    # trim leading empty buckets to make charts nicer (but keep at least 1)
+    while len(buckets) > 1 and buckets[0]["inbound"] == 0 and buckets[0]["outbound"] == 0:
+        buckets.pop(0)
+
+    return buckets
+
+
+def get_top_intents(*, tenant: str, minutes: int, top: int) -> list[dict[str, Any]]:
+    tenant = (tenant or "default").strip()
+    since = _since_utc(minutes)
+    top = max(1, min(50, int(top)))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(intent,''), 'unknown') AS intent, COUNT(*) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
+             GROUP BY intent
+             ORDER BY n DESC
+             LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"label": r["intent"], "value": int(r["n"])} for r in rows]
+
+
+def get_top_questions(*, tenant: str, minutes: int, top: int) -> list[dict[str, Any]]:
+    tenant = (tenant or "default").strip()
+    since = _since_utc(minutes)
+    top = max(1, min(50, int(top)))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT LOWER(TRIM(text)) AS q, COUNT(*) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'
+               AND text IS NOT NULL AND TRIM(text) != ''
+             GROUP BY q
+             ORDER BY n DESC
+             LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"question": r["q"], "count": int(r["n"])} for r in rows]
+
+
+def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+    tenant = (tenant or "default").strip()
+    limit = max(1, min(200, int(limit)))
+
+    with _conn() as con:
+        cols = _table_columns(con, "leads")
+        # always select safely even if older DB
+        sel = [
+            "lead_id",
+            "updated_utc",
+            "last_session_id",
+        ]
+        if "name" in cols:
+            sel.append("COALESCE(name,'') AS name")
+        else:
+            sel.append("'' AS name")
+        if "phone" in cols:
+            sel.append("COALESCE(phone,'') AS phone")
+        else:
+            sel.append("'' AS phone")
+        if "status" in cols:
+            sel.append("COALESCE(status,'Open') AS status")
+        else:
+            sel.append("'Open' AS status")
+        if "tags_json" in cols:
+            sel.append("COALESCE(tags_json,'[]') AS tags_json")
+        else:
+            sel.append("'[]' AS tags_json")
+
+        rows = con.execute(
+            f"""
+            SELECT {", ".join(sel)}
+              FROM leads
+             WHERE tenant=?
+             ORDER BY updated_utc DESC
+             LIMIT ?
             """,
             (tenant, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            tags = json.loads(r["tags_json"] or "[]")
+            if not isinstance(tags, list):
+                tags = []
+        except Exception:
+            tags = []
+        out.append(
+            {
+                "lead_id": r["lead_id"],
+                "updated_utc": r["updated_utc"],
+                "session_id": r["last_session_id"] or "",
+                "name": r["name"] or "",
+                "phone": r["phone"] or "",
+                "status": r["status"] or "Open",
+                "tags": tags,
+            }
+        )
+    return out
 
 
-def fetch_events_recent(*, tenant: str, minutes: int = 1440) -> list[sqlite3.Row]:
-    """
-    Convenience read for KPIs/graphs (if you need it elsewhere).
-    """
+def get_fallbacks(*, tenant: str, minutes: int, top: int) -> list[dict[str, Any]]:
     tenant = (tenant or "default").strip()
-    minutes = max(1, min(int(minutes or 1440), 60 * 24 * 30))
+    since = _since_utc(minutes)
+    top = max(1, min(50, int(top)))
 
-    # events.ts_utc is ISO Z. SQLite datetime() parses it fine with replace.
     with _conn() as con:
-        return con.execute(
+        rows = con.execute(
             """
-            SELECT *
-            FROM events
-            WHERE tenant=?
-              AND datetime(replace(ts_utc,'Z','')) >= datetime('now', ?)
-            ORDER BY ts_utc ASC
+            SELECT LOWER(TRIM(text)) AS q, COUNT(*) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=? AND event_type='fallback'
+               AND text IS NOT NULL AND TRIM(text) != ''
+             GROUP BY q
+             ORDER BY n DESC
+             LIMIT ?
             """,
-            (tenant, f"-{minutes} minutes"),
+            (tenant, since, top),
         ).fetchall()
+
+    return [{"label": r["q"], "value": int(r["n"])} for r in rows]
+
+
+def get_errors(*, tenant: str, minutes: int, top: int) -> list[dict[str, Any]]:
+    tenant = (tenant or "default").strip()
+    since = _since_utc(minutes)
+    top = max(1, min(50, int(top)))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(error_code,''), COALESCE(NULLIF(error_type,''), 'error')) AS label,
+                   COUNT(*) AS n
+              FROM events
+             WHERE tenant=? AND ts_utc>=? AND event_type='error'
+             GROUP BY label
+             ORDER BY n DESC
+             LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"label": r["label"], "value": int(r["n"])} for r in rows]
