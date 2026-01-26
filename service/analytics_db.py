@@ -5,7 +5,8 @@ import json
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 DB_PATH = os.environ.get("ANALYTICS_DB_PATH") or os.path.join("logs", "analytics.db")
@@ -14,6 +15,9 @@ _INIT_LOCK = threading.Lock()
 _INIT_DONE = False
 
 
+# -----------------------------
+# Core helpers
+# -----------------------------
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -22,6 +26,17 @@ def _conn() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
+
+    # Reliability under concurrency
+    try:
+        con.execute("PRAGMA journal_mode=WAL;")
+        con.execute("PRAGMA synchronous=NORMAL;")
+        con.execute("PRAGMA foreign_keys=ON;")
+        con.execute("PRAGMA busy_timeout=30000;")
+    except Exception:
+        # PRAGMAs can fail on some platforms; not fatal
+        pass
+
     return con
 
 
@@ -86,7 +101,7 @@ def init_db() -> None:
             """
         )
 
-        # Back/forward compatible lead columns expected by dashboard
+        # Dashboard-compatible lead columns
         _ensure_columns(
             con,
             "leads",
@@ -94,16 +109,45 @@ def init_db() -> None:
                 "name": "name TEXT",
                 "phone": "phone TEXT",
                 "status": "status TEXT",
-                "tags": "tags TEXT",
-                "tags_json": "tags_json TEXT",
+                "tags": "tags TEXT",         # legacy string/json
+                "tags_json": "tags_json TEXT",  # preferred json string
             },
         )
 
-        # Indexes
+        # Indexes for speed
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_type_ts ON events(tenant, event_type, ts_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_channel_ts ON events(tenant, channel, ts_utc)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_session ON events(tenant, session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_lead ON leads(tenant, lead_id)")
+
+
+def _since_iso(minutes: int) -> str:
+    minutes = max(1, int(minutes or 1440))
+    dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sqlite_ts_expr() -> str:
+    # ts_utc stored like "2026-01-26T22:00:00Z"
+    # Convert to "2026-01-26 22:00:00"
+    return "replace(replace(ts_utc,'T',' '),'Z','')"
+
+
+def _bucket_expr(bucket_minutes: int) -> str:
+    """
+    Floor timestamps to a bucket size.
+    Returns SQL expression producing "YYYY-MM-DD HH:MM:00"
+    """
+    bucket_minutes = max(5, int(bucket_minutes or 60))
+    ts_expr = _sqlite_ts_expr()
+    return f"""
+    datetime(
+      strftime('%Y-%m-%d %H:', {ts_expr}) ||
+      printf('%02d:00', (cast(strftime('%M',{ts_expr}) as int)/{bucket_minutes})*{bucket_minutes})
+    )
+    """
 
 
 # -----------------------------
@@ -111,9 +155,10 @@ def init_db() -> None:
 # -----------------------------
 def upsert_lead(*, tenant: str, lead_id: str) -> None:
     _ensure_ready()
-    tenant = tenant or "default"
-    lead_id = lead_id or "unknown"
+    tenant = (tenant or "default").strip() or "default"
+    lead_id = (lead_id or "unknown").strip() or "unknown"
     now = _utc_now_iso()
+
     with _conn() as con:
         con.execute(
             """
@@ -126,20 +171,22 @@ def upsert_lead(*, tenant: str, lead_id: str) -> None:
         )
 
 
-def set_lead_session(*, lead_id: str, session_id: str, tenant: Optional[str] = None) -> None:
+def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
     _ensure_ready()
+    tenant = (tenant or "default").strip() or "default"
+    lead_id = (lead_id or "unknown").strip() or "unknown"
+    session_id = (session_id or "unknown").strip() or "unknown"
     now = _utc_now_iso()
+
     with _conn() as con:
-        if tenant:
-            con.execute(
-                "UPDATE leads SET last_session_id=?, updated_utc=? WHERE tenant=? AND lead_id=?",
-                (session_id, now, tenant, lead_id),
-            )
-        else:
-            con.execute(
-                "UPDATE leads SET last_session_id=?, updated_utc=? WHERE lead_id=?",
-                (session_id, now, lead_id),
-            )
+        con.execute(
+            """
+            UPDATE leads
+            SET last_session_id=?, updated_utc=?
+            WHERE tenant=? AND lead_id=?
+            """,
+            (session_id, now, tenant, lead_id),
+        )
 
 
 def log_event(
@@ -160,6 +207,12 @@ def log_event(
     Accepts BOTH meta= and metadata= (prevents crash).
     """
     _ensure_ready()
+
+    tenant = (tenant or "default").strip() or "default"
+    channel = (channel or "unknown").strip() or "unknown"
+    session_id = (session_id or "unknown").strip() or "unknown"
+    event_type = (event_type or "unknown").strip() or "unknown"
+
     payload = meta if meta is not None else metadata
     meta_json = ""
     if payload is not None:
@@ -179,11 +232,11 @@ def log_event(
             """,
             (
                 _utc_now_iso(),
-                tenant or "default",
-                channel or "unknown",
-                session_id or "unknown",
+                tenant,
+                channel,
+                session_id,
                 lead_id or "",
-                event_type or "unknown",
+                event_type,
                 text or "",
                 intent or "",
                 error_type or "",
@@ -196,96 +249,74 @@ def log_event(
 # -----------------------------
 # Dashboard reads
 # -----------------------------
-def _since_iso(minutes: int) -> str:
-    minutes = max(1, int(minutes or 1440))
-    dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _sqlite_ts_expr() -> str:
-    # ts_utc stored like "2026-01-26T22:00:00Z"
-    # Convert to "2026-01-26 22:00:00"
-    return "replace(replace(ts_utc,'T',' '),'Z','')"
-
-
-from datetime import timedelta
-
-
 def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     """
-    Counts are message-only for inbound/outbound/total.
-    Errors/fallbacks are their own event types.
-    Sessions = distinct session_id among message events.
+    KPI rules:
+    - inbound/outbound/total count ONLY msg_in/msg_out
+    - fallbacks/errors are separate event types
+    - sessions = distinct session_id among message events
     """
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
 
     with _conn() as con:
         inbound = con.execute(
-            """
-            SELECT COUNT(*) AS n FROM events
-            WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'
-            """,
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'",
             (tenant, since),
         ).fetchone()["n"]
 
         outbound = con.execute(
-            """
-            SELECT COUNT(*) AS n FROM events
-            WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
-            """,
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'",
             (tenant, since),
         ).fetchone()["n"]
 
         fallbacks = con.execute(
-            """
-            SELECT COUNT(*) AS n FROM events
-            WHERE tenant=? AND ts_utc>=? AND event_type='fallback'
-            """,
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='fallback'",
             (tenant, since),
         ).fetchone()["n"]
 
         errors = con.execute(
-            """
-            SELECT COUNT(*) AS n FROM events
-            WHERE tenant=? AND ts_utc>=? AND event_type='error'
-            """,
+            "SELECT COUNT(*) AS n FROM events WHERE tenant=? AND ts_utc>=? AND event_type='error'",
             (tenant, since),
         ).fetchone()["n"]
 
         sessions = con.execute(
             """
-            SELECT COUNT(DISTINCT session_id) AS n FROM events
+            SELECT COUNT(DISTINCT session_id) AS n
+            FROM events
             WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
             """,
             (tenant, since),
         ).fetchone()["n"]
 
-    total = int(inbound) + int(outbound)
+    inbound = int(inbound or 0)
+    outbound = int(outbound or 0)
+    fallbacks = int(fallbacks or 0)
+    errors = int(errors or 0)
+    sessions = int(sessions or 0)
+
+    total = inbound + outbound
     return {
-        "inbound": int(inbound),
-        "outbound": int(outbound),
-        "total": int(total),
-        "sessions": int(sessions),
-        "fallbacks": int(fallbacks),
-        "errors": int(errors),
-        "fallback_rate": (float(fallbacks) / float(inbound or 1)),
-        "error_rate": (float(errors) / float(total or 1)),
+        "inbound": inbound,
+        "outbound": outbound,
+        "total": total,
+        "sessions": sessions,
+        "fallbacks": fallbacks,
+        "errors": errors,
+        "fallback_rate": (fallbacks / float(inbound or 1)),
+        "error_rate": (errors / float(total or 1)),
     }
 
 
 def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     """
-    This fixes your '9' bug:
-    only message events are counted here.
-    Returns per-channel in/out AND totals.
+    Counts ONLY message events (fixes the '9' bug).
+    Returns per-channel inbound/outbound/total.
     """
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
 
     with _conn() as con:
         rows = con.execute(
@@ -303,36 +334,26 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
 
     out: dict[str, Any] = {}
     for r in rows:
-        ch = (r["channel"] or "unknown").strip()
-        out[ch] = {"inbound": int(r["inbound"]), "outbound": int(r["outbound"]), "total": int(r["inbound"]) + int(r["outbound"])}
+        ch = (r["channel"] or "unknown").strip() or "unknown"
+        inbound = int(r["inbound"] or 0)
+        outbound = int(r["outbound"] or 0)
+        out[ch] = {"inbound": inbound, "outbound": outbound, "total": inbound + outbound}
     return out
 
 
 def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
     """
-    Returns buckets with inbound/outbound counts.
-    This is what your Message Volume chart should use.
+    Message volume per bucket (inbound/outbound).
     """
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
-    bucket_minutes = max(5, int(bucket_minutes or 60))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-    # bucket expression (floor to bucket_minutes)
-    ts_expr = _sqlite_ts_expr()
-    # minute-of-day floored to bucket
-    bucket_expr = f"""
-    datetime(
-      strftime('%Y-%m-%d %H:', {ts_expr}) ||
-      printf('%02d:00', (cast(strftime('%M',{ts_expr}) as int)/{bucket_minutes})*{bucket_minutes})
-    )
-    """
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
+    b = _bucket_expr(bucket_minutes)
 
     with _conn() as con:
         rows = con.execute(
             f"""
-            SELECT {bucket_expr} AS bucket,
+            SELECT {b} AS bucket,
                    SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
                    SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
             FROM events
@@ -343,15 +364,40 @@ def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60
             (tenant, since),
         ).fetchall()
 
-    return [{"t": r["bucket"], "inbound": int(r["inbound"]), "outbound": int(r["outbound"])} for r in rows]
+    return [{"t": r["bucket"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)} for r in rows]
+
+
+def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
+    """
+    Sessions per bucket (distinct session_id in each bucket).
+    This powers your 'SESSIONS per bucket' chart.
+    """
+    _ensure_ready()
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
+    b = _bucket_expr(bucket_minutes)
+
+    with _conn() as con:
+        rows = con.execute(
+            f"""
+            SELECT {b} AS bucket,
+                   COUNT(DISTINCT session_id) AS sessions
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
+            GROUP BY bucket
+            ORDER BY bucket ASC
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    return [{"t": r["bucket"], "sessions": int(r["sessions"] or 0)} for r in rows]
 
 
 def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
     top = max(1, min(int(top or 10), 50))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     with _conn() as con:
         rows = con.execute(
@@ -365,15 +411,15 @@ def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[
             """,
             (tenant, since, top),
         ).fetchall()
-    return [{"label": r["intent"], "count": int(r["n"])} for r in rows]
+
+    return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
 
 
 def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
     top = max(1, min(int(top or 10), 50))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     with _conn() as con:
         rows = con.execute(
@@ -387,15 +433,15 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
             """,
             (tenant, since, top),
         ).fetchall()
-    return [{"label": r["intent"], "count": int(r["n"])} for r in rows]
+
+    return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
 
 
 def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
     top = max(1, min(int(top or 10), 50))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     with _conn() as con:
         rows = con.execute(
@@ -409,18 +455,18 @@ def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[
             """,
             (tenant, since, top),
         ).fetchall()
-    return [{"label": r["code"], "count": int(r["n"])} for r in rows]
+
+    return [{"label": r["code"], "count": int(r["n"] or 0)} for r in rows]
 
 
 def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     """
-    Uses msg_in text to build 'common questions'
+    Common inbound texts (lowercased).
     """
     _ensure_ready()
-    tenant = tenant or "default"
-    minutes = max(1, int(minutes or 1440))
+    tenant = (tenant or "default").strip() or "default"
+    since = _since_iso(minutes)
     top = max(1, min(int(top or 10), 50))
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     with _conn() as con:
         rows = con.execute(
@@ -434,36 +480,41 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
             """,
             (tenant, since, top),
         ).fetchall()
-    return [{"question": r["q"], "count": int(r["n"])} for r in rows]
+
+    return [{"question": r["q"], "count": int(r["n"] or 0)} for r in rows]
 
 
 def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+    """
+    Returns latest leads in a dashboard-friendly shape.
+    """
     _ensure_ready()
-    tenant = tenant or "default"
+    tenant = (tenant or "default").strip() or "default"
     limit = max(1, min(int(limit or 50), 500))
 
     with _conn() as con:
         cols = _table_columns(con, "leads")
 
-        select_cols = [
-            "lead_id",
-            "updated_utc",
-            ("name" if "name" in cols else "'' AS name"),
-            ("phone" if "phone" in cols else "'' AS phone"),
-            ("status" if "status" in cols else "'Open' AS status"),
-        ]
+        name_sel = "name" if "name" in cols else "'' AS name"
+        phone_sel = "phone" if "phone" in cols else "'' AS phone"
+        status_sel = "status" if "status" in cols else "'Open' AS status"
 
+        # Prefer tags_json, fallback to tags
         if "tags_json" in cols and "tags" in cols:
-            select_cols.append("COALESCE(NULLIF(tags_json,''), NULLIF(tags,''), '[]') AS tags_any")
+            tags_sel = "COALESCE(NULLIF(tags_json,''), NULLIF(tags,''), '[]') AS tags_any"
         elif "tags_json" in cols:
-            select_cols.append("COALESCE(NULLIF(tags_json,''), '[]') AS tags_any")
+            tags_sel = "COALESCE(NULLIF(tags_json,''), '[]') AS tags_any"
         elif "tags" in cols:
-            select_cols.append("COALESCE(NULLIF(tags,''), '[]') AS tags_any")
+            tags_sel = "COALESCE(NULLIF(tags,''), '[]') AS tags_any"
         else:
-            select_cols.append("'[]' AS tags_any")
+            tags_sel = "'[]' AS tags_any"
 
         q = f"""
-        SELECT {", ".join(select_cols)}
+        SELECT lead_id, updated_utc,
+               {name_sel},
+               {phone_sel},
+               {status_sel},
+               {tags_sel}
         FROM leads
         WHERE tenant=?
         ORDER BY updated_utc DESC
