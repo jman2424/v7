@@ -8,19 +8,12 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-# -----------------------------
-# Config
-# -----------------------------
 DB_PATH = os.environ.get("ANALYTICS_DB_PATH") or os.path.join("logs", "analytics.db")
 
-# One-time per-process init (safe with gunicorn multi-workers; each worker runs its own init)
 _INIT_LOCK = threading.Lock()
 _INIT_DONE = False
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -38,9 +31,6 @@ def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str]) -> None:
-    """
-    wanted: {"col": "col TYPE [DEFAULT ...]"}
-    """
     existing = _table_columns(con, table)
     for col, ddl in wanted.items():
         if col not in existing:
@@ -58,16 +48,12 @@ def _ensure_ready() -> None:
         _INIT_DONE = True
 
 
-# -----------------------------
-# DB init + migrations
-# -----------------------------
 def init_db() -> None:
     """
     REQUIRED by app_factory: init_db()
-    Also safe to call repeatedly.
+    Safe to call repeatedly.
     """
     with _conn() as con:
-        # Core tables
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -100,8 +86,7 @@ def init_db() -> None:
             """
         )
 
-        # ---- Migrations (backwards/forwards compatible) ----
-        # Your dashboard expects these columns sometimes:
+        # Back/forward compatible lead columns expected by dashboard
         _ensure_columns(
             con,
             "leads",
@@ -109,18 +94,16 @@ def init_db() -> None:
                 "name": "name TEXT",
                 "phone": "phone TEXT",
                 "status": "status TEXT",
-                # IMPORTANT: support both. Some code selects `tags`,
-                # newer code can use `tags_json`
                 "tags": "tags TEXT",
                 "tags_json": "tags_json TEXT",
             },
         )
 
-        # Useful indexes
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts_utc)")
+        # Indexes
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead ON events(tenant, lead_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_updated ON leads(tenant, updated_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_type_ts ON events(tenant, event_type, ts_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_session ON events(tenant, session_id)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
 
 
 # -----------------------------
@@ -131,9 +114,7 @@ def upsert_lead(*, tenant: str, lead_id: str) -> None:
     tenant = tenant or "default"
     lead_id = lead_id or "unknown"
     now = _utc_now_iso()
-
     with _conn() as con:
-        # write both tags + tags_json with safe defaults
         con.execute(
             """
             INSERT INTO leads (tenant, lead_id, last_session_id, updated_utc, status, tags, tags_json)
@@ -148,17 +129,13 @@ def upsert_lead(*, tenant: str, lead_id: str) -> None:
 def set_lead_session(*, lead_id: str, session_id: str, tenant: Optional[str] = None) -> None:
     _ensure_ready()
     now = _utc_now_iso()
-
     with _conn() as con:
-        cols = _table_columns(con, "leads")
         if tenant:
-            if "last_session_id" in cols:
-                con.execute(
-                    "UPDATE leads SET last_session_id=?, updated_utc=? WHERE tenant=? AND lead_id=?",
-                    (session_id, now, tenant, lead_id),
-                )
+            con.execute(
+                "UPDATE leads SET last_session_id=?, updated_utc=? WHERE tenant=? AND lead_id=?",
+                (session_id, now, tenant, lead_id),
+            )
         else:
-            # fallback (should normally include tenant)
             con.execute(
                 "UPDATE leads SET last_session_id=?, updated_utc=? WHERE lead_id=?",
                 (session_id, now, lead_id),
@@ -180,10 +157,9 @@ def log_event(
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
     """
-    Accepts BOTH meta= and metadata= to avoid crashes.
+    Accepts BOTH meta= and metadata= (prevents crash).
     """
     _ensure_ready()
-
     payload = meta if meta is not None else metadata
     meta_json = ""
     if payload is not None:
@@ -218,12 +194,250 @@ def log_event(
 
 
 # -----------------------------
-# Reads used by admin routes
+# Dashboard reads
 # -----------------------------
+def _since_iso(minutes: int) -> str:
+    minutes = max(1, int(minutes or 1440))
+    dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sqlite_ts_expr() -> str:
+    # ts_utc stored like "2026-01-26T22:00:00Z"
+    # Convert to "2026-01-26 22:00:00"
+    return "replace(replace(ts_utc,'T',' '),'Z','')"
+
+
+from datetime import timedelta
+
+
+def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
+    """
+    Counts are message-only for inbound/outbound/total.
+    Errors/fallbacks are their own event types.
+    Sessions = distinct session_id among message events.
+    """
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        inbound = con.execute(
+            """
+            SELECT COUNT(*) AS n FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_in'
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+        outbound = con.execute(
+            """
+            SELECT COUNT(*) AS n FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+        fallbacks = con.execute(
+            """
+            SELECT COUNT(*) AS n FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='fallback'
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+        errors = con.execute(
+            """
+            SELECT COUNT(*) AS n FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='error'
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+        sessions = con.execute(
+            """
+            SELECT COUNT(DISTINCT session_id) AS n FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
+            """,
+            (tenant, since),
+        ).fetchone()["n"]
+
+    total = int(inbound) + int(outbound)
+    return {
+        "inbound": int(inbound),
+        "outbound": int(outbound),
+        "total": int(total),
+        "sessions": int(sessions),
+        "fallbacks": int(fallbacks),
+        "errors": int(errors),
+        "fallback_rate": (float(fallbacks) / float(inbound or 1)),
+        "error_rate": (float(errors) / float(total or 1)),
+    }
+
+
+def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
+    """
+    This fixes your '9' bug:
+    only message events are counted here.
+    Returns per-channel in/out AND totals.
+    """
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT channel,
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
+            GROUP BY channel
+            ORDER BY (inbound+outbound) DESC
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    out: dict[str, Any] = {}
+    for r in rows:
+        ch = (r["channel"] or "unknown").strip()
+        out[ch] = {"inbound": int(r["inbound"]), "outbound": int(r["outbound"]), "total": int(r["inbound"]) + int(r["outbound"])}
+    return out
+
+
+def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
+    """
+    Returns buckets with inbound/outbound counts.
+    This is what your Message Volume chart should use.
+    """
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    bucket_minutes = max(5, int(bucket_minutes or 60))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    # bucket expression (floor to bucket_minutes)
+    ts_expr = _sqlite_ts_expr()
+    # minute-of-day floored to bucket
+    bucket_expr = f"""
+    datetime(
+      strftime('%Y-%m-%d %H:', {ts_expr}) ||
+      printf('%02d:00', (cast(strftime('%M',{ts_expr}) as int)/{bucket_minutes})*{bucket_minutes})
+    )
+    """
+
+    with _conn() as con:
+        rows = con.execute(
+            f"""
+            SELECT {bucket_expr} AS bucket,
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
+            GROUP BY bucket
+            ORDER BY bucket ASC
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    return [{"t": r["bucket"], "inbound": int(r["inbound"]), "outbound": int(r["outbound"])} for r in rows]
+
+
+def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    top = max(1, min(int(top or 10), 50))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(intent,''),'unknown') AS intent, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
+            GROUP BY intent
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+    return [{"label": r["intent"], "count": int(r["n"])} for r in rows]
+
+
+def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    top = max(1, min(int(top or 10), 50))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(intent,''),'fallback') AS intent, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='fallback'
+            GROUP BY intent
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+    return [{"label": r["intent"], "count": int(r["n"])} for r in rows]
+
+
+def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    top = max(1, min(int(top or 10), 50))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(error_code,''),'error') AS code, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='error'
+            GROUP BY code
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+    return [{"label": r["code"], "count": int(r["n"])} for r in rows]
+
+
+def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    """
+    Uses msg_in text to build 'common questions'
+    """
+    _ensure_ready()
+    tenant = tenant or "default"
+    minutes = max(1, int(minutes or 1440))
+    top = max(1, min(int(top or 10), 50))
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT LOWER(TRIM(COALESCE(text,''))) AS q, COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_in' AND TRIM(COALESCE(text,''))!=''
+            GROUP BY q
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            (tenant, since, top),
+        ).fetchall()
+    return [{"question": r["q"], "count": int(r["n"])} for r in rows]
+
+
 def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
-    """
-    Returns leads with a safe `tags` list regardless of schema.
-    """
     _ensure_ready()
     tenant = tenant or "default"
     limit = max(1, min(int(limit or 50), 500))
@@ -231,7 +445,6 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
     with _conn() as con:
         cols = _table_columns(con, "leads")
 
-        # Build a schema-safe select:
         select_cols = [
             "lead_id",
             "updated_utc",
@@ -240,7 +453,6 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
             ("status" if "status" in cols else "'Open' AS status"),
         ]
 
-        # tags can be in tags_json or tags or neither
         if "tags_json" in cols and "tags" in cols:
             select_cols.append("COALESCE(NULLIF(tags_json,''), NULLIF(tags,''), '[]') AS tags_any")
         elif "tags_json" in cols:
@@ -253,7 +465,7 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
         q = f"""
         SELECT {", ".join(select_cols)}
         FROM leads
-        WHERE tenant = ?
+        WHERE tenant=?
         ORDER BY updated_utc DESC
         LIMIT ?
         """
@@ -269,7 +481,6 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
                 tags = []
         except Exception:
             tags = []
-
         out.append(
             {
                 "lead_id": r["lead_id"],
