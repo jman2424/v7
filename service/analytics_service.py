@@ -58,6 +58,8 @@ class AnalyticsService:
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc);")
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);")
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead ON events(lead_id);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel);")
 
             con.execute("""
             CREATE TABLE IF NOT EXISTS leads (
@@ -145,6 +147,11 @@ class AnalyticsService:
             if not isinstance(channel, str):
                 channel = "web"
 
+            channel = (channel or "web").strip().lower()
+            if channel not in ("web", "whatsapp"):
+                # keep it flexible but normalized
+                channel = channel or "web"
+
             session_id = str(session_id or "unknown")
             event_type = str(event_type or "event")
 
@@ -153,6 +160,58 @@ class AnalyticsService:
                 INSERT INTO events(ts_utc, tenant, channel, session_id, lead_id, event_type, meta_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?);
                 """, (_utc_now_iso(), tenant, channel, session_id, lead_id, event_type, meta_json))
+        except Exception:
+            return
+
+    def log_message(
+        self,
+        tenant: str,
+        channel: str,                 # "web" | "whatsapp"
+        direction: str,               # "inbound" | "outbound"
+        session_id: str,
+        text: str = "",
+        intent: str = "unknown",
+        lead_id: Optional[str] = None,
+        store: Optional[str] = None,
+        products: Optional[List[str]] = None,
+        is_fallback: bool = False,
+        is_error: bool = False,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Structured event logger that makes charts reliable.
+        Stores details in meta_json with consistent keys.
+        """
+        try:
+            ch = (channel or "web").strip().lower()
+            direction = (direction or "").strip().lower()
+
+            if direction not in ("inbound", "outbound"):
+                direction = "inbound"
+
+            et = "msg_in" if direction == "inbound" else "msg_out"
+
+            payload: Dict[str, Any] = {
+                "direction": direction,
+                "text": text or "",
+                "intent": (intent or "unknown").strip().lower() or "unknown",
+                "store": store,
+                "products": products or [],
+                "fallback": bool(is_fallback),
+                "error": bool(is_error),
+            }
+            if extra and isinstance(extra, dict):
+                # keep "extra" separate so your schema stays stable
+                payload["extra"] = extra
+
+            self.log_event(
+                tenant=tenant,
+                channel=ch,
+                session_id=session_id,
+                event_type=et,
+                lead_id=lead_id,
+                meta_json=json.dumps(payload, ensure_ascii=False),
+            )
         except Exception:
             return
 
@@ -168,7 +227,9 @@ class AnalyticsService:
                     SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
                     SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
                     COUNT(DISTINCT session_id) AS sessions,
-                    COUNT(DISTINCT lead_id) AS leads
+                    COUNT(DISTINCT lead_id) AS leads,
+                    SUM(CASE WHEN json_extract(meta_json,'$.error')    = 1 THEN 1 ELSE 0 END) AS errors,
+                    SUM(CASE WHEN json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
                   FROM events
                   WHERE tenant=? AND ts_utc >= ?;
                 """, (tenant, since)).fetchone()
@@ -180,11 +241,25 @@ class AnalyticsService:
                 "outbound": int(row["outbound"] or 0),
                 "sessions": int(row["sessions"] or 0),
                 "leads": int(row["leads"] or 0),
+                "errors": int(row["errors"] or 0),
+                "fallbacks": int(row["fallbacks"] or 0),
             }
         except Exception:
-            return {"tenant": tenant, "minutes": int(minutes), "inbound": 0, "outbound": 0, "sessions": 0, "leads": 0}
+            return {
+                "tenant": tenant,
+                "minutes": int(minutes),
+                "inbound": 0,
+                "outbound": 0,
+                "sessions": 0,
+                "leads": 0,
+                "errors": 0,
+                "fallbacks": 0,
+            }
 
     def get_timeseries(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Backward-compatible timeseries (inbound/outbound per hour).
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
@@ -210,6 +285,136 @@ class AnalyticsService:
             }
         except Exception:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
+
+    def get_volume_by_channel(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Bar chart: inbound/outbound split by channel, plus errors/fallbacks.
+        Requires SQLite JSON1 (usually available).
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    substr(ts_utc, 1, 13) AS t,
+                    SUM(CASE WHEN event_type='msg_in'  AND channel='web'      THEN 1 ELSE 0 END) AS in_web,
+                    SUM(CASE WHEN event_type='msg_in'  AND channel='whatsapp' THEN 1 ELSE 0 END) AS in_whatsapp,
+                    SUM(CASE WHEN event_type='msg_out' AND channel='web'      THEN 1 ELSE 0 END) AS out_web,
+                    SUM(CASE WHEN event_type='msg_out' AND channel='whatsapp' THEN 1 ELSE 0 END) AS out_whatsapp,
+                    SUM(CASE WHEN json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
+                    SUM(CASE WHEN json_extract(meta_json,'$.error')    = 1 THEN 1 ELSE 0 END) AS errors
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                  GROUP BY t
+                  ORDER BY t ASC;
+                """, (tenant, since)).fetchall()
+
+            return {
+                "tenant": tenant,
+                "minutes": int(minutes),
+                "bucket_minutes": 60,
+                "points": [dict(r) for r in rows],
+            }
+        except Exception:
+            return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
+
+    def get_common_questions(self, tenant: str, minutes: int = 10080, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Bottom-left table: most common inbound user messages (normalized).
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        limit = min(max(int(limit), 1), 100)
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    LOWER(TRIM(json_extract(meta_json,'$.text'))) AS q,
+                    COUNT(*) AS count
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type='msg_in'
+                    AND q IS NOT NULL AND q != ''
+                  GROUP BY q
+                  ORDER BY count DESC
+                  LIMIT ?;
+                """, (tenant, since, limit)).fetchall()
+
+            return [{"q": r["q"], "count": int(r["count"])} for r in rows]
+        except Exception:
+            return []
+
+    def get_top_products(self, tenant: str, minutes: int = 43200, limit: int = 15) -> List[Dict[str, Any]]:
+        """
+        Top products (from meta_json.products array).
+        Only works once you start passing products into log_message(...).
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        limit = min(max(int(limit), 1), 50)
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT value AS name, COUNT(*) AS count
+                  FROM events, json_each(json_extract(meta_json,'$.products'))
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type='msg_in'
+                    AND name IS NOT NULL AND name != ''
+                  GROUP BY name
+                  ORDER BY count DESC
+                  LIMIT ?;
+                """, (tenant, since, limit)).fetchall()
+
+            return [{"name": r["name"], "count": int(r["count"])} for r in rows]
+        except Exception:
+            return []
+
+    def get_store_activity(self, tenant: str, minutes: int = 43200) -> List[Dict[str, Any]]:
+        """
+        Pie chart: activity by store (meta_json.store).
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    COALESCE(json_extract(meta_json,'$.store'),'unknown') AS store,
+                    COUNT(*) AS count
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type='msg_in'
+                  GROUP BY store
+                  ORDER BY count DESC;
+                """, (tenant, since)).fetchall()
+
+            return [{"store": r["store"], "count": int(r["count"])} for r in rows]
+        except Exception:
+            return []
+
+    def get_top_intents(self, tenant: str, minutes: int = 43200, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Useful if you log meta_json.intent.
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        limit = min(max(int(limit), 1), 50)
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    COALESCE(json_extract(meta_json,'$.intent'),'unknown') AS intent,
+                    COUNT(*) AS count
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type='msg_in'
+                  GROUP BY intent
+                  ORDER BY count DESC
+                  LIMIT ?;
+                """, (tenant, since, limit)).fetchall()
+
+            return [{"intent": r["intent"], "count": int(r["count"])} for r in rows]
+        except Exception:
+            return []
 
     def list_leads(self, tenant: str, limit: int = 50) -> List[Dict[str, Any]]:
         limit = min(max(int(limit), 1), 200)
