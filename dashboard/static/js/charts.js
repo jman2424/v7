@@ -1,29 +1,20 @@
 /* static/js/charts.js
-   Admin dashboard charts (Message Volume)
-   - Robust to backend key changes (bucket/t/hour_bucket)
-   - Works with multiple endpoints and payload shapes
+   Admin dashboard charts (Message Volume BAR chart)
+   - Works even if backend uses: bucket / t / hour_bucket / ts / time
+   - Inbound + Outbound as grouped bars
    - Integer-only Y axis
-   - Safe reload (abort previous request)
-   - Clear console diagnostics when data is missing
+   - Safe reload (aborts previous request)
 */
 
 (function () {
   let chart = null;
   let abortCtl = null;
 
-  // ---- Config ----
   const CHART_CANVAS_ID = "chart-main";
   const PERIOD_SELECT_ID = "period-select";
 
-  // Primary endpoint used by your dashboard today
-  const ENDPOINT_PRIMARY = (minutes) => `/admin/api/timeseries?minutes=${minutes}`;
-
-  // Optional fallbacks (kept for resilience; harmless if 404)
-  const ENDPOINT_FALLBACKS = (minutes) => ([
-    `/analytics/rollups.json?by=hour&minutes=${minutes}`,
-    `/analytics/timeseries.json?minutes=${minutes}`,
-    `/analytics/rollups.json?minutes=${minutes}`,
-  ]);
+  // Your dashboard is currently using this endpoint:
+  const ENDPOINT = (minutes) => `/admin/api/timeseries?minutes=${minutes}`;
 
   function $(id) {
     return document.getElementById(id);
@@ -35,93 +26,68 @@
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  async function fetchJson(url) {
-    // Abort previous request (prevents races when user changes period quickly)
+  async function fetchTimeseries(minutes) {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const res = await fetch(url, {
+    const res = await fetch(ENDPOINT(minutes), {
       credentials: "include",
       signal: abortCtl.signal,
-      headers: { "Accept": "application/json" },
+      headers: { Accept: "application/json" },
     });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status} for ${url} :: ${text.slice(0, 200)}`);
+      throw new Error(`Timeseries HTTP ${res.status}: ${text.slice(0, 200)}`);
     }
-
     return res.json();
   }
 
-  async function fetchTimeseries(minutes) {
-    // Try primary
-    try {
-      return await fetchJson(ENDPOINT_PRIMARY(minutes));
-    } catch (e) {
-      // Try fallbacks (useful if you later switch the dashboard to /analytics/*)
-      const fallbacks = ENDPOINT_FALLBACKS(minutes);
-      for (const url of fallbacks) {
-        try {
-          return await fetchJson(url);
-        } catch (_) { /* continue */ }
-      }
-      throw e;
-    }
-  }
-
-  function normalizePoints(data) {
-    // Support multiple backend shapes:
-    // - { points: [...] }
-    // - { message_volume: [...] }
-    // - { data: { points: [...] } } etc.
+  function normalizePoints(payload) {
     const points =
-      (data && data.points) ||
-      (data && data.message_volume) ||
-      (data && data.data && (data.data.points || data.data.message_volume)) ||
+      (payload && payload.points) ||
+      (payload && payload.message_volume) ||
+      (payload && payload.data && (payload.data.points || payload.data.message_volume)) ||
       [];
 
     if (!Array.isArray(points)) return [];
 
-    // Normalize each point to:
-    // { label: string, inbound: int, outbound: int }
     return points.map((p) => {
       const label =
-        (p && (p.bucket || p.t || p.hour_bucket || p.time || p.ts)) ??
-        "";
+        (p && (p.bucket || p.t || p.hour_bucket || p.ts || p.time)) ?? "";
 
       const inbound = Math.round(Number((p && p.inbound) ?? 0)) || 0;
       const outbound = Math.round(Number((p && p.outbound) ?? 0)) || 0;
 
-      return {
-        label: String(label),
-        inbound,
-        outbound,
-      };
+      return { label: String(label), inbound, outbound };
     });
   }
 
-  function buildChart(ctx, labels, inbound, outbound) {
+  function buildBarChart(ctx, labels, inbound, outbound) {
     return new Chart(ctx, {
-      type: "line",
+      type: "bar",
       data: {
         labels,
         datasets: [
           {
             label: "Inbound",
             data: inbound,
-            borderColor: "#38bdf8",
-            backgroundColor: "rgba(56,189,248,0.15)",
-            tension: 0.3,
-            fill: true,
+            backgroundColor: "rgba(56,189,248,0.45)",
+            borderColor: "rgba(56,189,248,1)",
+            borderWidth: 1,
+            borderRadius: 6,
+            barPercentage: 0.9,
+            categoryPercentage: 0.7,
           },
           {
             label: "Outbound",
             data: outbound,
-            borderColor: "#fb7185",
-            backgroundColor: "rgba(251,113,133,0.15)",
-            tension: 0.3,
-            fill: true,
+            backgroundColor: "rgba(251,113,133,0.45)",
+            borderColor: "rgba(251,113,133,1)",
+            borderWidth: 1,
+            borderRadius: 6,
+            barPercentage: 0.9,
+            categoryPercentage: 0.7,
           },
         ],
       },
@@ -133,14 +99,21 @@
           y: {
             beginAtZero: true,
             ticks: {
-              stepSize: 1,   // 🔒 no fractions
-              precision: 0,  // 🔒 no decimals
+              stepSize: 1,
+              precision: 0,
+            },
+            grid: {
+              color: "rgba(148,163,184,0.15)",
             },
           },
           x: {
             ticks: {
               maxRotation: 0,
               autoSkip: true,
+              color: "#cbd5f5",
+            },
+            grid: {
+              display: false,
             },
           },
         },
@@ -157,11 +130,6 @@
     });
   }
 
-  function setEmptyState(msg) {
-    // Soft-fail: keep canvas, just log. (You can also show msg in UI if you want.)
-    console.warn(`[charts.js] ${msg}`);
-  }
-
   async function reload() {
     const canvas = $(CHART_CANVAS_ID);
     if (!canvas) return;
@@ -169,45 +137,44 @@
     const ctx = canvas.getContext("2d");
     const minutes = getMinutes();
 
-    let data;
+    let payload;
     try {
-      data = await fetchTimeseries(minutes);
+      payload = await fetchTimeseries(minutes);
     } catch (err) {
       if (String(err).includes("AbortError")) return;
-      setEmptyState(`Timeseries fetch failed: ${err.message || err}`);
+      console.error("Chart timeseries fetch failed:", err);
       return;
     }
 
-    const norm = normalizePoints(data);
+    const pts = normalizePoints(payload);
 
-    const labels = norm.map((p) => p.label);
-    const inbound = norm.map((p) => p.inbound);
-    const outbound = norm.map((p) => p.outbound);
+    // If labels are empty, Chart.js can look “dead” even when numbers exist.
+    // So we enforce labels.
+    const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
+    const inbound = pts.map((p) => p.inbound);
+    const outbound = pts.map((p) => p.outbound);
 
-    // Diagnostics
-    if (!norm.length) {
-      setEmptyState(
-        `No timeseries points returned. Check endpoint: ${ENDPOINT_PRIMARY(minutes)}`
-      );
-    }
-
-    // Suggested max to keep it readable
     const maxVal = Math.max(0, ...inbound, ...outbound);
 
     if (!chart) {
-      chart = buildChart(ctx, labels, inbound, outbound);
-      chart.options.scales.y.suggestedMax = Math.max(3, maxVal);
-      chart.update("none");
+      chart = buildBarChart(ctx, labels, inbound, outbound);
     } else {
+      chart.config.type = "bar";
       chart.data.labels = labels;
       chart.data.datasets[0].data = inbound;
       chart.data.datasets[1].data = outbound;
-      chart.options.scales.y.suggestedMax = Math.max(3, maxVal);
       chart.update("none");
+    }
+
+    // Helpful debug if it’s still visually empty
+    if (pts.length === 0) {
+      console.warn("[charts.js] No points returned from:", ENDPOINT(minutes));
+    } else if (maxVal === 0) {
+      console.warn("[charts.js] Points returned but all values are 0. Check event logging / query window.");
     }
   }
 
-  // Expose for admin.js (keep existing integration stable)
+  // Expose for admin.js
   window.DashChartsReload = function () {
     reload().catch((err) => {
       if (String(err).includes("AbortError")) return;
