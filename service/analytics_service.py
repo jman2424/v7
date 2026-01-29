@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Union
 
+
 SettingsLike = Any
 
 
@@ -19,6 +20,18 @@ def _utc_iso(dt: datetime) -> str:
 
 def _utc_now_iso() -> str:
     return _utc_iso(datetime.now(timezone.utc))
+
+
+def _clamp_int(v: Any, default: int, lo: int, hi: int) -> int:
+    try:
+        x = int(v)
+    except Exception:
+        return default
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
 
 
 @dataclass
@@ -98,7 +111,6 @@ class AnalyticsService:
                   updated_utc=excluded.updated_utc;
                 """, (lead_id, tenant, phone, name, now))
         except Exception:
-            # analytics must never crash the app
             return
 
     def set_lead_session(self, lead_id: str, session_id: str) -> None:
@@ -128,12 +140,8 @@ class AnalyticsService:
 
         Backward compatible with older bugged call:
           log_event(tenant, {dict_payload})
-
-        In dict payload form, we attempt to infer:
-          channel, session_id, event_type, and store the whole dict in meta_json
         """
         try:
-            # Back-compat: second arg is dict payload
             if isinstance(channel, dict) and session_id is None and event_type is None:
                 payload = channel
                 ch = str(payload.get("channel") or payload.get("source") or "web")
@@ -149,7 +157,6 @@ class AnalyticsService:
 
             channel = (channel or "web").strip().lower()
             if channel not in ("web", "whatsapp"):
-                # keep it flexible but normalized
                 channel = channel or "web"
 
             session_id = str(session_id or "unknown")
@@ -201,7 +208,6 @@ class AnalyticsService:
                 "error": bool(is_error),
             }
             if extra and isinstance(extra, dict):
-                # keep "extra" separate so your schema stays stable
                 payload["extra"] = extra
 
             self.log_event(
@@ -216,7 +222,7 @@ class AnalyticsService:
             return
 
     # -----------------------
-    # Read APIs (dashboard)
+    # Read APIs (used by routes/dashboard)
     # -----------------------
     def get_kpis(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
@@ -234,15 +240,23 @@ class AnalyticsService:
                   WHERE tenant=? AND ts_utc >= ?;
                 """, (tenant, since)).fetchone()
 
+            inbound = int(row["inbound"] or 0)
+            outbound = int(row["outbound"] or 0)
+
             return {
                 "tenant": tenant,
                 "minutes": int(minutes),
-                "inbound": int(row["inbound"] or 0),
-                "outbound": int(row["outbound"] or 0),
+                "inbound": inbound,
+                "outbound": outbound,
                 "sessions": int(row["sessions"] or 0),
                 "leads": int(row["leads"] or 0),
                 "errors": int(row["errors"] or 0),
                 "fallbacks": int(row["fallbacks"] or 0),
+                # ✅ dedicated pie payload for direction
+                "direction_share": [
+                    {"name": "Inbound", "value": inbound},
+                    {"name": "Outbound", "value": outbound},
+                ],
             }
         except Exception:
             return {
@@ -254,49 +268,58 @@ class AnalyticsService:
                 "leads": 0,
                 "errors": 0,
                 "fallbacks": 0,
+                "direction_share": [
+                    {"name": "Inbound", "value": 0},
+                    {"name": "Outbound", "value": 0},
+                ],
             }
 
     def get_timeseries(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
         """
-        Backward-compatible timeseries (inbound/outbound per hour).
+        Inbound/outbound per hour (chart-friendly array).
         """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
                 rows = con.execute("""
                   SELECT
-                    substr(ts_utc, 1, 13) AS t,
+                    substr(ts_utc, 1, 13) AS hour_bucket, -- YYYY-MM-DDTHH
                     SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
                     SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
                   FROM events
                   WHERE tenant=? AND ts_utc >= ?
-                  GROUP BY t
-                  ORDER BY t ASC;
+                  GROUP BY hour_bucket
+                  ORDER BY hour_bucket ASC;
                 """, (tenant, since)).fetchall()
+
+            points = [
+                {
+                    "bucket": r["hour_bucket"],     # ✅ consistent key name
+                    "inbound": int(r["inbound"] or 0),
+                    "outbound": int(r["outbound"] or 0),
+                }
+                for r in rows
+            ]
 
             return {
                 "tenant": tenant,
                 "minutes": int(minutes),
                 "bucket_minutes": 60,
-                "points": [
-                    {"t": r["t"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)}
-                    for r in rows
-                ],
+                "points": points,
             }
         except Exception:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
 
     def get_volume_by_channel(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
         """
-        Bar chart: inbound/outbound split by channel, plus errors/fallbacks.
-        Requires SQLite JSON1 (usually available).
+        Inbound/outbound split by channel, plus errors/fallbacks.
         """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
                 rows = con.execute("""
                   SELECT
-                    substr(ts_utc, 1, 13) AS t,
+                    substr(ts_utc, 1, 13) AS hour_bucket,
                     SUM(CASE WHEN event_type='msg_in'  AND channel='web'      THEN 1 ELSE 0 END) AS in_web,
                     SUM(CASE WHEN event_type='msg_in'  AND channel='whatsapp' THEN 1 ELSE 0 END) AS in_whatsapp,
                     SUM(CASE WHEN event_type='msg_out' AND channel='web'      THEN 1 ELSE 0 END) AS out_web,
@@ -305,8 +328,8 @@ class AnalyticsService:
                     SUM(CASE WHEN json_extract(meta_json,'$.error')    = 1 THEN 1 ELSE 0 END) AS errors
                   FROM events
                   WHERE tenant=? AND ts_utc >= ?
-                  GROUP BY t
-                  ORDER BY t ASC;
+                  GROUP BY hour_bucket
+                  ORDER BY hour_bucket ASC;
                 """, (tenant, since)).fetchall()
 
             return {
@@ -318,23 +341,28 @@ class AnalyticsService:
         except Exception:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
 
+    # -----------------------
+    # FIXED: SQLite alias-in-WHERE bugs
+    # -----------------------
     def get_common_questions(self, tenant: str, minutes: int = 10080, limit: int = 20) -> List[Dict[str, Any]]:
         """
-        Bottom-left table: most common inbound user messages (normalized).
+        Most common inbound user messages (normalized).
         """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 100)
 
+        expr = "LOWER(TRIM(json_extract(meta_json,'$.text')))"
         try:
             with self._conn() as con:
-                rows = con.execute("""
+                rows = con.execute(f"""
                   SELECT
-                    LOWER(TRIM(json_extract(meta_json,'$.text'))) AS q,
+                    {expr} AS q,
                     COUNT(*) AS count
                   FROM events
                   WHERE tenant=? AND ts_utc >= ?
                     AND event_type='msg_in'
-                    AND q IS NOT NULL AND q != ''
+                    AND {expr} IS NOT NULL
+                    AND {expr} != ''
                   GROUP BY q
                   ORDER BY count DESC
                   LIMIT ?;
@@ -347,7 +375,6 @@ class AnalyticsService:
     def get_top_products(self, tenant: str, minutes: int = 43200, limit: int = 15) -> List[Dict[str, Any]]:
         """
         Top products (from meta_json.products array).
-        Only works once you start passing products into log_message(...).
         """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 50)
@@ -355,17 +382,20 @@ class AnalyticsService:
         try:
             with self._conn() as con:
                 rows = con.execute("""
-                  SELECT value AS name, COUNT(*) AS count
+                  SELECT
+                    value AS product_name,
+                    COUNT(*) AS count
                   FROM events, json_each(json_extract(meta_json,'$.products'))
                   WHERE tenant=? AND ts_utc >= ?
                     AND event_type='msg_in'
-                    AND name IS NOT NULL AND name != ''
-                  GROUP BY name
+                    AND value IS NOT NULL
+                    AND value != ''
+                  GROUP BY product_name
                   ORDER BY count DESC
                   LIMIT ?;
                 """, (tenant, since, limit)).fetchall()
 
-            return [{"name": r["name"], "count": int(r["count"])} for r in rows]
+            return [{"name": r["product_name"], "count": int(r["count"])} for r in rows]
         except Exception:
             return []
 
@@ -393,7 +423,7 @@ class AnalyticsService:
 
     def get_top_intents(self, tenant: str, minutes: int = 43200, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Useful if you log meta_json.intent.
+        Top intents from meta_json.intent.
         """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 50)
@@ -452,3 +482,105 @@ class AnalyticsService:
             return out.getvalue()
         except Exception:
             return ""
+
+    # -----------------------
+    # ✅ These are the missing methods your routes/dashboard expect
+    # -----------------------
+    def summary(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Single payload used by dashboards for KPIs + pies + tables.
+        """
+        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
+
+        kpis = self.get_kpis(tenant, minutes=minutes)
+
+        # Optional extras (safe defaults)
+        channel_share = self._channel_share(tenant, minutes=minutes)
+        store_activity = self.get_store_activity(tenant, minutes=minutes)
+        top_intents = self.get_top_intents(tenant, minutes=minutes, limit=10)
+        common_questions = self.get_common_questions(tenant, minutes=minutes, limit=20)
+
+        return {
+            **kpis,
+            # ✅ keep channel pie separate from direction pie
+            "channel_share": channel_share,
+            "store_activity": store_activity,
+            "top_intents": top_intents,
+            "common_questions": common_questions,
+        }
+
+    def rollups(self, tenant: str, by: str = "day", minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Rollups for charts.
+        - For your bottom-left "Message Volume" chart you want hourly buckets.
+        """
+        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
+        by = (by or "day").strip().lower()
+
+        # Most dashboards use hourly buckets for "last 24h/7d"
+        # You can add day/week/month later; for now keep it stable.
+        ts = self.get_timeseries(tenant, minutes=minutes)
+        return {
+            "tenant": tenant,
+            "minutes": minutes,
+            "by": by,
+            "message_volume": ts["points"],  # ✅ chart-ready array
+        }
+
+    def fetch_raw(self, tenant: str, minutes: int = 1440, limit: int = 5000) -> List[Dict[str, Any]]:
+        """
+        Raw rows for CSV export and debugging.
+        """
+        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
+        limit = _clamp_int(limit, 5000, 1, 50_000)
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT ts_utc, tenant, channel, session_id, lead_id, event_type, meta_json
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                  ORDER BY ts_utc DESC
+                  LIMIT ?;
+                """, (tenant, since, limit)).fetchall()
+
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                item = dict(r)
+                # Try decode meta_json into useful flat fields (safe)
+                mj = item.get("meta_json")
+                if mj:
+                    try:
+                        meta = json.loads(mj)
+                        if isinstance(meta, dict):
+                            # expose common keys for CSV readability
+                            item["direction"] = meta.get("direction")
+                            item["text"] = meta.get("text")
+                            item["intent"] = meta.get("intent")
+                            item["store"] = meta.get("store")
+                    except Exception:
+                        pass
+                out.append(item)
+            return out
+        except Exception:
+            return []
+
+    def _channel_share(self, tenant: str, minutes: int = 1440) -> List[Dict[str, Any]]:
+        """
+        Pie: total messages by channel (web vs whatsapp).
+        """
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT channel, COUNT(*) AS count
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type IN ('msg_in','msg_out')
+                  GROUP BY channel
+                  ORDER BY count DESC;
+                """, (tenant, since)).fetchall()
+            return [{"name": r["channel"], "value": int(r["count"])} for r in rows]
+        except Exception:
+            return []
