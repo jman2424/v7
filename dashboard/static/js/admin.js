@@ -1,21 +1,9 @@
 /* static/js/admin.js
    Dashboard controller: KPIs + charts + tables + CSV export
 
-   FIXES:
-   1) "Channels" pie is changed to INBOUND vs OUTBOUND (3 vs 3)
-      - because you want direction share, not channel share.
-
-   2) "Message Volume" is now a BAR chart (grouped: inbound/outbound)
-      - so you get the “4 bars that grow” look.
-
-   3) Timeseries label + bucket handling is robust:
-      - supports p.t, p.bucket, p.hour_bucket, p.ts, p.time
-      - doesn’t silently render empty labels
-
-   4) Tenant is ALWAYS included via withTenant() (already existed)
-      - keep using it, it’s correct.
-
-   5) Debug panel now also shows the exact points we used.
+   NEW:
+   - chart-channels: STACKED BAR (Web/WhatsApp) x (Inbound/Outbound/Fallbacks)
+   - chart-wa-stores: PIE (WhatsApp inbound grouped by store/location)
 */
 
 (function () {
@@ -90,21 +78,16 @@
     return { responsive: true, maintainAspectRatio: false, animation: false };
   }
 
-  // ---------- Chart renderers ----------
+  // -------- Charts --------
 
   function renderBarSimple(canvasId, key, labels, values) {
     destroyChart(key);
     const canvas = $(canvasId);
     if (!canvas) return;
 
-    const v = asArray(values).map(int);
-
     state.charts[key] = new Chart(canvas, {
       type: "bar",
-      data: {
-        labels: asArray(labels),
-        datasets: [{ label: "Count", data: v }],
-      },
+      data: { labels: asArray(labels), datasets: [{ label: "Count", data: asArray(values).map(int) }] },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { display: false } },
         scales: {
@@ -115,7 +98,7 @@
     });
   }
 
-  // ✅ NEW: grouped bars for Message Volume (inbound/outbound)
+  // Message Volume bars (time buckets): inbound/outbound
   function renderVolumeBars(canvasId, key, labels, inbound, outbound) {
     destroyChart(key);
     const canvas = $(canvasId);
@@ -140,18 +123,41 @@
     });
   }
 
-  // ✅ Direction pie (Inbound vs Outbound)
-  function renderDirectionPie(canvasId, key, inboundCount, outboundCount) {
+  // ✅ NEW: Channel breakdown stacked bar
+  // labels = ["Web", "WhatsApp"]
+  function renderChannelBreakdownStacked(canvasId, key, labels, inbound, outbound, fallbacks) {
+    destroyChart(key);
+    const canvas = $(canvasId);
+    if (!canvas) return;
+
+    state.charts[key] = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: asArray(labels),
+        datasets: [
+          { label: "Inbound", data: asArray(inbound).map(int) },
+          { label: "Outbound", data: asArray(outbound).map(int) },
+          { label: "Fallbacks", data: asArray(fallbacks).map(int) },
+        ],
+      },
+      options: Object.assign(chartBaseOpts(), {
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          x: { stacked: true, ticks: { maxRotation: 0 } },
+          y: { stacked: true, beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
+        },
+      }),
+    });
+  }
+
+  function renderPieSimple(canvasId, key, labels, values) {
     destroyChart(key);
     const canvas = $(canvasId);
     if (!canvas) return;
 
     state.charts[key] = new Chart(canvas, {
       type: "pie",
-      data: {
-        labels: ["Inbound", "Outbound"],
-        datasets: [{ data: [int(inboundCount), int(outboundCount)] }],
-      },
+      data: { labels: asArray(labels), datasets: [{ data: asArray(values).map(int) }] },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { position: "bottom" } },
       }),
@@ -171,12 +177,12 @@
       },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
-        },
+        scales: { y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } } },
       }),
     });
   }
+
+  // -------- Tables --------
 
   function escapeHtml(s) {
     return String(s ?? "")
@@ -192,7 +198,6 @@
     if (!tbody) return;
 
     const arr = asArray(items);
-
     if (!arr.length) {
       tbody.innerHTML = `<tr><td colspan="2">No questions logged.</td></tr>`;
       return;
@@ -210,7 +215,6 @@
     if (!tbody) return;
 
     const arr = asArray(items);
-
     if (!arr.length) {
       tbody.innerHTML = `<tr><td colspan="5">No leads yet.</td></tr>`;
       return;
@@ -251,37 +255,28 @@
     const intents = normalizeKeyCount(ins.intents || ins.top_intents);
     const fallbacks = normalizeKeyCount(ins.fallbacks || ins.top_fallbacks);
     const errors = normalizeKeyCount(ins.errors || ins.top_errors);
-
     const commonQuestionsRaw = ins.common_questions || ins.questions || [];
     const common_questions = asArray(commonQuestionsRaw).map((x) => ({
       text: x?.text ?? x?.question ?? x?.q ?? x?.key ?? "",
       count: int(x?.count ?? x?.n ?? 0),
     }));
 
-    return { intents, fallbacks, errors, common_questions };
+    // ✅ NEW expected shapes
+    const channel_breakdown = ins.channel_breakdown || {}; // { web:{inbound,outbound,fallbacks}, whatsapp:{...} }
+    const whatsapp_store_share = asArray(ins.whatsapp_store_share || ins.whatsapp_stores || []);
+
+    return { intents, fallbacks, errors, common_questions, channel_breakdown, whatsapp_store_share };
   }
 
-  // Robust bucket label formatter (aim: "MM-DD HH:MM" like your UI)
   function pointLabel(p) {
-    const raw =
-      p?.t ??
-      p?.bucket ??
-      p?.hour_bucket ??
-      p?.ts ??
-      p?.time ??
-      "";
-
+    const raw = p?.bucket ?? p?.t ?? p?.hour_bucket ?? p?.ts ?? p?.time ?? "";
     const s = safeText(raw);
     if (!s) return "";
-
-    // If it's ISO like "2026-01-30T01", slice to show "01-30 01"
-    // If it's "2026-01-30T01:00:00Z" still works enough for display.
     return s.slice(5, 16).replace("T", " ");
   }
 
   async function refreshAll() {
     const minutes = Math.max(1, parseInt(($("period")?.value || "1440"), 10) || 1440);
-
     const dbg = $("dbg-status");
     const raw = $("raw");
     if (dbg) dbg.textContent = "Loading…";
@@ -298,16 +293,14 @@
     const insRaw = results[2].status === "fulfilled" ? results[2].value : {};
     const ld = results[3].status === "fulfilled" ? results[3].value : {};
 
-    // ----- KPIs -----
+    // KPIs
     const inboundK = int(k.inbound);
     const outboundK = int(k.outbound);
-
     $("kpi-in").textContent = inboundK;
     $("kpi-out").textContent = outboundK;
 
     const total = k.total_messages ?? k.total ?? (inboundK + outboundK);
     $("kpi-total").textContent = int(total);
-
     $("kpi-sessions").textContent = int(k.sessions);
     $("kpi-fb").textContent = int(k.fallbacks);
     $("kpi-err").textContent = int(k.errors);
@@ -315,20 +308,16 @@
     const usedMinutes = k.minutes ?? minutes;
     $("kpi-sub").textContent = `Last ${int(usedMinutes)} minutes • bucket 60m`;
 
-    // ----- Timeseries -----
+    // Timeseries -> Message Volume
     const points = Array.isArray(ts.points) ? ts.points : (Array.isArray(ts) ? ts : []);
     const labels = points.map(pointLabel);
     const inb = points.map((p) => int(p.inbound));
     const outb = points.map((p) => int(p.outbound));
     const sess = points.map((p) => int(p.sessions));
-
-    // ✅ Message Volume as BARS (not line)
     renderVolumeBars("chart-volume", "volume", labels, inb, outb);
-
-    // Sessions chart stays line
     renderSessionsLine("chart-sessions", "sessions", labels, sess);
 
-    // ----- Insights -----
+    // Insights
     const ins = normalizeInsights(insRaw);
 
     const intents = topN(ins.intents, 10);
@@ -343,27 +332,51 @@
     renderQuestions(ins.common_questions);
     renderLeads(ld.items || ld.leads || ld || []);
 
-    // ✅ Replace "Channels" pie with Direction (Inbound vs Outbound)
-    // (this makes it show 3 vs 3 instead of web=6)
-    renderDirectionPie("chart-channels", "direction", inboundK, outboundK);
+    // ✅ Channels card: stacked bar Web vs WhatsApp with inbound/outbound/fallbacks
+    const cb = ins.channel_breakdown || {};
+    const web = cb.web || cb.Web || {};
+    const wa = cb.whatsapp || cb.WhatsApp || {};
 
-    // ----- Debug -----
+    renderChannelBreakdownStacked(
+      "chart-channels",
+      "channel_breakdown",
+      ["Web", "WhatsApp"],
+      [int(web.inbound), int(wa.inbound)],
+      [int(web.outbound), int(wa.outbound)],
+      [int(web.fallbacks), int(wa.fallbacks)]
+    );
+
+    // ✅ WhatsApp store pie (needs a canvas id="chart-wa-stores")
+    const waStores = asArray(ins.whatsapp_store_share);
+    if ($("chart-wa-stores")) {
+      renderPieSimple(
+        "chart-wa-stores",
+        "wa_stores",
+        waStores.map((x) => safeText(x.store || x.location || "international")),
+        waStores.map((x) => int(x.count || x.value || 0))
+      );
+    }
+
+    // Debug
     if (raw) {
       raw.textContent = JSON.stringify(
         {
           tenant: TENANT,
           minutes,
+          kpis: k,
+          timeseries: ts,
+          insights: insRaw,
           used_points: points.map((p) => ({
             label: pointLabel(p),
             inbound: int(p.inbound),
             outbound: int(p.outbound),
             sessions: int(p.sessions),
-            raw_bucket: p?.bucket,
-            raw_t: p?.t,
+            bucket: p?.bucket ?? p?.t ?? p?.hour_bucket,
           })),
-          kpis: k,
-          timeseries: ts,
-          insights: insRaw,
+          parsed_insights: {
+            channel_breakdown: ins.channel_breakdown,
+            whatsapp_store_share: waStores,
+          },
           leads: ld,
           warnings: results
             .map((r, i) => (r.status === "rejected" ? `Fetch ${i} failed: ${String(r.reason)}` : null))
