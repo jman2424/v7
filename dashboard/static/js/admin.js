@@ -1,13 +1,29 @@
 /* static/js/admin.js
    Dashboard controller: KPIs + charts + tables + CSV export
+
+   FIXES:
+   1) "Channels" pie is changed to INBOUND vs OUTBOUND (3 vs 3)
+      - because you want direction share, not channel share.
+
+   2) "Message Volume" is now a BAR chart (grouped: inbound/outbound)
+      - so you get the “4 bars that grow” look.
+
+   3) Timeseries label + bucket handling is robust:
+      - supports p.t, p.bucket, p.hour_bucket, p.ts, p.time
+      - doesn’t silently render empty labels
+
+   4) Tenant is ALWAYS included via withTenant() (already existed)
+      - keep using it, it’s correct.
+
+   5) Debug panel now also shows the exact points we used.
 */
+
 (function () {
   const S = window.__ADMIN__ || {};
   const CSRF = S.csrfToken || "";
   const TENANT = (S.tenant || "").trim() || "default";
 
   const $ = (id) => document.getElementById(id);
-
   const state = { charts: {} };
 
   function int(n) {
@@ -21,18 +37,6 @@
 
   function asArray(x) {
     return Array.isArray(x) ? x : [];
-  }
-
-  // Accept arrays, dicts, nulls. Dict -> [{key, ...value}]
-  function toKeyedArray(x) {
-    if (Array.isArray(x)) return x;
-    if (isObj(x)) {
-      return Object.entries(x).map(([k, v]) => {
-        if (isObj(v)) return { key: k, ...v };
-        return { key: k, value: v };
-      });
-    }
-    return [];
   }
 
   function safeText(x) {
@@ -83,85 +87,83 @@
   }
 
   function chartBaseOpts() {
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-    };
+    return { responsive: true, maintainAspectRatio: false, animation: false };
   }
 
-  function renderBar(canvasId, key, labels, values) {
+  // ---------- Chart renderers ----------
+
+  function renderBarSimple(canvasId, key, labels, values) {
     destroyChart(key);
-    const ctx = $(canvasId);
-    if (!ctx) return;
+    const canvas = $(canvasId);
+    if (!canvas) return;
 
     const v = asArray(values).map(int);
 
-    state.charts[key] = new Chart(ctx, {
+    state.charts[key] = new Chart(canvas, {
       type: "bar",
       data: {
         labels: asArray(labels),
-        datasets: [
-          {
-            label: "Count",
-            data: v,
-          },
-        ],
+        datasets: [{ label: "Count", data: v }],
       },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { display: false } },
         scales: {
-          y: { beginAtZero: true, ticks: { callback: (x) => int(x) } },
+          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
           x: { ticks: { maxRotation: 0 } },
         },
       }),
     });
   }
 
-  function renderPie(canvasId, key, labels, values) {
+  // ✅ NEW: grouped bars for Message Volume (inbound/outbound)
+  function renderVolumeBars(canvasId, key, labels, inbound, outbound) {
     destroyChart(key);
-    const ctx = $(canvasId);
-    if (!ctx) return;
+    const canvas = $(canvasId);
+    if (!canvas) return;
 
-    state.charts[key] = new Chart(ctx, {
-      type: "pie",
-      data: {
-        labels: asArray(labels),
-        datasets: [{ data: asArray(values).map(int) }],
-      },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { position: "bottom" } },
-      }),
-    });
-  }
-
-  function renderLine(canvasId, key, labels, a, b) {
-    destroyChart(key);
-    const ctx = $(canvasId);
-    if (!ctx) return;
-
-    state.charts[key] = new Chart(ctx, {
-      type: "line",
+    state.charts[key] = new Chart(canvas, {
+      type: "bar",
       data: {
         labels: asArray(labels),
         datasets: [
-          { label: "Inbound", data: asArray(a).map(int), tension: 0.25, pointRadius: 0 },
-          { label: "Outbound", data: asArray(b).map(int), tension: 0.25, pointRadius: 0 },
+          { label: "Inbound", data: asArray(inbound).map(int) },
+          { label: "Outbound", data: asArray(outbound).map(int) },
         ],
       },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { position: "bottom" } },
-        scales: { y: { beginAtZero: true, ticks: { callback: (x) => int(x) } } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
+          x: { ticks: { maxRotation: 0, autoSkip: true } },
+        },
+      }),
+    });
+  }
+
+  // ✅ Direction pie (Inbound vs Outbound)
+  function renderDirectionPie(canvasId, key, inboundCount, outboundCount) {
+    destroyChart(key);
+    const canvas = $(canvasId);
+    if (!canvas) return;
+
+    state.charts[key] = new Chart(canvas, {
+      type: "pie",
+      data: {
+        labels: ["Inbound", "Outbound"],
+        datasets: [{ data: [int(inboundCount), int(outboundCount)] }],
+      },
+      options: Object.assign(chartBaseOpts(), {
+        plugins: { legend: { position: "bottom" } },
       }),
     });
   }
 
   function renderSessionsLine(canvasId, key, labels, sessions) {
     destroyChart(key);
-    const ctx = $(canvasId);
-    if (!ctx) return;
+    const canvas = $(canvasId);
+    if (!canvas) return;
 
-    state.charts[key] = new Chart(ctx, {
+    state.charts[key] = new Chart(canvas, {
       type: "line",
       data: {
         labels: asArray(labels),
@@ -169,7 +171,9 @@
       },
       options: Object.assign(chartBaseOpts(), {
         plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { callback: (x) => int(x) } } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
+        },
       }),
     });
   }
@@ -234,67 +238,54 @@
     return asArray(arr).slice(0, n);
   }
 
-  // normalize insights payload from different backend versions
+  function normalizeKeyCount(list) {
+    const arr = asArray(list);
+    return arr.map((x) => ({
+      key: x?.key ?? x?.label ?? x?.intent ?? x?.code ?? "unknown",
+      count: int(x?.count ?? x?.n ?? x?.value ?? 0),
+    }));
+  }
+
   function normalizeInsights(ins) {
     ins = ins || {};
-
-    // channels:
-    // - might be array [{key,count}] OR array [{label,inbound,outbound,total}] OR dict {web:{inbound,...}}
-    let channels = [];
-    if (Array.isArray(ins.channels)) {
-      channels = ins.channels;
-    } else if (isObj(ins.channels)) {
-      channels = toKeyedArray(ins.channels).map((x) => ({
-        label: x.label || x.key || "unknown",
-        inbound: int(x.inbound),
-        outbound: int(x.outbound),
-        total: int(x.total ?? (int(x.inbound) + int(x.outbound))),
-      }));
-    } else if (Array.isArray(ins.channel_split)) {
-      channels = ins.channel_split;
-    }
-
-    // If channels are in {key,count} format, keep as-is for pie.
-    // If channels are inbound/outbound format, we can pie by total.
-    const channelsForPie = channels.map((x) => {
-      if ("count" in (x || {})) {
-        return { key: x.key ?? x.label ?? "unknown", count: int(x.count) };
-      }
-      const label = x.label ?? x.key ?? "unknown";
-      const total = int(x.total ?? (int(x.inbound) + int(x.outbound)));
-      return { key: label, count: total };
-    });
-
-    // intents/fallbacks/errors may come as arrays with {key,count} or {label,count}
-    function normalizeKeyCount(list) {
-      const a = toKeyedArray(list);
-      return a.map((x) => ({
-        key: x.key ?? x.label ?? x.intent ?? x.code ?? "unknown",
-        count: int(x.count ?? x.n ?? x.value ?? 0),
-      }));
-    }
-
     const intents = normalizeKeyCount(ins.intents || ins.top_intents);
     const fallbacks = normalizeKeyCount(ins.fallbacks || ins.top_fallbacks);
     const errors = normalizeKeyCount(ins.errors || ins.top_errors);
 
     const commonQuestionsRaw = ins.common_questions || ins.questions || [];
-    const common_questions = toKeyedArray(commonQuestionsRaw).map((x) => ({
-      text: x.text ?? x.question ?? x.q ?? x.key ?? "",
-      count: int(x.count ?? x.n ?? 0),
+    const common_questions = asArray(commonQuestionsRaw).map((x) => ({
+      text: x?.text ?? x?.question ?? x?.q ?? x?.key ?? "",
+      count: int(x?.count ?? x?.n ?? 0),
     }));
 
-    return { channelsForPie, intents, fallbacks, errors, common_questions };
+    return { intents, fallbacks, errors, common_questions };
+  }
+
+  // Robust bucket label formatter (aim: "MM-DD HH:MM" like your UI)
+  function pointLabel(p) {
+    const raw =
+      p?.t ??
+      p?.bucket ??
+      p?.hour_bucket ??
+      p?.ts ??
+      p?.time ??
+      "";
+
+    const s = safeText(raw);
+    if (!s) return "";
+
+    // If it's ISO like "2026-01-30T01", slice to show "01-30 01"
+    // If it's "2026-01-30T01:00:00Z" still works enough for display.
+    return s.slice(5, 16).replace("T", " ");
   }
 
   async function refreshAll() {
     const minutes = Math.max(1, parseInt(($("period")?.value || "1440"), 10) || 1440);
+
     const dbg = $("dbg-status");
     const raw = $("raw");
-
     if (dbg) dbg.textContent = "Loading…";
 
-    // Get everything in parallel, but fail gracefully per-section
     const results = await Promise.allSettled([
       getJSON(`/admin/api/kpis?minutes=${minutes}`),
       getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60`),
@@ -307,11 +298,14 @@
     const insRaw = results[2].status === "fulfilled" ? results[2].value : {};
     const ld = results[3].status === "fulfilled" ? results[3].value : {};
 
-    // KPIs: accept both total_messages and total
-    $("kpi-in").textContent = int(k.inbound);
-    $("kpi-out").textContent = int(k.outbound);
+    // ----- KPIs -----
+    const inboundK = int(k.inbound);
+    const outboundK = int(k.outbound);
 
-    const total = k.total_messages ?? k.total ?? (int(k.inbound) + int(k.outbound));
+    $("kpi-in").textContent = inboundK;
+    $("kpi-out").textContent = outboundK;
+
+    const total = k.total_messages ?? k.total ?? (inboundK + outboundK);
     $("kpi-total").textContent = int(total);
 
     $("kpi-sessions").textContent = int(k.sessions);
@@ -321,39 +315,52 @@
     const usedMinutes = k.minutes ?? minutes;
     $("kpi-sub").textContent = `Last ${int(usedMinutes)} minutes • bucket 60m`;
 
-    // Timeseries: accept {points:[...]} or direct array
+    // ----- Timeseries -----
     const points = Array.isArray(ts.points) ? ts.points : (Array.isArray(ts) ? ts : []);
-    const labels = points.map((p) => safeText(p.t || p.bucket || "").slice(5, 16).replace("T", " "));
+    const labels = points.map(pointLabel);
     const inb = points.map((p) => int(p.inbound));
     const outb = points.map((p) => int(p.outbound));
     const sess = points.map((p) => int(p.sessions));
 
-    renderLine("chart-volume", "volume", labels, inb, outb);
+    // ✅ Message Volume as BARS (not line)
+    renderVolumeBars("chart-volume", "volume", labels, inb, outb);
+
+    // Sessions chart stays line
     renderSessionsLine("chart-sessions", "sessions", labels, sess);
 
-    // Insights normalize
+    // ----- Insights -----
     const ins = normalizeInsights(insRaw);
 
-    const ch = topN(ins.channelsForPie, 8);
-    renderPie("chart-channels", "channels", ch.map((x) => x.key), ch.map((x) => x.count));
-
     const intents = topN(ins.intents, 10);
-    renderBar("chart-intents", "intents", intents.map((x) => x.key), intents.map((x) => x.count));
+    renderBarSimple("chart-intents", "intents", intents.map((x) => x.key), intents.map((x) => x.count));
 
     const fbs = topN(ins.fallbacks, 10);
-    renderBar("chart-fallbacks", "fallbacks", fbs.map((x) => x.key), fbs.map((x) => x.count));
+    renderBarSimple("chart-fallbacks", "fallbacks", fbs.map((x) => x.key), fbs.map((x) => x.count));
 
     const errs = topN(ins.errors, 10);
-    renderBar("chart-errors", "errors", errs.map((x) => x.key), errs.map((x) => x.count));
+    renderBarSimple("chart-errors", "errors", errs.map((x) => x.key), errs.map((x) => x.count));
 
     renderQuestions(ins.common_questions);
     renderLeads(ld.items || ld.leads || ld || []);
 
+    // ✅ Replace "Channels" pie with Direction (Inbound vs Outbound)
+    // (this makes it show 3 vs 3 instead of web=6)
+    renderDirectionPie("chart-channels", "direction", inboundK, outboundK);
+
+    // ----- Debug -----
     if (raw) {
       raw.textContent = JSON.stringify(
         {
           tenant: TENANT,
           minutes,
+          used_points: points.map((p) => ({
+            label: pointLabel(p),
+            inbound: int(p.inbound),
+            outbound: int(p.outbound),
+            sessions: int(p.sessions),
+            raw_bucket: p?.bucket,
+            raw_t: p?.t,
+          })),
           kpis: k,
           timeseries: ts,
           insights: insRaw,
