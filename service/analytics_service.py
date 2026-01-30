@@ -584,3 +584,73 @@ class AnalyticsService:
             return [{"name": r["channel"], "value": int(r["count"])} for r in rows]
         except Exception:
             return []
+
+         def channel_breakdown(self, tenant: str, minutes: int = 1440) -> Dict[str, Dict[str, int]]:
+        """
+        For stacked bar: Web vs WhatsApp, each split by inbound/outbound/fallbacks.
+        """
+        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+
+        base = {
+            "web": {"inbound": 0, "outbound": 0, "fallbacks": 0},
+            "whatsapp": {"inbound": 0, "outbound": 0, "fallbacks": 0},
+        }
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    channel,
+                    SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                    SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+                    SUM(CASE WHEN json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND event_type IN ('msg_in','msg_out')
+                  GROUP BY channel
+                  ORDER BY channel;
+                """, (tenant, since)).fetchall()
+
+            for r in rows:
+                ch = str(r["channel"] or "web").strip().lower()
+                if ch not in base:
+                    base[ch] = {"inbound": 0, "outbound": 0, "fallbacks": 0}
+                base[ch] = {
+                    "inbound": int(r["inbound"] or 0),
+                    "outbound": int(r["outbound"] or 0),
+                    "fallbacks": int(r["fallbacks"] or 0),
+                }
+
+            return base
+        except Exception:
+            return base
+
+    def whatsapp_store_share(self, tenant: str, minutes: int = 1440, limit: int = 12) -> List[Dict[str, Any]]:
+        """
+        Pie: WhatsApp inbound grouped by store/location.
+        If store is missing, it will appear as 'international'.
+        """
+        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
+        limit = _clamp_int(limit, 12, 1, 50)
+        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+
+        try:
+            with self._conn() as con:
+                rows = con.execute("""
+                  SELECT
+                    COALESCE(NULLIF(json_extract(meta_json,'$.store'),''), 'international') AS store,
+                    COUNT(*) AS count
+                  FROM events
+                  WHERE tenant=? AND ts_utc >= ?
+                    AND channel='whatsapp'
+                    AND event_type='msg_in'
+                  GROUP BY store
+                  ORDER BY count DESC
+                  LIMIT ?;
+                """, (tenant, since, limit)).fetchall()
+
+            return [{"store": r["store"], "count": int(r["count"] or 0)} for r in rows]
+        except Exception:
+            return []
+
