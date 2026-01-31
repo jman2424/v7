@@ -1,3 +1,4 @@
+# service/analytics_db.py
 from __future__ import annotations
 
 import json
@@ -42,12 +43,22 @@ def _conn() -> sqlite3.Connection:
     return con
 
 
+def _safe_int(v: Any, default: int) -> int:
+    try:
+        return int(v)
+    except Exception:
+        return default
+
+
 def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
     rows = con.execute(f"PRAGMA table_info({table})").fetchall()
     return {r["name"] for r in rows}
 
 
 def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str]) -> None:
+    """
+    wanted: {"col_name": "col_name TYPE ..."}
+    """
     existing = _table_columns(con, table)
     for col, ddl in wanted.items():
         if col not in existing:
@@ -58,6 +69,7 @@ def init_db() -> None:
     """
     Safe to call repeatedly.
     Creates tables and performs light migrations if older schema exists.
+    IMPORTANT: add columns BEFORE indexes that reference them.
     """
     with _conn() as con:
         # --- Base tables
@@ -92,7 +104,7 @@ def init_db() -> None:
             """
         )
 
-        # --- Migrations (older DBs)
+        # --- Migrations (older DBs may be missing these)
         _ensure_columns(
             con,
             "events",
@@ -111,11 +123,12 @@ def init_db() -> None:
             },
         )
 
-        # --- Indexes
+        # --- Indexes (safe after migrations)
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
+        # now safe because we ensured lead_id exists
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead_id ON events(lead_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
 
@@ -128,13 +141,6 @@ def _ensure_ready() -> None:
         if not _INIT_DONE:
             init_db()
             _INIT_DONE = True
-
-
-def _safe_int(v: Any, default: int) -> int:
-    try:
-        return int(v)
-    except Exception:
-        return default
 
 
 # ---------------------------------------------------------------------
@@ -178,7 +184,7 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
             """,
             (tenant, lead_id, now),
         )
-        # Update session column if present
+
         cols = _table_columns(con, "leads")
         if "last_session_id" in cols:
             con.execute(
@@ -228,37 +234,39 @@ def log_message(
     }
 
     with _conn() as con:
-        # columns may exist (migrated) even if table was older
         cols = _table_columns(con, "events")
-        has_text = "text" in cols
-        has_lead = "lead_id" in cols
-        has_ec = "error_code" in cols
-        has_et = "error_type" in cols
 
-        # Build insert dynamically to avoid "no such column" crashes
         fields = ["ts_utc", "tenant", "channel", "session_id", "event_type", "intent", "meta_json"]
         vals: list[Any] = [_utc_now(), tenant, ch, sid, event_type, intent, json.dumps(meta, ensure_ascii=False)]
 
-        if has_text:
+        if "text" in cols:
             fields.append("text")
             vals.append(text or "")
 
-        if has_lead:
+        if "lead_id" in cols:
             fields.append("lead_id")
             vals.append((lead_id or "").strip())
 
-        if has_ec:
+        if "error_code" in cols:
             fields.append("error_code")
             vals.append(error_code or "")
 
-        if has_et:
+        if "error_type" in cols:
             fields.append("error_type")
             vals.append(error_type or "")
 
         placeholders = ",".join(["?"] * len(fields))
         sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({placeholders})"
-
         con.execute(sql, tuple(vals))
+
+
+# ✅ Backwards-compatible: routes import log_event()
+def log_event(*args, **kwargs):
+    """
+    Compatibility wrapper for older routes that still call log_event().
+    Internally routes will land in log_message().
+    """
+    return log_message(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------
@@ -307,10 +315,6 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
 
 
 def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
-    """
-    Message volume per hour bucket.
-    NOTE: We keep it simple (hour buckets) because your dashboard is already built for that.
-    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
@@ -433,10 +437,6 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
 
 
 def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
-    """
-    Your schema doesn’t store a structured error code yet, so we bucket as 'error'.
-    If you later pass error_code into log_message(), this will start grouping.
-    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
@@ -546,13 +546,9 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------
-# ✅ NEW: what your admin_api_routes.py imports
+# What admin_api_routes.py imports as "NEW"
 # ---------------------------------------------------------------------
 def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
-    """
-    Web vs WhatsApp: inbound/outbound/fallbacks
-    (Fallbacks are counted using meta_json.fallback flag)
-    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
@@ -590,10 +586,6 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
 
 
 def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12) -> list[dict[str, Any]]:
-    """
-    WhatsApp inbound grouped by meta_json.store
-    Missing/blank => 'international'
-    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
