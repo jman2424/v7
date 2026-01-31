@@ -13,7 +13,11 @@ from service.analytics_db import (
     get_errors,
     get_common_questions,
     get_leads,
-    get_sessions_timeseries,  # <-- add this (see next file change)
+    get_sessions_timeseries,
+
+    # ✅ NEW
+    get_channel_breakdown,
+    get_whatsapp_store_share,
 )
 
 logger = logging.getLogger("ADMIN.API")
@@ -34,18 +38,7 @@ def _int_arg(name: str, default: int) -> int:
 @bp.get("/insights")
 def api_insights():
     """
-    Backwards-compatible endpoint for your current dashboard JS.
-
-    Returns everything in one payload so the UI can render:
-    - KPIs
-    - message volume (in/out per bucket)
-    - sessions per bucket
-    - channels (with inbound/outbound + totals)
-    - top intents
-    - fallbacks
-    - errors
-    - common questions
-    - latest leads
+    Single payload endpoint for the dashboard.
     """
     tenant = _tenant()
     minutes = _int_arg("minutes", 1440)
@@ -56,6 +49,7 @@ def api_insights():
     kpis = get_kpis(tenant=tenant, minutes=minutes)
     msg_series = get_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
     sess_series = get_sessions_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
+
     channels = get_channels_split(tenant=tenant, minutes=minutes)
     intents = get_top_intents(tenant=tenant, minutes=minutes, top=top)
     fallbacks = get_fallbacks(tenant=tenant, minutes=minutes, top=top)
@@ -63,10 +57,16 @@ def api_insights():
     questions = get_common_questions(tenant=tenant, minutes=minutes, top=top)
     leads = get_leads(tenant=tenant, limit=limit)
 
-    # Handy shapes for pie/bar charts
-    channels_total = [{"label": ch, "count": v["total"]} for ch, v in channels.items()]
-    channels_in = [{"label": ch, "count": v["inbound"]} for ch, v in channels.items()]
-    channels_out = [{"label": ch, "count": v["outbound"]} for ch, v in channels.items()]
+    # ✅ NEW: web vs whatsapp, each with inbound/outbound/fallbacks
+    channel_breakdown = get_channel_breakdown(tenant=tenant, minutes=minutes)
+
+    # ✅ NEW: whatsapp store/location pie
+    whatsapp_store_share = get_whatsapp_store_share(tenant=tenant, minutes=minutes, limit=12)
+
+    # handy shapes
+    channels_total = [{"label": ch, "count": v.get("total", 0)} for ch, v in channels.items()]
+    channels_in = [{"label": ch, "count": v.get("inbound", 0)} for ch, v in channels.items()]
+    channels_out = [{"label": ch, "count": v.get("outbound", 0)} for ch, v in channels.items()]
 
     payload = {
         "tenant": tenant,
@@ -75,25 +75,29 @@ def api_insights():
         "kpis": kpis,
 
         # charts
-        "message_volume": msg_series,         # [{t, inbound, outbound}]
-        "sessions_per_bucket": sess_series,   # [{t, sessions}]
-        "channels": channels,                 # {"web": {"inbound":..,"outbound":..,"total":..}, ...}
-        "channels_total": channels_total,     # [{"label":"web","count":6}, ...]
+        "message_volume": msg_series,          # [{t/bucket, inbound, outbound}]
+        "sessions_per_bucket": sess_series,    # [{t/bucket, sessions}]
+        "channels": channels,                  # {"web": {"inbound":..,"outbound":..,"total":..}, ...}
+        "channels_total": channels_total,
         "channels_inbound": channels_in,
         "channels_outbound": channels_out,
-        "top_intents": intents,               # [{"label","count"}]
-        "fallbacks": fallbacks,               # [{"label","count"}]
-        "errors": errors,                     # [{"label","count"}]
+
+        # ✅ NEW charts data
+        "channel_breakdown": channel_breakdown,            # {"web":{inbound,outbound,fallbacks}, "whatsapp":{...}}
+        "whatsapp_store_share": whatsapp_store_share,      # [{"store":"Leyton","count":3}, ...]
+
+        "top_intents": intents,
+        "fallbacks": fallbacks,
+        "errors": errors,
 
         # tables
-        "common_questions": questions,        # [{"question","count"}]
-        "leads": leads,                       # [{lead_id, updated_utc, name, phone, status, tags}]
+        "common_questions": questions,
+        "leads": leads,
     }
 
     return jsonify(payload)
 
 
-# Optional: keep individual endpoints too (useful for debugging / future JS)
 @bp.get("/kpis")
 def api_kpis():
     minutes = _int_arg("minutes", 1440)
@@ -118,6 +122,19 @@ def api_sessions_timeseries():
 def api_channels():
     minutes = _int_arg("minutes", 1440)
     return jsonify(get_channels_split(tenant=_tenant(), minutes=minutes))
+
+
+@bp.get("/channel_breakdown")
+def api_channel_breakdown():
+    minutes = _int_arg("minutes", 1440)
+    return jsonify(get_channel_breakdown(tenant=_tenant(), minutes=minutes))
+
+
+@bp.get("/whatsapp_store_share")
+def api_whatsapp_store_share():
+    minutes = _int_arg("minutes", 1440)
+    limit = _int_arg("limit", 12)
+    return jsonify(get_whatsapp_store_share(tenant=_tenant(), minutes=minutes, limit=limit))
 
 
 @bp.get("/intents")
