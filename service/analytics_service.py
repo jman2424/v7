@@ -38,22 +38,45 @@ class AnalyticsService:
     settings: SettingsLike
 
     def __post_init__(self) -> None:
+        # Prefer env override; otherwise store inside /app/logs for Render disk
         self.db_path = os.getenv("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
         self.ensure_ready()
 
+    # -----------------------
+    # SQLite helpers
+    # -----------------------
     def _conn(self) -> sqlite3.Connection:
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         con = sqlite3.connect(self.db_path, timeout=30)
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL;")
-        con.execute("PRAGMA synchronous=NORMAL;")
+        try:
+            con.execute("PRAGMA journal_mode=WAL;")
+            con.execute("PRAGMA synchronous=NORMAL;")
+            con.execute("PRAGMA foreign_keys=ON;")
+            con.execute("PRAGMA busy_timeout=30000;")
+        except Exception:
+            pass
         return con
 
+    def _table_columns(self, con: sqlite3.Connection, table: str) -> set[str]:
+        rows = con.execute(f"PRAGMA table_info({table})").fetchall()
+        return {r["name"] for r in rows}
+
+    def _ensure_column(self, con: sqlite3.Connection, table: str, col: str, ddl: str) -> None:
+        cols = self._table_columns(con, table)
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
     # -----------------------
-    # Boot / schema
+    # Boot / schema (MIGRATION SAFE)
     # -----------------------
     def ensure_ready(self) -> None:
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        """
+        Safe to call repeatedly.
+        Works even if analytics.db already exists with older schema.
+        """
         with self._conn() as con:
+            # 1) Create base tables (minimal columns first)
             con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -62,17 +85,11 @@ class AnalyticsService:
                   tenant TEXT NOT NULL,
                   channel TEXT NOT NULL,
                   session_id TEXT NOT NULL,
-                  lead_id TEXT,
                   event_type TEXT NOT NULL,
                   meta_json TEXT
                 );
                 """
             )
-            con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc);")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead ON events(lead_id);")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);")
-            con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel);")
 
             con.execute(
                 """
@@ -88,13 +105,34 @@ class AnalyticsService:
                 );
                 """
             )
+
+            # 2) Migrate: add columns that older DBs may be missing
+            # events.lead_id is what caused your crash
+            self._ensure_column(con, "events", "lead_id", "lead_id TEXT")
+            self._ensure_column(con, "events", "meta_json", "meta_json TEXT")
+
+            # 3) Indexes (now safe because columns exist)
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead ON events(lead_id);")
+
             con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc);")
 
     # -----------------------
     # Write APIs
     # -----------------------
-    def upsert_lead(self, tenant: str, lead_id: str, phone: Optional[str] = None, name: Optional[str] = None) -> None:
+    def upsert_lead(
+        self,
+        tenant: str,
+        lead_id: str,
+        phone: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> None:
         now = _utc_now_iso()
+        tenant = (tenant or "default").strip() or "default"
+        lead_id = (lead_id or "unknown").strip() or "unknown"
         try:
             with self._conn() as con:
                 con.execute(
@@ -114,6 +152,8 @@ class AnalyticsService:
 
     def set_lead_session(self, lead_id: str, session_id: str) -> None:
         now = _utc_now_iso()
+        lead_id = (lead_id or "unknown").strip() or "unknown"
+        session_id = (session_id or "unknown").strip() or "unknown"
         try:
             with self._conn() as con:
                 con.execute(
@@ -136,6 +176,13 @@ class AnalyticsService:
         lead_id: Optional[str] = None,
         meta_json: Optional[str] = None,
     ) -> None:
+        """
+        Supports:
+          log_event(tenant, channel, session_id, event_type, lead_id=None, meta_json=None)
+
+        Backward compatible with older bugged call:
+          log_event(tenant, {dict_payload})
+        """
         try:
             if isinstance(channel, dict) and session_id is None and event_type is None:
                 payload = channel
@@ -150,12 +197,15 @@ class AnalyticsService:
             if not isinstance(channel, str):
                 channel = "web"
 
-            ch = (channel or "web").strip().lower()
-            if ch not in ("web", "whatsapp"):
-                ch = "web"
+            tenant = (tenant or "default").strip() or "default"
 
-            sid = str(session_id or "unknown")
-            et = str(event_type or "event")
+            channel = (channel or "web").strip().lower()
+            if channel not in ("web", "whatsapp"):
+                channel = "web"
+
+            session_id = str(session_id or "unknown")
+            event_type = str(event_type or "event")
+            lead_id = (lead_id or "").strip()
 
             with self._conn() as con:
                 con.execute(
@@ -163,7 +213,7 @@ class AnalyticsService:
                     INSERT INTO events(ts_utc, tenant, channel, session_id, lead_id, event_type, meta_json)
                     VALUES (?, ?, ?, ?, ?, ?, ?);
                     """,
-                    (_utc_now_iso(), tenant, ch, sid, lead_id, et, meta_json),
+                    (_utc_now_iso(), tenant, channel, session_id, lead_id, event_type, meta_json),
                 )
         except Exception:
             return
@@ -171,8 +221,8 @@ class AnalyticsService:
     def log_message(
         self,
         tenant: str,
-        channel: str,
-        direction: str,
+        channel: str,  # "web" | "whatsapp"
+        direction: str,  # "inbound" | "outbound"
         session_id: str,
         text: str = "",
         intent: str = "unknown",
@@ -183,19 +233,24 @@ class AnalyticsService:
         is_error: bool = False,
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """
+        Structured event logger (stable meta_json keys).
+        """
         try:
+            tenant = (tenant or "default").strip() or "default"
+
             ch = (channel or "web").strip().lower()
             if ch not in ("web", "whatsapp"):
                 ch = "web"
 
-            d = (direction or "").strip().lower()
-            if d not in ("inbound", "outbound"):
-                d = "inbound"
+            direction = (direction or "").strip().lower()
+            if direction not in ("inbound", "outbound"):
+                direction = "inbound"
 
-            et = "msg_in" if d == "inbound" else "msg_out"
+            et = "msg_in" if direction == "inbound" else "msg_out"
 
             payload: Dict[str, Any] = {
-                "direction": d,
+                "direction": direction,
                 "text": text or "",
                 "intent": (intent or "unknown").strip().lower() or "unknown",
                 "store": store,
@@ -218,10 +273,12 @@ class AnalyticsService:
             return
 
     # -----------------------
-    # Read APIs
+    # Read APIs (dashboard-friendly)
     # -----------------------
     def get_kpis(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        tenant = (tenant or "default").strip() or "default"
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+
         try:
             with self._conn() as con:
                 row = con.execute(
@@ -251,7 +308,10 @@ class AnalyticsService:
                 "leads": int(row["leads"] or 0),
                 "errors": int(row["errors"] or 0),
                 "fallbacks": int(row["fallbacks"] or 0),
-                "direction_share": [{"name": "Inbound", "value": inbound}, {"name": "Outbound", "value": outbound}],
+                "direction_share": [
+                    {"name": "Inbound", "value": inbound},
+                    {"name": "Outbound", "value": outbound},
+                ],
             }
         except Exception:
             return {
@@ -267,7 +327,12 @@ class AnalyticsService:
             }
 
     def get_timeseries(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Inbound/outbound per hour.
+        """
+        tenant = (tenant or "default").strip() or "default"
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
+
         try:
             with self._conn() as con:
                 rows = con.execute(
@@ -284,189 +349,78 @@ class AnalyticsService:
                     (tenant, since),
                 ).fetchall()
 
-            points = [{"bucket": r["hour_bucket"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)} for r in rows]
+            points = [
+                {"bucket": r["hour_bucket"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)}
+                for r in rows
+            ]
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": points}
         except Exception:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
 
-    def get_common_questions(self, tenant: str, minutes: int = 10080, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_sessions_timeseries(self, tenant: str, minutes: int = 1440) -> List[Dict[str, Any]]:
+        """
+        Sessions per hour bucket (distinct session_id).
+        """
+        tenant = (tenant or "default").strip() or "default"
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
-        limit = min(max(int(limit), 1), 100)
-        expr = "LOWER(TRIM(json_extract(meta_json,'$.text')))"
-        try:
-            with self._conn() as con:
-                rows = con.execute(
-                    f"""
-                    SELECT {expr} AS q, COUNT(*) AS count
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type='msg_in'
-                      AND {expr} IS NOT NULL
-                      AND {expr} != ''
-                    GROUP BY q
-                    ORDER BY count DESC
-                    LIMIT ?;
-                    """,
-                    (tenant, since, limit),
-                ).fetchall()
-            return [{"q": r["q"], "count": int(r["count"])} for r in rows]
-        except Exception:
-            return []
 
-    def get_store_activity(self, tenant: str, minutes: int = 43200) -> List[Dict[str, Any]]:
-        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
                 rows = con.execute(
                     """
-                    SELECT COALESCE(json_extract(meta_json,'$.store'),'unknown') AS store, COUNT(*) AS count
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type='msg_in'
-                    GROUP BY store
-                    ORDER BY count DESC;
-                    """,
-                    (tenant, since),
-                ).fetchall()
-            return [{"store": r["store"], "count": int(r["count"])} for r in rows]
-        except Exception:
-            return []
-
-    def get_top_intents(self, tenant: str, minutes: int = 43200, limit: int = 10) -> List[Dict[str, Any]]:
-        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
-        limit = min(max(int(limit), 1), 50)
-        try:
-            with self._conn() as con:
-                rows = con.execute(
-                    """
-                    SELECT COALESCE(json_extract(meta_json,'$.intent'),'unknown') AS intent, COUNT(*) AS count
-                    FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                      AND event_type='msg_in'
-                    GROUP BY intent
-                    ORDER BY count DESC
-                    LIMIT ?;
-                    """,
-                    (tenant, since, limit),
-                ).fetchall()
-            return [{"intent": r["intent"], "count": int(r["count"])} for r in rows]
-        except Exception:
-            return []
-
-    def list_leads(self, tenant: str, limit: int = 50) -> List[Dict[str, Any]]:
-        limit = min(max(int(limit), 1), 200)
-        try:
-            with self._conn() as con:
-                rows = con.execute(
-                    """
-                    SELECT lead_id, name, phone, status, tags, last_session_id, updated_utc
-                    FROM leads
-                    WHERE tenant=?
-                    ORDER BY updated_utc DESC
-                    LIMIT ?;
-                    """,
-                    (tenant, limit),
-                ).fetchall()
-            return [dict(r) for r in rows]
-        except Exception:
-            return []
-
-    def leads_csv(self, tenant: str) -> str:
-        try:
-            with self._conn() as con:
-                rows = con.execute(
-                    """
-                    SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
-                    FROM leads
-                    WHERE tenant=?
-                    ORDER BY updated_utc DESC;
-                    """,
-                    (tenant,),
-                ).fetchall()
-
-            out = io.StringIO()
-            w = csv.writer(out)
-            w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
-            for r in rows:
-                w.writerow([r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"], r["last_session_id"], r["lead_id"]])
-            return out.getvalue()
-        except Exception:
-            return ""
-
-    def _channel_share(self, tenant: str, minutes: int = 1440) -> List[Dict[str, Any]]:
-        since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
-        try:
-            with self._conn() as con:
-                rows = con.execute(
-                    """
-                    SELECT channel, COUNT(*) AS count
+                    SELECT
+                      substr(ts_utc, 1, 13) AS hour_bucket,
+                      COUNT(DISTINCT session_id) AS sessions
                     FROM events
                     WHERE tenant=? AND ts_utc >= ?
                       AND event_type IN ('msg_in','msg_out')
-                    GROUP BY channel
-                    ORDER BY count DESC;
+                    GROUP BY hour_bucket
+                    ORDER BY hour_bucket ASC;
                     """,
                     (tenant, since),
                 ).fetchall()
-            return [{"name": r["channel"], "value": int(r["count"])} for r in rows]
+
+            return [{"t": r["hour_bucket"], "sessions": int(r["sessions"] or 0)} for r in rows]
         except Exception:
             return []
 
-    def summary(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
-        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
-        kpis = self.get_kpis(tenant, minutes=minutes)
-        return {
-            **kpis,
-            "channel_share": self._channel_share(tenant, minutes=minutes),
-            "store_activity": self.get_store_activity(tenant, minutes=minutes),
-            "top_intents": self.get_top_intents(tenant, minutes=minutes, limit=10),
-            "common_questions": self.get_common_questions(tenant, minutes=minutes, limit=20),
-        }
-
-    def rollups(self, tenant: str, by: str = "day", minutes: int = 1440) -> Dict[str, Any]:
-        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
-        by = (by or "day").strip().lower()
-        ts = self.get_timeseries(tenant, minutes=minutes)
-        return {"tenant": tenant, "minutes": minutes, "by": by, "message_volume": ts["points"]}
-
-    def fetch_raw(self, tenant: str, minutes: int = 1440, limit: int = 5000) -> List[Dict[str, Any]]:
-        minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
-        limit = _clamp_int(limit, 5000, 1, 50_000)
+    def get_channels_split(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        {"web":{"inbound":..,"outbound":..,"total":..}, "whatsapp":...}
+        """
+        tenant = (tenant or "default").strip() or "default"
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
 
         try:
             with self._conn() as con:
                 rows = con.execute(
                     """
-                    SELECT ts_utc, tenant, channel, session_id, lead_id, event_type, meta_json
+                    SELECT channel,
+                           SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                           SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
                     FROM events
-                    WHERE tenant=? AND ts_utc >= ?
-                    ORDER BY ts_utc DESC
-                    LIMIT ?;
+                    WHERE tenant=? AND ts_utc>=? AND event_type IN ('msg_in','msg_out')
+                    GROUP BY channel
+                    ORDER BY (inbound+outbound) DESC;
                     """,
-                    (tenant, since, limit),
+                    (tenant, since),
                 ).fetchall()
 
-            out: List[Dict[str, Any]] = []
+            out: Dict[str, Any] = {}
             for r in rows:
-                item = dict(r)
-                mj = item.get("meta_json")
-                if mj:
-                    try:
-                        meta = json.loads(mj)
-                        if isinstance(meta, dict):
-                            item["direction"] = meta.get("direction")
-                            item["text"] = meta.get("text")
-                            item["intent"] = meta.get("intent")
-                            item["store"] = meta.get("store")
-                    except Exception:
-                        pass
-                out.append(item)
+                ch = (r["channel"] or "unknown").strip() or "unknown"
+                inbound = int(r["inbound"] or 0)
+                outbound = int(r["outbound"] or 0)
+                out[ch] = {"inbound": inbound, "outbound": outbound, "total": inbound + outbound}
             return out
         except Exception:
-            return []
+            return {}
 
     def channel_breakdown(self, tenant: str, minutes: int = 1440) -> Dict[str, Dict[str, int]]:
+        """
+        Web vs WhatsApp split: inbound/outbound/fallbacks
+        """
+        tenant = (tenant or "default").strip() or "default"
         minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
 
@@ -506,6 +460,11 @@ class AnalyticsService:
             return base
 
     def whatsapp_store_share(self, tenant: str, minutes: int = 1440, limit: int = 12) -> List[Dict[str, Any]]:
+        """
+        WhatsApp inbound grouped by meta_json.store.
+        Missing store => 'international'
+        """
+        tenant = (tenant or "default").strip() or "default"
         minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
         limit = _clamp_int(limit, 12, 1, 50)
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
@@ -531,3 +490,45 @@ class AnalyticsService:
             return [{"store": r["store"], "count": int(r["count"] or 0)} for r in rows]
         except Exception:
             return []
+
+    def list_leads(self, tenant: str, limit: int = 50) -> List[Dict[str, Any]]:
+        tenant = (tenant or "default").strip() or "default"
+        limit = min(max(int(limit), 1), 200)
+        try:
+            with self._conn() as con:
+                rows = con.execute(
+                    """
+                    SELECT lead_id, name, phone, status, tags, last_session_id, updated_utc
+                    FROM leads
+                    WHERE tenant=?
+                    ORDER BY updated_utc DESC
+                    LIMIT ?;
+                    """,
+                    (tenant, limit),
+                ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def leads_csv(self, tenant: str) -> str:
+        tenant = (tenant or "default").strip() or "default"
+        try:
+            with self._conn() as con:
+                rows = con.execute(
+                    """
+                    SELECT updated_utc, name, phone, status, tags, last_session_id, lead_id
+                    FROM leads
+                    WHERE tenant=?
+                    ORDER BY updated_utc DESC;
+                    """,
+                    (tenant,),
+                ).fetchall()
+
+            out = io.StringIO()
+            w = csv.writer(out)
+            w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
+            for r in rows:
+                w.writerow([r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"], r["last_session_id"], r["lead_id"]])
+            return out.getvalue()
+        except Exception:
+            return ""
