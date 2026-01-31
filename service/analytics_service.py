@@ -1,10 +1,10 @@
 # service/analytics_service.py
 from __future__ import annotations
 
-import os
 import csv
 import io
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -38,6 +38,7 @@ class AnalyticsService:
     settings: SettingsLike
 
     def __post_init__(self) -> None:
+        # Prefer env override; otherwise store inside /app/logs for Render disk
         self.db_path = os.getenv("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
         self.ensure_ready()
 
@@ -197,8 +198,7 @@ class AnalyticsService:
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        Structured event logger that makes charts reliable.
-        Stores details in meta_json with consistent keys.
+        Structured event logger (stable meta_json keys).
         """
         try:
             ch = (channel or "web").strip().lower()
@@ -235,7 +235,7 @@ class AnalyticsService:
             return
 
     # -----------------------
-    # Read APIs (used by routes/dashboard)
+    # Read APIs
     # -----------------------
     def get_kpis(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
@@ -287,6 +287,9 @@ class AnalyticsService:
             }
 
     def get_timeseries(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Inbound/outbound per hour.
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
@@ -305,7 +308,11 @@ class AnalyticsService:
                 ).fetchall()
 
             points = [
-                {"bucket": r["hour_bucket"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)}
+                {
+                    "bucket": r["hour_bucket"],
+                    "inbound": int(r["inbound"] or 0),
+                    "outbound": int(r["outbound"] or 0),
+                }
                 for r in rows
             ]
 
@@ -314,6 +321,9 @@ class AnalyticsService:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
 
     def get_volume_by_channel(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        """
+        Inbound/outbound split by channel per hour, plus errors/fallbacks.
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
@@ -340,8 +350,12 @@ class AnalyticsService:
             return {"tenant": tenant, "minutes": int(minutes), "bucket_minutes": 60, "points": []}
 
     def get_common_questions(self, tenant: str, minutes: int = 10080, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Most common inbound user messages (normalized).
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 100)
+
         expr = "LOWER(TRIM(json_extract(meta_json,'$.text')))"
         try:
             with self._conn() as con:
@@ -367,8 +381,12 @@ class AnalyticsService:
             return []
 
     def get_top_products(self, tenant: str, minutes: int = 43200, limit: int = 15) -> List[Dict[str, Any]]:
+        """
+        Top products (from meta_json.products array).
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 50)
+
         try:
             with self._conn() as con:
                 rows = con.execute(
@@ -393,6 +411,9 @@ class AnalyticsService:
             return []
 
     def get_store_activity(self, tenant: str, minutes: int = 43200) -> List[Dict[str, Any]]:
+        """
+        Pie chart: activity by store (meta_json.store).
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
@@ -415,8 +436,12 @@ class AnalyticsService:
             return []
 
     def get_top_intents(self, tenant: str, minutes: int = 43200, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Top intents from meta_json.intent.
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         limit = min(max(int(limit), 1), 50)
+
         try:
             with self._conn() as con:
                 rows = con.execute(
@@ -473,13 +498,23 @@ class AnalyticsService:
             w = csv.writer(out)
             w.writerow(["updated_utc", "name", "phone", "status", "tags", "session_id", "lead_id"])
             for r in rows:
-                w.writerow([r["updated_utc"], r["name"], r["phone"], r["status"], r["tags"], r["last_session_id"], r["lead_id"]])
+                w.writerow(
+                    [
+                        r["updated_utc"],
+                        r["name"],
+                        r["phone"],
+                        r["status"],
+                        r["tags"],
+                        r["last_session_id"],
+                        r["lead_id"],
+                    ]
+                )
             return out.getvalue()
         except Exception:
             return ""
 
     # -----------------------
-    # Routes/dashboard helpers expected elsewhere
+    # Dashboard helpers
     # -----------------------
     def summary(self, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
         minutes = _clamp_int(minutes, 1440, 1, 60 * 24 * 365)
@@ -537,6 +572,9 @@ class AnalyticsService:
             return []
 
     def _channel_share(self, tenant: str, minutes: int = 1440) -> List[Dict[str, Any]]:
+        """
+        Pie: total messages by channel (web vs whatsapp).
+        """
         since = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=minutes))
         try:
             with self._conn() as con:
@@ -556,7 +594,7 @@ class AnalyticsService:
             return []
 
     # -----------------------
-    # NEW: what your dashboard needs
+    # ✅ NEW: what your dashboard needs
     # -----------------------
     def channel_breakdown(self, tenant: str, minutes: int = 1440) -> Dict[str, Dict[str, int]]:
         """
