@@ -15,7 +15,7 @@ from app import middleware
 
 # Ensure analytics DB exists at boot (safe if missing)
 try:
-    from service.analytics_db import init_db as init_analytics_db  # type: ignore
+    from app.service.analytics_db import init_db as init_analytics_db  # ✅ FIXED IMPORT
 except Exception:  # pragma: no cover
     init_analytics_db = None
 
@@ -55,20 +55,23 @@ def _wants_json_response() -> bool:
 
 def _register_blueprints(app: Flask) -> None:
     """
-    Register all blueprints. Admin API is critical for the dashboard,
-    so we log loudly if it fails.
+    Register all blueprints.
+
+    IMPORTANT:
+    - Because gunicorn loads `app.app_factory:create_app`,
+      the correct imports are `app.routes.*` (not `routes.*`).
     """
-    # Core routes
-    from routes.health_routes import bp as health_bp
-    from routes.webchat_routes import bp as webchat_bp
-    from routes.whatsapp_routes import bp as whatsapp_bp
-    from routes.analytics_routes import bp as analytics_bp
-    from routes.admin_routes import bp as admin_bp
-    from routes.files_routes import bp as files_bp
-    from routes.auth_routes import bp as auth_bp
-    from routes.diag_routes import bp as diag_bp
-    from routes.catalog_routes import bp as catalog_bp
-    from routes.mode_routes import bp as mode_bp
+    # ✅ FIXED imports: app.routes.*
+    from app.routes.health_routes import bp as health_bp
+    from app.routes.webchat_routes import bp as webchat_bp
+    from app.routes.whatsapp_routes import bp as whatsapp_bp
+    from app.routes.analytics_routes import bp as analytics_bp
+    from app.routes.admin_routes import bp as admin_bp
+    from app.routes.files_routes import bp as files_bp
+    from app.routes.auth_routes import bp as auth_bp
+    from app.routes.diag_routes import bp as diag_bp
+    from app.routes.catalog_routes import bp as catalog_bp
+    from app.routes.mode_routes import bp as mode_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -83,11 +86,15 @@ def _register_blueprints(app: Flask) -> None:
 
     # Admin API routes (dashboard)
     try:
-        from routes.admin_api_routes import bp as admin_api_bp  # type: ignore
+        from app.routes.admin_api_routes import bp as admin_api_bp  # ✅ FIXED
         app.register_blueprint(admin_api_bp)
-        app.logger.info("Registered blueprint: routes.admin_api_routes (%s)", admin_api_bp.url_prefix)
+        app.logger.info(
+            "Registered blueprint: app.routes.admin_api_routes (url_prefix=%s)",
+            getattr(admin_api_bp, "url_prefix", None),
+        )
     except Exception as e:
-        app.logger.exception("FATAL: failed to import/register routes.admin_api_routes: %s", e)
+        # If this fails, your /admin/api endpoints will be 404.
+        app.logger.exception("FATAL: failed to import/register app.routes.admin_api_routes: %s", e)
 
 
 def _install_error_handlers(app: Flask) -> None:
@@ -141,6 +148,9 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     try:
         if init_analytics_db:
             init_analytics_db()
+            logging.getLogger("APP.Factory").info("Analytics DB init ok")
+        else:
+            logging.getLogger("APP.Factory").warning("Analytics DB init skipped (import failed)")
     except Exception:
         logging.getLogger("APP.Factory").exception("Failed to init analytics DB")
 
@@ -151,7 +161,12 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
         static_url_path="/static",
     )
 
-    app.logger.info("Flask paths repo_root=%s templates=%s static=%s", REPO_ROOT, TEMPLATES_DIR, STATIC_DIR)
+    app.logger.info(
+        "Flask paths repo_root=%s templates=%s static=%s",
+        REPO_ROOT,
+        TEMPLATES_DIR,
+        STATIC_DIR,
+    )
 
     app.config["SECRET_KEY"] = settings.SECRET_KEY
 
