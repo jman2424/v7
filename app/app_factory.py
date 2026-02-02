@@ -13,11 +13,12 @@ from app.logging_setup import configure_logging
 from app.container import Container
 from app import middleware
 
-# Ensure analytics DB exists at boot (safe if missing)
+# Analytics DB init (safe)
 try:
-    from app.service.analytics_db import init_db as init_analytics_db  # ✅ FIXED IMPORT
-except Exception:  # pragma: no cover
+    from service.analytics_db import init_db as init_analytics_db
+except Exception:
     init_analytics_db = None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD_DIR = REPO_ROOT / "dashboard"
@@ -25,27 +26,28 @@ TEMPLATES_DIR = DASHBOARD_DIR / "templates"
 STATIC_DIR = DASHBOARD_DIR / "static"
 
 
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
 def _wants_json_response() -> bool:
     p = (request.path or "").lower()
 
-    if p.startswith(
-        (
-            "/admin/api",
-            "/analytics",
-            "/chat_api",
-            "/chat_ui",
-            "/webchat",
-            "/whatsapp",
-            "/__diag",
-            "/files",
-            "/health",
-            "/healthz",
-            "/catalog",
-            "/auth",
-            "/mode",
-            "/version",
-        )
-    ):
+    if p.startswith((
+        "/admin/api",
+        "/analytics",
+        "/chat_api",
+        "/chat_ui",
+        "/webchat",
+        "/whatsapp",
+        "/__diag",
+        "/files",
+        "/health",
+        "/healthz",
+        "/catalog",
+        "/auth",
+        "/mode",
+        "/version",
+    )):
         return True
 
     accept = (request.headers.get("Accept") or "").lower()
@@ -53,25 +55,25 @@ def _wants_json_response() -> bool:
     return ("application/json" in accept) or (xrw == "xmlhttprequest")
 
 
+# ---------------------------------------------------------------------
+# Blueprint registration (MATCHES YOUR TREE)
+# ---------------------------------------------------------------------
 def _register_blueprints(app: Flask) -> None:
     """
-    Register all blueprints.
-
     IMPORTANT:
-    - Because gunicorn loads `app.app_factory:create_app`,
-      the correct imports are `app.routes.*` (not `routes.*`).
+    routes/ is TOP-LEVEL in this repo (NOT app/routes).
+    All imports must reflect that.
     """
-    # ✅ FIXED imports: app.routes.*
-    from app.routes.health_routes import bp as health_bp
-    from app.routes.webchat_routes import bp as webchat_bp
-    from app.routes.whatsapp_routes import bp as whatsapp_bp
-    from app.routes.analytics_routes import bp as analytics_bp
-    from app.routes.admin_routes import bp as admin_bp
-    from app.routes.files_routes import bp as files_bp
-    from app.routes.auth_routes import bp as auth_bp
-    from app.routes.diag_routes import bp as diag_bp
-    from app.routes.catalog_routes import bp as catalog_bp
-    from app.routes.mode_routes import bp as mode_bp
+    from routes.health_routes import bp as health_bp
+    from routes.webchat_routes import bp as webchat_bp
+    from routes.whatsapp_routes import bp as whatsapp_bp
+    from routes.analytics_routes import bp as analytics_bp
+    from routes.admin_routes import bp as admin_bp
+    from routes.files_routes import bp as files_bp
+    from routes.auth_routes import bp as auth_bp
+    from routes.diag_routes import bp as diag_bp
+    from routes.catalog_routes import bp as catalog_bp
+    from routes.mode_routes import bp as mode_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -84,19 +86,21 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(catalog_bp)
     app.register_blueprint(mode_bp)
 
-    # Admin API routes (dashboard)
+    # Admin API (dashboard)
     try:
-        from app.routes.admin_api_routes import bp as admin_api_bp  # ✅ FIXED
+        from routes.admin_api_routes import bp as admin_api_bp
         app.register_blueprint(admin_api_bp)
         app.logger.info(
-            "Registered blueprint: app.routes.admin_api_routes (url_prefix=%s)",
-            getattr(admin_api_bp, "url_prefix", None),
+            "Registered admin API: %s",
+            admin_api_bp.url_prefix,
         )
-    except Exception as e:
-        # If this fails, your /admin/api endpoints will be 404.
-        app.logger.exception("FATAL: failed to import/register app.routes.admin_api_routes: %s", e)
+    except Exception:
+        app.logger.exception("FATAL: admin_api_routes failed to register")
 
 
+# ---------------------------------------------------------------------
+# Error handlers
+# ---------------------------------------------------------------------
 def _install_error_handlers(app: Flask) -> None:
     @app.errorhandler(HTTPException)
     def handle_http(err: HTTPException):
@@ -120,39 +124,27 @@ def _install_error_handlers(app: Flask) -> None:
             return jsonify({"error": "server_error"}), 500
 
         return (
-            "<h1>500 Server error</h1>"
-            "<p>Something crashed. Check logs.</p>",
+            "<h1>500 Server Error</h1>"
+            "<p>Check server logs.</p>",
             500,
         )
 
 
-def _ensure_container_ready(app: Flask) -> None:
-    try:
-        container = getattr(app, "container", None)
-        if not container:
-            return
-
-        analytics = getattr(container, "analytics", None)
-        if analytics and hasattr(analytics, "ensure_ready"):
-            analytics.ensure_ready()
-            app.logger.info("Analytics service ready")
-    except Exception:
-        app.logger.exception("Failed to ensure container readiness")
-
-
+# ---------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------
 def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
-    # Analytics DB init (safe)
-    try:
-        if init_analytics_db:
+    # Init analytics DB early (safe if missing)
+    if init_analytics_db:
+        try:
             init_analytics_db()
-            logging.getLogger("APP.Factory").info("Analytics DB init ok")
-        else:
-            logging.getLogger("APP.Factory").warning("Analytics DB init skipped (import failed)")
-    except Exception:
-        logging.getLogger("APP.Factory").exception("Failed to init analytics DB")
+        except Exception:
+            logging.getLogger("APP.Factory").exception(
+                "Analytics DB init failed (continuing)"
+            )
 
     app = Flask(
         __name__,
@@ -170,6 +162,7 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
 
     app.config["SECRET_KEY"] = settings.SECRET_KEY
 
+    # Container
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
 
@@ -182,14 +175,13 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Routes + errors
     _register_blueprints(app)
     _install_error_handlers(app)
-    _ensure_container_ready(app)
 
     # Root
     @app.get("/")
     def root():
         return {"ok": True, "mode": settings.MODE, "tenant": settings.BUSINESS_KEY}
 
-    # Health for Render
+    # Health (Render)
     @app.get("/healthz")
     def healthz():
         return {"ok": True}
