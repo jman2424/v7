@@ -2,15 +2,22 @@
 from __future__ import annotations
 
 import logging
-from flask import Blueprint, request, jsonify, render_template, make_response
+import os
+from typing import Any, Dict
+
+from flask import Blueprint, jsonify, make_response, render_template, request
 
 from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
 
+# ✅ use DB-backed analytics directly (same as whatsapp_routes)
+from service.analytics_db import log_message, upsert_lead, set_lead_session
+
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
-ALLOWED_ORIGIN = "https://web-tester-jnwd.onrender.com"
+# If you want multiple origins later, upgrade this to a whitelist.
+ALLOWED_ORIGIN = os.environ.get("WEBCHAT_ALLOWED_ORIGIN", "https://web-tester-jnwd.onrender.com")
 
 
 def _cors(resp):
@@ -30,6 +37,7 @@ def _get_handler(container):
     logger.warning("WEB: No MessageHandler on container. Creating one.")
     try:
         from service.message_handler import MessageHandler
+
         h = MessageHandler(container)
         container.handler = h
         return h
@@ -38,60 +46,19 @@ def _get_handler(container):
         return None
 
 
-def _safe_log_message(
-    c,
-    *,
-    tenant: str,
-    channel: str,
-    direction: str,
-    session_id: str,
-    text: str,
-    intent: str = "unknown",
-    lead_id: str | None = None,
-    store: str | None = None,
-    products: list[str] | None = None,
-    is_fallback: bool = False,
-    is_error: bool = False,
-    extra: dict | None = None,
-) -> None:
-    """
-    Analytics should never crash chat flow.
-    """
-    try:
-        if getattr(c, "analytics", None) is None:
-            return
-        c.analytics.log_message(
-            tenant=tenant,
-            channel=channel,
-            direction=direction,
-            session_id=session_id,
-            text=text or "",
-            intent=intent or "unknown",
-            lead_id=lead_id,
-            store=store,
-            products=products or [],
-            is_fallback=bool(is_fallback),
-            is_error=bool(is_error),
-            extra=extra or {},
-        )
-    except Exception:
-        return
+def _lead_id_from_session(session_id: str) -> str:
+    sid = (session_id or "web_unknown").strip() or "web_unknown"
+    return f"web:{sid}"
 
 
 def _extract_store_from_result(result: dict) -> str | None:
-    """
-    Best-effort: different handlers return different shapes.
-    We normalize into a single string for analytics pie.
-    """
     if not isinstance(result, dict):
         return None
 
-    # Common: result["store"] = "Southall"
     store = result.get("store")
     if isinstance(store, str) and store.strip():
         return store.strip()
 
-    # Common: entities.branch / entities.store / entities.location
     entities = result.get("entities") or {}
     if isinstance(entities, dict):
         for k in ("store", "branch", "location", "nearest_store", "nearest_branch"):
@@ -99,12 +66,10 @@ def _extract_store_from_result(result: dict) -> str | None:
             if isinstance(v, str) and v.strip():
                 return v.strip()
             if isinstance(v, dict):
-                # e.g. {"name": "..."}
                 name = v.get("name") or v.get("title")
                 if isinstance(name, str) and name.strip():
                     return name.strip()
 
-    # Some routers: result["meta"]["store"]
     meta = result.get("meta") or {}
     if isinstance(meta, dict):
         v = meta.get("store") or meta.get("branch") or meta.get("location")
@@ -114,61 +79,17 @@ def _extract_store_from_result(result: dict) -> str | None:
     return None
 
 
-def _extract_products_from_result(result: dict) -> list[str]:
-    """
-    Best-effort products list for future charts.
-    """
-    if not isinstance(result, dict):
-        return []
-
-    prods = result.get("products")
-    if isinstance(prods, list):
-        out = []
-        for p in prods:
-            if isinstance(p, str) and p.strip():
-                out.append(p.strip())
-            elif isinstance(p, dict):
-                name = p.get("name") or p.get("title")
-                if isinstance(name, str) and name.strip():
-                    out.append(name.strip())
-        return out
-
-    entities = result.get("entities") or {}
-    if isinstance(entities, dict):
-        # some handlers put matches here
-        matches = entities.get("products") or entities.get("product_matches")
-        if isinstance(matches, list):
-            out = []
-            for p in matches:
-                if isinstance(p, str) and p.strip():
-                    out.append(p.strip())
-                elif isinstance(p, dict):
-                    name = p.get("name") or p.get("title")
-                    if isinstance(name, str) and name.strip():
-                        out.append(name.strip())
-            return out
-
-    return []
-
-
 def _is_fallback_result(result: dict, intent: str) -> bool:
-    """
-    We mark fallback using multiple signals so you actually see counts.
-    """
     if not isinstance(result, dict):
         return False
 
-    # explicit flags
     for k in ("is_fallback", "fallback", "did_fallback"):
-        v = result.get(k)
-        if v is True:
+        if result.get(k) is True:
             return True
 
-    # if handler sets mode/type
     if str(result.get("route") or "").lower() in ("fallback", "default"):
         return True
 
-    # intent-based heuristics
     bad_intents = {
         "unknown",
         "fallback",
@@ -176,11 +97,11 @@ def _is_fallback_result(result: dict, intent: str) -> bool:
         "clarify",
         "needs_clarification",
         "no_match",
+        "system_fallback",
     }
     if (intent or "").strip().lower() in bad_intents:
         return True
 
-    # some handlers return confidence
     conf = result.get("confidence")
     try:
         if conf is not None and float(conf) < 0.35:
@@ -189,6 +110,32 @@ def _is_fallback_result(result: dict, intent: str) -> bool:
         pass
 
     return False
+
+
+def _safe_log(*, tenant: str, channel: str, direction: str, session_id: str, text: str, intent: str,
+              lead_id: str | None = None, store: str | None = None,
+              fallback: bool = False, error: bool = False,
+              error_code: str = "", error_type: str = "") -> None:
+    """
+    Analytics must never break chat.
+    """
+    try:
+        log_message(
+            tenant=tenant,
+            channel=channel,
+            direction=direction,
+            session_id=session_id,
+            intent=intent or "unknown",
+            text=text or "",
+            lead_id=lead_id,
+            store=store,
+            fallback=bool(fallback),
+            error=bool(error),
+            error_code=error_code or "",
+            error_type=error_type or "",
+        )
+    except Exception:
+        return
 
 
 @bp.get("/chat_ui")
@@ -232,28 +179,38 @@ def chat_api():
 
     logger.info("WEB IN: tenant=%s session=%s channel=%s text=%r", tenant, session_id, channel, text)
 
-    # ✅ LOG inbound message
-    _safe_log_message(
-        c,
+    lead_id = _lead_id_from_session(session_id)
+
+    # Ensure lead exists (so "LEADS" table can populate later)
+    try:
+        upsert_lead(tenant=tenant, lead_id=lead_id)
+        set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+    except Exception:
+        # still continue chat
+        pass
+
+    # ✅ inbound log (this powers "COMMON QUESTIONS")
+    _safe_log(
         tenant=tenant,
         channel="web",
         direction="inbound",
         session_id=session_id,
         text=text,
         intent="unknown",
-        extra={
-            "ip": request.remote_addr,
-            "ua": request.headers.get("User-Agent", ""),
-            "tenant": tenant,
-        },
+        lead_id=lead_id,
     )
 
     handler = _get_handler(c)
+
     is_error = False
+    error_code = ""
+    error_type = ""
 
     if handler is None:
         is_error = True
-        result = {"reply": "Sorry—bot not configured.", "intent": "system_error", "entities": {}}
+        error_code = "web_no_handler"
+        error_type = "RuntimeError"
+        result: Dict[str, Any] = {"reply": "Sorry—bot not configured.", "intent": "system_error", "entities": {}}
     else:
         try:
             result = handler.handle(
@@ -265,37 +222,41 @@ def chat_api():
             ) or {}
         except Exception as exc:
             is_error = True
+            error_code = "web_handler_crash"
+            error_type = type(exc).__name__
             logger.exception("WEB: handler.handle crashed: %s", exc)
             result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
     reply = (result.get("reply") or "").strip()
     intent = (result.get("intent") or "unknown").strip()
 
-    # ✅ derive store/products/fallback
     store = _extract_store_from_result(result)
-    products = _extract_products_from_result(result)
     is_fallback = _is_fallback_result(result, intent)
 
-    logger.info("WEB OUT: tenant=%s session=%s intent=%s fallback=%s reply=%r", tenant, session_id, intent, is_fallback, reply)
+    logger.info(
+        "WEB OUT: tenant=%s session=%s intent=%s fallback=%s error=%s reply_len=%s",
+        tenant,
+        session_id,
+        intent,
+        is_fallback,
+        is_error,
+        len(reply or ""),
+    )
 
-    # ✅ LOG outbound message (and fallback/error flags)
-    _safe_log_message(
-        c,
+    # ✅ outbound log (fallback/error panels + store share for future)
+    _safe_log(
         tenant=tenant,
         channel="web",
         direction="outbound",
         session_id=session_id,
         text=reply,
         intent=intent,
+        lead_id=lead_id,
         store=store,
-        products=products,
-        is_fallback=is_fallback,
-        is_error=is_error,
-        extra={
-            "raw_intent": intent,
-            "store": store,
-            "products_n": len(products),
-        },
+        fallback=is_fallback,
+        error=is_error,
+        error_code=error_code,
+        error_type=error_type,
     )
 
     resp_payload = send_reply(ev, reply, raw=result)
