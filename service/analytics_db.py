@@ -22,10 +22,10 @@ def _utc_now() -> str:
 
 
 def _since(minutes: int) -> str:
-    m = max(int(minutes or 1440), 1)
-    return (datetime.now(timezone.utc) - timedelta(minutes=m)).replace(
-        microsecond=0
-    ).isoformat()
+    m = int(minutes or 1440)
+    if m < 1:
+        m = 1
+    return (datetime.now(timezone.utc) - timedelta(minutes=m)).replace(microsecond=0).isoformat()
 
 
 def _conn() -> sqlite3.Connection:
@@ -50,7 +50,8 @@ def _safe_int(v: Any, default: int) -> int:
 
 
 def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
-    return {r["name"] for r in con.execute(f"PRAGMA table_info({table})").fetchall()}
+    rows = con.execute(f"PRAGMA table_info({table})").fetchall()
+    return {r["name"] for r in rows}
 
 
 def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str]) -> None:
@@ -60,10 +61,11 @@ def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str])
             con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
-# ---------------------------------------------------------------------
-# Init / migrations
-# ---------------------------------------------------------------------
 def init_db() -> None:
+    """
+    Safe to call repeatedly.
+    Creates tables and performs light migrations if older schema exists.
+    """
     with _conn() as con:
         con.execute(
             """
@@ -96,6 +98,7 @@ def init_db() -> None:
             """
         )
 
+        # migrations
         _ensure_columns(
             con,
             "events",
@@ -106,7 +109,6 @@ def init_db() -> None:
                 "error_type": "error_type TEXT",
             },
         )
-
         _ensure_columns(
             con,
             "leads",
@@ -115,11 +117,13 @@ def init_db() -> None:
             },
         )
 
+        # indexes
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead_id ON events(lead_id)")
-        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_updated ON leads(tenant, updated_utc)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
 
 
 def _ensure_ready() -> None:
@@ -132,36 +136,64 @@ def _ensure_ready() -> None:
             _INIT_DONE = True
 
 
+def _norm_tenant(v: Optional[str]) -> str:
+    t = (v or "default").strip()
+    return t or "default"
+
+
+def _norm_channel(v: Optional[str]) -> str:
+    ch = (v or "web").strip().lower()
+    return ch if ch in ("web", "whatsapp") else "web"
+
+
+def _dump_meta(meta: dict[str, Any]) -> str:
+    try:
+        return json.dumps(meta, ensure_ascii=False)
+    except Exception:
+        return "{}"
+
+
 # ---------------------------------------------------------------------
-# Writes
+# Lead writes
 # ---------------------------------------------------------------------
-def upsert_lead(*, tenant: str, lead_id: str, name: str | None = None, phone: str | None = None) -> None:
+def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone: Optional[str] = None) -> None:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    lead_id = (lead_id or "unknown").strip() or "unknown"
     now = _utc_now()
+
     with _conn() as con:
         con.execute(
             """
-            INSERT INTO leads (tenant, lead_id, name, phone, updated_utc)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO leads (tenant, lead_id, name, phone, status, tags, updated_utc)
+            VALUES (?, ?, ?, ?, 'Open', '[]', ?)
             ON CONFLICT(tenant, lead_id) DO UPDATE SET
-              name=COALESCE(excluded.name, leads.name),
-              phone=COALESCE(excluded.phone, leads.phone),
-              updated_utc=excluded.updated_utc;
+              name = COALESCE(excluded.name, leads.name),
+              phone = COALESCE(excluded.phone, leads.phone),
+              updated_utc = excluded.updated_utc;
             """,
             (tenant, lead_id, name, phone, now),
         )
 
 
-def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
+def set_lead_session(*, lead_id: str, session_id: str, tenant: Optional[str] = None) -> None:
+    """
+    NOTE: whatsapp_routes.py calls set_lead_session(lead_id=..., session_id=...) with NO tenant.
+    So tenant is optional and defaults to "default".
+    """
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    lead_id = (lead_id or "unknown").strip() or "unknown"
+    session_id = (session_id or "unknown").strip() or "unknown"
     now = _utc_now()
+
     with _conn() as con:
         con.execute(
             """
             INSERT INTO leads (tenant, lead_id, updated_utc)
             VALUES (?, ?, ?)
             ON CONFLICT(tenant, lead_id) DO UPDATE SET
-              updated_utc=excluded.updated_utc;
+              updated_utc = excluded.updated_utc;
             """,
             (tenant, lead_id, now),
         )
@@ -177,73 +209,204 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
             )
 
 
+# ---------------------------------------------------------------------
+# Event writes
+# ---------------------------------------------------------------------
 def log_message(
     *,
     tenant: str,
     channel: str,
-    direction: str,
+    direction: str,  # inbound | outbound
     session_id: str,
     intent: str = "unknown",
     text: str = "",
-    lead_id: str | None = None,
-    store: str | None = None,
+    lead_id: Optional[str] = None,
+    store: Optional[str] = None,
     fallback: bool = False,
     error: bool = False,
     error_code: str = "",
     error_type: str = "",
+    meta: Optional[dict[str, Any]] = None,
 ) -> None:
+    """
+    Internal “modern” writer (direction-based).
+    """
     _ensure_ready()
-    event_type = "msg_in" if direction == "inbound" else "msg_out"
+    tenant = _norm_tenant(tenant)
+    ch = _norm_channel(channel)
+    sid = (session_id or "unknown").strip() or "unknown"
 
-    meta = {
-        "store": store,
-        "fallback": bool(fallback),
-        "error": bool(error),
-    }
+    d = (direction or "inbound").strip().lower()
+    event_type = "msg_in" if d == "inbound" else "msg_out"
+
+    meta_obj: dict[str, Any] = dict(meta or {})
+    meta_obj.setdefault("store", store)
+    meta_obj["fallback"] = bool(fallback)
+    meta_obj["error"] = bool(error)
 
     with _conn() as con:
-        con.execute(
-            """
-            INSERT INTO events
-            (ts_utc, tenant, channel, session_id, event_type, intent, meta_json, text, lead_id, error_code, error_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            (
-                _utc_now(),
-                tenant,
-                channel,
-                session_id,
-                event_type,
-                intent,
-                json.dumps(meta),
-                text,
-                lead_id,
-                error_code,
-                error_type,
-            ),
+        cols = _table_columns(con, "events")
+
+        fields = ["ts_utc", "tenant", "channel", "session_id", "event_type", "intent", "meta_json"]
+        vals: list[Any] = [_utc_now(), tenant, ch, sid, event_type, intent or "unknown", _dump_meta(meta_obj)]
+
+        if "text" in cols:
+            fields.append("text")
+            vals.append(text or "")
+
+        if "lead_id" in cols:
+            fields.append("lead_id")
+            vals.append((lead_id or "").strip())
+
+        if "error_code" in cols:
+            fields.append("error_code")
+            vals.append(error_code or "")
+
+        if "error_type" in cols:
+            fields.append("error_type")
+            vals.append(error_type or "")
+
+        placeholders = ",".join(["?"] * len(fields))
+        con.execute(f"INSERT INTO events ({','.join(fields)}) VALUES ({placeholders})", tuple(vals))
+
+
+def log_event(*, tenant: str, channel: str, session_id: str, event_type: str, text: str = "", intent: str = "unknown",
+              lead_id: Optional[str] = None, error_code: str = "", error_type: str = "", meta: Optional[dict[str, Any]] = None) -> None:
+    """
+    Backwards-compatible function used by whatsapp_routes.py.
+
+    IMPORTANT FIX:
+    - If routes call event_type="fallback", we store it as msg_out with meta.fallback=1
+      so "Fallbacks" become a subset of outbound (not a separate stream).
+    - If routes call event_type="error", we store event_type="error" and meta.error=1.
+    """
+    et = (event_type or "").strip().lower()
+    ch = _norm_channel(channel)
+
+    meta_obj: dict[str, Any] = dict(meta or {})
+
+    # Normalize store field if present
+    store = meta_obj.get("store") if isinstance(meta_obj.get("store"), str) else None
+
+    if et in ("msg_in", "inbound"):
+        return log_message(
+            tenant=tenant,
+            channel=ch,
+            direction="inbound",
+            session_id=session_id,
+            intent=intent or "unknown",
+            text=text or "",
+            lead_id=lead_id,
+            store=store,
+            fallback=bool(meta_obj.get("fallback", False)),
+            error=False,
+            meta=meta_obj,
         )
 
+    if et in ("msg_out", "outbound"):
+        return log_message(
+            tenant=tenant,
+            channel=ch,
+            direction="outbound",
+            session_id=session_id,
+            intent=intent or "unknown",
+            text=text or "",
+            lead_id=lead_id,
+            store=store,
+            fallback=bool(meta_obj.get("fallback", False)),
+            error=False,
+            meta=meta_obj,
+        )
 
-# backwards compatibility
-def log_event(*args, **kwargs):
-    return log_message(*args, **kwargs)
+    # ✅ Fallback should NOT become its own event_type in the DB.
+    # Store as msg_out + meta.fallback=1 so it’s counted under outbound.
+    if et == "fallback":
+        meta_obj["fallback"] = True
+        meta_obj["_event_type"] = "fallback"
+        return log_message(
+            tenant=tenant,
+            channel=ch,
+            direction="outbound",
+            session_id=session_id,
+            intent=(intent or "fallback"),
+            text=text or "",
+            lead_id=lead_id,
+            store=store,
+            fallback=True,
+            error=False,
+            meta=meta_obj,
+        )
+
+    # Errors stay separate (not outbound), but are counted via meta.error=1
+    if et == "error":
+        _ensure_ready()
+        tenant_n = _norm_tenant(tenant)
+        sid = (session_id or "unknown").strip() or "unknown"
+        meta_obj["error"] = True
+        meta_obj["_event_type"] = "error"
+
+        with _conn() as con:
+            cols = _table_columns(con, "events")
+
+            fields = ["ts_utc", "tenant", "channel", "session_id", "event_type", "intent", "meta_json"]
+            vals: list[Any] = [_utc_now(), tenant_n, ch, sid, "error", intent or "error", _dump_meta(meta_obj)]
+
+            if "text" in cols:
+                fields.append("text")
+                vals.append(text or "")
+
+            if "lead_id" in cols:
+                fields.append("lead_id")
+                vals.append((lead_id or "").strip())
+
+            if "error_code" in cols:
+                fields.append("error_code")
+                vals.append(error_code or "")
+
+            if "error_type" in cols:
+                fields.append("error_type")
+                vals.append(error_type or "")
+
+            placeholders = ",".join(["?"] * len(fields))
+            con.execute(f"INSERT INTO events ({','.join(fields)}) VALUES ({placeholders})", tuple(vals))
+        return None
+
+    # Unknown types: store as msg_out so it doesn't break dashboard, but keep original
+    meta_obj["_event_type"] = et or "unknown"
+    return log_message(
+        tenant=tenant,
+        channel=ch,
+        direction="outbound",
+        session_id=session_id,
+        intent=intent or "unknown",
+        text=text or "",
+        lead_id=lead_id,
+        store=store,
+        fallback=bool(meta_obj.get("fallback", False)),
+        error=bool(meta_obj.get("error", False)),
+        error_code=error_code or "",
+        error_type=error_type or "",
+        meta=meta_obj,
+    )
 
 
 # ---------------------------------------------------------------------
-# Reads – Admin dashboard
+# Reads (Dashboard API)
 # ---------------------------------------------------------------------
-def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
+def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
     since = _since(minutes)
+
     with _conn() as con:
-        r = con.execute(
+        row = con.execute(
             """
             SELECT
-              SUM(event_type='msg_in')  AS inbound,
-              SUM(event_type='msg_out') AS outbound,
-              COUNT(DISTINCT session_id) AS sessions,
-              SUM(json_extract(meta_json,'$.fallback')=1) AS fallbacks,
-              SUM(json_extract(meta_json,'$.error')=1) AS errors
+              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+              COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') THEN session_id END) AS sessions,
+              SUM(CASE WHEN json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
+              SUM(CASE WHEN json_extract(meta_json,'$.error')    = 1 THEN 1 ELSE 0 END) AS errors
             FROM events
             WHERE tenant=? AND ts_utc>=?;
             """,
@@ -251,111 +414,314 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
         ).fetchone()
 
         leads = con.execute(
-            "SELECT COUNT(*) FROM leads WHERE tenant=? AND updated_utc>=?;",
+            "SELECT COUNT(*) AS n FROM leads WHERE tenant=? AND updated_utc>=?;",
             (tenant, since),
-        ).fetchone()[0]
+        ).fetchone()["n"]
+
+    inbound = int(row["inbound"] or 0)
+    outbound = int(row["outbound"] or 0)
+    sessions = int(row["sessions"] or 0)
+    fallbacks = int(row["fallbacks"] or 0)
+    errors = int(row["errors"] or 0)
 
     return {
-        "inbound": int(r["inbound"] or 0),
-        "outbound": int(r["outbound"] or 0),
-        "total": int((r["inbound"] or 0) + (r["outbound"] or 0)),
-        "sessions": int(r["sessions"] or 0),
+        "inbound": inbound,
+        "outbound": outbound,
+        "total": inbound + outbound,
+        "sessions": sessions,
         "leads": int(leads or 0),
-        "fallbacks": int(r["fallbacks"] or 0),
-        "errors": int(r["errors"] or 0),
+        "fallbacks": fallbacks,
+        "errors": errors,
     }
 
 
-def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60):
+def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
     since = _since(minutes)
+
     with _conn() as con:
         rows = con.execute(
             """
             SELECT substr(ts_utc,1,13) AS t,
-                   SUM(event_type='msg_in') AS inbound,
-                   SUM(event_type='msg_out') AS outbound
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
             FROM events
             WHERE tenant=? AND ts_utc>=?
+              AND event_type IN ('msg_in','msg_out')
             GROUP BY t
             ORDER BY t;
             """,
             (tenant, since),
         ).fetchall()
 
-    return [{"t": r["t"], "inbound": int(r["inbound"]), "outbound": int(r["outbound"])} for r in rows]
+    return [{"t": r["t"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)} for r in rows]
 
 
-def get_leads(*, tenant: str, limit: int = 50):
+def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+
     with _conn() as con:
         rows = con.execute(
             """
-            SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
-            FROM leads
-            WHERE tenant=?
-            ORDER BY updated_utc DESC
-            LIMIT ?;
+            SELECT substr(ts_utc,1,13) AS t,
+                   COUNT(DISTINCT session_id) AS sessions
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type IN ('msg_in','msg_out')
+            GROUP BY t
+            ORDER BY t;
             """,
-            (tenant, limit),
+            (tenant, since),
         ).fetchall()
 
-    out = []
-    for r in rows:
-        out.append(
-            {
-                "lead_id": r["lead_id"],
-                "name": r["name"],
-                "phone": r["phone"],
-                "status": r["status"],
-                "tags": json.loads(r["tags"] or "[]"),
-                "updated_utc": r["updated_utc"],
-                "last_session_id": r["last_session_id"],
-            }
-        )
-    return out
+    return [{"t": r["t"], "sessions": int(r["sessions"] or 0)} for r in rows]
 
 
-def get_channel_breakdown(*, tenant: str, minutes: int = 1440):
+def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
     since = _since(minutes)
-    base = {"web": {"inbound": 0, "outbound": 0, "fallbacks": 0},
-            "whatsapp": {"inbound": 0, "outbound": 0, "fallbacks": 0}}
 
     with _conn() as con:
         rows = con.execute(
             """
             SELECT channel,
-                   SUM(event_type='msg_in') AS inbound,
-                   SUM(event_type='msg_out') AS outbound,
-                   SUM(json_extract(meta_json,'$.fallback')=1) AS fallbacks
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
             FROM events
             WHERE tenant=? AND ts_utc>=?
+              AND event_type IN ('msg_in','msg_out')
+            GROUP BY channel;
+            """,
+            (tenant, since),
+        ).fetchall()
+
+    out: dict[str, Any] = {}
+    for r in rows:
+        ch = (r["channel"] or "unknown").strip().lower() or "unknown"
+        inbound = int(r["inbound"] or 0)
+        outbound = int(r["outbound"] or 0)
+        out[ch] = {"inbound": inbound, "outbound": outbound, "total": inbound + outbound}
+    return out
+
+
+def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+    top = max(1, min(_safe_int(top, 10), 50))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(intent,''),'unknown') AS intent,
+                   COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type='msg_out'
+            GROUP BY intent
+            ORDER BY n DESC
+            LIMIT ?;
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
+
+
+def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+    top = max(1, min(_safe_int(top, 10), 50))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(intent,''),'fallback') AS intent,
+                   COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type='msg_out'
+              AND json_extract(meta_json,'$.fallback') = 1
+            GROUP BY intent
+            ORDER BY n DESC
+            LIMIT ?;
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
+
+
+def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+    top = max(1, min(_safe_int(top, 10), 50))
+
+    with _conn() as con:
+        cols = _table_columns(con, "events")
+        code_expr = "COALESCE(NULLIF(error_code,''),'error')" if "error_code" in cols else "'error'"
+
+        rows = con.execute(
+            f"""
+            SELECT {code_expr} AS code,
+                   COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND json_extract(meta_json,'$.error') = 1
+            GROUP BY code
+            ORDER BY n DESC
+            LIMIT ?;
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"label": r["code"], "count": int(r["n"] or 0)} for r in rows]
+
+
+def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+    top = max(1, min(_safe_int(top, 10), 50))
+
+    with _conn() as con:
+        cols = _table_columns(con, "events")
+        if "text" not in cols:
+            return []
+
+        rows = con.execute(
+            """
+            SELECT LOWER(TRIM(COALESCE(text,''))) AS q,
+                   COUNT(*) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type='msg_in'
+              AND TRIM(COALESCE(text,'')) != ''
+            GROUP BY q
+            ORDER BY n DESC
+            LIMIT ?;
+            """,
+            (tenant, since, top),
+        ).fetchall()
+
+    return [{"question": r["q"], "count": int(r["n"] or 0)} for r in rows]
+
+
+def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    limit = max(1, min(_safe_int(limit, 50), 500))
+
+    with _conn() as con:
+        cols = _table_columns(con, "leads")
+        has_last_session = "last_session_id" in cols
+
+        if has_last_session:
+            q = """
+            SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
+            FROM leads
+            WHERE tenant=?
+            ORDER BY updated_utc DESC
+            LIMIT ?;
+            """
+        else:
+            q = """
+            SELECT lead_id, name, phone, status, tags, updated_utc
+            FROM leads
+            WHERE tenant=?
+            ORDER BY updated_utc DESC
+            LIMIT ?;
+            """
+
+        rows = con.execute(q, (tenant, limit)).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        raw_tags = r["tags"] or "[]"
+        try:
+            tags = json.loads(raw_tags)
+            if not isinstance(tags, list):
+                tags = []
+        except Exception:
+            tags = []
+
+        item: dict[str, Any] = {
+            "lead_id": r["lead_id"],
+            "name": r["name"],
+            "phone": r["phone"],
+            "status": r["status"] or "Open",
+            "tags": tags,
+            "updated_utc": r["updated_utc"],
+        }
+        if "last_session_id" in r.keys():
+            item["last_session_id"] = r["last_session_id"]
+        out.append(item)
+
+    return out
+
+
+# ---------------------------------------------------------------------
+# Admin API "NEW" helpers
+# ---------------------------------------------------------------------
+def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
+    _ensure_ready()
+    tenant = _norm_tenant(tenant)
+    since = _since(minutes)
+
+    base: dict[str, dict[str, int]] = {
+        "web": {"inbound": 0, "outbound": 0, "fallbacks": 0},
+        "whatsapp": {"inbound": 0, "outbound": 0, "fallbacks": 0},
+    }
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+              channel,
+              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type IN ('msg_in','msg_out')
             GROUP BY channel;
             """,
             (tenant, since),
         ).fetchall()
 
     for r in rows:
-        base[r["channel"]] = {
-            "inbound": int(r["inbound"]),
-            "outbound": int(r["outbound"]),
-            "fallbacks": int(r["fallbacks"]),
-        }
+        ch = (r["channel"] or "web").strip().lower() or "web"
+        if ch not in base:
+            base[ch] = {"inbound": 0, "outbound": 0, "fallbacks": 0}
+        base[ch]["inbound"] = int(r["inbound"] or 0)
+        base[ch]["outbound"] = int(r["outbound"] or 0)
+        base[ch]["fallbacks"] = int(r["fallbacks"] or 0)
 
     return base
 
 
-def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12):
+def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12) -> list[dict[str, Any]]:
     _ensure_ready()
+    tenant = _norm_tenant(tenant)
     since = _since(minutes)
+    limit = max(1, min(_safe_int(limit, 12), 50))
+
     with _conn() as con:
         rows = con.execute(
             """
-            SELECT COALESCE(json_extract(meta_json,'$.store'),'unknown') AS store,
-                   COUNT(*) AS n
+            SELECT
+              COALESCE(NULLIF(json_extract(meta_json,'$.store'),''), 'international') AS store,
+              COUNT(*) AS n
             FROM events
-            WHERE tenant=? AND channel='whatsapp' AND ts_utc>=?
+            WHERE tenant=? AND ts_utc>=?
+              AND channel='whatsapp'
+              AND event_type='msg_in'
             GROUP BY store
             ORDER BY n DESC
             LIMIT ?;
@@ -363,15 +729,11 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
             (tenant, since, limit),
         ).fetchall()
 
-    return [{"store": r["store"], "count": int(r["n"])} for r in rows]
+    return [{"store": r["store"], "count": int(r["n"] or 0)} for r in rows]
 
 
 # ---------------------------------------------------------------------
-# REQUIRED ALIASES (admin_api_routes imports THESE)
+# Compatibility exports (what your admin_api_routes.py is importing)
 # ---------------------------------------------------------------------
-def whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12):
+def whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12) -> list[dict[str, Any]]:
     return get_whatsapp_store_share(tenant=tenant, minutes=minutes, limit=limit)
-
-
-def channel_breakdown(*, tenant: str, minutes: int = 1440):
-    return get_channel_breakdown(tenant=tenant, minutes=minutes)
