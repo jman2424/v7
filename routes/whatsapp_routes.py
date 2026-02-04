@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from flask import Blueprint, Response, abort, jsonify, request
 from twilio.twiml.messaging_response import MessagingResponse
@@ -10,14 +10,20 @@ from twilio.twiml.messaging_response import MessagingResponse
 from routes import get_container
 from connectors.whatsapp import parse_inbound, send_reply
 from service.security import verify_webhook_signature
-from service.analytics_db import log_message, upsert_lead, set_lead_session
+
+# ✅ DB analytics
+from service.analytics_db import (
+    log_message,
+    log_error,          # ✅ NEW
+    upsert_lead,
+    set_lead_session,
+)
 
 logger = logging.getLogger("WA.Webhook")
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
 
 def _get_handler(container):
-    # supports older container attr names
     h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
     if h is None:
         logger.error("WA: No MessageHandler instance found on container.")
@@ -25,13 +31,6 @@ def _get_handler(container):
 
 
 def _norm_wa_id(raw: str) -> str:
-    """
-    Normalize WhatsApp sender identifiers.
-    Examples:
-      "whatsapp:+447123..." -> "447123..."
-      "+447123..."          -> "447123..."
-      "447123..."           -> "447123..."
-    """
     s = (raw or "").strip()
     s = s.replace("whatsapp:", "").strip()
     if s.startswith("+"):
@@ -40,16 +39,12 @@ def _norm_wa_id(raw: str) -> str:
 
 
 def _lead_id_from_sender(sender_digits: str) -> str:
-    # stable, tenant-scoped lead ids
     sender_digits = (sender_digits or "unknown").strip() or "unknown"
     return f"wa:{sender_digits}"
 
 
 @bp.get("/webhook")
 def webhook_verify():
-    """
-    Meta Cloud API verification handshake (hub.verify_token / hub.challenge).
-    """
     c = get_container()
     verify = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge", "")
@@ -85,7 +80,7 @@ def webhook_receive():
     if is_twilio:
         form = request.form.to_dict()
         body = (form.get("Body") or "").strip()
-        from_raw = (form.get("From") or "").strip()  # e.g. "whatsapp:+447..."
+        from_raw = (form.get("From") or "").strip()
         sender_digits = _norm_wa_id(from_raw)
 
         if not body:
@@ -98,27 +93,33 @@ def webhook_receive():
         lead_id = _lead_id_from_sender(sender_digits)
         phone = f"+{sender_digits}" if sender_digits else None
 
-        # Ensure lead exists + attach session
-        upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
-        set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+        # Lead + session
+        try:
+            upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
+            set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+        except Exception:
+            pass
 
-        # Log inbound (THIS is what Common Questions needs)
-        log_message(
-            tenant=tenant,
-            channel="whatsapp",
-            direction="inbound",
-            session_id=session_id,
-            intent="unknown",
-            text=body,
-            lead_id=lead_id,
-            store=None,
-            fallback=False,
-            error=False,
-        )
+        # ✅ inbound message (Common Questions)
+        try:
+            log_message(
+                tenant=tenant,
+                channel="whatsapp",
+                direction="inbound",
+                session_id=session_id,
+                intent="unknown",
+                text=body,
+                lead_id=lead_id,
+                store=None,
+                fallback=False,
+                error=False,
+            )
+        except Exception:
+            pass
 
         logger.info("WA IN: source=twilio tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, body)
 
-        # Handle message
+        # Handle
         if handler is None:
             result: Dict[str, Any] = {"reply": "Sorry—bot not configured yet.", "intent": "system_error", "entities": {}}
         else:
@@ -132,43 +133,45 @@ def webhook_receive():
                 ) or {}
             except Exception as exc:
                 logger.exception("WA: handler.handle crashed: %s", exc)
-                # Log error (dashboard Errors panel)
-                log_message(
-                    tenant=tenant,
-                    channel="whatsapp",
-                    direction="outbound",
-                    session_id=session_id,
-                    intent="system_error",
-                    text="",
-                    lead_id=lead_id,
-                    store=None,
-                    fallback=False,
-                    error=True,
-                    error_code="wa_handler_crash",
-                    error_type=type(exc).__name__,
-                )
+
+                # ✅ ERROR as its own event_type=error (does NOT inflate outbound)
+                try:
+                    log_error(
+                        tenant=tenant,
+                        channel="whatsapp",
+                        session_id=session_id,
+                        lead_id=lead_id,
+                        error_code="wa_handler_crash",
+                        error_type=type(exc).__name__,
+                        meta={"source": "twilio"},
+                    )
+                except Exception:
+                    pass
+
                 result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
         reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
         intent = (result.get("intent") or "unknown").strip()
-
         is_fallback = (intent == "system_fallback")
 
         logger.info("WA OUT: source=twilio tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
 
-        # Log outbound (and fallback flag)
-        log_message(
-            tenant=tenant,
-            channel="whatsapp",
-            direction="outbound",
-            session_id=session_id,
-            intent=intent,
-            text=reply,
-            lead_id=lead_id,
-            store=None,
-            fallback=is_fallback,
-            error=False,
-        )
+        # ✅ outbound message row (fallback is a flag on msg_out)
+        try:
+            log_message(
+                tenant=tenant,
+                channel="whatsapp",
+                direction="outbound",
+                session_id=session_id,
+                intent=intent,
+                text=reply,
+                lead_id=lead_id,
+                store=None,
+                fallback=is_fallback,
+                error=False,
+            )
+        except Exception:
+            pass
 
         resp = MessagingResponse()
         resp.message(reply)
@@ -208,22 +211,28 @@ def webhook_receive():
             lead_id = _lead_id_from_sender(sender_digits)
             phone = f"+{sender_digits}" if sender_digits and sender_digits.isdigit() else None
 
-            upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
-            set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+            try:
+                upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
+                set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+            except Exception:
+                pass
 
-            # Log inbound (Common Questions)
-            log_message(
-                tenant=tenant,
-                channel="whatsapp",
-                direction="inbound",
-                session_id=session_id,
-                intent="unknown",
-                text=text,
-                lead_id=lead_id,
-                store=None,
-                fallback=False,
-                error=False,
-            )
+            # ✅ inbound (Common Questions)
+            try:
+                log_message(
+                    tenant=tenant,
+                    channel="whatsapp",
+                    direction="inbound",
+                    session_id=session_id,
+                    intent="unknown",
+                    text=text,
+                    lead_id=lead_id,
+                    store=None,
+                    fallback=False,
+                    error=False,
+                )
+            except Exception:
+                pass
 
             logger.info("WA IN: source=cloud tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, text)
 
@@ -241,20 +250,18 @@ def webhook_receive():
                     ) or {}
                 except Exception as exc:
                     logger.exception("WA: handler.handle crashed: %s", exc)
-                    log_message(
-                        tenant=tenant,
-                        channel="whatsapp",
-                        direction="outbound",
-                        session_id=session_id,
-                        intent="system_error",
-                        text="",
-                        lead_id=lead_id,
-                        store=None,
-                        fallback=False,
-                        error=True,
-                        error_code="wa_handler_crash",
-                        error_type=type(exc).__name__,
-                    )
+                    try:
+                        log_error(
+                            tenant=tenant,
+                            channel="whatsapp",
+                            session_id=session_id,
+                            lead_id=lead_id,
+                            error_code="wa_handler_crash",
+                            error_type=type(exc).__name__,
+                            meta={"source": "cloud"},
+                        )
+                    except Exception:
+                        pass
                     result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
             reply = (result.get("reply") or "").strip()
@@ -263,19 +270,22 @@ def webhook_receive():
 
             logger.info("WA OUT: source=cloud tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
 
-            # Log outbound
-            log_message(
-                tenant=tenant,
-                channel="whatsapp",
-                direction="outbound",
-                session_id=session_id,
-                intent=intent,
-                text=reply,
-                lead_id=lead_id,
-                store=None,
-                fallback=is_fallback,
-                error=False,
-            )
+            # ✅ outbound
+            try:
+                log_message(
+                    tenant=tenant,
+                    channel="whatsapp",
+                    direction="outbound",
+                    session_id=session_id,
+                    intent=intent,
+                    text=reply,
+                    lead_id=lead_id,
+                    store=None,
+                    fallback=is_fallback,
+                    error=False,
+                )
+            except Exception:
+                pass
 
             # Send reply
             if reply:
@@ -283,20 +293,18 @@ def webhook_receive():
                     send_reply(ev, reply, settings=c.settings)
                 except Exception as send_exc:
                     logger.exception("WA WEBHOOK: send_reply failed: %s", send_exc)
-                    log_message(
-                        tenant=tenant,
-                        channel="whatsapp",
-                        direction="outbound",
-                        session_id=session_id,
-                        intent="system_error",
-                        text="",
-                        lead_id=lead_id,
-                        store=None,
-                        fallback=False,
-                        error=True,
-                        error_code="wa_send_reply_failed",
-                        error_type=type(send_exc).__name__,
-                    )
+                    try:
+                        log_error(
+                            tenant=tenant,
+                            channel="whatsapp",
+                            session_id=session_id,
+                            lead_id=lead_id,
+                            error_code="wa_send_reply_failed",
+                            error_type=type(send_exc).__name__,
+                            meta={"source": "cloud"},
+                        )
+                    except Exception:
+                        pass
 
             handled += 1
 
