@@ -109,13 +109,7 @@ def init_db() -> None:
                 "error_type": "error_type TEXT",
             },
         )
-        _ensure_columns(
-            con,
-            "leads",
-            {
-                "last_session_id": "last_session_id TEXT",
-            },
-        )
+        _ensure_columns(con, "leads", {"last_session_id": "last_session_id TEXT"})
 
         # indexes
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
@@ -134,6 +128,18 @@ def _ensure_ready() -> None:
         if not _INIT_DONE:
             init_db()
             _INIT_DONE = True
+
+
+def _norm_channel(channel: str) -> str:
+    ch = (channel or "web").strip().lower() or "web"
+    if ch not in ("web", "whatsapp"):
+        ch = "web"
+    return ch
+
+
+def _fallback_flag_expr() -> str:
+    # Treat NULL/missing as 0
+    return "COALESCE(json_extract(meta_json,'$.fallback'),0)"
 
 
 # ---------------------------------------------------------------------
@@ -177,8 +183,7 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
             (tenant, lead_id, now),
         )
 
-        cols = _table_columns(con, "leads")
-        if "last_session_id" in cols:
+        if "last_session_id" in _table_columns(con, "leads"):
             con.execute(
                 """
                 UPDATE leads
@@ -203,23 +208,24 @@ def log_message(
     lead_id: Optional[str] = None,
     store: Optional[str] = None,
     fallback: bool = False,
-    error: bool = False,        # kept for backwards compat (stored in meta)
+    error: bool = False,  # legacy flag, stored in meta_json only
     error_code: str = "",
     error_type: str = "",
 ) -> None:
     """
-    Stores messages as:
-      event_type = msg_in / msg_out
-    Fallback is a flag on meta_json for msg_out rows.
-    Errors should NOT be logged here as outbound "messages". Use log_error().
+    Writes:
+      msg_in  rows (inbound user messages)
+      msg_out rows (bot responses)
+
+    IMPORTANT RULE:
+      Fallback is a flag on msg_out.
+      Fallback responses are still msg_out rows (so you can graph them),
+      but your READ queries will treat them as NOT counting towards outbound.
     """
     _ensure_ready()
 
     tenant = (tenant or "default").strip() or "default"
-    ch = (channel or "web").strip().lower() or "web"
-    if ch not in ("web", "whatsapp"):
-        ch = "web"
-
+    ch = _norm_channel(channel)
     sid = (session_id or "unknown").strip() or "unknown"
     direction = (direction or "inbound").strip().lower()
     event_type = "msg_in" if direction == "inbound" else "msg_out"
@@ -227,7 +233,7 @@ def log_message(
     meta = {
         "store": store,
         "fallback": bool(fallback),
-        "error": bool(error),  # legacy meta flag (does NOT drive KPI error count anymore)
+        "error": bool(error),
     }
 
     with _conn() as con:
@@ -268,19 +274,17 @@ def log_error(
     meta: Optional[dict[str, Any]] = None,
 ) -> None:
     """
-    Errors are their own rows:
+    Writes a dedicated error row:
       event_type = error
-    So they don't inflate outbound/total message counts.
+    So errors do NOT inflate outbound counts.
     """
     _ensure_ready()
 
     tenant = (tenant or "default").strip() or "default"
-    ch = (channel or "web").strip().lower() or "web"
-    if ch not in ("web", "whatsapp"):
-        ch = "web"
-
+    ch = _norm_channel(channel)
     sid = (session_id or "unknown").strip() or "unknown"
-    m = meta or {}
+
+    m = dict(meta or {})
     m["error"] = True
 
     with _conn() as con:
@@ -306,7 +310,7 @@ def log_error(
         con.execute(sql, tuple(vals))
 
 
-# Backwards compatible shim (old code calling log_event)
+# Backwards compatible shim
 def log_event(*args, **kwargs):
     return log_message(*args, **kwargs)
 
@@ -315,18 +319,27 @@ def log_event(*args, **kwargs):
 # Reads (Dashboard API)
 # ---------------------------------------------------------------------
 def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
+    """
+    KPI RULE:
+      outbound = msg_out where fallback=0
+      fallbacks = msg_out where fallback=1
+      total = inbound + outbound + fallbacks
+    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
+    fb = _fallback_flag_expr()
 
     with _conn() as con:
         row = con.execute(
-            """
+            f"""
             SELECT
-              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
-              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
+
+              SUM(CASE WHEN event_type='msg_out' AND {fb}=0 THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN event_type='msg_out' AND {fb}=1 THEN 1 ELSE 0 END) AS fallbacks,
+
               COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') THEN session_id END) AS sessions,
-              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
             WHERE tenant=? AND ts_utc>=?;
@@ -341,32 +354,38 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
 
     inbound = int(row["inbound"] or 0)
     outbound = int(row["outbound"] or 0)
-    sessions = int(row["sessions"] or 0)
     fallbacks = int(row["fallbacks"] or 0)
+    sessions = int(row["sessions"] or 0)
     errors = int(row["errors"] or 0)
 
     return {
         "inbound": inbound,
         "outbound": outbound,
-        "total": inbound + outbound,
+        "fallbacks": fallbacks,
+        "total": inbound + outbound + fallbacks,
         "sessions": sessions,
         "leads": int(leads or 0),
-        "fallbacks": fallbacks,
         "errors": errors,
     }
 
 
 def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
+    """
+    Returns per-hour buckets (by ts_utc hour).
+    Includes fallbacks as their own series so charts can show them separately.
+    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
+    fb = _fallback_flag_expr()
 
     with _conn() as con:
         rows = con.execute(
-            """
+            f"""
             SELECT substr(ts_utc,1,13) AS t,
-                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
-                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
+                   SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' AND {fb}=0 THEN 1 ELSE 0 END) AS outbound,
+                   SUM(CASE WHEN event_type='msg_out' AND {fb}=1 THEN 1 ELSE 0 END) AS fallbacks
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -376,7 +395,15 @@ def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60
             (tenant, since),
         ).fetchall()
 
-    return [{"t": r["t"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)} for r in rows]
+    return [
+        {
+            "t": r["t"],
+            "inbound": int(r["inbound"] or 0),
+            "outbound": int(r["outbound"] or 0),
+            "fallbacks": int(r["fallbacks"] or 0),
+        }
+        for r in rows
+    ]
 
 
 def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
@@ -402,16 +429,22 @@ def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes:
 
 
 def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
+    """
+    Returns channel totals:
+      inbound, outbound (non-fallback), fallbacks
+    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
+    fb = _fallback_flag_expr()
 
     with _conn() as con:
         rows = con.execute(
-            """
+            f"""
             SELECT channel,
-                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
-                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
+                   SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' AND {fb}=0 THEN 1 ELSE 0 END) AS outbound,
+                   SUM(CASE WHEN event_type='msg_out' AND {fb}=1 THEN 1 ELSE 0 END) AS fallbacks
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -425,7 +458,13 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
         ch = (r["channel"] or "unknown").strip().lower() or "unknown"
         inbound = int(r["inbound"] or 0)
         outbound = int(r["outbound"] or 0)
-        out[ch] = {"inbound": inbound, "outbound": outbound, "total": inbound + outbound}
+        fallbacks = int(r["fallbacks"] or 0)
+        out[ch] = {
+            "inbound": inbound,
+            "outbound": outbound,
+            "fallbacks": fallbacks,
+            "total": inbound + outbound + fallbacks,
+        }
     return out
 
 
@@ -458,16 +497,17 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
+    fb = _fallback_flag_expr()
 
     with _conn() as con:
         rows = con.execute(
-            """
+            f"""
             SELECT COALESCE(NULLIF(intent,''),'fallback') AS intent,
                    COUNT(*) AS n
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type='msg_out'
-              AND json_extract(meta_json,'$.fallback') = 1
+              AND {fb} = 1
             GROUP BY intent
             ORDER BY n DESC
             LIMIT ?;
@@ -512,8 +552,7 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
     top = max(1, min(_safe_int(top, 10), 50))
 
     with _conn() as con:
-        cols = _table_columns(con, "events")
-        if "text" not in cols:
+        if "text" not in _table_columns(con, "events"):
             return []
 
         rows = con.execute(
@@ -591,9 +630,14 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
 # "New" reads used by admin_api_routes
 # ---------------------------------------------------------------------
 def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
+    """
+    Used by the dashboard "CHANNELS" stacked bar.
+    outbound must EXCLUDE fallbacks.
+    """
     _ensure_ready()
     tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
+    fb = _fallback_flag_expr()
 
     base: dict[str, dict[str, int]] = {
         "web": {"inbound": 0, "outbound": 0, "fallbacks": 0},
@@ -602,12 +646,12 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
 
     with _conn() as con:
         rows = con.execute(
-            """
+            f"""
             SELECT
               channel,
-              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
-              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
-              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
+              SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' AND {fb}=0 THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN event_type='msg_out' AND {fb}=1 THEN 1 ELSE 0 END) AS fallbacks
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
