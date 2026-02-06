@@ -75,11 +75,28 @@ def _norm_session(session_id: str) -> str:
     return (session_id or "unknown").strip() or "unknown"
 
 
-def _time_bucket(seconds: int = 10) -> str:
-    # retry/double-submit protection window
+def _norm_direction(direction: str) -> str:
+    d = (direction or "inbound").strip().lower()
+    return d if d in ("inbound", "outbound") else "inbound"
+
+
+def _time_bucket(seconds: int = 30) -> str:
+    """
+    Small window to protect against double-submit/retries when we don't have a real message_id.
+    """
     now = datetime.now(timezone.utc).replace(microsecond=0)
     s = now.second - (now.second % max(1, int(seconds)))
     return now.replace(second=s).isoformat()
+
+
+def _norm_text_for_id(text: str) -> str:
+    """
+    Text should NEVER be used for KPI grouping, but can be used as a last-resort dedupe signal
+    when message_id is missing. Keep it stable-ish (trim, collapse spaces, cap length).
+    """
+    t = (text or "").strip().lower()
+    t = " ".join(t.split())
+    return t[:280]
 
 
 def _make_dedupe_key(
@@ -87,17 +104,29 @@ def _make_dedupe_key(
     tenant: str,
     channel: str,
     session_id: str,
-    event_type: str,
-    intent: str,
-    text: str,
-    lead_id: str,
-    store: str,
-    fallback: bool,
+    event_type: str,  # msg_in | msg_out | error
+    direction: str,  # inbound | outbound
     message_id: str,
+    text: str,
 ) -> str:
-    # If caller supplies message_id, make it deterministic. Otherwise use a small time bucket.
-    bucket = message_id.strip() or _time_bucket(10)
-    raw = f"{tenant}|{channel}|{session_id}|{event_type}|{intent}|{lead_id}|{store}|{int(bool(fallback))}|{text}|{bucket}"
+    """
+    IMPORTANT:
+      - If you have a real upstream message_id, that MUST drive dedupe.
+      - Do NOT include intent/fallback/store/lead_id in dedupe. Those can change during processing,
+        and will cause double-counting (your current bug).
+
+    Fallback when message_id missing:
+      - Use (tenant|channel|session|direction|event_type|normalized_text|time_bucket)
+      - This stops accidental duplicates from retries in a short window.
+      - If a user sends the same text twice within the window, they may collapse into one.
+        That is acceptable compared to inflated KPIs; best fix is ALWAYS pass message_id.
+    """
+    mid = (message_id or "").strip()
+    if mid:
+        raw = f"{tenant}|{channel}|{session_id}|{direction}|{event_type}|{mid}"
+    else:
+        bucket = _time_bucket(30)
+        raw = f"{tenant}|{channel}|{session_id}|{direction}|{event_type}|{_norm_text_for_id(text)}|{bucket}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
@@ -109,14 +138,13 @@ def init_db() -> None:
     Safe to call repeatedly.
     Creates tables and performs light migrations if older schema exists.
 
-    IMPORTANT: This schema supports:
+    Schema supports:
       - msg_in / msg_out events
       - fallbacks as a flag on msg_out rows (meta_json)
       - errors as separate rows (event_type='error') so they NEVER inflate outbound counts
       - dedupe_key to ignore duplicate webhook/widget retries
     """
     with _conn() as con:
-        # Base tables (create with full modern columns)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -154,7 +182,6 @@ def init_db() -> None:
             """
         )
 
-        # Migrations for older DBs (add any missing columns)
         _ensure_columns(
             con,
             "events",
@@ -168,7 +195,6 @@ def init_db() -> None:
         )
         _ensure_columns(con, "leads", {"last_session_id": "last_session_id TEXT"})
 
-        # Indexes
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)")
@@ -268,7 +294,7 @@ def log_message(
     Fallbacks are NOT separate event rows.
     They are msg_out rows with meta_json.fallback = 1
 
-    This is what you want:
+    KPIs:
       outbound KPI = msg_out where fallback=0
       fallbacks KPI = msg_out where fallback=1
       total KPI = inbound + outbound + fallbacks
@@ -278,7 +304,7 @@ def log_message(
     tenant = _norm_tenant(tenant)
     ch = _norm_channel(channel)
     sid = _norm_session(session_id)
-    direction = (direction or "inbound").strip().lower()
+    direction = _norm_direction(direction)
     event_type = "msg_in" if direction == "inbound" else "msg_out"
 
     intent = (intent or "unknown").strip() or "unknown"
@@ -298,12 +324,9 @@ def log_message(
         channel=ch,
         session_id=sid,
         event_type=event_type,
-        intent=intent,
-        text=txt,
-        lead_id=lid,
-        store=st,
-        fallback=bool(fallback),
+        direction=direction,
         message_id=message_id or "",
+        text=txt,
     )
 
     with _conn() as con:
@@ -363,17 +386,15 @@ def log_error(
     m = meta or {}
     m["error"] = True
 
+    # For errors, direction doesn't matter for KPI counting, but it helps dedupe format stay consistent.
     dedupe_key = _make_dedupe_key(
         tenant=tenant,
         channel=ch,
         session_id=sid,
         event_type="error",
-        intent="system_error",
-        text=str(m.get("error") or ""),
-        lead_id=lid,
-        store="",
-        fallback=False,
+        direction="outbound",
         message_id=message_id or "",
+        text=str(m.get("error") or ""),
     )
 
     with _conn() as con:
@@ -468,7 +489,7 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
         "errors": errors,
         "sessions": sessions,
         "leads": int(leads or 0),
-        "total": inbound + outbound + fallbacks,  # ✅ this matches what you want
+        "total": inbound + outbound + fallbacks,
     }
 
 
@@ -484,8 +505,6 @@ def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60
     tenant = _norm_tenant(tenant)
     since = _since(minutes)
 
-    # Current UI buckets by hour via substr(ts_utc,1,13)
-    # (bucket_minutes is accepted but not used by this string-based scheme)
     with _conn() as con:
         rows = con.execute(
             """
@@ -532,7 +551,7 @@ def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes:
 
 def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     """
-    Legacy helper (if anything still uses it):
+    Legacy helper:
     outbound excludes fallbacks.
     """
     _ensure_ready()
@@ -568,7 +587,7 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
 
 def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     """
-    ✅ Top intents should represent REAL successful replies, not fallbacks.
+    ✅ Top intents represent REAL successful replies, not fallbacks.
     """
     _ensure_ready()
     tenant = _norm_tenant(tenant)
@@ -724,10 +743,6 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
     """
     ✅ outbound excludes fallbacks
     ✅ fallbacks are counted separately
-
-    This is what makes your Channels chart do:
-      Outbound = real replies (4)
-      Fallbacks = fallback replies (2)
     """
     _ensure_ready()
     tenant = _norm_tenant(tenant)
