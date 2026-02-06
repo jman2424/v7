@@ -10,46 +10,93 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
 
   <style>
+    /* =========================================================
+       Professional Light/Dark Theme (no "AI neon" look)
+       - Default: Light
+       - Dark via [data-theme="dark"]
+       - Tokens used everywhere for consistency
+    ========================================================== */
+
     :root{
-      --bg:#070A10;
-      --panel: rgba(255,255,255,.05);
-      --panel2: rgba(255,255,255,.07);
-      --line: rgba(255,255,255,.10);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.62);
-      --muted2: rgba(255,255,255,.45);
       --radius: 14px;
       --gap: 10px;
       --hdr: 54px;
+
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+
+      /* Light tokens */
+      --bg: #f7f8fb;
+      --bg2:#ffffff;
+      --panel: rgba(255,255,255,.92);
+      --panel2: rgba(255,255,255,.98);
+      --line: rgba(15,23,42,.10);
+      --line2: rgba(15,23,42,.14);
+
+      --text: rgba(15,23,42,.92);
+      --muted: rgba(15,23,42,.62);
+      --muted2: rgba(15,23,42,.45);
+
+      --shadow: 0 10px 26px rgba(15,23,42,.10);
+      --shadow2: 0 12px 34px rgba(15,23,42,.14);
+
+      --chip: rgba(15,23,42,.04);
+      --chipHover: rgba(15,23,42,.06);
+
+      --surfaceSoft: rgba(0,0,0,.02);
+      --surfaceSoft2: rgba(0,0,0,.03);
+    }
+
+    html[data-theme="dark"]{
+      --bg:#0b1220;
+      --bg2:#0f172a;
+      --panel: rgba(255,255,255,.05);
+      --panel2: rgba(255,255,255,.07);
+      --line: rgba(255,255,255,.10);
+      --line2: rgba(255,255,255,.14);
+
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.62);
+      --muted2: rgba(255,255,255,.45);
+
+      --shadow: 0 10px 28px rgba(0,0,0,.45);
+      --shadow2: 0 12px 34px rgba(0,0,0,.55);
+
+      --chip: rgba(255,255,255,.05);
+      --chipHover: rgba(255,255,255,.08);
+
+      --surfaceSoft: rgba(255,255,255,.03);
+      --surfaceSoft2: rgba(0,0,0,.22);
     }
 
     html, body { height: 100%; }
+
     body{
       margin:0;
-      background:
-        radial-gradient(900px 600px at 10% 10%, rgba(110,231,255,.12), transparent 60%),
-        radial-gradient(900px 600px at 80% 20%, rgba(167,139,250,.12), transparent 60%),
-        radial-gradient(900px 600px at 60% 90%, rgba(52,211,153,.08), transparent 60%),
-        linear-gradient(180deg, #05060B, #0B1020);
+      background: linear-gradient(180deg, var(--bg), var(--bg2));
       color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      font-family: var(--font);
       overflow: hidden;
     }
 
     .page{ height:100vh; display:flex; flex-direction:column; }
+
     .header{
       height: var(--hdr);
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       padding: 10px 14px;
-      border-bottom: 1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.20);
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.65);
       backdrop-filter: blur(10px);
     }
+    html[data-theme="dark"] .header{
+      background: rgba(0,0,0,.20);
+    }
+
     .brand{ display:flex; align-items:center; gap:10px; min-width: 220px; }
     .logo{
       width: 26px; height: 26px; border-radius: 8px;
-      background: rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.12);
+      background: var(--chip);
+      border:1px solid var(--line);
       display:grid; place-items:center;
       font-weight:900; font-size:12px;
     }
@@ -58,32 +105,37 @@
     .brand .meta .s{ font-size:11px; color: var(--muted); }
 
     .actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
     .pill{
       display:inline-flex; gap:8px; align-items:center;
       padding:8px 10px; border-radius:999px;
-      border:1px solid var(--line); background: rgba(255,255,255,.04);
+      border:1px solid var(--line); background: var(--chip);
     }
     .pill label{ font-size:11px; color: var(--muted2); font-weight:800; }
-    .pill select{ background:transparent; border:0; color:var(--text); outline:none; font-size:11px; cursor:pointer; }
+    .pill select{
+      background:transparent; border:0; color:var(--text);
+      outline:none; font-size:11px; cursor:pointer;
+    }
 
     .btn{
       border-radius: 999px;
       border:1px solid var(--line);
-      background: rgba(255,255,255,.06);
+      background: var(--chip);
       color: var(--text);
       padding:8px 12px;
       font-weight:900; font-size:11px;
       cursor:pointer;
     }
-    .btn:hover{ background: rgba(255,255,255,.10); }
+    .btn:hover{ background: var(--chipHover); }
+
     .logout{
       text-decoration:none; display:inline-flex; align-items:center;
       padding:8px 12px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
+      border:1px solid var(--line);
       color: var(--text); font-weight:900; font-size:11px;
-      background: rgba(255,255,255,.04);
+      background: var(--chip);
     }
-    .logout:hover{ background: rgba(255,255,255,.08); }
+    .logout:hover{ background: var(--chipHover); }
 
     .content{ flex:1; padding:12px 14px 14px; overflow:hidden; }
 
@@ -101,10 +153,10 @@
     }
 
     .card{
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
+      border:1px solid var(--line);
+      background: var(--panel);
       border-radius: var(--radius);
-      box-shadow: 0 10px 28px rgba(0,0,0,.45);
+      box-shadow: var(--shadow);
       overflow:hidden;
       min-height:0;
     }
@@ -112,14 +164,20 @@
     .card .hd{
       display:flex; align-items:center; justify-content:space-between;
       padding:10px 12px;
-      border-bottom:1px solid rgba(255,255,255,.07);
-      background: rgba(255,255,255,.03);
+      border-bottom:1px solid var(--line);
+      background: var(--surfaceSoft);
     }
-    .card .hd .h{ font-size:11px; font-weight:900; letter-spacing:.18px; text-transform:uppercase; color: rgba(255,255,255,.78); }
+    .card .hd .h{
+      font-size:11px; font-weight:900; letter-spacing:.18px;
+      text-transform:uppercase; color: var(--muted);
+    }
     .card .hd .sub{ font-size:11px; color: var(--muted); }
 
     .kpi{ padding:10px 12px; }
-    .kpi .k{ font-size:10px; color:var(--muted2); font-weight:900; letter-spacing:.18px; text-transform:uppercase; }
+    .kpi .k{
+      font-size:10px; color:var(--muted2); font-weight:900;
+      letter-spacing:.18px; text-transform:uppercase;
+    }
     .kpi .v{ margin-top:6px; font-size:18px; font-weight:900; }
     .kpi .s{ margin-top:4px; font-size:11px; color:var(--muted); }
 
@@ -152,8 +210,8 @@
     .canvasWrap{
       height:100%;
       border-radius:12px;
-      border:1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.18);
+      border:1px solid var(--line);
+      background: var(--surfaceSoft);
       padding:8px;
     }
 
@@ -180,16 +238,16 @@
       padding:10px;
       font-size:10px;
       letter-spacing:.18px;
-      color: rgba(255,255,255,.72);
+      color: var(--muted);
       text-transform:uppercase;
-      background: rgba(255,255,255,.06);
-      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: var(--surfaceSoft2);
+      border-bottom: 1px solid var(--line);
       z-index:1;
     }
     td{
       padding:10px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-      color: rgba(255,255,255,.88);
+      border-bottom: 1px solid var(--line);
+      color: var(--text);
       word-break:break-word;
     }
 
@@ -211,8 +269,8 @@
       padding: 10px 12px;
       overflow:auto;
       font-size:11px;
-      color: rgba(255,255,255,.80);
-      background: rgba(0,0,0,.22);
+      color: var(--text);
+      background: var(--surfaceSoft2);
     }
 
     @media (max-width: 980px){
@@ -232,15 +290,15 @@
 
     <header class="header">
       <div class="brand">
-        <div class="logo">AI</div>
+        <div class="logo">A</div>
         <div class="meta">
-          <div class="t">AI Sales Assistant</div>
+          <div class="t">Admin Dashboard</div>
           <div class="s">{{ tenant }} • Role: {{ role }}</div>
         </div>
       </div>
 
       <div class="actions">
-        <!-- ✅ FIXED: select id matches JS (`period`) -->
+        <!-- Period -->
         <div class="pill">
           <label for="period">Period</label>
           <select id="period">
@@ -248,6 +306,16 @@
             <option value="1440" selected>24h</option>
             <option value="10080">7d</option>
             <option value="43200">30d</option>
+          </select>
+        </div>
+
+        <!-- Theme -->
+        <div class="pill">
+          <label for="theme">Theme</label>
+          <select id="theme">
+            <option value="system" selected>System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
           </select>
         </div>
 
@@ -277,7 +345,6 @@
                 <div class="hd"><div class="h">Message Volume</div><div class="sub" id="kpi-sub">—</div></div>
                 <div class="bd">
                   <div class="canvasWrap">
-                    <!-- ✅ FIXED: canvas id matches charts.js (`chart-volume`) -->
                     <canvas id="chart-volume"></canvas>
                   </div>
                 </div>
@@ -362,10 +429,47 @@
     })();
   </script>
 
+  <!-- Theme controller -->
+  <script>
+    (function () {
+      const key = "admin_theme";
+      const sel = document.getElementById("theme");
+      const root = document.documentElement;
+
+      function apply(mode) {
+        if (mode === "dark" || mode === "light") {
+          root.setAttribute("data-theme", mode);
+          return;
+        }
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        root.setAttribute("data-theme", prefersDark ? "dark" : "light");
+      }
+
+      const saved = localStorage.getItem(key) || "system";
+      apply(saved);
+      if (sel) sel.value = saved;
+
+      if (sel) {
+        sel.addEventListener("change", () => {
+          const v = sel.value || "system";
+          localStorage.setItem(key, v);
+          apply(v);
+        });
+      }
+
+      const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+      if (mq && mq.addEventListener) {
+        mq.addEventListener("change", () => {
+          if ((localStorage.getItem(key) || "system") === "system") apply("system");
+        });
+      }
+    })();
+  </script>
+
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <!-- ✅ CRITICAL: actually load charts.js (message volume bars) -->
+  <!-- Charts -->
   <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 
   <!-- Admin controller -->
