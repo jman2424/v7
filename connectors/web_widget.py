@@ -7,32 +7,23 @@ This module provides:
 2) parse_inbound -> normalise /chat_api JSON into a single event
 3) send_reply    -> build the JSON response for /chat_api
 
-Event shape (inbound to core):
+Key fix (2026-02-06):
+- Every inbound web message MUST have a stable per-message id so analytics dedupe works.
+- We accept client-provided ids (client_message_id/message_id/etc).
+- If none is provided, we generate a server-side id (unique per request) and attach it
+  to BOTH:
+    - event["message_id"]
+    - event["metadata"]["client_message_id"]
 
-{
-  "from": "web:<session_id>",
-  "session_id": "asa_...",
-  "tenant": "<tenant key or None>",
-  "text": "hello",
-  "raw": <original payload dict>,
-  "metadata": {...},
-  "source": "web_widget",
-  "channel": "web",
-}
-
-Response shape (outbound):
-
-{
-  "reply": "string",
-  "raw": {...},
-  "session_id": "asa_..."
-}
+This prevents:
+- duplicate posts/retries inflating counts
+- identical messages ("hello", "hello") collapsing into 1 in Common Questions
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 import logging
 import secrets
@@ -93,7 +84,7 @@ def _log_ctx(req_id: Optional[str], **fields: Any) -> str:
     """
     Create a compact context string for logs.
     """
-    parts = []
+    parts: List[str] = []
     if req_id:
         parts.append(f"rid={req_id}")
     for k, v in fields.items():
@@ -102,6 +93,95 @@ def _log_ctx(req_id: Optional[str], **fields: Any) -> str:
         parts.append(f"{k}={_safe_str(v, 120)}")
     return " ".join(parts)
 
+
+def _extract_text(payload: Dict[str, Any]) -> str:
+    """
+    Supports both:
+    - /chat_api contract: { "message": "hi", ... }
+    - widget-style contract: { "text": "hi", ... }
+    """
+    try:
+        text = payload.get("message") or payload.get("text") or ""
+        if not isinstance(text, str):
+            return ""
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
+    """
+    Use explicit session_id if provided, otherwise fall back to old behaviour: "asa_<remote_addr>".
+    """
+    try:
+        sess = payload.get("session_id") or payload.get("sessionId") or ""
+        if not isinstance(sess, str):
+            sess = ""
+        sess = sess.strip()
+    except Exception:
+        sess = ""
+
+    if not sess and remote_addr:
+        sess = f"asa_{remote_addr}"
+
+    return sess or "asa_anon"
+
+
+def _extract_channel(payload: Dict[str, Any], default_channel: str) -> str:
+    try:
+        ch = payload.get("channel") or default_channel or "web"
+        if not isinstance(ch, str):
+            return "web"
+        ch = ch.strip()
+        return ch or "web"
+    except Exception:
+        return "web"
+
+
+def _extract_tenant(payload: Dict[str, Any], default_tenant: Optional[str]) -> Optional[str]:
+    try:
+        t = payload.get("tenant") or default_tenant
+        if t is None:
+            return None
+        if not isinstance(t, str):
+            return default_tenant
+        t = t.strip()
+        return t or None
+    except Exception:
+        return default_tenant
+
+
+def _extract_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
+    meta = payload.get("metadata") or {}
+    if not isinstance(meta, dict):
+        return {}
+    return meta
+
+
+def _extract_message_id(payload: Dict[str, Any], metadata: Dict[str, Any], rid: str) -> str:
+    """
+    Prefer client-provided ids; otherwise generate a unique server id.
+    This MUST be stable per user send to prevent analytics dedupe from collapsing messages.
+    """
+    # Prefer explicit ids from client payload
+    for k in ("client_message_id", "message_id", "mid", "id"):
+        v = payload.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    # Prefer ids inside metadata
+    for k in ("client_message_id", "message_id", "mid", "id"):
+        v = metadata.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    # Server fallback: unique per request (not ideal vs client UUID, but prevents collapse)
+    return f"{rid}:{secrets.token_hex(8)}"
+
+
+# -------------------------------------------------------------------
+# Iframe bridge (for SDK / widget.js postMessage integration)
+# -------------------------------------------------------------------
 
 @dataclass
 class WidgetBridge:
@@ -114,19 +194,11 @@ class WidgetBridge:
       - POST to /chat_api
       - Post a reply back with build_reply_event()
     """
-
     allowed_origins: Optional[List[str]] = None
 
     # ---- validation ----
 
     def validate_origin(self, origin: str, *, req_id: Optional[str] = None) -> bool:
-        """
-        Return True if `origin` is allowed.
-
-        Logs:
-          - debug: canonicalized origin + match decision
-          - warning: missing/invalid origin
-        """
         if not origin:
             logger.warning("validate_origin: missing origin %s", _log_ctx(req_id))
             return False
@@ -154,12 +226,6 @@ class WidgetBridge:
         return ok
 
     def is_chat_message(self, payload: Dict[str, Any], *, req_id: Optional[str] = None) -> bool:
-        """
-        Validate the inbound widget postMessage payload.
-
-        Expected:
-          { type: "chat:message", text: "..." }
-        """
         if not isinstance(payload, dict):
             logger.debug(
                 "is_chat_message: payload not dict type=%s %s",
@@ -189,16 +255,6 @@ class WidgetBridge:
         return ok
 
     def parse_chat_message(self, payload: Dict[str, Any], *, req_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Returns a normalized dict:
-        {
-          "message": str,
-          "session_id": str | None,
-          "channel": "web",
-          "tenant": str | None,
-          "metadata": dict
-        }
-        """
         text = (payload.get("text") or "").strip()
         sess = (payload.get("sessionId") or "").strip() or None
         meta = payload.get("metadata") or {}
@@ -260,71 +316,6 @@ class WidgetBridge:
 # /chat_api normalisation helpers
 # -------------------------------------------------------------------
 
-def _extract_text(payload: Dict[str, Any]) -> str:
-    """
-    Supports both:
-    - /chat_api contract: { "message": "hi", ... }
-    - widget-style contract: { "text": "hi", ... }
-    """
-    try:
-        text = (payload.get("message") or payload.get("text") or "")
-        if not isinstance(text, str):
-            return ""
-        return text.strip()
-    except Exception:
-        return ""
-
-
-def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
-    """
-    Use explicit session_id if provided, otherwise fall back to
-    the old behaviour: "asa_<remote_addr>".
-    """
-    try:
-        sess = payload.get("session_id") or payload.get("sessionId") or ""
-        if not isinstance(sess, str):
-            sess = ""
-        sess = sess.strip()
-    except Exception:
-        sess = ""
-
-    if not sess and remote_addr:
-        sess = f"asa_{remote_addr}"
-
-    return sess or "asa_anon"
-
-
-def _extract_channel(payload: Dict[str, Any], default_channel: str) -> str:
-    try:
-        ch = payload.get("channel") or default_channel or "web"
-        if not isinstance(ch, str):
-            return "web"
-        ch = ch.strip()
-        return ch or "web"
-    except Exception:
-        return "web"
-
-
-def _extract_tenant(payload: Dict[str, Any], default_tenant: Optional[str]) -> Optional[str]:
-    try:
-        t = payload.get("tenant") or default_tenant
-        if t is None:
-            return None
-        if not isinstance(t, str):
-            return default_tenant
-        t = t.strip()
-        return t or None
-    except Exception:
-        return default_tenant
-
-
-def _extract_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
-    meta = payload.get("metadata") or {}
-    if not isinstance(meta, dict):
-        return {}
-    return meta
-
-
 def parse_inbound(
     payload: Dict[str, Any],
     *,
@@ -336,13 +327,9 @@ def parse_inbound(
     """
     Parse inbound web widget payload into a flat list of events.
 
-    Adds robust logging so you can trace:
-      - missing text
-      - session_id derivation
-      - tenant/channel parsing
-      - metadata shape issues
-
-    NOTE: `req_id` is optional. If not passed, we generate one for logs only.
+    Adds:
+      - req_id (rid) for correlation
+      - message_id (client_message_id) for correct analytics dedupe
     """
     rid = req_id or _make_req_id()
     events: List[Dict[str, Any]] = []
@@ -367,13 +354,21 @@ def parse_inbound(
     session_id = _extract_session_id(payload, remote_addr)
     channel = _extract_channel(payload, default_channel)
     tenant = _extract_tenant(payload, default_tenant)
-    metadata = _extract_metadata(payload)
+
+    base_meta = _extract_metadata(payload)
+    # ensure dict copy so we can inject ids safely
+    metadata: Dict[str, Any] = dict(base_meta or {})
+
+    message_id = _extract_message_id(payload, metadata, rid)
+    # Always expose id in metadata under a consistent key
+    metadata["client_message_id"] = message_id
 
     logger.info(
-        "parse_inbound: ok session_id=%s channel=%s tenant=%s text_len=%d meta_keys=%d %s",
+        "parse_inbound: ok session_id=%s channel=%s tenant=%s mid=%s text_len=%d meta_keys=%d %s",
         session_id,
         channel,
         tenant,
+        message_id,
         len(text),
         len(metadata.keys()),
         _log_ctx(rid, remote_addr=remote_addr),
@@ -388,9 +383,10 @@ def parse_inbound(
             "text": text,
             "raw": payload,
             "metadata": metadata,
+            "message_id": message_id,   # ✅ top-level for convenience
             "source": "web_widget",
             "channel": channel,
-            "req_id": rid,  # helpful for correlating logs end-to-end
+            "req_id": rid,              # helpful for correlating logs end-to-end
         }
     )
 
@@ -406,18 +402,12 @@ def send_reply(
 ) -> Dict[str, Any]:
     """
     Build the JSON response that /chat_api should return.
-
     Returns:
       { "reply": str, "raw": {...}, "session_id": "asa_..." }
-
-    Logging:
-      - info: reply length + session_id
-      - debug: raw keys count (NOT full raw)
     """
     rid = req_id or event.get("req_id") or _make_req_id()
     session_id = event.get("session_id") or "asa_anon"
     reply_str = str(reply or "")
-
     raw_out = raw or {}
 
     logger.info(
@@ -428,7 +418,6 @@ def send_reply(
         _log_ctx(rid),
     )
 
-    # never dump raw in logs by default
     logger.debug(
         "send_reply.debug: raw_type=%s %s",
         type(raw_out),
@@ -439,5 +428,5 @@ def send_reply(
         "reply": reply_str,
         "raw": raw_out,
         "session_id": session_id,
-        "req_id": rid,  # optional but extremely useful for debugging
+        "req_id": rid,
     }
