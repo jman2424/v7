@@ -1,12 +1,18 @@
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-- Dispatches to V5 / V6 / V7
-- VALIDATES product responses
-- Forces safe fallback if catalog resolution fails
-- Guarantees products are returned when intent requires it
-- Adds DISPATCH logging so we can find issues fast
-- POSTS analytics safely (won't crash if analytics service differs)
+FIXED:
+- DOES NOT write msg_in/msg_out analytics (that must happen ONLY at the transport boundary:
+  routes/webchat_routes.py and routes/whatsapp_routes.py)
+- Keeps DISPATCH logging for debugging
+- Keeps CRM logging
+- Keeps optional PIPELINE telemetry, but uses event_type names that will NOT inflate chat KPIs
+  (pipeline_in / pipeline_out / pipeline_turn)
+
+Why:
+You were double-counting because:
+- webchat_routes.py logs inbound/outbound
+- AND this handler logged msg_in/msg_out (and chat_turn) again via analytics.log_event()
 """
 
 from __future__ import annotations
@@ -87,7 +93,8 @@ class MessageHandler:
             user_text[:120],
         )
 
-        self._post_analytics(ctx, event_type="msg_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
+        # OPTIONAL pipeline telemetry (does NOT affect chat KPIs)
+        self._post_telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
 
         # ---------------- DISPATCH ----------------
         if mode == "v5":
@@ -114,10 +121,10 @@ class MessageHandler:
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
-        # ---------------- ANALYTICS OUT ----------------
-        self._post_analytics(
+        # OPTIONAL pipeline telemetry (does NOT affect chat KPIs)
+        self._post_telemetry(
             ctx,
-            event_type="msg_out",
+            event_type="pipeline_out",
             meta={
                 "mode": mode,
                 "rid": rid,
@@ -125,11 +132,9 @@ class MessageHandler:
                 "reply_len": len((reply.get("reply") or "")),
             },
         )
-
-        # Optional: one combined "chat_turn" event
-        self._post_analytics(
+        self._post_telemetry(
             ctx,
-            event_type="chat_turn",
+            event_type="pipeline_turn",
             meta={
                 "mode": mode,
                 "rid": rid,
@@ -279,22 +284,31 @@ class MessageHandler:
                     name=None,
                 )
             if hasattr(self.analytics, "set_lead_session"):
-                self.analytics.set_lead_session(str(lead_id), ctx.session_id)
+                self.analytics.set_lead_session(tenant=ctx.tenant, lead_id=str(lead_id), session_id=ctx.session_id)
         except Exception:
             logger.exception("analytics lead upsert failed")
 
     # ---------------------------------------------------------
-    # ANALYTICS (safe)
+    # TELEMETRY (safe)
     # ---------------------------------------------------------
-    def _post_analytics(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
+    def _post_telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
         """
-        Tries to call AnalyticsService in the common signatures without crashing your app.
+        Telemetry is allowed here, but it must NEVER be:
+          - msg_in
+          - msg_out
+          - error  (those belong to transport layer too)
+
+        We use:
+          - pipeline_in / pipeline_out / pipeline_turn
+
+        If your analytics implementation writes to SQLite "events" table, these won't be
+        included in KPI queries because KPIs only count msg_in/msg_out/error.
         """
         try:
             meta_json = json.dumps(meta, separators=(",", ":"), ensure_ascii=False)
 
-            # Signature A (your newer attempt)
             if hasattr(self.analytics, "log_event"):
+                # Try common signatures, but never crash
                 try:
                     self.analytics.log_event(
                         tenant=ctx.tenant,
@@ -308,7 +322,6 @@ class MessageHandler:
                 except TypeError:
                     pass
 
-                # Signature B (older style)
                 try:
                     self.analytics.log_event(
                         ctx.tenant,
@@ -324,4 +337,4 @@ class MessageHandler:
                     pass
 
         except Exception:
-            logger.exception("analytics %s failed", event_type)
+            logger.exception("telemetry %s failed", event_type)
