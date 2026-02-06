@@ -11,26 +11,33 @@
 
   <style>
     /* =========================================================
-       Professional Light/Dark Theme (no "AI neon" look)
+       Professional Green / White / Silver Theme + Big Charts
        - Default: Light
-       - Dark via [data-theme="dark"]
-       - Tokens used everywhere for consistency
+       - Optional Dark mode supported
+       - All charts equal size in a unified grid
     ========================================================== */
 
     :root{
       --radius: 14px;
-      --gap: 10px;
-      --hdr: 54px;
+      --gap: 12px;
+      --hdr: 58px;
 
       --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
 
-      /* Light tokens */
-      --bg: #f7f8fb;
+      /* Brand accents (green) */
+      --accent: #16a34a;        /* green */
+      --accent2:#22c55e;        /* lighter green */
+      --ring: rgba(22,163,74,.25);
+
+      /* Light tokens: white + silver */
+      --bg: #f7f9f7;
       --bg2:#ffffff;
-      --panel: rgba(255,255,255,.92);
-      --panel2: rgba(255,255,255,.98);
-      --line: rgba(15,23,42,.10);
-      --line2: rgba(15,23,42,.14);
+
+      --panel: rgba(255,255,255,.96);
+      --panel2: rgba(255,255,255,.99);
+
+      --line: rgba(15,23,42,.12);   /* silver-ish border */
+      --line2: rgba(15,23,42,.16);
 
       --text: rgba(15,23,42,.92);
       --muted: rgba(15,23,42,.62);
@@ -42,15 +49,18 @@
       --chip: rgba(15,23,42,.04);
       --chipHover: rgba(15,23,42,.06);
 
-      --surfaceSoft: rgba(0,0,0,.02);
-      --surfaceSoft2: rgba(0,0,0,.03);
+      --surfaceSoft: rgba(15,23,42,.02);
+      --surfaceSoft2: rgba(15,23,42,.03);
     }
 
+    /* Optional dark theme (still green/silver) */
     html[data-theme="dark"]{
       --bg:#0b1220;
       --bg2:#0f172a;
+
       --panel: rgba(255,255,255,.05);
       --panel2: rgba(255,255,255,.07);
+
       --line: rgba(255,255,255,.10);
       --line2: rgba(255,255,255,.14);
 
@@ -72,7 +82,10 @@
 
     body{
       margin:0;
-      background: linear-gradient(180deg, var(--bg), var(--bg2));
+      background:
+        radial-gradient(900px 600px at 12% 8%, rgba(34,197,94,.10), transparent 58%),
+        radial-gradient(900px 600px at 88% 18%, rgba(148,163,184,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
       color: var(--text);
       font-family: var(--font);
       overflow: hidden;
@@ -85,23 +98,22 @@
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       padding: 10px 14px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255,255,255,.65);
+      background: rgba(255,255,255,.72);
       backdrop-filter: blur(10px);
     }
-    html[data-theme="dark"] .header{
-      background: rgba(0,0,0,.20);
-    }
+    html[data-theme="dark"] .header{ background: rgba(0,0,0,.20); }
 
-    .brand{ display:flex; align-items:center; gap:10px; min-width: 220px; }
+    .brand{ display:flex; align-items:center; gap:10px; min-width: 240px; }
     .logo{
-      width: 26px; height: 26px; border-radius: 8px;
-      background: var(--chip);
-      border:1px solid var(--line);
+      width: 28px; height: 28px; border-radius: 9px;
+      background: rgba(22,163,74,.12);
+      border:1px solid rgba(22,163,74,.22);
       display:grid; place-items:center;
-      font-weight:900; font-size:12px;
+      font-weight:1000; font-size:12px;
+      color: var(--accent);
     }
     .brand .meta{ display:flex; flex-direction:column; line-height:1.1; }
-    .brand .meta .t{ font-weight:900; font-size:13px; }
+    .brand .meta .t{ font-weight:950; font-size:13px; letter-spacing:.2px; }
     .brand .meta .s{ font-size:11px; color: var(--muted); }
 
     .actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -109,7 +121,8 @@
     .pill{
       display:inline-flex; gap:8px; align-items:center;
       padding:8px 10px; border-radius:999px;
-      border:1px solid var(--line); background: var(--chip);
+      border:1px solid var(--line);
+      background: var(--chip);
     }
     .pill label{ font-size:11px; color: var(--muted2); font-weight:800; }
     .pill select{
@@ -127,6 +140,7 @@
       cursor:pointer;
     }
     .btn:hover{ background: var(--chipHover); }
+    .btn:focus{ outline: none; box-shadow: 0 0 0 3px var(--ring); border-color: rgba(22,163,74,.35); }
 
     .logout{
       text-decoration:none; display:inline-flex; align-items:center;
@@ -136,13 +150,14 @@
       background: var(--chip);
     }
     .logout:hover{ background: var(--chipHover); }
+    .logout:focus{ outline: none; box-shadow: 0 0 0 3px var(--ring); border-color: rgba(22,163,74,.35); }
 
-    .content{ flex:1; padding:12px 14px 14px; overflow:hidden; }
+    .content{ flex:1; padding:12px 14px 14px; overflow:auto; }
 
     .grid{
-      height:100%;
+      min-height: calc(100vh - var(--hdr));
       display:grid;
-      grid-template-rows:auto 1fr;
+      grid-template-rows:auto auto auto;
       gap: var(--gap);
     }
 
@@ -168,8 +183,15 @@
       background: var(--surfaceSoft);
     }
     .card .hd .h{
-      font-size:11px; font-weight:900; letter-spacing:.18px;
+      font-size:11px; font-weight:950; letter-spacing:.18px;
       text-transform:uppercase; color: var(--muted);
+      display:flex; align-items:center; gap:8px;
+    }
+    .card .hd .h::before{
+      content:"";
+      width:8px; height:8px; border-radius:999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(22,163,74,.10);
     }
     .card .hd .sub{ font-size:11px; color: var(--muted); }
 
@@ -178,57 +200,52 @@
       font-size:10px; color:var(--muted2); font-weight:900;
       letter-spacing:.18px; text-transform:uppercase;
     }
-    .kpi .v{ margin-top:6px; font-size:18px; font-weight:900; }
+    .kpi .v{ margin-top:6px; font-size:20px; font-weight:1000; }
     .kpi .s{ margin-top:4px; font-size:11px; color:var(--muted); }
 
-    .two{
+    /* ===================== BIG CHARTS GRID ===================== */
+    .charts{
       display:grid;
-      grid-template-columns: 1.35fr .65fr;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: var(--gap);
-      height:100%;
-      min-height:0;
+    }
+    @media (max-width: 1200px){
+      .charts{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px){
+      .charts{ grid-template-columns: 1fr; }
     }
 
-    .leftcol, .rightcol{
-      display:grid;
-      gap: var(--gap);
-      height:100%;
-      min-height:0;
+    .chartCard{
+      min-height: 360px;
     }
-
-    .leftcol{ grid-template-rows: 1.05fr .95fr; }
-    .leftTop{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--gap);
-      height:100%;
-      min-height:0;
-    }
-
-    .bd{ min-height:0; height: calc(100% - 41px); padding:8px 10px; }
+    .bd{ min-height:0; height: calc(100% - 41px); padding:10px 12px; }
 
     .canvasWrap{
       height:100%;
       border-radius:12px;
       border:1px solid var(--line);
       background: var(--surfaceSoft);
-      padding:8px;
+      padding:10px;
     }
-
-    /* Canvas fill */
     .canvasWrap canvas{
       width: 100% !important;
       height: 100% !important;
       display:block;
     }
 
+    /* ===================== TABLES ===================== */
     .tables{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap: var(--gap);
-      height:100%;
-      min-height:0;
+      min-height: 360px;
     }
+    @media (max-width: 980px){
+      .tables{ grid-template-columns: 1fr; }
+      .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+    }
+
     .tableWrap{ height: calc(100% - 41px); overflow:auto; }
 
     table{ width:100%; border-collapse:collapse; font-size:12px; }
@@ -251,18 +268,8 @@
       word-break:break-word;
     }
 
-    .rightcol{ grid-template-rows: 1fr auto; min-height:0; }
-
-    .quad{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      grid-template-rows:1fr 1fr;
-      gap: var(--gap);
-      height:100%;
-      min-height:0;
-    }
-
-    .debug{ max-height: 200px; }
+    /* Debug panel full width */
+    .debug{ min-height: 180px; }
     .pre{
       margin:0;
       height: calc(100% - 41px);
@@ -271,16 +278,6 @@
       font-size:11px;
       color: var(--text);
       background: var(--surfaceSoft2);
-    }
-
-    @media (max-width: 980px){
-      body{ overflow:auto; }
-      .page{ height:auto; }
-      .content{ overflow:visible; }
-      .two{ grid-template-columns:1fr; height:auto; }
-      .kpis{ grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .tables{ grid-template-columns: 1fr; }
-      .rightcol{ grid-template-rows: 520px auto; }
     }
   </style>
 </head>
@@ -298,7 +295,6 @@
       </div>
 
       <div class="actions">
-        <!-- Period -->
         <div class="pill">
           <label for="period">Period</label>
           <select id="period">
@@ -309,7 +305,6 @@
           </select>
         </div>
 
-        <!-- Theme -->
         <div class="pill">
           <label for="theme">Theme</label>
           <select id="theme">
@@ -337,86 +332,78 @@
           <div class="kpi"><div class="k">Errors</div><div class="v" id="kpi-err">0</div><div class="s">pipeline</div></div>
         </section>
 
-        <div class="two">
+        <!-- ===================== BIG CHARTS (ALL EQUAL) ===================== -->
+        <div class="charts">
 
-          <div class="leftcol">
-            <div class="leftTop">
-              <section class="card">
-                <div class="hd"><div class="h">Message Volume</div><div class="sub" id="kpi-sub">—</div></div>
-                <div class="bd">
-                  <div class="canvasWrap">
-                    <canvas id="chart-volume"></canvas>
-                  </div>
-                </div>
-              </section>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Message Volume</div><div class="sub" id="kpi-sub">—</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-volume"></canvas></div></div>
+          </section>
 
-              <section class="card">
-                <div class="hd"><div class="h">Channels</div><div class="sub">share</div></div>
-                <div class="bd"><div class="canvasWrap"><canvas id="chart-channels"></canvas></div></div>
-              </section>
-            </div>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Channels</div><div class="sub">share</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-channels"></canvas></div></div>
+          </section>
 
-            <div class="tables">
-              <section class="card">
-                <div class="hd"><div class="h">Common Questions</div><div class="sub">top</div></div>
-                <div class="tableWrap">
-                  <table>
-                    <thead><tr><th>Question</th><th style="width:70px;">Count</th></tr></thead>
-                    <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
-                  </table>
-                </div>
-              </section>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Top Intents</div><div class="sub">distribution</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-intents"></canvas></div></div>
+          </section>
 
-              <section class="card">
-                <div class="hd"><div class="h">Leads</div><div class="sub">latest</div></div>
-                <div class="tableWrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th style="width:120px;">Updated</th>
-                        <th style="width:140px;">Name</th>
-                        <th style="width:130px;">Phone</th>
-                        <th style="width:90px;">Status</th>
-                        <th>Tags</th>
-                      </tr>
-                    </thead>
-                    <tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
-          </div>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Fallbacks</div><div class="sub">count</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-fallbacks"></canvas></div></div>
+          </section>
 
-          <div class="rightcol">
-            <div class="quad">
-              <section class="card">
-                <div class="hd"><div class="h">Top Intents</div><div class="sub">bar</div></div>
-                <div class="bd"><div class="canvasWrap"><canvas id="chart-intents"></canvas></div></div>
-              </section>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Errors</div><div class="sub">count</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-errors"></canvas></div></div>
+          </section>
 
-              <section class="card">
-                <div class="hd"><div class="h">Fallbacks</div><div class="sub">bar</div></div>
-                <div class="bd"><div class="canvasWrap"><canvas id="chart-fallbacks"></canvas></div></div>
-              </section>
-
-              <section class="card">
-                <div class="hd"><div class="h">Errors</div><div class="sub">bar</div></div>
-                <div class="bd"><div class="canvasWrap"><canvas id="chart-errors"></canvas></div></div>
-              </section>
-
-              <section class="card">
-                <div class="hd"><div class="h">Sessions</div><div class="sub">per bucket</div></div>
-                <div class="bd"><div class="canvasWrap"><canvas id="chart-sessions"></canvas></div></div>
-              </section>
-            </div>
-
-            <section class="card debug">
-              <div class="hd"><div class="h">Debug</div><div class="sub" id="dbg-status">—</div></div>
-              <pre class="pre" id="raw">—</pre>
-            </section>
-          </div>
+          <section class="card chartCard">
+            <div class="hd"><div class="h">Sessions</div><div class="sub">unique</div></div>
+            <div class="bd"><div class="canvasWrap"><canvas id="chart-sessions"></canvas></div></div>
+          </section>
 
         </div>
+
+        <!-- ===================== TABLES ===================== -->
+        <div class="tables">
+          <section class="card">
+            <div class="hd"><div class="h">Common Questions</div><div class="sub">top</div></div>
+            <div class="tableWrap">
+              <table>
+                <thead><tr><th>Question</th><th style="width:70px;">Count</th></tr></thead>
+                <tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="hd"><div class="h">Leads</div><div class="sub">latest</div></div>
+            <div class="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:120px;">Updated</th>
+                    <th style="width:140px;">Name</th>
+                    <th style="width:130px;">Phone</th>
+                    <th style="width:90px;">Status</th>
+                    <th>Tags</th>
+                  </tr>
+                </thead>
+                <tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- ===================== DEBUG (FULL WIDTH) ===================== -->
+        <section class="card debug">
+          <div class="hd"><div class="h">Debug</div><div class="sub" id="dbg-status">—</div></div>
+          <pre class="pre" id="raw">—</pre>
+        </section>
+
       </div>
     </main>
   </div>
