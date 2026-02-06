@@ -112,12 +112,48 @@ def _is_fallback_result(result: dict, intent: str) -> bool:
     return False
 
 
-def _safe_log(*, tenant: str, channel: str, direction: str, session_id: str, text: str, intent: str,
-              lead_id: str | None = None, store: str | None = None,
-              fallback: bool = False, error: bool = False,
-              error_code: str = "", error_type: str = "") -> None:
+def _extract_message_id(ev: dict) -> str:
+    """
+    We want a stable id per user message so analytics dedupe works.
+    Web widget SHOULD send client_message_id; we accept several keys.
+    """
+    if not isinstance(ev, dict):
+        return ""
+    meta = ev.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+
+    # Prefer explicit ids from the widget
+    for k in ("message_id", "client_message_id", "id", "mid"):
+        v = ev.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        v = meta.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    return ""
+
+
+def _safe_log(
+    *,
+    tenant: str,
+    channel: str,
+    direction: str,
+    session_id: str,
+    text: str,
+    intent: str,
+    message_id: str = "",
+    lead_id: str | None = None,
+    store: str | None = None,
+    fallback: bool = False,
+    error: bool = False,
+    error_code: str = "",
+    error_type: str = "",
+) -> None:
     """
     Analytics must never break chat.
+    IMPORTANT: pass message_id so duplicate posts don't inflate counts.
     """
     try:
         log_message(
@@ -130,6 +166,8 @@ def _safe_log(*, tenant: str, channel: str, direction: str, session_id: str, tex
             lead_id=lead_id,
             store=store,
             fallback=bool(fallback),
+            message_id=message_id or "",
+            # legacy marker only
             error=bool(error),
             error_code=error_code or "",
             error_type=error_type or "",
@@ -177,7 +215,17 @@ def chat_api():
     channel = (ev.get("channel") or "web").strip().lower() or "web"
     metadata = ev.get("metadata") or {}
 
-    logger.info("WEB IN: tenant=%s session=%s channel=%s text=%r", tenant, session_id, channel, text)
+    # ✅ stable id per user send (critical for correct inbound/outbound counts)
+    message_id = _extract_message_id(ev)
+
+    logger.info(
+        "WEB IN: tenant=%s session=%s channel=%s mid=%s text=%r",
+        tenant,
+        session_id,
+        channel,
+        message_id or "-",
+        text,
+    )
 
     lead_id = _lead_id_from_session(session_id)
 
@@ -189,14 +237,15 @@ def chat_api():
         # still continue chat
         pass
 
-    # ✅ inbound log (this powers "COMMON QUESTIONS")
+    # ✅ inbound log (one per real user message)
     _safe_log(
         tenant=tenant,
-        channel="web",
+        channel=channel,
         direction="inbound",
         session_id=session_id,
         text=text,
         intent="unknown",
+        message_id=message_id,
         lead_id=lead_id,
     )
 
@@ -243,14 +292,18 @@ def chat_api():
         len(reply or ""),
     )
 
-    # ✅ outbound log (fallback/error panels + store share for future)
+    # Derive an outbound id from the inbound id so retries don't double-count
+    out_message_id = f"{message_id}:reply" if message_id else ""
+
+    # ✅ outbound log (one per real bot reply)
     _safe_log(
         tenant=tenant,
-        channel="web",
+        channel=channel,
         direction="outbound",
         session_id=session_id,
         text=reply,
         intent=intent,
+        message_id=out_message_id,
         lead_id=lead_id,
         store=store,
         fallback=is_fallback,
