@@ -1,14 +1,31 @@
 <div class="charts">
-  <div class="chart">
-    <h3>Chat Volume</h3>
-    <canvas id="chart-volume" width="600" height="220"></canvas>
-  </div>
-  <div class="chart">
-    <h3>Top Intents</h3>
-    <canvas id="chart-intents" width="600" height="220"></canvas>
-  </div>
-  <div class="chart">
-    <h3>Top Items</h3>
-    <canvas id="chart-items" width="600" height="220"></canvas>
-  </div>
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Message Volume</div><div class="sub" id="kpi-sub">—</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-volume"></canvas></div></div>
+  </section>
+
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Channels</div><div class="sub">outbound split</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-channels"></canvas></div></div>
+  </section>
+
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Top Intents</div><div class="sub">distribution</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-intents"></canvas></div></div>
+  </section>
+
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Fallbacks</div><div class="sub">count</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-fallbacks"></canvas></div></div>
+  </section>
+
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Errors</div><div class="sub">count</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-errors"></canvas></div></div>
+  </section>
+
+  <section class="card chartCard">
+    <div class="hd"><div class="h">Sessions</div><div class="sub">unique</div></div>
+    <div class="bd"><div class="canvasWrap"><canvas id="chart-sessions"></canvas></div></div>
+  </section>
 </div>
