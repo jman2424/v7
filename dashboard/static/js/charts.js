@@ -1,36 +1,41 @@
 /* static/js/charts.js
-   Admin dashboard charts (Message Volume BAR chart)
-   - Works even if backend uses: bucket / t / hour_bucket / ts / time
-   - Inbound + Outbound as grouped bars
-   - Integer-only Y axis
-   - Safe reload (aborts previous request)
+   Dashboard charts (6 panels)
+   - Uses existing dashboard.html IDs
+   - Splits outbound into: normal_outbound + fallback_outbound
+   - Safer fetch + abort
 */
 
 (function () {
-  let chart = null;
   let abortCtl = null;
 
-  const CHART_CANVAS_ID = "chart-main";
-  const PERIOD_SELECT_ID = "period-select";
+  const charts = {
+    volume: null,
+    channels: null,
+    intents: null,
+    fallbacks: null,
+    errors: null,
+    sessions: null,
+  };
 
-  // Your dashboard is currently using this endpoint:
-  const ENDPOINT = (minutes) => `/admin/api/timeseries?minutes=${minutes}`;
+  function $(id) { return document.getElementById(id); }
 
-  function $(id) {
-    return document.getElementById(id);
+  function tenant() {
+    return (window.__ADMIN__ && window.__ADMIN__.tenant) || document.body?.dataset?.tenant || "DEFAULT";
   }
 
-  function getMinutes() {
-    const sel = $(PERIOD_SELECT_ID);
+  function minutes() {
+    const sel = $("period");
     const v = sel ? parseInt(sel.value, 10) : 1440;
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  async function fetchTimeseries(minutes) {
+  function destroyChart(c) { try { c && c.destroy(); } catch (_) {} }
+
+  async function fetchJSON(url) {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const res = await fetch(ENDPOINT(minutes), {
+    const res = await fetch(url, {
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
@@ -38,154 +43,237 @@
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`Timeseries HTTP ${res.status}: ${text.slice(0, 200)}`);
+      throw new Error(`HTTP ${res.status} ${url}: ${text.slice(0, 250)}`);
     }
     return res.json();
   }
 
-  function normalizePoints(payload) {
-    const points =
-      (payload && payload.points) ||
-      (payload && payload.message_volume) ||
-      (payload && payload.data && (payload.data.points || payload.data.message_volume)) ||
-      [];
+  // ---- normalize helpers (handles your various payload shapes) ----
+  function pickList(payload, keys) {
+    for (const k of keys) {
+      const v = payload?.[k];
+      if (Array.isArray(v)) return v;
+      const nested = payload?.data?.[k];
+      if (Array.isArray(nested)) return nested;
+    }
+    return [];
+  }
 
-    if (!Array.isArray(points)) return [];
+  function normalizeTimeseries(payload) {
+    const pts = pickList(payload, ["points", "message_volume", "timeseries", "data"]);
+    if (!Array.isArray(pts)) return [];
+    return pts.map((p, i) => ({
+      label: String(p?.bucket ?? p?.t ?? p?.hour_bucket ?? p?.ts ?? p?.time ?? `#${i + 1}`),
+      inbound: Math.round(Number(p?.inbound ?? 0)) || 0,
+      outbound: Math.round(Number(p?.outbound ?? 0)) || 0,
+    }));
+  }
 
-    return points.map((p) => {
+  function normalizeList(payload, keys, labelKeyGuess = ["label", "intent", "code", "store"]) {
+    const rows = pickList(payload, keys);
+    return rows.map((r) => {
       const label =
-        (p && (p.bucket || p.t || p.hour_bucket || p.ts || p.time)) ?? "";
-
-      const inbound = Math.round(Number((p && p.inbound) ?? 0)) || 0;
-      const outbound = Math.round(Number((p && p.outbound) ?? 0)) || 0;
-
-      return { label: String(label), inbound, outbound };
+        labelKeyGuess.map((k) => r?.[k]).find((v) => typeof v === "string" && v.trim()) ||
+        "unknown";
+      const count = Math.round(Number(r?.count ?? r?.n ?? 0)) || 0;
+      return { label: String(label), count };
     });
   }
 
-  function buildBarChart(ctx, labels, inbound, outbound) {
+  function normalizeChannels(payload) {
+    // expected shape: { web:{inbound,outbound,fallbacks}, whatsapp:{...} }
+    const obj = payload?.channels || payload?.data || payload;
+    if (!obj || typeof obj !== "object") return [];
+
+    const out = [];
+    for (const [ch, v] of Object.entries(obj)) {
+      out.push({
+        channel: String(ch),
+        inbound: Math.round(Number(v?.inbound ?? 0)) || 0,
+        outbound: Math.round(Number(v?.outbound ?? 0)) || 0,
+        fallbacks: Math.round(Number(v?.fallbacks ?? 0)) || 0,
+      });
+    }
+    return out;
+  }
+
+  // ---- chart builders (no manual colors; lets Chart.js pick) ----
+  function buildLine(ctx, labels, a, b) {
     return new Chart(ctx, {
-      type: "bar",
+      type: "line",
       data: {
         labels,
         datasets: [
-          {
-            label: "Inbound",
-            data: inbound,
-            backgroundColor: "rgba(56,189,248,0.45)",
-            borderColor: "rgba(56,189,248,1)",
-            borderWidth: 1,
-            borderRadius: 6,
-            barPercentage: 0.9,
-            categoryPercentage: 0.7,
-          },
-          {
-            label: "Outbound",
-            data: outbound,
-            backgroundColor: "rgba(251,113,133,0.45)",
-            borderColor: "rgba(251,113,133,1)",
-            borderWidth: 1,
-            borderRadius: 6,
-            barPercentage: 0.9,
-            categoryPercentage: 0.7,
-          },
+          { label: "Inbound", data: a, tension: 0.25 },
+          { label: "Outbound", data: b, tension: 0.25 },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: false,
+        interaction: { mode: "index", intersect: false },
         scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              stepSize: 1,
-              precision: 0,
-            },
-            grid: {
-              color: "rgba(148,163,184,0.15)",
-            },
-          },
-          x: {
-            ticks: {
-              maxRotation: 0,
-              autoSkip: true,
-              color: "#cbd5f5",
-            },
-            grid: {
-              display: false,
-            },
-          },
+          y: { beginAtZero: true, ticks: { precision: 0 } },
         },
-        plugins: {
-          legend: {
-            labels: { color: "#cbd5f5" },
-          },
-          tooltip: {
-            mode: "index",
-            intersect: false,
-          },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
 
-  async function reload() {
-    const canvas = $(CHART_CANVAS_ID);
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    const minutes = getMinutes();
-
-    let payload;
-    try {
-      payload = await fetchTimeseries(minutes);
-    } catch (err) {
-      if (String(err).includes("AbortError")) return;
-      console.error("Chart timeseries fetch failed:", err);
-      return;
-    }
-
-    const pts = normalizePoints(payload);
-
-    // If labels are empty, Chart.js can look “dead” even when numbers exist.
-    // So we enforce labels.
-    const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
-    const inbound = pts.map((p) => p.inbound);
-    const outbound = pts.map((p) => p.outbound);
-
-    const maxVal = Math.max(0, ...inbound, ...outbound);
-
-    if (!chart) {
-      chart = buildBarChart(ctx, labels, inbound, outbound);
-    } else {
-      chart.config.type = "bar";
-      chart.data.labels = labels;
-      chart.data.datasets[0].data = inbound;
-      chart.data.datasets[1].data = outbound;
-      chart.update("none");
-    }
-
-    // Helpful debug if it’s still visually empty
-    if (pts.length === 0) {
-      console.warn("[charts.js] No points returned from:", ENDPOINT(minutes));
-    } else if (maxVal === 0) {
-      console.warn("[charts.js] Points returned but all values are 0. Check event logging / query window.");
-    }
+  function buildStackedOutbound(ctx, labels, normalOutbound, fallbackOutbound) {
+    return new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "Outbound (normal)", data: normalOutbound, stack: "out" },
+          { label: "Outbound (fallback)", data: fallbackOutbound, stack: "out" },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { stacked: true },
+          y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+        },
+        plugins: { legend: { position: "bottom" } },
+      },
+    });
   }
 
-  // Expose for admin.js
+  function buildDoughnut(ctx, labels, values) {
+    return new Chart(ctx, {
+      type: "doughnut",
+      data: { labels, datasets: [{ data: values }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "65%",
+        plugins: { legend: { position: "bottom" } },
+      },
+    });
+  }
+
+  function buildHorizontalBar(ctx, labels, values, labelName) {
+    return new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets: [{ label: labelName, data: values }] },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+
+  // ---- render everything ----
+  async function reloadAll() {
+    const t = tenant();
+    const m = minutes();
+
+    const kpis = await fetchJSON(`/admin/api/kpis?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const ts = await fetchJSON(`/admin/api/timeseries?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const channels = await fetchJSON(`/admin/api/channels?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const intents = await fetchJSON(`/admin/api/top_intents?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const fallbacks = await fetchJSON(`/admin/api/fallbacks?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const errors = await fetchJSON(`/admin/api/errors?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+    const sessions = await fetchJSON(`/admin/api/sessions?tenant=${encodeURIComponent(t)}&minutes=${m}`);
+
+    // -------- volume (line inbound/outbound) --------
+    const pts = normalizeTimeseries(ts);
+    const labels = pts.map((p) => p.label);
+    const inb = pts.map((p) => p.inbound);
+    const outb = pts.map((p) => p.outbound);
+
+    destroyChart(charts.volume);
+    charts.volume = buildLine($("chart-volume").getContext("2d"), labels, inb, outb);
+
+    // -------- channels (STACK outbound split: normal + fallback) --------
+    // We want the chart to show: outbound_normal vs outbound_fallback by channel.
+    const chRows = normalizeChannels(channels);
+    const chLabels = chRows.map((r) => r.channel);
+    const chOutbound = chRows.map((r) => r.outbound);
+    const chFallbacks = chRows.map((r) => Math.min(r.fallbacks, r.outbound));
+    const chNormal = chRows.map((r, i) => Math.max(0, chOutbound[i] - chFallbacks[i]));
+
+    destroyChart(charts.channels);
+    charts.channels = buildStackedOutbound(
+      $("chart-channels").getContext("2d"),
+      chLabels,
+      chNormal,
+      chFallbacks
+    );
+
+    // -------- intents (doughnut) --------
+    const topIntents = normalizeList(intents, ["top_intents", "intents"], ["label", "intent"]);
+    destroyChart(charts.intents);
+    charts.intents = buildDoughnut(
+      $("chart-intents").getContext("2d"),
+      topIntents.map((x) => x.label),
+      topIntents.map((x) => x.count)
+    );
+
+    // -------- fallbacks (horizontal bar) --------
+    const fbRows = normalizeList(fallbacks, ["fallbacks"], ["label", "intent"]);
+    destroyChart(charts.fallbacks);
+    charts.fallbacks = buildHorizontalBar(
+      $("chart-fallbacks").getContext("2d"),
+      fbRows.map((x) => x.label),
+      fbRows.map((x) => x.count),
+      "Fallbacks"
+    );
+
+    // -------- errors (horizontal bar) --------
+    const errRows = normalizeList(errors, ["errors"], ["label", "code"]);
+    destroyChart(charts.errors);
+    charts.errors = buildHorizontalBar(
+      $("chart-errors").getContext("2d"),
+      errRows.map((x) => x.label),
+      errRows.map((x) => x.count),
+      "Errors"
+    );
+
+    // -------- sessions (line) --------
+    const sPts = pickList(sessions, ["points", "sessions", "sessions_timeseries", "data"]);
+    const sLabels = (Array.isArray(sPts) ? sPts : []).map((p, i) => String(p?.t ?? p?.bucket ?? `#${i + 1}`));
+    const sVals = (Array.isArray(sPts) ? sPts : []).map((p) => Math.round(Number(p?.sessions ?? 0)) || 0);
+
+    destroyChart(charts.sessions);
+    charts.sessions = new Chart($("chart-sessions").getContext("2d"), {
+      type: "line",
+      data: { labels: sLabels, datasets: [{ label: "Sessions", data: sVals, tension: 0.25 }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        plugins: { legend: { position: "bottom" } },
+      },
+    });
+  }
+
+  // expose for admin.js
   window.DashChartsReload = function () {
-    reload().catch((err) => {
+    reloadAll().catch((err) => {
       if (String(err).includes("AbortError")) return;
-      console.error("Chart reload failed:", err);
+      console.error("[charts] reload failed:", err);
     });
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    reload().catch((err) => {
-      if (String(err).includes("AbortError")) return;
-      console.error("Chart init failed:", err);
-    });
+    // Auto reload once
+    window.DashChartsReload();
+
+    // Reload on refresh click
+    const btn = $("refresh");
+    if (btn) btn.addEventListener("click", () => window.DashChartsReload());
+
+    // Reload when period changes
+    const sel = $("period");
+    if (sel) sel.addEventListener("change", () => window.DashChartsReload());
   });
 })();
