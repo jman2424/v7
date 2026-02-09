@@ -1,420 +1,196 @@
-/* static/js/admin.js
-   Dashboard controller: KPIs + charts + tables + CSV export
-
-   NEW:
-   - chart-channels: STACKED BAR (Web/WhatsApp) x (Inbound/Outbound/Fallbacks)
-   - chart-wa-stores: PIE (WhatsApp inbound grouped by store/location)
+/* dashboard/static/js/admin.js
+   Admin dashboard controller:
+   - Fetches /admin/api/insights
+   - Populates KPIs + tables
+   - Calls window.DashChartsReload() for charts
+   - Refresh + period change supported
 */
 
 (function () {
-  const S = window.__ADMIN__ || {};
-  const CSRF = S.csrfToken || "";
-  const TENANT = (S.tenant || "").trim() || "default";
+  let abortCtl = null;
 
-  const $ = (id) => document.getElementById(id);
-  const state = { charts: {} };
-
-  function int(n) {
-    const x = Number(n);
-    return Number.isFinite(x) ? Math.trunc(x) : 0;
+  function $(id) {
+    return document.getElementById(id);
   }
 
-  function isObj(x) {
-    return x && typeof x === "object" && !Array.isArray(x);
+  function tenant() {
+    return (
+      window.__ADMIN__?.tenant ||
+      document.body?.dataset?.tenant ||
+      "default"
+    );
   }
 
-  function asArray(x) {
-    return Array.isArray(x) ? x : [];
+  function minutes() {
+    const sel = $("period");
+    const v = sel ? parseInt(sel.value, 10) : 1440;
+    return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  function safeText(x) {
-    if (x === null || x === undefined) return "";
-    if (typeof x === "string") return x;
-    if (typeof x === "number" || typeof x === "boolean") return String(x);
-    if (Array.isArray(x)) return x.map(safeText).filter(Boolean).join(", ");
-    if (isObj(x)) return JSON.stringify(x);
-    return String(x);
+  function setText(id, value) {
+    const el = $(id);
+    if (el) el.textContent = String(value ?? "0");
   }
 
-  function withTenant(path) {
-    try {
-      const u = new URL(path, window.location.origin);
-      if (TENANT && !u.searchParams.get("tenant")) u.searchParams.set("tenant", TENANT);
-      return u.toString();
-    } catch {
-      if (!TENANT) return path;
-      return path.includes("?")
-        ? `${path}&tenant=${encodeURIComponent(TENANT)}`
-        : `${path}?tenant=${encodeURIComponent(TENANT)}`;
-    }
-  }
-
-  function headers() {
-    const h = {};
-    if (CSRF) h["X-CSRF-Token"] = CSRF;
-    return h;
-  }
-
-  async function getJSON(path) {
-    const url = withTenant(path);
-    const res = await fetch(url, { credentials: "include", headers: headers(), cache: "no-store" });
-    const txt = await res.text().catch(() => "");
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}\n${txt}`);
-    try {
-      return JSON.parse(txt);
-    } catch {
-      throw new Error(`Bad JSON from ${url}\n${txt}`);
-    }
-  }
-
-  function destroyChart(key) {
-    if (state.charts[key]) {
-      state.charts[key].destroy();
-      delete state.charts[key];
-    }
-  }
-
-  function chartBaseOpts() {
-    return { responsive: true, maintainAspectRatio: false, animation: false };
-  }
-
-  // -------- Charts --------
-
-  function renderBarSimple(canvasId, key, labels, values) {
-    destroyChart(key);
-    const canvas = $(canvasId);
-    if (!canvas) return;
-
-    state.charts[key] = new Chart(canvas, {
-      type: "bar",
-      data: { labels: asArray(labels), datasets: [{ label: "Count", data: asArray(values).map(int) }] },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
-          x: { ticks: { maxRotation: 0 } },
-        },
-      }),
-    });
-  }
-
-  // Message Volume bars (time buckets): inbound/outbound
-  function renderVolumeBars(canvasId, key, labels, inbound, outbound) {
-    destroyChart(key);
-    const canvas = $(canvasId);
-    if (!canvas) return;
-
-    state.charts[key] = new Chart(canvas, {
-      type: "bar",
-      data: {
-        labels: asArray(labels),
-        datasets: [
-          { label: "Inbound", data: asArray(inbound).map(int) },
-          { label: "Outbound", data: asArray(outbound).map(int) },
-        ],
-      },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { position: "bottom" } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
-          x: { ticks: { maxRotation: 0, autoSkip: true } },
-        },
-      }),
-    });
-  }
-
-  // ✅ NEW: Channel breakdown stacked bar
-  // labels = ["Web", "WhatsApp"]
-  function renderChannelBreakdownStacked(canvasId, key, labels, inbound, outbound, fallbacks) {
-    destroyChart(key);
-    const canvas = $(canvasId);
-    if (!canvas) return;
-
-    state.charts[key] = new Chart(canvas, {
-      type: "bar",
-      data: {
-        labels: asArray(labels),
-        datasets: [
-          { label: "Inbound", data: asArray(inbound).map(int) },
-          { label: "Outbound", data: asArray(outbound).map(int) },
-          { label: "Fallbacks", data: asArray(fallbacks).map(int) },
-        ],
-      },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { position: "bottom" } },
-        scales: {
-          x: { stacked: true, ticks: { maxRotation: 0 } },
-          y: { stacked: true, beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } },
-        },
-      }),
-    });
-  }
-
-  function renderPieSimple(canvasId, key, labels, values) {
-    destroyChart(key);
-    const canvas = $(canvasId);
-    if (!canvas) return;
-
-    state.charts[key] = new Chart(canvas, {
-      type: "pie",
-      data: { labels: asArray(labels), datasets: [{ data: asArray(values).map(int) }] },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { position: "bottom" } },
-      }),
-    });
-  }
-
-  function renderSessionsLine(canvasId, key, labels, sessions) {
-    destroyChart(key);
-    const canvas = $(canvasId);
-    if (!canvas) return;
-
-    state.charts[key] = new Chart(canvas, {
-      type: "line",
-      data: {
-        labels: asArray(labels),
-        datasets: [{ label: "Sessions", data: asArray(sessions).map(int), tension: 0.25, pointRadius: 0 }],
-      },
-      options: Object.assign(chartBaseOpts(), {
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { callback: (x) => int(x), stepSize: 1, precision: 0 } } },
-      }),
-    });
-  }
-
-  // -------- Tables --------
-
-  function escapeHtml(s) {
+  function esc(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+      .replaceAll(">", "&gt;");
   }
 
-  function renderQuestions(items) {
+  async function fetchInsights() {
+    if (abortCtl) abortCtl.abort();
+    abortCtl = new AbortController();
+
+    const url =
+      `/admin/api/insights?tenant=${encodeURIComponent(tenant())}` +
+      `&minutes=${encodeURIComponent(minutes())}` +
+      `&bucket=60&top=10&limit=50`;
+
+    const res = await fetch(url, {
+      credentials: "include",
+      signal: abortCtl.signal,
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Insights HTTP ${res.status}: ${t.slice(0, 200)}`);
+    }
+    return res.json();
+  }
+
+  function renderKpis(kpis) {
+    setText("kpi-in", kpis?.inbound ?? 0);
+    setText("kpi-out", kpis?.outbound ?? 0);
+    setText("kpi-total", kpis?.total ?? 0);
+    setText("kpi-sessions", kpis?.sessions ?? 0);
+    setText("kpi-fb", kpis?.fallbacks ?? 0);
+    setText("kpi-err", kpis?.errors ?? 0);
+  }
+
+  function renderQuestions(rows) {
     const tbody = $("tbl-questions");
     if (!tbody) return;
 
-    const arr = asArray(items);
-    if (!arr.length) {
-      tbody.innerHTML = `<tr><td colspan="2">No questions logged.</td></tr>`;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="2">No data</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = arr.slice(0, 25).map((x) => {
-      const q = x?.question ?? x?.text ?? x?.q ?? "";
-      const c = x?.count ?? x?.n ?? 0;
-      return `<tr><td>${escapeHtml(q)}</td><td>${int(c)}</td></tr>`;
-    }).join("");
+    tbody.innerHTML = rows
+      .map((r) => {
+        const q = esc(r?.question ?? "");
+        const n = Number(r?.count ?? 0) || 0;
+        return `<tr><td>${q}</td><td style="width:70px;">${n}</td></tr>`;
+      })
+      .join("");
   }
 
-  function renderLeads(items) {
+  function renderLeads(rows) {
     const tbody = $("tbl-leads");
     if (!tbody) return;
 
-    const arr = asArray(items);
-    if (!arr.length) {
-      tbody.innerHTML = `<tr><td colspan="5">No leads yet.</td></tr>`;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5">No leads yet</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = arr.slice(0, 35).map((r) => {
-      const updated = safeText(r?.updated_utc || r?.updated || "").slice(0, 19).replace("T", " ");
-      const name = safeText(r?.name || "");
-      const phone = safeText(r?.phone || "");
-      const status = safeText(r?.status || "");
-      const tagsVal = r?.tags ?? r?.tags_any ?? "";
-      const tags = Array.isArray(tagsVal) ? tagsVal.join(", ") : safeText(tagsVal);
-
-      return `<tr>
-        <td>${escapeHtml(updated)}</td>
-        <td>${escapeHtml(name)}</td>
-        <td>${escapeHtml(phone)}</td>
-        <td>${escapeHtml(status)}</td>
-        <td>${escapeHtml(tags)}</td>
-      </tr>`;
-    }).join("");
-  }
-
-  function topN(arr, n) {
-    return asArray(arr).slice(0, n);
-  }
-
-  function normalizeKeyCount(list) {
-    const arr = asArray(list);
-    return arr.map((x) => ({
-      key: x?.key ?? x?.label ?? x?.intent ?? x?.code ?? "unknown",
-      count: int(x?.count ?? x?.n ?? x?.value ?? 0),
-    }));
-  }
-
-  function normalizeInsights(ins) {
-    ins = ins || {};
-    const intents = normalizeKeyCount(ins.intents || ins.top_intents);
-    const fallbacks = normalizeKeyCount(ins.fallbacks || ins.top_fallbacks);
-    const errors = normalizeKeyCount(ins.errors || ins.top_errors);
-    const commonQuestionsRaw = ins.common_questions || ins.questions || [];
-    const common_questions = asArray(commonQuestionsRaw).map((x) => ({
-      text: x?.text ?? x?.question ?? x?.q ?? x?.key ?? "",
-      count: int(x?.count ?? x?.n ?? 0),
-    }));
-
-    // ✅ NEW expected shapes
-    const channel_breakdown = ins.channel_breakdown || {}; // { web:{inbound,outbound,fallbacks}, whatsapp:{...} }
-    const whatsapp_store_share = asArray(ins.whatsapp_store_share || ins.whatsapp_stores || []);
-
-    return { intents, fallbacks, errors, common_questions, channel_breakdown, whatsapp_store_share };
-  }
-
-  function pointLabel(p) {
-    const raw = p?.bucket ?? p?.t ?? p?.hour_bucket ?? p?.ts ?? p?.time ?? "";
-    const s = safeText(raw);
-    if (!s) return "";
-    return s.slice(5, 16).replace("T", " ");
-  }
-
-  async function refreshAll() {
-    const minutes = Math.max(1, parseInt(($("period")?.value || "1440"), 10) || 1440);
-    const dbg = $("dbg-status");
-    const raw = $("raw");
-    if (dbg) dbg.textContent = "Loading…";
-
-    const results = await Promise.allSettled([
-      getJSON(`/admin/api/kpis?minutes=${minutes}`),
-      getJSON(`/admin/api/timeseries?minutes=${minutes}&bucket=60`),
-      getJSON(`/admin/api/insights?minutes=${minutes}&top=20`),
-      getJSON(`/admin/api/leads?limit=50`),
-    ]);
-
-    const k = results[0].status === "fulfilled" ? results[0].value : {};
-    const ts = results[1].status === "fulfilled" ? results[1].value : {};
-    const insRaw = results[2].status === "fulfilled" ? results[2].value : {};
-    const ld = results[3].status === "fulfilled" ? results[3].value : {};
-
-    // KPIs
-    const inboundK = int(k.inbound);
-    const outboundK = int(k.outbound);
-    $("kpi-in").textContent = inboundK;
-    $("kpi-out").textContent = outboundK;
-
-    const total = k.total_messages ?? k.total ?? (inboundK + outboundK);
-    $("kpi-total").textContent = int(total);
-    $("kpi-sessions").textContent = int(k.sessions);
-    $("kpi-fb").textContent = int(k.fallbacks);
-    $("kpi-err").textContent = int(k.errors);
-
-    const usedMinutes = k.minutes ?? minutes;
-    $("kpi-sub").textContent = `Last ${int(usedMinutes)} minutes • bucket 60m`;
-
-    // Timeseries -> Message Volume
-    const points = Array.isArray(ts.points) ? ts.points : (Array.isArray(ts) ? ts : []);
-    const labels = points.map(pointLabel);
-    const inb = points.map((p) => int(p.inbound));
-    const outb = points.map((p) => int(p.outbound));
-    const sess = points.map((p) => int(p.sessions));
-    renderVolumeBars("chart-volume", "volume", labels, inb, outb);
-    renderSessionsLine("chart-sessions", "sessions", labels, sess);
-
-    // Insights
-    const ins = normalizeInsights(insRaw);
-
-    const intents = topN(ins.intents, 10);
-    renderBarSimple("chart-intents", "intents", intents.map((x) => x.key), intents.map((x) => x.count));
-
-    const fbs = topN(ins.fallbacks, 10);
-    renderBarSimple("chart-fallbacks", "fallbacks", fbs.map((x) => x.key), fbs.map((x) => x.count));
-
-    const errs = topN(ins.errors, 10);
-    renderBarSimple("chart-errors", "errors", errs.map((x) => x.key), errs.map((x) => x.count));
-
-    renderQuestions(ins.common_questions);
-    renderLeads(ld.items || ld.leads || ld || []);
-
-    // ✅ Channels card: stacked bar Web vs WhatsApp with inbound/outbound/fallbacks
-    const cb = ins.channel_breakdown || {};
-    const web = cb.web || cb.Web || {};
-    const wa = cb.whatsapp || cb.WhatsApp || {};
-
-    renderChannelBreakdownStacked(
-      "chart-channels",
-      "channel_breakdown",
-      ["Web", "WhatsApp"],
-      [int(web.inbound), int(wa.inbound)],
-      [int(web.outbound), int(wa.outbound)],
-      [int(web.fallbacks), int(wa.fallbacks)]
-    );
-
-    // ✅ WhatsApp store pie (needs a canvas id="chart-wa-stores")
-    const waStores = asArray(ins.whatsapp_store_share);
-    if ($("chart-wa-stores")) {
-      renderPieSimple(
-        "chart-wa-stores",
-        "wa_stores",
-        waStores.map((x) => safeText(x.store || x.location || "international")),
-        waStores.map((x) => int(x.count || x.value || 0))
-      );
-    }
-
-    // Debug
-    if (raw) {
-      raw.textContent = JSON.stringify(
-        {
-          tenant: TENANT,
-          minutes,
-          kpis: k,
-          timeseries: ts,
-          insights: insRaw,
-          used_points: points.map((p) => ({
-            label: pointLabel(p),
-            inbound: int(p.inbound),
-            outbound: int(p.outbound),
-            sessions: int(p.sessions),
-            bucket: p?.bucket ?? p?.t ?? p?.hour_bucket,
-          })),
-          parsed_insights: {
-            channel_breakdown: ins.channel_breakdown,
-            whatsapp_store_share: waStores,
-          },
-          leads: ld,
-          warnings: results
-            .map((r, i) => (r.status === "rejected" ? `Fetch ${i} failed: ${String(r.reason)}` : null))
-            .filter(Boolean),
-        },
-        null,
-        2
-      );
-    }
-
-    if (dbg) {
-      const anyFail = results.some((r) => r.status === "rejected");
-      dbg.textContent = anyFail ? "PARTIAL" : "OK";
-    }
-  }
-
-  window.addEventListener("DOMContentLoaded", () => {
-    $("refresh")?.addEventListener("click", () =>
-      refreshAll().catch((e) => {
-        if ($("dbg-status")) $("dbg-status").textContent = "ERROR";
-        if ($("raw")) $("raw").textContent = String(e);
+    tbody.innerHTML = rows
+      .map((r) => {
+        const updated = esc((r?.updated_utc ?? "").replace("T", " ").replace("+00:00", "Z"));
+        const name = esc(r?.name ?? "");
+        const phone = esc(r?.phone ?? "");
+        const status = esc(r?.status ?? "Open");
+        const tags = Array.isArray(r?.tags) ? r.tags.map(esc).join(", ") : "";
+        return `
+          <tr>
+            <td style="width:120px;">${updated}</td>
+            <td style="width:140px;">${name}</td>
+            <td style="width:130px;">${phone}</td>
+            <td style="width:90px;">${status}</td>
+            <td>${tags}</td>
+          </tr>
+        `;
       })
-    );
+      .join("");
+  }
 
-    $("period")?.addEventListener("change", () =>
-      refreshAll().catch((e) => {
-        if ($("dbg-status")) $("dbg-status").textContent = "ERROR";
-        if ($("raw")) $("raw").textContent = String(e);
-      })
-    );
+  async function reloadAll() {
+    const dbg = $("raw");
+    const dbgStatus = $("dbg-status");
+    if (dbgStatus) dbgStatus.textContent = "loading…";
 
-    $("export")?.addEventListener("click", () => {
-      window.location.href = withTenant(`/admin/api/leads.csv`);
-    });
+    let payload;
+    try {
+      payload = await fetchInsights();
+    } catch (err) {
+      if (String(err).includes("AbortError")) return;
+      console.error("admin.js insights fetch failed:", err);
+      if (dbgStatus) dbgStatus.textContent = "fetch failed";
+      if (dbg) dbg.textContent = String(err);
+      return;
+    }
 
-    refreshAll().catch((e) => {
-      if ($("dbg-status")) $("dbg-status").textContent = "ERROR";
-      if ($("raw")) $("raw").textContent = String(e);
-    });
+    if (dbgStatus) dbgStatus.textContent = "ok";
+    if (dbg) dbg.textContent = JSON.stringify(payload, null, 2);
+
+    renderKpis(payload?.kpis || {});
+    renderQuestions(payload?.common_questions || []);
+    renderLeads(payload?.leads || []);
+
+    // Charts are rendered by charts.js
+    if (typeof window.DashChartsReload === "function") {
+      window.DashChartsReload();
+    }
+  }
+
+  async function exportCsv() {
+    // Uses your existing exporter route if you have it (adjust if different).
+    const url =
+      `/admin/api/insights?tenant=${encodeURIComponent(tenant())}` +
+      `&minutes=${encodeURIComponent(minutes())}` +
+      `&bucket=60&top=200&limit=500`;
+
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      const payload = await res.json();
+
+      // Simple CSV: questions + leads snapshot
+      const lines = [];
+      lines.push("SECTION,FIELD1,FIELD2,FIELD3");
+
+      for (const q of (payload?.common_questions || [])) {
+        lines.push(`questions,"${String(q.question ?? "").replaceAll('"', '""')}",${Number(q.count ?? 0) || 0},`);
+      }
+      for (const l of (payload?.leads || [])) {
+        lines.push(`leads,"${String(l.lead_id ?? "").replaceAll('"', '""')}","${String(l.phone ?? "").replaceAll('"', '""')}","${String(l.updated_utc ?? "").replaceAll('"', '""')}"`);
+      }
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `analytics_${tenant()}_${minutes()}m.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      console.error("export failed", e);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const refresh = $("refresh");
+    const period = $("period");
+    const exportBtn = $("export");
+
+    if (refresh) refresh.addEventListener("click", reloadAll);
+    if (period) period.addEventListener("change", reloadAll);
+    if (exportBtn) exportBtn.addEventListener("click", exportCsv);
+
+    reloadAll();
   });
+
+  // expose for manual debugging
+  window.AdminReloadAll = reloadAll;
 })();
