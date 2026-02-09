@@ -1,16 +1,23 @@
 /* dashboard/static/js/charts.js
-   Dashboard charts (multi-chart, mixed types)
-   - Pulls everything from /admin/api/insights
-   - Chart IDs match dashboard.html:
-       chart-volume, chart-channels, chart-intents, chart-fallbacks, chart-errors, chart-sessions
-   - Period select id: period
-   - Exposes window.DashChartsReload() for admin.js refresh button
+   Dashboard charts (Chart.js)
+   Canvas IDs used by dashboard.html:
+     - chart-volume     (line: inbound/outbound)
+     - chart-channels   (doughnut: web vs whatsapp total)
+     - chart-intents    (horizontal bar: top intents)
+     - chart-fallbacks  (bar: fallbacks by intent)
+     - chart-errors     (bar: errors by code)
+     - chart-sessions   (line: sessions per bucket)
+
+   Data source:
+     GET /admin/api/insights?tenant=...&minutes=...&bucket=60&top=10&limit=50
+
+   Exposes:
+     window.DashChartsReload()
 */
 
 (function () {
   let abortCtl = null;
 
-  // Chart instances
   const charts = {
     volume: null,
     channels: null,
@@ -24,29 +31,33 @@
     return document.getElementById(id);
   }
 
+  function getTenant() {
+    return (
+      window.__ADMIN__?.tenant ||
+      document.body?.dataset?.tenant ||
+      "default"
+    );
+  }
+
   function getMinutes() {
     const sel = $("period");
     const v = sel ? parseInt(sel.value, 10) : 1440;
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  // A sensible bucket (hours) for the timeseries
-  function getBucketMinutes(windowMinutes) {
-    if (windowMinutes <= 180) return 5;
-    if (windowMinutes <= 720) return 15;
-    if (windowMinutes <= 1440) return 60;
-    if (windowMinutes <= 10080) return 240;     // 4h
-    return 1440;                                 // 1d
+  function endpoint() {
+    const tenant = getTenant();
+    const minutes = getMinutes();
+    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(
+      minutes
+    )}&bucket=60&top=10&limit=50`;
   }
 
-  async function fetchInsights(minutes) {
+  async function fetchInsights() {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const bucket = getBucketMinutes(minutes);
-    const url = `/admin/api/insights?minutes=${encodeURIComponent(minutes)}&bucket=${encodeURIComponent(bucket)}&top=10&limit=50`;
-
-    const res = await fetch(url, {
+    const res = await fetch(endpoint(), {
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
@@ -59,75 +70,120 @@
     return res.json();
   }
 
-  function destroyChart(key) {
-    if (charts[key]) {
-      try { charts[key].destroy(); } catch (e) {}
-      charts[key] = null;
+  function destroyIfExists(key) {
+    const c = charts[key];
+    if (c && typeof c.destroy === "function") {
+      c.destroy();
     }
+    charts[key] = null;
+  }
+
+  function ensureChart(key, buildFn) {
+    // if canvas missing, just skip
+    if (!buildFn) return;
+    destroyIfExists(key);
+    charts[key] = buildFn();
+  }
+
+  function safeArray(x) {
+    return Array.isArray(x) ? x : [];
   }
 
   // ---------- Normalizers ----------
-  function normSeries(arr) {
-    if (!Array.isArray(arr)) return [];
-    return arr.map((p, i) => {
-      const label = (p && (p.t || p.bucket || p.ts || p.time)) ?? `#${i + 1}`;
+  function normMessageVolume(payload) {
+    const pts =
+      payload?.message_volume ||
+      payload?.points ||
+      payload?.data?.message_volume ||
+      payload?.data?.points ||
+      [];
+
+    const arr = safeArray(pts).map((p, i) => {
+      const label = String(p?.t ?? p?.bucket ?? p?.time ?? p?.ts ?? `#${i + 1}`);
       const inbound = Math.round(Number(p?.inbound ?? 0)) || 0;
       const outbound = Math.round(Number(p?.outbound ?? 0)) || 0;
-      const sessions = Math.round(Number(p?.sessions ?? 0)) || 0;
-      return { label: String(label), inbound, outbound, sessions };
+      return { label, inbound, outbound };
     });
+
+    return arr;
   }
 
-  function normPairs(arr, labelKey, valueKey) {
-    if (!Array.isArray(arr)) return [];
+  function normSessions(payload) {
+    const pts =
+      payload?.sessions_per_bucket ||
+      payload?.sessions ||
+      payload?.data?.sessions_per_bucket ||
+      payload?.data?.sessions ||
+      [];
+
+    const arr = safeArray(pts).map((p, i) => {
+      const label = String(p?.t ?? p?.bucket ?? p?.time ?? p?.ts ?? `#${i + 1}`);
+      const sessions = Math.round(Number(p?.sessions ?? 0)) || 0;
+      return { label, sessions };
+    });
+
+    return arr;
+  }
+
+  function normChannels(payload) {
+    // prefer the API-built totals array if present
+    const totals = safeArray(payload?.channels_total);
+
+    if (totals.length) {
+      return totals.map((x) => ({
+        label: String(x?.label ?? "unknown"),
+        count: Math.round(Number(x?.count ?? 0)) || 0,
+      }));
+    }
+
+    // fallback: build from payload.channels
+    const ch = payload?.channels || {};
+    const out = [];
+    for (const [k, v] of Object.entries(ch)) {
+      const total = Math.round(Number(v?.total ?? 0)) || 0;
+      out.push({ label: String(k), count: total });
+    }
+    return out;
+  }
+
+  function normTopList(payload, key) {
+    const arr = safeArray(payload?.[key]);
     return arr.map((x) => ({
-      label: String(x?.[labelKey] ?? "unknown"),
-      count: Math.round(Number(x?.[valueKey] ?? 0)) || 0,
+      label: String(x?.label ?? "unknown"),
+      count: Math.round(Number(x?.count ?? 0)) || 0,
     }));
   }
 
-  function asTopList(objOrList) {
-    // accepts:
-    // - list: [{label,count}]
-    // - dict: {web:{total:..}, whatsapp:{total:..}}
-    if (Array.isArray(objOrList)) return objOrList;
-    if (objOrList && typeof objOrList === "object") {
-      const out = [];
-      for (const [k, v] of Object.entries(objOrList)) {
-        const total = Math.round(Number(v?.total ?? 0)) || 0;
-        out.push({ label: k, count: total });
-      }
-      return out;
-    }
-    return [];
-  }
+  // ---------- Chart Builders ----------
+  function buildVolumeChart(points) {
+    const canvas = $("chart-volume");
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
 
-  // ---------- Builders ----------
-  function buildVolumeBar(ctx, labels, inbound, outbound) {
+    const labels = points.map((p) => p.label);
+    const inbound = points.map((p) => p.inbound);
+    const outbound = points.map((p) => p.outbound);
+
     return new Chart(ctx, {
-      type: "bar",
+      type: "line",
       data: {
         labels,
         datasets: [
           {
             label: "Inbound",
             data: inbound,
-            backgroundColor: "rgba(34,197,94,0.35)",
-            borderColor: "rgba(34,197,94,1)",
-            borderWidth: 1,
-            borderRadius: 8,
-            barPercentage: 0.9,
-            categoryPercentage: 0.7,
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2,
           },
           {
             label: "Outbound",
             data: outbound,
-            backgroundColor: "rgba(148,163,184,0.40)",
-            borderColor: "rgba(148,163,184,1)",
-            borderWidth: 1,
-            borderRadius: 8,
-            barPercentage: 0.9,
-            categoryPercentage: 0.7,
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2,
           },
         ],
       },
@@ -135,11 +191,11 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        interaction: { mode: "index", intersect: false },
         scales: {
           y: {
             beginAtZero: true,
             ticks: { stepSize: 1, precision: 0 },
-            grid: { color: "rgba(148,163,184,0.15)" },
           },
           x: {
             ticks: { maxRotation: 0, autoSkip: true },
@@ -147,29 +203,66 @@
           },
         },
         plugins: {
-          legend: { position: "top" },
-          tooltip: { mode: "index", intersect: false },
+          legend: { display: true },
+          tooltip: { enabled: true },
         },
       },
     });
   }
 
-  function buildDoughnut(ctx, labels, values) {
+  function buildSessionsChart(points) {
+    const canvas = $("chart-sessions");
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+
+    const labels = points.map((p) => p.label);
+    const data = points.map((p) => p.sessions);
+
+    return new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Sessions",
+            data,
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+          x: { ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+        },
+        plugins: { legend: { display: true } },
+      },
+    });
+  }
+
+  function buildChannelsChart(rows) {
+    const canvas = $("chart-channels");
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+
+    const labels = rows.map((r) => r.label);
+    const data = rows.map((r) => r.count);
+
     return new Chart(ctx, {
       type: "doughnut",
       data: {
         labels,
         datasets: [
           {
-            data: values,
-            backgroundColor: [
-              "rgba(34,197,94,0.55)",
-              "rgba(148,163,184,0.55)",
-              "rgba(59,130,246,0.55)",
-              "rgba(251,191,36,0.55)",
-              "rgba(239,68,68,0.55)",
-            ],
-            borderColor: "rgba(15,23,42,0.10)",
+            label: "Channel share",
+            data,
             borderWidth: 1,
           },
         ],
@@ -180,24 +273,29 @@
         animation: false,
         plugins: {
           legend: { position: "bottom" },
-          tooltip: { mode: "nearest", intersect: true },
+          tooltip: { enabled: true },
         },
-        cutout: "60%",
+        cutout: "62%",
       },
     });
   }
 
-  function buildHorizontalBar(ctx, labels, values, titleLabel) {
+  function buildHorizontalBar(canvasId, title, rows) {
+    const canvas = $(canvasId);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+
+    const labels = rows.map((r) => r.label);
+    const data = rows.map((r) => r.count);
+
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
         datasets: [
           {
-            label: titleLabel,
-            data: values,
-            backgroundColor: "rgba(34,197,94,0.35)",
-            borderColor: "rgba(34,197,94,1)",
+            label: title,
+            data,
             borderWidth: 1,
             borderRadius: 8,
           },
@@ -209,32 +307,33 @@
         maintainAspectRatio: false,
         animation: false,
         scales: {
-          x: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, precision: 0 },
-            grid: { color: "rgba(148,163,184,0.15)" },
-          },
+          x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           y: { grid: { display: false } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { mode: "nearest", intersect: true },
+          tooltip: { enabled: true },
         },
       },
     });
   }
 
-  function buildSimpleBar(ctx, labels, values, colorRGBA, labelName) {
+  function buildBar(canvasId, title, rows) {
+    const canvas = $(canvasId);
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+
+    const labels = rows.map((r) => r.label);
+    const data = rows.map((r) => r.count);
+
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
         datasets: [
           {
-            label: labelName,
-            data: values,
-            backgroundColor: colorRGBA,
-            borderColor: colorRGBA.replace("0.35", "1").replace("0.40", "1").replace("0.45", "1"),
+            label: title,
+            data,
             borderWidth: 1,
             borderRadius: 8,
           },
@@ -245,190 +344,66 @@
         maintainAspectRatio: false,
         animation: false,
         scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, precision: 0 },
-            grid: { color: "rgba(148,163,184,0.15)" },
-          },
-          x: { grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+          x: { ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
         },
         plugins: {
           legend: { display: false },
-          tooltip: { mode: "nearest", intersect: true },
+          tooltip: { enabled: true },
         },
       },
     });
   }
 
-  function buildLine(ctx, labels, values, labelName) {
-    return new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: labelName,
-            data: values,
-            borderColor: "rgba(34,197,94,1)",
-            backgroundColor: "rgba(34,197,94,0.12)",
-            fill: true,
-            tension: 0.25,
-            pointRadius: 0,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, precision: 0 },
-            grid: { color: "rgba(148,163,184,0.15)" },
-          },
-          x: { grid: { display: false } },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { mode: "index", intersect: false },
-        },
-      },
-    });
-  }
-
-  // ---------- Render ----------
-  function render(payload) {
-    // KPI subtitle
-    const mins = payload?.window_minutes ?? getMinutes();
-    const sub = $("kpi-sub");
-    if (sub) sub.textContent = `${mins} min window`;
-
-    // Message volume
-    {
-      const canvas = $("chart-volume");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const pts = normSeries(payload?.message_volume || []);
-        const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
-        const inbound = pts.map((p) => p.inbound);
-        const outbound = pts.map((p) => p.outbound);
-
-        destroyChart("volume");
-        charts.volume = buildVolumeBar(ctx, labels, inbound, outbound);
-      }
-    }
-
-    // Channels doughnut (total share)
-    {
-      const canvas = $("chart-channels");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const chan = asTopList(payload?.channels || {});
-        const labels = chan.map((x) => x.label);
-        const vals = chan.map((x) => x.count);
-
-        destroyChart("channels");
-        charts.channels = buildDoughnut(ctx, labels, vals);
-      }
-    }
-
-    // Top intents (horizontal bar)
-    {
-      const canvas = $("chart-intents");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const intents = normPairs(payload?.top_intents || [], "label", "count");
-        const labels = intents.map((x) => x.label);
-        const vals = intents.map((x) => x.count);
-
-        destroyChart("intents");
-        charts.intents = buildHorizontalBar(ctx, labels, vals, "Intents");
-      }
-    }
-
-    // Fallbacks (bar) — IMPORTANT: fallbacks are subset of outbound, not extra messages
-    {
-      const canvas = $("chart-fallbacks");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const fb = normPairs(payload?.fallbacks || [], "label", "count");
-        const labels = fb.map((x) => x.label);
-        const vals = fb.map((x) => x.count);
-
-        destroyChart("fallbacks");
-        charts.fallbacks = buildSimpleBar(ctx, labels, vals, "rgba(251,191,36,0.40)", "Fallbacks");
-      }
-    }
-
-    // Errors (bar)
-    {
-      const canvas = $("chart-errors");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const errs = normPairs(payload?.errors || [], "label", "count");
-        const labels = errs.map((x) => x.label);
-        const vals = errs.map((x) => x.count);
-
-        destroyChart("errors");
-        charts.errors = buildSimpleBar(ctx, labels, vals, "rgba(239,68,68,0.35)", "Errors");
-      }
-    }
-
-    // Sessions (line)
-    {
-      const canvas = $("chart-sessions");
-      if (canvas) {
-        const ctx = canvas.getContext("2d");
-        const pts = normSeries(payload?.sessions_per_bucket || []);
-        const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
-        const vals = pts.map((p) => p.sessions);
-
-        destroyChart("sessions");
-        charts.sessions = buildLine(ctx, labels, vals, "Sessions");
-      }
-    }
-  }
-
+  // ---------- Reload ----------
   async function reload() {
-    const minutes = getMinutes();
-    const dbg = $("raw");
-    const dbgStatus = $("dbg-status");
-
     let payload;
     try {
-      payload = await fetchInsights(minutes);
+      payload = await fetchInsights();
     } catch (err) {
       if (String(err).includes("AbortError")) return;
-      console.error("Insights fetch failed:", err);
-      if (dbgStatus) dbgStatus.textContent = "fetch failed";
-      if (dbg) dbg.textContent = String(err);
+      console.error("[charts.js] fetchInsights failed:", err);
       return;
     }
 
-    if (dbgStatus) dbgStatus.textContent = "ok";
-    if (dbg) dbg.textContent = JSON.stringify(payload, null, 2);
+    // message volume stays as the “nice left chart”
+    const volumePts = normMessageVolume(payload);
+    const sessionsPts = normSessions(payload);
 
-    render(payload);
+    const intents = normTopList(payload, "top_intents");
+    const fallbacks = normTopList(payload, "fallbacks");
+    const errors = normTopList(payload, "errors");
+    const channels = normChannels(payload);
+
+    // Build/replace charts (cleanly)
+    ensureChart("volume", () => buildVolumeChart(volumePts));
+    ensureChart("channels", () => buildChannelsChart(channels));
+
+    // Top intents: horizontal bar (NOT another normal bar)
+    ensureChart("intents", () => buildHorizontalBar("chart-intents", "Intents", intents));
+
+    // Fallbacks: bar chart (as you requested)
+    ensureChart("fallbacks", () => buildBar("chart-fallbacks", "Fallbacks", fallbacks));
+
+    // Errors: bar chart
+    ensureChart("errors", () => buildBar("chart-errors", "Errors", errors));
+
+    // Sessions: line chart
+    ensureChart("sessions", () => buildSessionsChart(sessionsPts));
   }
 
-  // Expose for admin.js
+  // Expose to admin.js
   window.DashChartsReload = function () {
     reload().catch((err) => {
       if (String(err).includes("AbortError")) return;
-      console.error("DashChartsReload failed:", err);
+      console.error("[charts.js] reload failed:", err);
     });
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    // Hook refresh button if it exists
-    const btn = $("refresh");
-    if (btn) btn.addEventListener("click", () => window.DashChartsReload());
-
-    // Reload on period change
-    const sel = $("period");
-    if (sel) sel.addEventListener("change", () => window.DashChartsReload());
-
-    window.DashChartsReload();
+    reload().catch((err) => {
+      if (String(err).includes("AbortError")) return;
+      console.error("[charts.js] init failed:", err);
+    });
   });
 })();
