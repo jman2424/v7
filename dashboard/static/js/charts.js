@@ -1,18 +1,18 @@
 /* dashboard/static/js/charts.js
-   Dashboard charts (Chart.js)
-   Canvas IDs used by dashboard.html:
-     - chart-volume     (line: inbound/outbound)
-     - chart-channels   (doughnut: web vs whatsapp total)
-     - chart-intents    (horizontal bar: top intents)
-     - chart-fallbacks  (bar: fallbacks by intent)
-     - chart-errors     (bar: errors by code)
-     - chart-sessions   (line: sessions per bucket)
+   Unified dashboard charts (Chart.js)
 
-   Data source:
-     GET /admin/api/insights?tenant=...&minutes=...&bucket=60&top=10&limit=50
+   - Fetches ONE endpoint: /admin/api/insights
+   - Renders:
+     1) Message Volume (BAR)              #chart-volume
+     2) Channels Share (DOUGHNUT)         #chart-channels
+     3) Top Intents (HORIZONTAL BAR)      #chart-intents
+     4) Fallbacks (BAR)                   #chart-fallbacks
+     5) Overview (DAILY LINE)             #chart-errors   (replaces "Errors" chart slot)
+     6) Sessions (LINE)                   #chart-sessions
 
-   Exposes:
-     window.DashChartsReload()
+   Notes:
+   - Overview expects backend payload.overview_daily[] = {d,inbound,outbound,fallbacks,errors,outbound_net}
+   - If overview_daily missing, it will still render something (best-effort).
 */
 
 (function () {
@@ -23,7 +23,7 @@
     channels: null,
     intents: null,
     fallbacks: null,
-    errors: null,
+    overview: null,   // uses chart-errors canvas id
     sessions: null,
   };
 
@@ -31,122 +31,101 @@
     return document.getElementById(id);
   }
 
-  function getTenant() {
-    return (
-      window.__ADMIN__?.tenant ||
-      document.body?.dataset?.tenant ||
-      "default"
-    );
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
   }
 
   function getMinutes() {
+    // dashboard.html uses <select id="period">
     const sel = $("period");
     const v = sel ? parseInt(sel.value, 10) : 1440;
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  function endpoint() {
-    const tenant = getTenant();
-    const minutes = getMinutes();
-    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(
-      minutes
-    )}&bucket=60&top=10&limit=50`;
+  function endpoint(minutes) {
+    // One payload for everything
+    return `/admin/api/insights?minutes=${encodeURIComponent(minutes)}&bucket=60&top=10&limit=50`;
   }
 
-  async function fetchInsights() {
+  async function fetchInsights(minutes) {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const res = await fetch(endpoint(), {
+    const res = await fetch(endpoint(minutes), {
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
     });
 
     if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`Insights HTTP ${res.status}: ${t.slice(0, 200)}`);
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Insights HTTP ${res.status}: ${txt.slice(0, 200)}`);
     }
     return res.json();
   }
 
-  function destroyIfExists(key) {
+  function destroyChart(key) {
     const c = charts[key];
     if (c && typeof c.destroy === "function") {
-      c.destroy();
+      try { c.destroy(); } catch (_) {}
     }
     charts[key] = null;
   }
 
-  function ensureChart(key, buildFn) {
-    // if canvas missing, just skip
-    if (!buildFn) return;
-    destroyIfExists(key);
-    charts[key] = buildFn();
+  function setSubtext() {
+    const el = $("kpi-sub");
+    if (!el) return;
+    const minutes = getMinutes();
+    if (minutes === 60) el.textContent = "Last 60m";
+    else if (minutes === 1440) el.textContent = "Last 24h";
+    else if (minutes === 10080) el.textContent = "Last 7d";
+    else if (minutes === 43200) el.textContent = "Last 30d";
+    else el.textContent = `Last ${minutes}m`;
   }
 
-  function safeArray(x) {
-    return Array.isArray(x) ? x : [];
-  }
-
-  // ---------- Normalizers ----------
+  // ---------------------------
+  // Normalizers
+  // ---------------------------
   function normMessageVolume(payload) {
-    const pts =
-      payload?.message_volume ||
-      payload?.points ||
-      payload?.data?.message_volume ||
-      payload?.data?.points ||
-      [];
-
-    const arr = safeArray(pts).map((p, i) => {
-      const label = String(p?.t ?? p?.bucket ?? p?.time ?? p?.ts ?? `#${i + 1}`);
+    // payload.message_volume: [{t,inbound,outbound}] where t=substr(ts_utc,1,13)
+    const pts = safeArray(payload?.message_volume);
+    return pts.map((p, i) => {
+      const label = String(p?.t ?? `#${i + 1}`);
       const inbound = Math.round(Number(p?.inbound ?? 0)) || 0;
       const outbound = Math.round(Number(p?.outbound ?? 0)) || 0;
       return { label, inbound, outbound };
     });
-
-    return arr;
   }
 
   function normSessions(payload) {
-    const pts =
-      payload?.sessions_per_bucket ||
-      payload?.sessions ||
-      payload?.data?.sessions_per_bucket ||
-      payload?.data?.sessions ||
-      [];
-
-    const arr = safeArray(pts).map((p, i) => {
-      const label = String(p?.t ?? p?.bucket ?? p?.time ?? p?.ts ?? `#${i + 1}`);
+    // payload.sessions_per_bucket: [{t,sessions}]
+    const pts = safeArray(payload?.sessions_per_bucket);
+    return pts.map((p, i) => {
+      const label = String(p?.t ?? `#${i + 1}`);
       const sessions = Math.round(Number(p?.sessions ?? 0)) || 0;
       return { label, sessions };
     });
-
-    return arr;
   }
 
-  function normChannels(payload) {
-    // prefer the API-built totals array if present
-    const totals = safeArray(payload?.channels_total);
-
-    if (totals.length) {
-      return totals.map((x) => ({
+  function normChannelsTotal(payload) {
+    // payload.channels_total: [{label,count}] OR payload.channels: {web:{total}, whatsapp:{total}}
+    const arr = safeArray(payload?.channels_total);
+    if (arr.length) {
+      return arr.map((x) => ({
         label: String(x?.label ?? "unknown"),
         count: Math.round(Number(x?.count ?? 0)) || 0,
       }));
     }
-
-    // fallback: build from payload.channels
-    const ch = payload?.channels || {};
-    const out = [];
-    for (const [k, v] of Object.entries(ch)) {
-      const total = Math.round(Number(v?.total ?? 0)) || 0;
-      out.push({ label: String(k), count: total });
-    }
-    return out;
+    const obj = payload?.channels && typeof payload.channels === "object" ? payload.channels : null;
+    if (!obj) return [];
+    return Object.keys(obj).map((k) => ({
+      label: String(k),
+      count: Math.round(Number(obj[k]?.total ?? 0)) || 0,
+    }));
   }
 
   function normTopList(payload, key) {
+    // expects [{label,count}]
     const arr = safeArray(payload?.[key]);
     return arr.map((x) => ({
       label: String(x?.label ?? "unknown"),
@@ -154,82 +133,54 @@
     }));
   }
 
-  // ---------- Chart Builders ----------
-  function buildVolumeChart(points) {
-    const canvas = $("chart-volume");
+  function normOverviewDaily(payload) {
+    // overview_daily: [{d,inbound,outbound,fallbacks,errors,outbound_net}]
+    const arr = safeArray(payload?.overview_daily);
+    return arr.map((x, i) => ({
+      label: String(x?.d ?? `#${i + 1}`),
+      inbound: Math.round(Number(x?.inbound ?? 0)) || 0,
+      outbound: Math.round(Number(x?.outbound ?? 0)) || 0,
+      fallbacks: Math.round(Number(x?.fallbacks ?? 0)) || 0,
+      errors: Math.round(Number(x?.errors ?? 0)) || 0,
+      outboundNet: Math.round(Number(x?.outbound_net ?? 0)) || 0,
+    }));
+  }
+
+  // If backend doesn’t provide overview_daily yet, best-effort:
+  function buildFallbackOverviewFromKPIs(payload) {
+    const k = payload?.kpis || {};
+    const inbound = Math.round(Number(k?.inbound ?? 0)) || 0;
+    const outbound = Math.round(Number(k?.outbound ?? 0)) || 0;
+    const fallbacks = Math.round(Number(k?.fallbacks ?? 0)) || 0;
+    const errors = Math.round(Number(k?.errors ?? 0)) || 0;
+    const outboundNet = Math.max(0, outbound - fallbacks - errors);
+    return [{ label: "Window", inbound, outbound, fallbacks, errors, outboundNet }];
+  }
+
+  // ---------------------------
+  // Chart builders
+  // ---------------------------
+  function buildBarVolume(canvasId, labels, inbound, outbound) {
+    const canvas = $(canvasId);
     if (!canvas) return null;
+
     const ctx = canvas.getContext("2d");
-
-    const labels = points.map((p) => p.label);
-    const inbound = points.map((p) => p.inbound);
-    const outbound = points.map((p) => p.outbound);
-
     return new Chart(ctx, {
-      type: "line",
+      type: "bar",
       data: {
         labels,
         datasets: [
           {
             label: "Inbound",
             data: inbound,
-            fill: true,
-            tension: 0.35,
-            borderWidth: 2,
-            pointRadius: 2,
+            borderWidth: 1,
+            borderRadius: 8,
           },
           {
             label: "Outbound",
             data: outbound,
-            fill: true,
-            tension: 0.35,
-            borderWidth: 2,
-            pointRadius: 2,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: { stepSize: 1, precision: 0 },
-          },
-          x: {
-            ticks: { maxRotation: 0, autoSkip: true },
-            grid: { display: false },
-          },
-        },
-        plugins: {
-          legend: { display: true },
-          tooltip: { enabled: true },
-        },
-      },
-    });
-  }
-
-  function buildSessionsChart(points) {
-    const canvas = $("chart-sessions");
-    if (!canvas) return null;
-    const ctx = canvas.getContext("2d");
-
-    const labels = points.map((p) => p.label);
-    const data = points.map((p) => p.sessions);
-
-    return new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Sessions",
-            data,
-            fill: true,
-            tension: 0.35,
-            borderWidth: 2,
-            pointRadius: 2,
+            borderWidth: 1,
+            borderRadius: 8,
           },
         ],
       },
@@ -240,32 +191,26 @@
         interaction: { mode: "index", intersect: false },
         scales: {
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: { legend: { display: true } },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: { enabled: true },
+        },
       },
     });
   }
 
-  function buildChannelsChart(rows) {
-    const canvas = $("chart-channels");
+  function buildDoughnut(canvasId, labels, values) {
+    const canvas = $(canvasId);
     if (!canvas) return null;
+
     const ctx = canvas.getContext("2d");
-
-    const labels = rows.map((r) => r.label);
-    const data = rows.map((r) => r.count);
-
     return new Chart(ctx, {
       type: "doughnut",
       data: {
         labels,
-        datasets: [
-          {
-            label: "Channel share",
-            data,
-            borderWidth: 1,
-          },
-        ],
+        datasets: [{ data: values, borderWidth: 1 }],
       },
       options: {
         responsive: true,
@@ -275,31 +220,21 @@
           legend: { position: "bottom" },
           tooltip: { enabled: true },
         },
-        cutout: "62%",
+        cutout: "65%",
       },
     });
   }
 
-  function buildHorizontalBar(canvasId, title, rows) {
+  function buildHorizontalBar(canvasId, labels, values, labelName) {
     const canvas = $(canvasId);
     if (!canvas) return null;
+
     const ctx = canvas.getContext("2d");
-
-    const labels = rows.map((r) => r.label);
-    const data = rows.map((r) => r.count);
-
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
-        datasets: [
-          {
-            label: title,
-            data,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
-        ],
+        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
       },
       options: {
         indexAxis: "y",
@@ -318,24 +253,51 @@
     });
   }
 
-  function buildBar(canvasId, title, rows) {
+  function buildSimpleBar(canvasId, labels, values, labelName) {
     const canvas = $(canvasId);
     if (!canvas) return null;
+
     const ctx = canvas.getContext("2d");
-
-    const labels = rows.map((r) => r.label);
-    const data = rows.map((r) => r.count);
-
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
+        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+        },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: { enabled: true },
+        },
+      },
+    });
+  }
+
+  function buildLine(canvasId, labels, seriesLabel, values, fill) {
+    const canvas = $(canvasId);
+    if (!canvas) return null;
+
+    const ctx = canvas.getContext("2d");
+    return new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
         datasets: [
           {
-            label: title,
-            data,
-            borderWidth: 1,
-            borderRadius: 8,
+            label: seriesLabel,
+            data: values,
+            tension: 0.35,
+            fill: !!fill,
+            borderWidth: 2,
+            pointRadius: 2,
           },
         ],
       },
@@ -343,56 +305,147 @@
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        interaction: { mode: "index", intersect: false },
         scales: {
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
         plugins: {
-          legend: { display: false },
+          legend: { position: "bottom" },
           tooltip: { enabled: true },
         },
       },
     });
   }
 
-  // ---------- Reload ----------
+  // Overview line chart (THIS replaces the errors chart slot)
+  function buildOverview(canvasId, points) {
+    const canvas = $(canvasId);
+    if (!canvas) return null;
+
+    const ctx = canvas.getContext("2d");
+    const labels = points.map((p) => p.label);
+
+    return new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Inbound",        data: points.map((p) => p.inbound),     tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Outbound (raw)", data: points.map((p) => p.outbound),    tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Fallbacks",      data: points.map((p) => p.fallbacks),   tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Errors",         data: points.map((p) => p.errors),      tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Outbound (net)", data: points.map((p) => p.outboundNet), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: true  },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+        },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: { enabled: true },
+        },
+      },
+    });
+  }
+
+  // ---------------------------
+  // Main reload
+  // ---------------------------
   async function reload() {
+    setSubtext();
+
+    const minutes = getMinutes();
     let payload;
+
     try {
-      payload = await fetchInsights();
+      payload = await fetchInsights(minutes);
     } catch (err) {
       if (String(err).includes("AbortError")) return;
-      console.error("[charts.js] fetchInsights failed:", err);
+      console.error("[charts.js] fetch insights failed:", err);
       return;
     }
 
-    // message volume stays as the “nice left chart”
-    const volumePts = normMessageVolume(payload);
-    const sessionsPts = normSessions(payload);
+    // 1) Message Volume (BAR)
+    {
+      const pts = normMessageVolume(payload);
+      const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
+      const inbound = pts.map((p) => p.inbound);
+      const outbound = pts.map((p) => p.outbound);
 
-    const intents = normTopList(payload, "top_intents");
-    const fallbacks = normTopList(payload, "fallbacks");
-    const errors = normTopList(payload, "errors");
-    const channels = normChannels(payload);
+      destroyChart("volume");
+      charts.volume = buildBarVolume("chart-volume", labels, inbound, outbound);
+    }
 
-    // Build/replace charts (cleanly)
-    ensureChart("volume", () => buildVolumeChart(volumePts));
-    ensureChart("channels", () => buildChannelsChart(channels));
+    // 2) Channels (DOUGHNUT)
+    {
+      const ch = normChannelsTotal(payload);
+      const labels = ch.map((x) => x.label);
+      const values = ch.map((x) => x.count);
 
-    // Top intents: horizontal bar (NOT another normal bar)
-    ensureChart("intents", () => buildHorizontalBar("chart-intents", "Intents", intents));
+      destroyChart("channels");
+      charts.channels = buildDoughnut("chart-channels", labels, values);
+    }
 
-    // Fallbacks: bar chart (as you requested)
-    ensureChart("fallbacks", () => buildBar("chart-fallbacks", "Fallbacks", fallbacks));
+    // 3) Top Intents (HORIZONTAL BAR)
+    {
+      const intents = normTopList(payload, "top_intents");
+      const labels = intents.map((x) => x.label);
+      const values = intents.map((x) => x.count);
 
-    // Errors: bar chart
-    ensureChart("errors", () => buildBar("chart-errors", "Errors", errors));
+      destroyChart("intents");
+      charts.intents = buildHorizontalBar("chart-intents", labels, values, "Intents");
+    }
 
-    // Sessions: line chart
-    ensureChart("sessions", () => buildSessionsChart(sessionsPts));
+    // 4) Fallbacks (BAR)
+    {
+      const fbs = normTopList(payload, "fallbacks");
+      const labels = fbs.map((x) => x.label);
+      const values = fbs.map((x) => x.count);
+
+      destroyChart("fallbacks");
+      charts.fallbacks = buildSimpleBar("chart-fallbacks", labels, values, "Fallbacks");
+    }
+
+    // 5) Overview (DAILY LINE) — uses the old errors canvas id
+    {
+      let ov = normOverviewDaily(payload);
+      if (!ov.length) ov = buildFallbackOverviewFromKPIs(payload);
+
+      // Critical: ensure outbound_net matches your rule even if backend sent weird values
+      ov = ov.map((p) => {
+        const outboundNet = Math.max(0, (p.outbound || 0) - (p.fallbacks || 0) - (p.errors || 0));
+        return { ...p, outboundNet };
+      });
+
+      destroyChart("overview");
+      charts.overview = buildOverview("chart-errors", ov);
+    }
+
+    // 6) Sessions (LINE)
+    {
+      const pts = normSessions(payload);
+      const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
+      const values = pts.map((p) => p.sessions);
+
+      destroyChart("sessions");
+      charts.sessions = buildLine("chart-sessions", labels, "Sessions", values, true);
+    }
+
+    // Optional debug block
+    const raw = $("raw");
+    if (raw) raw.textContent = JSON.stringify(payload, null, 2);
+    const dbg = $("dbg-status");
+    if (dbg) dbg.textContent = `Loaded • ${new Date().toLocaleString()}`;
   }
 
-  // Expose to admin.js
+  // Expose for admin.js
   window.DashChartsReload = function () {
     reload().catch((err) => {
       if (String(err).includes("AbortError")) return;
@@ -401,9 +454,14 @@
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    reload().catch((err) => {
-      if (String(err).includes("AbortError")) return;
-      console.error("[charts.js] init failed:", err);
-    });
+    // Auto-refresh button hook (if present)
+    const btn = $("refresh");
+    if (btn) btn.addEventListener("click", () => window.DashChartsReload());
+
+    // Period selector hook
+    const period = $("period");
+    if (period) period.addEventListener("change", () => window.DashChartsReload());
+
+    window.DashChartsReload();
   });
 })();
