@@ -1,7 +1,6 @@
 # service/analytics_db.py
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -62,87 +61,10 @@ def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str])
             con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
-def _norm_channel(channel: str) -> str:
-    ch = (channel or "web").strip().lower() or "web"
-    return ch if ch in ("web", "whatsapp") else "web"
-
-
-def _norm_tenant(tenant: str) -> str:
-    return (tenant or "default").strip() or "default"
-
-
-def _norm_session(session_id: str) -> str:
-    return (session_id or "unknown").strip() or "unknown"
-
-
-def _norm_direction(direction: str) -> str:
-    d = (direction or "inbound").strip().lower()
-    return d if d in ("inbound", "outbound") else "inbound"
-
-
-def _time_bucket(seconds: int = 30) -> str:
-    """
-    Small window to protect against double-submit/retries when we don't have a real message_id.
-    """
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    s = now.second - (now.second % max(1, int(seconds)))
-    return now.replace(second=s).isoformat()
-
-
-def _norm_text_for_id(text: str) -> str:
-    """
-    Text should NEVER be used for KPI grouping, but can be used as a last-resort dedupe signal
-    when message_id is missing. Keep it stable-ish (trim, collapse spaces, cap length).
-    """
-    t = (text or "").strip().lower()
-    t = " ".join(t.split())
-    return t[:280]
-
-
-def _make_dedupe_key(
-    *,
-    tenant: str,
-    channel: str,
-    session_id: str,
-    event_type: str,  # msg_in | msg_out | error
-    direction: str,  # inbound | outbound
-    message_id: str,
-    text: str,
-) -> str:
-    """
-    IMPORTANT:
-      - If you have a real upstream message_id, that MUST drive dedupe.
-      - Do NOT include intent/fallback/store/lead_id in dedupe. Those can change during processing,
-        and will cause double-counting (your current bug).
-
-    Fallback when message_id missing:
-      - Use (tenant|channel|session|direction|event_type|normalized_text|time_bucket)
-      - This stops accidental duplicates from retries in a short window.
-      - If a user sends the same text twice within the window, they may collapse into one.
-        That is acceptable compared to inflated KPIs; best fix is ALWAYS pass message_id.
-    """
-    mid = (message_id or "").strip()
-    if mid:
-        raw = f"{tenant}|{channel}|{session_id}|{direction}|{event_type}|{mid}"
-    else:
-        bucket = _time_bucket(30)
-        raw = f"{tenant}|{channel}|{session_id}|{direction}|{event_type}|{_norm_text_for_id(text)}|{bucket}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------------
-# Init / migrations
-# ---------------------------------------------------------------------
 def init_db() -> None:
     """
     Safe to call repeatedly.
     Creates tables and performs light migrations if older schema exists.
-
-    Schema supports:
-      - msg_in / msg_out events
-      - fallbacks as a flag on msg_out rows (meta_json)
-      - errors as separate rows (event_type='error') so they NEVER inflate outbound counts
-      - dedupe_key to ignore duplicate webhook/widget retries
     """
     with _conn() as con:
         con.execute(
@@ -153,13 +75,8 @@ def init_db() -> None:
                 tenant TEXT NOT NULL,
                 channel TEXT NOT NULL,
                 session_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,          -- msg_in | msg_out | error
+                event_type TEXT NOT NULL,
                 intent TEXT,
-                text TEXT,
-                lead_id TEXT,
-                error_code TEXT,
-                error_type TEXT,
-                dedupe_key TEXT,
                 meta_json TEXT
             );
             """
@@ -176,12 +93,12 @@ def init_db() -> None:
                 status TEXT DEFAULT 'Open',
                 tags TEXT DEFAULT '[]',
                 updated_utc TEXT NOT NULL,
-                last_session_id TEXT,
                 UNIQUE(tenant, lead_id)
             );
             """
         )
 
+        # migrations
         _ensure_columns(
             con,
             "events",
@@ -190,20 +107,17 @@ def init_db() -> None:
                 "lead_id": "lead_id TEXT",
                 "error_code": "error_code TEXT",
                 "error_type": "error_type TEXT",
-                "dedupe_key": "dedupe_key TEXT",
             },
         )
         _ensure_columns(con, "leads", {"last_session_id": "last_session_id TEXT"})
 
+        # indexes
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead_id ON events(lead_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
-
-        # Dedupe: ignore duplicate inserts caused by retries/double-submit
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_events_dedupe ON events(dedupe_key)")
 
 
 def _ensure_ready() -> None:
@@ -221,7 +135,7 @@ def _ensure_ready() -> None:
 # ---------------------------------------------------------------------
 def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone: Optional[str] = None) -> None:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     lead_id = (lead_id or "unknown").strip() or "unknown"
     now = _utc_now()
 
@@ -241,9 +155,9 @@ def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone:
 
 def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     lead_id = (lead_id or "unknown").strip() or "unknown"
-    session_id = _norm_session(session_id)
+    session_id = (session_id or "unknown").strip() or "unknown"
     now = _utc_now()
 
     with _conn() as con:
@@ -256,14 +170,17 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
             """,
             (tenant, lead_id, now),
         )
-        con.execute(
-            """
-            UPDATE leads
-            SET last_session_id=?, updated_utc=?
-            WHERE tenant=? AND lead_id=?;
-            """,
-            (session_id, now, tenant, lead_id),
-        )
+
+        cols = _table_columns(con, "leads")
+        if "last_session_id" in cols:
+            con.execute(
+                """
+                UPDATE leads
+                SET last_session_id=?, updated_utc=?
+                WHERE tenant=? AND lead_id=?;
+                """,
+                (session_id, now, tenant, lead_id),
+            )
 
 
 # ---------------------------------------------------------------------
@@ -280,54 +197,27 @@ def log_message(
     lead_id: Optional[str] = None,
     store: Optional[str] = None,
     fallback: bool = False,
-    message_id: str = "",
-    # legacy fields (kept so old callers don't crash)
-    error: bool = False,
+    error: bool = False,  # legacy flag stored in meta_json (NOT used for KPI errors)
     error_code: str = "",
     error_type: str = "",
 ) -> None:
     """
-    Writes ONLY real chat messages:
-      - msg_in (direction=inbound)
-      - msg_out (direction=outbound)
-
-    Fallbacks are NOT separate event rows.
-    They are msg_out rows with meta_json.fallback = 1
-
-    KPIs:
-      outbound KPI = msg_out where fallback=0
-      fallbacks KPI = msg_out where fallback=1
-      total KPI = inbound + outbound + fallbacks
+    Stores messages as:
+      event_type = msg_in / msg_out
+    Fallback is a flag on meta_json for msg_out rows.
     """
     _ensure_ready()
 
-    tenant = _norm_tenant(tenant)
-    ch = _norm_channel(channel)
-    sid = _norm_session(session_id)
-    direction = _norm_direction(direction)
+    tenant = (tenant or "default").strip() or "default"
+    ch = (channel or "web").strip().lower() or "web"
+    if ch not in ("web", "whatsapp"):
+        ch = "web"
+
+    sid = (session_id or "unknown").strip() or "unknown"
+    direction = (direction or "inbound").strip().lower()
     event_type = "msg_in" if direction == "inbound" else "msg_out"
 
-    intent = (intent or "unknown").strip() or "unknown"
-    txt = text or ""
-    lid = (lead_id or "").strip()
-    st = (store or "").strip()
-
-    meta = {
-        "store": st or None,
-        "fallback": bool(fallback),
-        # legacy marker only (does not drive KPI errors, errors are separate rows)
-        "error": bool(error),
-    }
-
-    dedupe_key = _make_dedupe_key(
-        tenant=tenant,
-        channel=ch,
-        session_id=sid,
-        event_type=event_type,
-        direction=direction,
-        message_id=message_id or "",
-        text=txt,
-    )
+    meta = {"store": store, "fallback": bool(fallback), "error": bool(error)}
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -337,11 +227,11 @@ def log_message(
 
         if "text" in cols:
             fields.append("text")
-            vals.append(txt)
+            vals.append(text or "")
 
         if "lead_id" in cols:
             fields.append("lead_id")
-            vals.append(lid)
+            vals.append((lead_id or "").strip())
 
         if "error_code" in cols:
             fields.append("error_code")
@@ -351,12 +241,7 @@ def log_message(
             fields.append("error_type")
             vals.append(error_type or "")
 
-        if "dedupe_key" in cols:
-            fields.append("dedupe_key")
-            vals.append(dedupe_key)
-
-        placeholders = ",".join(["?"] * len(fields))
-        sql = f"INSERT OR IGNORE INTO events ({','.join(fields)}) VALUES ({placeholders})"
+        sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({','.join(['?']*len(fields))})"
         con.execute(sql, tuple(vals))
 
 
@@ -369,33 +254,22 @@ def log_error(
     error_code: str = "",
     error_type: str = "",
     meta: Optional[dict[str, Any]] = None,
-    message_id: str = "",
 ) -> None:
     """
-    Errors are separate rows:
-      event_type='error'
-    So they NEVER inflate outbound/total chat message counts.
+    Errors are their own rows:
+      event_type = 'error'
+    So they do NOT inflate outbound counts.
     """
     _ensure_ready()
 
-    tenant = _norm_tenant(tenant)
-    ch = _norm_channel(channel)
-    sid = _norm_session(session_id)
-    lid = (lead_id or "").strip()
+    tenant = (tenant or "default").strip() or "default"
+    ch = (channel or "web").strip().lower() or "web"
+    if ch not in ("web", "whatsapp"):
+        ch = "web"
 
+    sid = (session_id or "unknown").strip() or "unknown"
     m = meta or {}
     m["error"] = True
-
-    # For errors, direction doesn't matter for KPI counting, but it helps dedupe format stay consistent.
-    dedupe_key = _make_dedupe_key(
-        tenant=tenant,
-        channel=ch,
-        session_id=sid,
-        event_type="error",
-        direction="outbound",
-        message_id=message_id or "",
-        text=str(m.get("error") or ""),
-    )
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -405,7 +279,7 @@ def log_error(
 
         if "lead_id" in cols:
             fields.append("lead_id")
-            vals.append(lid)
+            vals.append((lead_id or "").strip())
 
         if "error_code" in cols:
             fields.append("error_code")
@@ -415,16 +289,11 @@ def log_error(
             fields.append("error_type")
             vals.append(error_type or "")
 
-        if "dedupe_key" in cols:
-            fields.append("dedupe_key")
-            vals.append(dedupe_key)
-
-        placeholders = ",".join(["?"] * len(fields))
-        sql = f"INSERT OR IGNORE INTO events ({','.join(fields)}) VALUES ({placeholders})"
+        sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({','.join(['?']*len(fields))})"
         con.execute(sql, tuple(vals))
 
 
-# Backwards compatible shim (old code calling log_event)
+# Backwards compatible shim
 def log_event(*args, **kwargs):
     return log_message(*args, **kwargs)
 
@@ -433,37 +302,18 @@ def log_event(*args, **kwargs):
 # Reads (Dashboard API)
 # ---------------------------------------------------------------------
 def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
-    """
-    ✅ Correct counting:
-      inbound   = msg_in
-      outbound  = msg_out where fallback=0
-      fallbacks = msg_out where fallback=1
-      errors    = error rows
-      total     = inbound + outbound + fallbacks
-    """
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
 
     with _conn() as con:
         row = con.execute(
             """
             SELECT
-              SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
-
-              SUM(CASE
-                    WHEN event_type='msg_out'
-                     AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 0
-                    THEN 1 ELSE 0 END
-              ) AS outbound,
-
-              SUM(CASE
-                    WHEN event_type='msg_out'
-                     AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 1
-                    THEN 1 ELSE 0 END
-              ) AS fallbacks,
-
+              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
               COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') THEN session_id END) AS sessions,
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
             WHERE tenant=? AND ts_utc>=?;
@@ -479,42 +329,32 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     inbound = int(row["inbound"] or 0)
     outbound = int(row["outbound"] or 0)
     fallbacks = int(row["fallbacks"] or 0)
-    sessions = int(row["sessions"] or 0)
     errors = int(row["errors"] or 0)
+    outbound_net = max(0, outbound - fallbacks - errors)
 
     return {
         "inbound": inbound,
-        "outbound": outbound,  # non-fallback only
+        "outbound": outbound,
+        "outbound_net": outbound_net,
+        "total": inbound + outbound,
+        "sessions": int(row["sessions"] or 0),
+        "leads": int(leads or 0),
         "fallbacks": fallbacks,
         "errors": errors,
-        "sessions": sessions,
-        "leads": int(leads or 0),
-        "total": inbound + outbound + fallbacks,
     }
 
 
 def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
-    """
-    Time series for the MESSAGE VOLUME chart.
-
-    ✅ outbound excludes fallbacks so you get:
-      outbound = real replies
-      fallbacks shown elsewhere
-    """
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
 
     with _conn() as con:
         rows = con.execute(
             """
             SELECT substr(ts_utc,1,13) AS t,
-                   SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
-                   SUM(CASE
-                         WHEN event_type='msg_out'
-                          AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 0
-                         THEN 1 ELSE 0 END
-                   ) AS outbound
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -529,7 +369,7 @@ def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60
 
 def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
 
     with _conn() as con:
@@ -550,24 +390,16 @@ def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes:
 
 
 def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
-    """
-    Legacy helper:
-    outbound excludes fallbacks.
-    """
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
 
     with _conn() as con:
         rows = con.execute(
             """
             SELECT channel,
-                   SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
-                   SUM(CASE
-                         WHEN event_type='msg_out'
-                          AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 0
-                         THEN 1 ELSE 0 END
-                   ) AS outbound
+                   SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+                   SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -586,11 +418,8 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
 
 
 def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
-    """
-    ✅ Top intents represent REAL successful replies, not fallbacks.
-    """
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
@@ -602,7 +431,6 @@ def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type='msg_out'
-              AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 0
             GROUP BY intent
             ORDER BY n DESC
             LIMIT ?;
@@ -615,7 +443,7 @@ def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[
 
 def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
@@ -627,7 +455,7 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type='msg_out'
-              AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 1
+              AND json_extract(meta_json,'$.fallback') = 1
             GROUP BY intent
             ORDER BY n DESC
             LIMIT ?;
@@ -640,7 +468,7 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
 
 def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
@@ -667,7 +495,7 @@ def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[
 
 def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
@@ -696,20 +524,31 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
 
 def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     limit = max(1, min(_safe_int(limit, 50), 500))
 
     with _conn() as con:
-        rows = con.execute(
-            """
+        cols = _table_columns(con, "leads")
+        has_last_session = "last_session_id" in cols
+
+        if has_last_session:
+            q = """
             SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
             FROM leads
             WHERE tenant=?
             ORDER BY updated_utc DESC
             LIMIT ?;
-            """,
-            (tenant, limit),
-        ).fetchall()
+            """
+        else:
+            q = """
+            SELECT lead_id, name, phone, status, tags, updated_utc
+            FROM leads
+            WHERE tenant=?
+            ORDER BY updated_utc DESC
+            LIMIT ?;
+            """
+
+        rows = con.execute(q, (tenant, limit)).fetchall()
 
     out: list[dict[str, Any]] = []
     for r in rows:
@@ -721,31 +560,85 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
         except Exception:
             tags = []
 
-        out.append(
-            {
-                "lead_id": r["lead_id"],
-                "name": r["name"],
-                "phone": r["phone"],
-                "status": r["status"] or "Open",
-                "tags": tags,
-                "updated_utc": r["updated_utc"],
-                "last_session_id": r["last_session_id"],
-            }
-        )
+        item = {
+            "lead_id": r["lead_id"],
+            "name": r["name"],
+            "phone": r["phone"],
+            "status": r["status"] or "Open",
+            "tags": tags,
+            "updated_utc": r["updated_utc"],
+        }
+        if "last_session_id" in r.keys():
+            item["last_session_id"] = r["last_session_id"]
+        out.append(item)
 
     return out
 
 
 # ---------------------------------------------------------------------
-# "New" reads used by admin_api_routes
+# NEW: Daily overview (powers the Overview LINE chart)
 # ---------------------------------------------------------------------
-def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
+def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45) -> list[dict[str, Any]]:
     """
-    ✅ outbound excludes fallbacks
-    ✅ fallbacks are counted separately
+    Returns per-day counts for:
+      inbound, outbound (raw), fallbacks, errors, outbound_net
+
+    outbound_net = outbound - fallbacks - errors
+    (clamped at 0)
+
+    Uses ts_utc TEXT format: YYYY-MM-DD...
     """
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
+    since = _since(minutes)
+    limit_days = max(1, min(_safe_int(limit_days, 45), 365))
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+              substr(ts_utc,1,10) AS d,
+              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
+              SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+            GROUP BY d
+            ORDER BY d DESC
+            LIMIT ?;
+            """,
+            (tenant, since, limit_days),
+        ).fetchall()
+
+    # reverse to ascending for charts
+    out: list[dict[str, Any]] = []
+    for r in reversed(rows):
+        inbound = int(r["inbound"] or 0)
+        outbound = int(r["outbound"] or 0)
+        fallbacks = int(r["fallbacks"] or 0)
+        errors = int(r["errors"] or 0)
+        outbound_net = max(0, outbound - fallbacks - errors)
+
+        out.append(
+            {
+                "d": r["d"],
+                "inbound": inbound,
+                "outbound": outbound,
+                "fallbacks": fallbacks,
+                "errors": errors,
+                "outbound_net": outbound_net,
+            }
+        )
+    return out
+
+
+# ---------------------------------------------------------------------
+# Optional extras used by admin_api_routes (kept)
+# ---------------------------------------------------------------------
+def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
+    _ensure_ready()
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
 
     base: dict[str, dict[str, int]] = {
@@ -758,19 +651,9 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
             """
             SELECT
               channel,
-              SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound,
-
-              SUM(CASE
-                    WHEN event_type='msg_out'
-                     AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 0
-                    THEN 1 ELSE 0 END
-              ) AS outbound,
-
-              SUM(CASE
-                    WHEN event_type='msg_out'
-                     AND COALESCE(json_extract(meta_json,'$.fallback'),0) = 1
-                    THEN 1 ELSE 0 END
-              ) AS fallbacks
+              SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
+              SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -792,7 +675,7 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
 
 def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 12) -> list[dict[str, Any]]:
     _ensure_ready()
-    tenant = _norm_tenant(tenant)
+    tenant = (tenant or "default").strip() or "default"
     since = _since(minutes)
     limit = max(1, min(_safe_int(limit, 12), 50))
 
