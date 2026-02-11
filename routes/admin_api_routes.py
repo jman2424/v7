@@ -7,18 +7,10 @@ from typing import Any, Callable, Dict, List
 from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger("ADMIN.API")
-
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 
 
-# ---------------------------------------------------------------------
-# Safe imports (never break blueprint registration)
-# ---------------------------------------------------------------------
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Try to import a function from service.analytics_db by name.
-    If missing, return a fallback so the blueprint still registers.
-    """
     try:
         from service import analytics_db  # type: ignore
 
@@ -40,29 +32,25 @@ def _fb_list(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
     return []
 
 
-# Canonical function names (your new API)
+# Canonical analytics functions
 get_kpis = _safe_import("get_kpis", _fb_dict)
 get_timeseries = _safe_import("get_timeseries", _fb_list)
+get_sessions_timeseries = _safe_import("get_sessions_timeseries", _fb_list)
 get_channels_split = _safe_import("get_channels_split", _fb_dict)
 get_top_intents = _safe_import("get_top_intents", _fb_list)
 get_fallbacks = _safe_import("get_fallbacks", _fb_list)
 get_errors = _safe_import("get_errors", _fb_list)
 get_common_questions = _safe_import("get_common_questions", _fb_list)
 get_leads = _safe_import("get_leads", _fb_list)
-get_sessions_timeseries = _safe_import("get_sessions_timeseries", _fb_list)
 
-# Newer extras (optional)
+# NEW: overview daily
+get_overview_daily = _safe_import("get_overview_daily", _fb_list)
+
+# Optional extras
 get_channel_breakdown = _safe_import("get_channel_breakdown", _fb_dict)
 get_whatsapp_store_share = _safe_import("get_whatsapp_store_share", _fb_list)
 
-# Back-compat names (some older code uses these)
-whatsapp_store_share = _safe_import("whatsapp_store_share", get_whatsapp_store_share)  # alias if exists
-channel_breakdown = _safe_import("channel_breakdown", get_channel_breakdown)          # alias if exists
 
-
-# ---------------------------------------------------------------------
-# Query helpers
-# ---------------------------------------------------------------------
 def _tenant() -> str:
     return (request.args.get("tenant") or "default").strip() or "default"
 
@@ -74,9 +62,6 @@ def _int_arg(name: str, default: int) -> int:
         return default
 
 
-# ---------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------
 @bp.get("/insights")
 def api_insights():
     tenant = _tenant()
@@ -86,6 +71,7 @@ def api_insights():
     limit = _int_arg("limit", 50)
 
     kpis = get_kpis(tenant=tenant, minutes=minutes)
+
     msg_series = get_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
     sess_series = get_sessions_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
 
@@ -96,14 +82,14 @@ def api_insights():
     questions = get_common_questions(tenant=tenant, minutes=minutes, top=top)
     leads = get_leads(tenant=tenant, limit=limit)
 
-    # Optional extras (won’t break if missing)
+    # NEW: per-day overview for the overview chart
+    overview_daily = get_overview_daily(tenant=tenant, minutes=minutes, limit_days=45)
+
+    # Optional extras
     ch_breakdown = get_channel_breakdown(tenant=tenant, minutes=minutes)
     wa_share = get_whatsapp_store_share(tenant=tenant, minutes=minutes, limit=12)
 
-    # Handy shapes
     channels_total = [{"label": ch, "count": v.get("total", 0)} for ch, v in (channels or {}).items()]
-    channels_in = [{"label": ch, "count": v.get("inbound", 0)} for ch, v in (channels or {}).items()]
-    channels_out = [{"label": ch, "count": v.get("outbound", 0)} for ch, v in (channels or {}).items()]
 
     payload = {
         "tenant": tenant,
@@ -116,8 +102,6 @@ def api_insights():
 
         "channels": channels,
         "channels_total": channels_total,
-        "channels_inbound": channels_in,
-        "channels_outbound": channels_out,
 
         "channel_breakdown": ch_breakdown,
         "whatsapp_store_share": wa_share,
@@ -128,6 +112,9 @@ def api_insights():
 
         "common_questions": questions,
         "leads": leads,
+
+        # 👇 what charts.js now uses for the "Errors slot" (Overview line)
+        "overview_daily": overview_daily,
     }
     return jsonify(payload)
 
@@ -156,19 +143,6 @@ def api_sessions_timeseries():
 def api_channels():
     minutes = _int_arg("minutes", 1440)
     return jsonify(get_channels_split(tenant=_tenant(), minutes=minutes))
-
-
-@bp.get("/channel_breakdown")
-def api_channel_breakdown():
-    minutes = _int_arg("minutes", 1440)
-    return jsonify(get_channel_breakdown(tenant=_tenant(), minutes=minutes))
-
-
-@bp.get("/whatsapp_store_share")
-def api_whatsapp_store_share():
-    minutes = _int_arg("minutes", 1440)
-    limit = _int_arg("limit", 12)
-    return jsonify(get_whatsapp_store_share(tenant=_tenant(), minutes=minutes, limit=limit))
 
 
 @bp.get("/intents")
