@@ -1,9 +1,10 @@
 /* dashboard/static/js/charts.js
    Unified dashboard charts (Chart.js)
 
-   FIXES:
-   - Always includes tenant in /admin/api/insights
-   - Shows a clear debug message if tenant mismatch happens
+   PATCHED:
+   - Tenant is taken from URL first (/admin/?tenant=TARIQ) so it never falls back to "default"
+   - Adds cache-bust param to avoid stale 0 payloads
+   - Keeps your chart types + overview logic (outbound_net = outbound - fallbacks - errors)
 */
 
 (function () {
@@ -14,7 +15,7 @@
     channels: null,
     intents: null,
     fallbacks: null,
-    overview: null,   // uses chart-errors canvas id
+    overview: null, // uses chart-errors canvas id
     sessions: null,
   };
 
@@ -26,10 +27,27 @@
     return Array.isArray(v) ? v : [];
   }
 
+  // ---------------------------
+  // PATCH: Tenant resolver (URL param first)
+  // ---------------------------
   function getTenant() {
-    // dashboard.html has: <body data-tenant="{{ tenant }}">
-    const t = document.body?.dataset?.tenant || window.__ADMIN__?.tenant || "default";
-    return String(t || "default").trim() || "default";
+    // 1) URL param beats everything: /admin/?tenant=TARIQ
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      const urlTenant = (params.get("tenant") || "").trim();
+      if (urlTenant) return urlTenant;
+    } catch (_) {}
+
+    // 2) body dataset (if your template sets it)
+    const bodyTenant = (document.body?.dataset?.tenant || "").trim();
+    if (bodyTenant) return bodyTenant;
+
+    // 3) global (if you set it somewhere)
+    const globalTenant = (window.__ADMIN__?.tenant || "").trim();
+    if (globalTenant) return globalTenant;
+
+    // 4) fallback
+    return "default";
   }
 
   function getMinutes() {
@@ -38,8 +56,14 @@
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
+  // ---------------------------
+  // PATCH: Cache-bust + always include tenant
+  // ---------------------------
   function endpoint(tenant, minutes) {
-    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(minutes)}&bucket=60&top=10&limit=50`;
+    const ts = Date.now();
+    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(
+      minutes
+    )}&bucket=60&top=10&limit=50&_=${ts}`;
   }
 
   async function fetchInsights(tenant, minutes) {
@@ -64,7 +88,9 @@
   function destroyChart(key) {
     const c = charts[key];
     if (c && typeof c.destroy === "function") {
-      try { c.destroy(); } catch (_) {}
+      try {
+        c.destroy();
+      } catch (_) {}
     }
     charts[key] = null;
   }
@@ -273,11 +299,11 @@
       data: {
         labels,
         datasets: [
-          { label: "Inbound",        data: points.map((p) => p.inbound),     tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Outbound (raw)", data: points.map((p) => p.outbound),    tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Fallbacks",      data: points.map((p) => p.fallbacks),   tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Errors",         data: points.map((p) => p.errors),      tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Outbound (net)", data: points.map((p) => p.outboundNet), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: true  },
+          { label: "Inbound", data: points.map((p) => p.inbound), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Outbound (raw)", data: points.map((p) => p.outbound), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Fallbacks", data: points.map((p) => p.fallbacks), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Errors", data: points.map((p) => p.errors), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
+          { label: "Outbound (net)", data: points.map((p) => p.outboundNet), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: true },
         ],
       },
       options: {
@@ -310,11 +336,6 @@
       if (String(err).includes("AbortError")) return;
       console.error("[charts.js] fetch insights failed:", err);
       return;
-    }
-
-    // If tenant mismatch, you will see zeros. Make it obvious.
-    if (payload?.tenant && String(payload.tenant).toUpperCase() !== String(tenant).toUpperCase()) {
-      console.warn("[charts.js] TENANT MISMATCH", { uiTenant: tenant, apiTenant: payload.tenant });
     }
 
     // 1) Message Volume (BAR)
@@ -383,7 +404,7 @@
       charts.sessions = buildLine("chart-sessions", labels, "Sessions", values, true);
     }
 
-    // Debug
+    // Debug (optional)
     const raw = $("raw");
     if (raw) raw.textContent = JSON.stringify(payload, null, 2);
     const dbg = $("dbg-status");
