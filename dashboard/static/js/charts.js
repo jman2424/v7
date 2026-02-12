@@ -1,18 +1,9 @@
 /* dashboard/static/js/charts.js
    Unified dashboard charts (Chart.js)
 
-   - Fetches ONE endpoint: /admin/api/insights
-   - Renders:
-     1) Message Volume (BAR)              #chart-volume
-     2) Channels Share (DOUGHNUT)         #chart-channels
-     3) Top Intents (HORIZONTAL BAR)      #chart-intents
-     4) Fallbacks (BAR)                   #chart-fallbacks
-     5) Overview (DAILY LINE)             #chart-errors   (replaces "Errors" chart slot)
-     6) Sessions (LINE)                   #chart-sessions
-
-   Notes:
-   - Overview expects backend payload.overview_daily[] = {d,inbound,outbound,fallbacks,errors,outbound_net}
-   - If overview_daily missing, it will still render something (best-effort).
+   FIXES:
+   - Always includes tenant in /admin/api/insights
+   - Shows a clear debug message if tenant mismatch happens
 */
 
 (function () {
@@ -35,23 +26,29 @@
     return Array.isArray(v) ? v : [];
   }
 
+  function getTenant() {
+    // dashboard.html has: <body data-tenant="{{ tenant }}">
+    const t = document.body?.dataset?.tenant || window.__ADMIN__?.tenant || "default";
+    return String(t || "default").trim() || "default";
+  }
+
   function getMinutes() {
-    // dashboard.html uses <select id="period">
     const sel = $("period");
     const v = sel ? parseInt(sel.value, 10) : 1440;
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  function endpoint(minutes) {
-    // One payload for everything
-    return `/admin/api/insights?minutes=${encodeURIComponent(minutes)}&bucket=60&top=10&limit=50`;
+  function endpoint(tenant, minutes) {
+    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(minutes)}&bucket=60&top=10&limit=50`;
   }
 
-  async function fetchInsights(minutes) {
+  async function fetchInsights(tenant, minutes) {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const res = await fetch(endpoint(minutes), {
+    const url = endpoint(tenant, minutes);
+
+    const res = await fetch(url, {
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
@@ -87,7 +84,6 @@
   // Normalizers
   // ---------------------------
   function normMessageVolume(payload) {
-    // payload.message_volume: [{t,inbound,outbound}] where t=substr(ts_utc,1,13)
     const pts = safeArray(payload?.message_volume);
     return pts.map((p, i) => {
       const label = String(p?.t ?? `#${i + 1}`);
@@ -98,7 +94,6 @@
   }
 
   function normSessions(payload) {
-    // payload.sessions_per_bucket: [{t,sessions}]
     const pts = safeArray(payload?.sessions_per_bucket);
     return pts.map((p, i) => {
       const label = String(p?.t ?? `#${i + 1}`);
@@ -108,7 +103,6 @@
   }
 
   function normChannelsTotal(payload) {
-    // payload.channels_total: [{label,count}] OR payload.channels: {web:{total}, whatsapp:{total}}
     const arr = safeArray(payload?.channels_total);
     if (arr.length) {
       return arr.map((x) => ({
@@ -125,7 +119,6 @@
   }
 
   function normTopList(payload, key) {
-    // expects [{label,count}]
     const arr = safeArray(payload?.[key]);
     return arr.map((x) => ({
       label: String(x?.label ?? "unknown"),
@@ -134,7 +127,6 @@
   }
 
   function normOverviewDaily(payload) {
-    // overview_daily: [{d,inbound,outbound,fallbacks,errors,outbound_net}]
     const arr = safeArray(payload?.overview_daily);
     return arr.map((x, i) => ({
       label: String(x?.d ?? `#${i + 1}`),
@@ -146,7 +138,6 @@
     }));
   }
 
-  // If backend doesn’t provide overview_daily yet, best-effort:
   function buildFallbackOverviewFromKPIs(payload) {
     const k = payload?.kpis || {};
     const inbound = Math.round(Number(k?.inbound ?? 0)) || 0;
@@ -163,25 +154,14 @@
   function buildBarVolume(canvasId, labels, inbound, outbound) {
     const canvas = $(canvasId);
     if (!canvas) return null;
-
     const ctx = canvas.getContext("2d");
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
         datasets: [
-          {
-            label: "Inbound",
-            data: inbound,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
-          {
-            label: "Outbound",
-            data: outbound,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
+          { label: "Inbound", data: inbound, borderWidth: 1, borderRadius: 8 },
+          { label: "Outbound", data: outbound, borderWidth: 1, borderRadius: 8 },
         ],
       },
       options: {
@@ -193,10 +173,7 @@
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
@@ -204,22 +181,15 @@
   function buildDoughnut(canvasId, labels, values) {
     const canvas = $(canvasId);
     if (!canvas) return null;
-
     const ctx = canvas.getContext("2d");
     return new Chart(ctx, {
       type: "doughnut",
-      data: {
-        labels,
-        datasets: [{ data: values, borderWidth: 1 }],
-      },
+      data: { labels, datasets: [{ data: values, borderWidth: 1 }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { position: "bottom" } },
         cutout: "65%",
       },
     });
@@ -228,14 +198,10 @@
   function buildHorizontalBar(canvasId, labels, values, labelName) {
     const canvas = $(canvasId);
     if (!canvas) return null;
-
     const ctx = canvas.getContext("2d");
     return new Chart(ctx, {
       type: "bar",
-      data: {
-        labels,
-        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
-      },
+      data: { labels, datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }] },
       options: {
         indexAxis: "y",
         responsive: true,
@@ -245,10 +211,7 @@
           x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           y: { grid: { display: false } },
         },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { display: false } },
       },
     });
   }
@@ -256,14 +219,10 @@
   function buildSimpleBar(canvasId, labels, values, labelName) {
     const canvas = $(canvasId);
     if (!canvas) return null;
-
     const ctx = canvas.getContext("2d");
     return new Chart(ctx, {
       type: "bar",
-      data: {
-        labels,
-        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
-      },
+      data: { labels, datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -273,10 +232,7 @@
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
@@ -284,22 +240,12 @@
   function buildLine(canvasId, labels, seriesLabel, values, fill) {
     const canvas = $(canvasId);
     if (!canvas) return null;
-
     const ctx = canvas.getContext("2d");
     return new Chart(ctx, {
       type: "line",
       data: {
         labels,
-        datasets: [
-          {
-            label: seriesLabel,
-            data: values,
-            tension: 0.35,
-            fill: !!fill,
-            borderWidth: 2,
-            pointRadius: 2,
-          },
-        ],
+        datasets: [{ label: seriesLabel, data: values, tension: 0.35, fill: !!fill, borderWidth: 2, pointRadius: 2 }],
       },
       options: {
         responsive: true,
@@ -310,15 +256,11 @@
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
 
-  // Overview line chart (THIS replaces the errors chart slot)
   function buildOverview(canvasId, points) {
     const canvas = $(canvasId);
     if (!canvas) return null;
@@ -347,10 +289,7 @@
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
           x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { position: "bottom" } },
       },
     });
   }
@@ -361,15 +300,21 @@
   async function reload() {
     setSubtext();
 
+    const tenant = getTenant();
     const minutes = getMinutes();
-    let payload;
 
+    let payload;
     try {
-      payload = await fetchInsights(minutes);
+      payload = await fetchInsights(tenant, minutes);
     } catch (err) {
       if (String(err).includes("AbortError")) return;
       console.error("[charts.js] fetch insights failed:", err);
       return;
+    }
+
+    // If tenant mismatch, you will see zeros. Make it obvious.
+    if (payload?.tenant && String(payload.tenant).toUpperCase() !== String(tenant).toUpperCase()) {
+      console.warn("[charts.js] TENANT MISMATCH", { uiTenant: tenant, apiTenant: payload.tenant });
     }
 
     // 1) Message Volume (BAR)
@@ -413,12 +358,12 @@
       charts.fallbacks = buildSimpleBar("chart-fallbacks", labels, values, "Fallbacks");
     }
 
-    // 5) Overview (DAILY LINE) — uses the old errors canvas id
+    // 5) Overview (DAILY LINE) — uses chart-errors canvas id
     {
       let ov = normOverviewDaily(payload);
       if (!ov.length) ov = buildFallbackOverviewFromKPIs(payload);
 
-      // Critical: ensure outbound_net matches your rule even if backend sent weird values
+      // enforce your rule: outbound_net = outbound - fallbacks - errors
       ov = ov.map((p) => {
         const outboundNet = Math.max(0, (p.outbound || 0) - (p.fallbacks || 0) - (p.errors || 0));
         return { ...p, outboundNet };
@@ -438,14 +383,13 @@
       charts.sessions = buildLine("chart-sessions", labels, "Sessions", values, true);
     }
 
-    // Optional debug block
+    // Debug
     const raw = $("raw");
     if (raw) raw.textContent = JSON.stringify(payload, null, 2);
     const dbg = $("dbg-status");
-    if (dbg) dbg.textContent = `Loaded • ${new Date().toLocaleString()}`;
+    if (dbg) dbg.textContent = `Loaded • ${new Date().toLocaleString()} • tenant=${tenant}`;
   }
 
-  // Expose for admin.js
   window.DashChartsReload = function () {
     reload().catch((err) => {
       if (String(err).includes("AbortError")) return;
@@ -454,11 +398,9 @@
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    // Auto-refresh button hook (if present)
     const btn = $("refresh");
     if (btn) btn.addEventListener("click", () => window.DashChartsReload());
 
-    // Period selector hook
     const period = $("period");
     if (period) period.addEventListener("change", () => window.DashChartsReload());
 
