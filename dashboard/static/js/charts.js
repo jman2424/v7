@@ -1,29 +1,22 @@
-/* dashboard/static/js/charts.js
-   Unified dashboard charts (Chart.js)
-
-   - Fetches ONE endpoint: /admin/api/insights
-   - Renders:
-     1) Message Volume (BAR)              #chart-volume
-     2) Channels Share (DOUGHNUT)         #chart-channels
-     3) Top Intents (HORIZONTAL BAR)      #chart-intents
-     4) Fallbacks (BAR)                   #chart-fallbacks
-     5) Overview (DAILY LINE)             #chart-errors   (replaces "Errors" chart slot)
-     6) Sessions (LINE)                   #chart-sessions
-
-   Notes:
-   - Overview expects backend payload.overview_daily[] = {d,inbound,outbound,fallbacks,errors,outbound_net}
-   - If overview_daily missing, it will still render something (best-effort).
+/* static/js/charts.js
+   Dashboard charts (Chart.js)
+   - Uses /admin/api/insights (single fetch)
+   - Matches dashboard.html IDs:
+     period, refresh, export
+     chart-volume, chart-channels, chart-intents, chart-fallbacks, chart-errors, chart-sessions
+   - Fixes "everything is zero" caused by old IDs/endpoints
 */
 
 (function () {
   let abortCtl = null;
 
+  // Chart instances
   const charts = {
     volume: null,
     channels: null,
     intents: null,
     fallbacks: null,
-    overview: null,   // uses chart-errors canvas id
+    errors: null,
     sessions: null,
   };
 
@@ -31,210 +24,138 @@
     return document.getElementById(id);
   }
 
-  function safeArray(v) {
-    return Array.isArray(v) ? v : [];
+  function tenantFromPage() {
+    const t = document.body?.dataset?.tenant || window.__ADMIN__?.tenant || "default";
+    return String(t || "default").trim() || "default";
   }
 
-  function getMinutes() {
-    // dashboard.html uses <select id="period">
+  function minutesFromUI() {
     const sel = $("period");
     const v = sel ? parseInt(sel.value, 10) : 1440;
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  function endpoint(minutes) {
-    // One payload for everything
-    return `/admin/api/insights?minutes=${encodeURIComponent(minutes)}&bucket=60&top=10&limit=50`;
+  function endpoint(tenant, minutes) {
+    // keep bucket/top/limit consistent with your admin_api_routes.py defaults
+    return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${minutes}&bucket=60&top=10&limit=50`;
   }
 
-  async function fetchInsights(minutes) {
+  async function fetchInsights(tenant, minutes) {
     if (abortCtl) abortCtl.abort();
     abortCtl = new AbortController();
 
-    const res = await fetch(endpoint(minutes), {
+    const res = await fetch(endpoint(tenant, minutes), {
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
     });
 
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Insights HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      const text = await res.text().catch(() => "");
+      throw new Error(`Insights HTTP ${res.status}: ${text.slice(0, 200)}`);
     }
     return res.json();
   }
 
-  function destroyChart(key) {
-    const c = charts[key];
-    if (c && typeof c.destroy === "function") {
-      try { c.destroy(); } catch (_) {}
-    }
-    charts[key] = null;
+  // ----------------------------
+  // Data normalization helpers
+  // ----------------------------
+  function asArray(x) {
+    return Array.isArray(x) ? x : [];
   }
 
-  function setSubtext() {
-    const el = $("kpi-sub");
-    if (!el) return;
-    const minutes = getMinutes();
-    if (minutes === 60) el.textContent = "Last 60m";
-    else if (minutes === 1440) el.textContent = "Last 24h";
-    else if (minutes === 10080) el.textContent = "Last 7d";
-    else if (minutes === 43200) el.textContent = "Last 30d";
-    else el.textContent = `Last ${minutes}m`;
-  }
-
-  // ---------------------------
-  // Normalizers
-  // ---------------------------
-  function normMessageVolume(payload) {
-    // payload.message_volume: [{t,inbound,outbound}] where t=substr(ts_utc,1,13)
-    const pts = safeArray(payload?.message_volume);
-    return pts.map((p, i) => {
-      const label = String(p?.t ?? `#${i + 1}`);
-      const inbound = Math.round(Number(p?.inbound ?? 0)) || 0;
-      const outbound = Math.round(Number(p?.outbound ?? 0)) || 0;
+  function normSeries(payload) {
+    // payload.message_volume is list of {t,inbound,outbound} from analytics_db.get_timeseries
+    const points = asArray(payload?.message_volume);
+    return points.map((p, i) => {
+      const label = String(p?.t ?? p?.bucket ?? p?.hour_bucket ?? p?.ts ?? `#${i + 1}`);
+      const inbound = Math.max(0, Math.round(Number(p?.inbound ?? 0)) || 0);
+      const outbound = Math.max(0, Math.round(Number(p?.outbound ?? 0)) || 0);
       return { label, inbound, outbound };
     });
   }
 
   function normSessions(payload) {
-    // payload.sessions_per_bucket: [{t,sessions}]
-    const pts = safeArray(payload?.sessions_per_bucket);
-    return pts.map((p, i) => {
-      const label = String(p?.t ?? `#${i + 1}`);
-      const sessions = Math.round(Number(p?.sessions ?? 0)) || 0;
+    const points = asArray(payload?.sessions_per_bucket);
+    return points.map((p, i) => {
+      const label = String(p?.t ?? p?.bucket ?? p?.hour_bucket ?? p?.ts ?? `#${i + 1}`);
+      const sessions = Math.max(0, Math.round(Number(p?.sessions ?? 0)) || 0);
       return { label, sessions };
     });
   }
 
-  function normChannelsTotal(payload) {
-    // payload.channels_total: [{label,count}] OR payload.channels: {web:{total}, whatsapp:{total}}
-    const arr = safeArray(payload?.channels_total);
-    if (arr.length) {
-      return arr.map((x) => ({
+  function normPieList(list, labelKey = "label", valueKey = "count") {
+    const items = asArray(list);
+    return items
+      .map((x) => ({
+        label: String(x?.[labelKey] ?? "unknown"),
+        value: Math.max(0, Math.round(Number(x?.[valueKey] ?? 0)) || 0),
+      }))
+      .filter((x) => x.label && x.value >= 0);
+  }
+
+  // channels_total already in payload as [{label,count}]
+  function normChannels(payload) {
+    const items = asArray(payload?.channels_total);
+    return items
+      .map((x) => ({
         label: String(x?.label ?? "unknown"),
-        count: Math.round(Number(x?.count ?? 0)) || 0,
-      }));
-    }
-    const obj = payload?.channels && typeof payload.channels === "object" ? payload.channels : null;
-    if (!obj) return [];
-    return Object.keys(obj).map((k) => ({
-      label: String(k),
-      count: Math.round(Number(obj[k]?.total ?? 0)) || 0,
-    }));
+        value: Math.max(0, Math.round(Number(x?.count ?? 0)) || 0),
+      }))
+      .filter((x) => x.label);
   }
 
-  function normTopList(payload, key) {
-    // expects [{label,count}]
-    const arr = safeArray(payload?.[key]);
-    return arr.map((x) => ({
-      label: String(x?.label ?? "unknown"),
-      count: Math.round(Number(x?.count ?? 0)) || 0,
-    }));
-  }
-
-  function normOverviewDaily(payload) {
-    // overview_daily: [{d,inbound,outbound,fallbacks,errors,outbound_net}]
-    const arr = safeArray(payload?.overview_daily);
-    return arr.map((x, i) => ({
-      label: String(x?.d ?? `#${i + 1}`),
-      inbound: Math.round(Number(x?.inbound ?? 0)) || 0,
-      outbound: Math.round(Number(x?.outbound ?? 0)) || 0,
-      fallbacks: Math.round(Number(x?.fallbacks ?? 0)) || 0,
-      errors: Math.round(Number(x?.errors ?? 0)) || 0,
-      outboundNet: Math.round(Number(x?.outbound_net ?? 0)) || 0,
-    }));
-  }
-
-  // If backend doesn’t provide overview_daily yet, best-effort:
-  function buildFallbackOverviewFromKPIs(payload) {
-    const k = payload?.kpis || {};
-    const inbound = Math.round(Number(k?.inbound ?? 0)) || 0;
-    const outbound = Math.round(Number(k?.outbound ?? 0)) || 0;
-    const fallbacks = Math.round(Number(k?.fallbacks ?? 0)) || 0;
-    const errors = Math.round(Number(k?.errors ?? 0)) || 0;
-    const outboundNet = Math.max(0, outbound - fallbacks - errors);
-    return [{ label: "Window", inbound, outbound, fallbacks, errors, outboundNet }];
-  }
-
-  // ---------------------------
+  // ----------------------------
   // Chart builders
-  // ---------------------------
-  function buildBarVolume(canvasId, labels, inbound, outbound) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
+  // ----------------------------
+  function destroyIfExists(c) {
+    try {
+      if (c) c.destroy();
+    } catch (_) {}
+    return null;
+  }
 
-    const ctx = canvas.getContext("2d");
+  function makeLine(ctx, labels, datasets) {
     return new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Inbound",
-            data: inbound,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
-          {
-            label: "Outbound",
-            data: outbound,
-            borderWidth: 1,
-            borderRadius: 8,
-          },
-        ],
-      },
+      type: "line",
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
         interaction: { mode: "index", intersect: false },
         scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
+          y: { beginAtZero: true, ticks: { precision: 0 } },
+          x: { ticks: { maxRotation: 0, autoSkip: true } },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { display: true } },
       },
     });
   }
 
-  function buildDoughnut(canvasId, labels, values) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-
-    const ctx = canvas.getContext("2d");
+  function makeDoughnut(ctx, labels, values) {
     return new Chart(ctx, {
       type: "doughnut",
       data: {
         labels,
-        datasets: [{ data: values, borderWidth: 1 }],
+        datasets: [{ data: values }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
-        cutout: "65%",
+        plugins: { legend: { position: "bottom" } },
+        cutout: "62%",
       },
     });
   }
 
-  function buildHorizontalBar(canvasId, labels, values, labelName) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-
-    const ctx = canvas.getContext("2d");
+  function makeHorizontalBar(ctx, labels, values) {
     return new Chart(ctx, {
       type: "bar",
       data: {
         labels,
-        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
+        datasets: [{ label: "Count", data: values }],
       },
       options: {
         indexAxis: "y",
@@ -242,226 +163,132 @@
         maintainAspectRatio: false,
         animation: false,
         scales: {
-          x: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          y: { grid: { display: false } },
+          x: { beginAtZero: true, ticks: { precision: 0 } },
+          y: { ticks: { autoSkip: false } },
         },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: true },
-        },
+        plugins: { legend: { display: false } },
       },
     });
   }
 
-  function buildSimpleBar(canvasId, labels, values, labelName) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-
-    const ctx = canvas.getContext("2d");
-    return new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [{ label: labelName, data: values, borderWidth: 1, borderRadius: 8 }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
-        },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
-      },
-    });
-  }
-
-  function buildLine(canvasId, labels, seriesLabel, values, fill) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-
-    const ctx = canvas.getContext("2d");
-    return new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: seriesLabel,
-            data: values,
-            tension: 0.35,
-            fill: !!fill,
-            borderWidth: 2,
-            pointRadius: 2,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
-        },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
-      },
-    });
-  }
-
-  // Overview line chart (THIS replaces the errors chart slot)
-  function buildOverview(canvasId, points) {
-    const canvas = $(canvasId);
-    if (!canvas) return null;
-
-    const ctx = canvas.getContext("2d");
-    const labels = points.map((p) => p.label);
-
-    return new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          { label: "Inbound",        data: points.map((p) => p.inbound),     tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Outbound (raw)", data: points.map((p) => p.outbound),    tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Fallbacks",      data: points.map((p) => p.fallbacks),   tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Errors",         data: points.map((p) => p.errors),      tension: 0.35, borderWidth: 2, pointRadius: 2, fill: false },
-          { label: "Outbound (net)", data: points.map((p) => p.outboundNet), tension: 0.35, borderWidth: 2, pointRadius: 2, fill: true  },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "index", intersect: false },
-        scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
-        },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { enabled: true },
-        },
-      },
-    });
-  }
-
-  // ---------------------------
-  // Main reload
-  // ---------------------------
-  async function reload() {
-    setSubtext();
-
-    const minutes = getMinutes();
-    let payload;
-
-    try {
-      payload = await fetchInsights(minutes);
-    } catch (err) {
-      if (String(err).includes("AbortError")) return;
-      console.error("[charts.js] fetch insights failed:", err);
-      return;
-    }
-
-    // 1) Message Volume (BAR)
-    {
-      const pts = normMessageVolume(payload);
-      const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
+  // ----------------------------
+  // Render
+  // ----------------------------
+  function render(payload) {
+    // --- Volume (keep like your left chart): LINE chart inbound/outbound
+    const volCanvas = $("chart-volume");
+    if (volCanvas) {
+      const pts = normSeries(payload);
+      const labels = pts.map((p) => p.label);
       const inbound = pts.map((p) => p.inbound);
       const outbound = pts.map((p) => p.outbound);
 
-      destroyChart("volume");
-      charts.volume = buildBarVolume("chart-volume", labels, inbound, outbound);
+      charts.volume = destroyIfExists(charts.volume);
+      charts.volume = makeLine(volCanvas.getContext("2d"), labels, [
+        { label: "Inbound", data: inbound, tension: 0.35 },
+        { label: "Outbound", data: outbound, tension: 0.35 },
+      ]);
     }
 
-    // 2) Channels (DOUGHNUT)
-    {
-      const ch = normChannelsTotal(payload);
-      const labels = ch.map((x) => x.label);
-      const values = ch.map((x) => x.count);
+    // --- Channels (DOUGHNUT)
+    const chCanvas = $("chart-channels");
+    if (chCanvas) {
+      const items = normChannels(payload);
+      const labels = items.map((x) => x.label);
+      const values = items.map((x) => x.value);
 
-      destroyChart("channels");
-      charts.channels = buildDoughnut("chart-channels", labels, values);
+      charts.channels = destroyIfExists(charts.channels);
+      charts.channels = makeDoughnut(chCanvas.getContext("2d"), labels, values);
     }
 
-    // 3) Top Intents (HORIZONTAL BAR)
-    {
-      const intents = normTopList(payload, "top_intents");
-      const labels = intents.map((x) => x.label);
-      const values = intents.map((x) => x.count);
+    // --- Top intents (HORIZONTAL BAR looks clean)
+    const intentsCanvas = $("chart-intents");
+    if (intentsCanvas) {
+      const items = normPieList(payload?.top_intents, "label", "count");
+      const labels = items.map((x) => x.label);
+      const values = items.map((x) => x.value);
 
-      destroyChart("intents");
-      charts.intents = buildHorizontalBar("chart-intents", labels, values, "Intents");
+      charts.intents = destroyIfExists(charts.intents);
+      charts.intents = makeHorizontalBar(intentsCanvas.getContext("2d"), labels, values);
     }
 
-    // 4) Fallbacks (BAR)
-    {
-      const fbs = normTopList(payload, "fallbacks");
-      const labels = fbs.map((x) => x.label);
-      const values = fbs.map((x) => x.count);
+    // --- Fallbacks (HORIZONTAL BAR)
+    const fbCanvas = $("chart-fallbacks");
+    if (fbCanvas) {
+      const items = normPieList(payload?.fallbacks, "label", "count");
+      const labels = items.map((x) => x.label);
+      const values = items.map((x) => x.value);
 
-      destroyChart("fallbacks");
-      charts.fallbacks = buildSimpleBar("chart-fallbacks", labels, values, "Fallbacks");
+      charts.fallbacks = destroyIfExists(charts.fallbacks);
+      charts.fallbacks = makeHorizontalBar(fbCanvas.getContext("2d"), labels, values);
     }
 
-    // 5) Overview (DAILY LINE) — uses the old errors canvas id
-    {
-      let ov = normOverviewDaily(payload);
-      if (!ov.length) ov = buildFallbackOverviewFromKPIs(payload);
+    // --- Errors (HORIZONTAL BAR)
+    const errCanvas = $("chart-errors");
+    if (errCanvas) {
+      const items = normPieList(payload?.errors, "label", "count");
+      const labels = items.map((x) => x.label);
+      const values = items.map((x) => x.value);
 
-      // Critical: ensure outbound_net matches your rule even if backend sent weird values
-      ov = ov.map((p) => {
-        const outboundNet = Math.max(0, (p.outbound || 0) - (p.fallbacks || 0) - (p.errors || 0));
-        return { ...p, outboundNet };
-      });
-
-      destroyChart("overview");
-      charts.overview = buildOverview("chart-errors", ov);
+      charts.errors = destroyIfExists(charts.errors);
+      charts.errors = makeHorizontalBar(errCanvas.getContext("2d"), labels, values);
     }
 
-    // 6) Sessions (LINE)
-    {
+    // --- Sessions (LINE)
+    const sessCanvas = $("chart-sessions");
+    if (sessCanvas) {
       const pts = normSessions(payload);
-      const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
+      const labels = pts.map((p) => p.label);
       const values = pts.map((p) => p.sessions);
 
-      destroyChart("sessions");
-      charts.sessions = buildLine("chart-sessions", labels, "Sessions", values, true);
+      charts.sessions = destroyIfExists(charts.sessions);
+      charts.sessions = makeLine(sessCanvas.getContext("2d"), labels, [
+        { label: "Sessions", data: values, tension: 0.35 },
+      ]);
     }
-
-    // Optional debug block
-    const raw = $("raw");
-    if (raw) raw.textContent = JSON.stringify(payload, null, 2);
-    const dbg = $("dbg-status");
-    if (dbg) dbg.textContent = `Loaded • ${new Date().toLocaleString()}`;
   }
 
-  // Expose for admin.js
-  window.DashChartsReload = function () {
-    reload().catch((err) => {
+  async function reload() {
+    const tenant = tenantFromPage();
+    const minutes = minutesFromUI();
+
+    let payload;
+    try {
+      payload = await fetchInsights(tenant, minutes);
+    } catch (err) {
       if (String(err).includes("AbortError")) return;
-      console.error("[charts.js] reload failed:", err);
-    });
+      console.error("[charts.js] insights fetch failed:", err);
+      return;
+    }
+
+    // Quick debug: if backend returns empty window
+    if (payload?.kpis && (payload.kpis.total ?? 0) === 0) {
+      console.warn("[charts.js] KPI total is 0. Either window is empty or tenant mismatch.", {
+        tenant,
+        minutes,
+        gotTenant: payload?.tenant,
+      });
+    }
+
+    render(payload);
+
+    // expose payload for your debug panel / admin.js
+    window.__LAST_INSIGHTS__ = payload;
+  }
+
+  // Public hook
+  window.DashChartsReload = function () {
+    reload().catch((e) => console.error("[charts.js] reload failed:", e));
   };
 
   document.addEventListener("DOMContentLoaded", () => {
-    // Auto-refresh button hook (if present)
-    const btn = $("refresh");
-    if (btn) btn.addEventListener("click", () => window.DashChartsReload());
-
-    // Period selector hook
     const period = $("period");
     if (period) period.addEventListener("change", () => window.DashChartsReload());
 
+    const refresh = $("refresh");
+    if (refresh) refresh.addEventListener("click", () => window.DashChartsReload());
+
+    // initial
     window.DashChartsReload();
   });
 })();
