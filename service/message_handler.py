@@ -1,18 +1,16 @@
+# service/message_handler.py
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-FIXED:
-- DOES NOT write msg_in/msg_out analytics (that must happen ONLY at the transport boundary:
-  routes/webchat_routes.py and routes/whatsapp_routes.py)
-- Keeps DISPATCH logging for debugging
-- Keeps CRM logging
-- Keeps optional PIPELINE telemetry, but uses event_type names that will NOT inflate chat KPIs
-  (pipeline_in / pipeline_out / pipeline_turn)
+RULES:
+- NEVER writes msg_in/msg_out/error analytics here.
+  Those belong ONLY to transport boundaries:
+    - routes/webchat_routes.py
+    - routes/whatsapp_routes.py
 
-Why:
-You were double-counting because:
-- webchat_routes.py logs inbound/outbound
-- AND this handler logged msg_in/msg_out (and chat_turn) again via analytics.log_event()
+- This handler may write TELEMETRY only:
+    pipeline_in / pipeline_out / pipeline_turn
+  Telemetry must never crash the bot.
 """
 
 from __future__ import annotations
@@ -29,6 +27,9 @@ from handlers.handler_v7 import MessageHandlerV7
 from . import HandlerDeps, DEFAULT_SESSION_TTL
 
 logger = logging.getLogger("MessageHandler")
+
+# These must NEVER be written from here.
+_KPI_EVENT_TYPES = {"msg_in", "msg_out", "error"}
 
 
 @dataclass
@@ -85,16 +86,16 @@ class MessageHandler:
 
         logger.info(
             "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
-            tenant,
-            session_id,
-            channel,
+            ctx.tenant,
+            ctx.session_id,
+            ctx.channel,
             mode,
             rid,
             user_text[:120],
         )
 
-        # OPTIONAL pipeline telemetry (does NOT affect chat KPIs)
-        self._post_telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
+        # TELEMETRY ONLY (safe, never KPI)
+        self._telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
 
         # ---------------- DISPATCH ----------------
         if mode == "v5":
@@ -106,8 +107,8 @@ class MessageHandler:
 
         logger.info(
             "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
-            tenant,
-            session_id,
+            ctx.tenant,
+            ctx.session_id,
             mode,
             rid,
             reply.get("intent"),
@@ -121,8 +122,8 @@ class MessageHandler:
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
-        # OPTIONAL pipeline telemetry (does NOT affect chat KPIs)
-        self._post_telemetry(
+        # TELEMETRY ONLY (safe, never KPI)
+        self._telemetry(
             ctx,
             event_type="pipeline_out",
             meta={
@@ -132,7 +133,7 @@ class MessageHandler:
                 "reply_len": len((reply.get("reply") or "")),
             },
         )
-        self._post_telemetry(
+        self._telemetry(
             ctx,
             event_type="pipeline_turn",
             meta={
@@ -199,7 +200,6 @@ class MessageHandler:
             }
 
         requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
-
         if requires_items and not items:
             logger.warning(
                 "PIPELINE FAILURE: intent=%s but no items returned | text=%r tenant=%s session=%s",
@@ -291,50 +291,38 @@ class MessageHandler:
     # ---------------------------------------------------------
     # TELEMETRY (safe)
     # ---------------------------------------------------------
-    def _post_telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
+    def _telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
         """
-        Telemetry is allowed here, but it must NEVER be:
-          - msg_in
-          - msg_out
-          - error  (those belong to transport layer too)
-
-        We use:
-          - pipeline_in / pipeline_out / pipeline_turn
-
-        If your analytics implementation writes to SQLite "events" table, these won't be
-        included in KPI queries because KPIs only count msg_in/msg_out/error.
+        Telemetry is allowed here, but must NEVER write KPI event types.
+        We only emit pipeline_*.
         """
+        if not event_type:
+            return
+
+        # Hard-block KPI types even if someone passes them by mistake.
+        if event_type in _KPI_EVENT_TYPES:
+            event_type = f"telemetry_{event_type}"
+
+        # Only allow pipeline telemetry (plus telemetry_* fallback above).
+        if not (event_type.startswith("pipeline_") or event_type.startswith("telemetry_")):
+            event_type = f"pipeline_{event_type}"
+
         try:
             meta_json = json.dumps(meta, separators=(",", ":"), ensure_ascii=False)
 
-            if hasattr(self.analytics, "log_event"):
-                # Try common signatures, but never crash
-                try:
-                    self.analytics.log_event(
-                        tenant=ctx.tenant,
-                        channel=ctx.channel,
-                        session_id=ctx.session_id,
-                        event_type=event_type,
-                        lead_id=None,
-                        meta_json=meta_json,
-                    )
-                    return
-                except TypeError:
-                    pass
+            fn = getattr(self.analytics, "log_event", None)
+            if not callable(fn):
+                return
 
-                try:
-                    self.analytics.log_event(
-                        ctx.tenant,
-                        {
-                            "type": event_type,
-                            "channel": ctx.channel,
-                            "session_id": ctx.session_id,
-                            "meta": meta,
-                        },
-                    )
-                    return
-                except TypeError:
-                    pass
-
+            # Single canonical signature. No weird second signature.
+            fn(
+                tenant=ctx.tenant,
+                channel=ctx.channel,
+                session_id=ctx.session_id,
+                event_type=event_type,
+                lead_id="",  # keep it string; avoids None issues in sqlite inserts
+                meta_json=meta_json,
+            )
         except Exception:
-            logger.exception("telemetry %s failed", event_type)
+            # telemetry must never break the app
+            logger.exception("telemetry failed event_type=%s", event_type)
