@@ -18,7 +18,6 @@ _INIT_DONE = False
 # Helpers
 # ---------------------------------------------------------------------
 def _utc_now() -> str:
-    # ISO-8601 with +00:00, lexicographically sortable
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
@@ -30,7 +29,6 @@ def _since(minutes: int) -> str:
 
 
 def _norm_tenant(t: Optional[str]) -> str:
-    # CRITICAL: force consistent case so reads match writes
     t = (t or "default").strip() or "default"
     return t.upper()
 
@@ -76,20 +74,14 @@ def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str])
             try:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
             except Exception:
-                # If table doesn't exist or column add fails for any reason, ignore.
                 pass
 
 
 # ---------------------------------------------------------------------
-# Boot / Schema (migration-safe)
+# Boot / Schema (migration-safe superset)
 # ---------------------------------------------------------------------
 def init_db() -> None:
-    """
-    Safe to call repeatedly.
-    Designed to survive older DBs created by other modules (analytics_service).
-    """
     with _conn() as con:
-        # EVENTS table: keep it as a superset schema
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -109,8 +101,6 @@ def init_db() -> None:
             """
         )
 
-        # LEADS table: multi-tenant unique(tenant, lead_id)
-        # (If a different schema exists already, we won't drop it.)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS leads (
@@ -128,7 +118,6 @@ def init_db() -> None:
             """
         )
 
-        # Migrate / ensure columns exist (won't break older DBs)
         _ensure_columns(
             con,
             "events",
@@ -156,7 +145,6 @@ def init_db() -> None:
             },
         )
 
-        # Indexes
         try:
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_tenant_ts ON events(tenant, ts_utc)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
@@ -189,28 +177,21 @@ def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone:
 
     with _conn() as con:
         cols = _table_columns(con, "leads")
-
-        # If a legacy leads schema exists (lead_id PRIMARY KEY without tenant unique),
-        # we still try to write in a compatible way.
         if "tenant" in cols:
             con.execute(
                 """
                 INSERT INTO leads (tenant, lead_id, name, phone, status, tags, updated_utc)
-                VALUES (?, ?, ?, ?, COALESCE(NULLIF(?,''),'Open'), COALESCE(NULLIF(?,''),'[]'), ?)
+                VALUES (?, ?, ?, ?, 'Open', '[]', ?)
                 ON CONFLICT(tenant, lead_id) DO UPDATE SET
                   name = COALESCE(excluded.name, leads.name),
                   phone = COALESCE(excluded.phone, leads.phone),
                   updated_utc = excluded.updated_utc;
                 """,
-                (tenant_n, lead_id_n, name, phone, "Open", "[]", now),
+                (tenant_n, lead_id_n, name, phone, now),
             )
         else:
-            # Extremely old schema fallback (best effort)
             con.execute(
-                """
-                INSERT OR REPLACE INTO leads (lead_id, name, phone, updated_utc)
-                VALUES (?, ?, ?, ?);
-                """,
+                "INSERT OR REPLACE INTO leads (lead_id, name, phone, updated_utc) VALUES (?, ?, ?, ?);",
                 (lead_id_n, name, phone, now),
             )
 
@@ -224,7 +205,6 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
 
     with _conn() as con:
         cols = _table_columns(con, "leads")
-
         if "tenant" in cols:
             con.execute(
                 """
@@ -235,7 +215,6 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
                 """,
                 (tenant_n, lead_id_n, now),
             )
-
             if "last_session_id" in cols:
                 con.execute(
                     """
@@ -245,62 +224,40 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
                     """,
                     (session_id_n, now, tenant_n, lead_id_n),
                 )
-        else:
-            # legacy fallback
-            try:
-                con.execute(
-                    """
-                    UPDATE leads
-                    SET last_session_id=?, updated_utc=?
-                    WHERE lead_id=?;
-                    """,
-                    (session_id_n, now, lead_id_n),
-                )
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------
-# Writes
+# Core writer (single truth)
 # ---------------------------------------------------------------------
-def log_message(
+def _insert_event(
     *,
     tenant: str,
     channel: str,
-    direction: str,  # inbound | outbound
     session_id: str,
-    intent: str = "unknown",
+    event_type: str,
+    intent: str = "",
     text: str = "",
-    lead_id: Optional[str] = None,
-    store: Optional[str] = None,
-    fallback: bool = False,
-    error: bool = False,  # legacy flag stored in meta_json
+    lead_id: str = "",
     error_code: str = "",
     error_type: str = "",
+    meta_json: str = "",
 ) -> None:
-    """
-    Stores messages as:
-      event_type = msg_in / msg_out
-    """
     _ensure_ready()
 
     tenant_n = _norm_tenant(tenant)
     ch = _norm_channel(channel)
     sid = (session_id or "unknown").strip() or "unknown"
-    direction_n = (direction or "inbound").strip().lower()
-    event_type = "msg_in" if direction_n == "inbound" else "msg_out"
-
-    meta = {"store": store, "fallback": bool(fallback), "error": bool(error)}
+    et = (event_type or "event").strip() or "event"
 
     with _conn() as con:
         cols = _table_columns(con, "events")
 
-        fields = ["ts_utc", "tenant", "channel", "session_id", "event_type", "meta_json"]
-        vals: list[Any] = [_utc_now(), tenant_n, ch, sid, event_type, json.dumps(meta, ensure_ascii=False)]
+        fields = ["ts_utc", "tenant", "channel", "session_id", "event_type"]
+        vals: list[Any] = [_utc_now(), tenant_n, ch, sid, et]
 
         if "intent" in cols:
             fields.append("intent")
-            vals.append((intent or "unknown").strip().lower() or "unknown")
+            vals.append((intent or "").strip().lower())
 
         if "text" in cols:
             fields.append("text")
@@ -318,8 +275,47 @@ def log_message(
             fields.append("error_type")
             vals.append(error_type or "")
 
+        if "meta_json" in cols:
+            fields.append("meta_json")
+            vals.append(meta_json or "")
+
         sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({','.join(['?'] * len(fields))})"
         con.execute(sql, tuple(vals))
+
+
+def log_message(
+    *,
+    tenant: str,
+    channel: str,
+    direction: str,  # inbound | outbound
+    session_id: str,
+    intent: str = "unknown",
+    text: str = "",
+    lead_id: Optional[str] = None,
+    store: Optional[str] = None,
+    fallback: bool = False,
+    error: bool = False,  # legacy flag stored in meta_json
+    error_code: str = "",
+    error_type: str = "",
+) -> None:
+    """
+    Transport-boundary messages only:
+      event_type = msg_in / msg_out
+    """
+    event_type = "msg_in" if (direction or "inbound").strip().lower() == "inbound" else "msg_out"
+    meta = {"store": store, "fallback": bool(fallback), "error": bool(error)}
+    _insert_event(
+        tenant=tenant,
+        channel=channel,
+        session_id=session_id,
+        event_type=event_type,
+        intent=intent or "unknown",
+        text=text or "",
+        lead_id=(lead_id or ""),
+        error_code=error_code or "",
+        error_type=error_type or "",
+        meta_json=json.dumps(meta, ensure_ascii=False),
+    )
 
 
 def log_error(
@@ -333,48 +329,126 @@ def log_error(
     meta: Optional[dict[str, Any]] = None,
 ) -> None:
     """
-    Errors are their own rows:
-      event_type = 'error'
-    So they do NOT inflate outbound counts.
+    Transport-boundary errors only:
+      event_type = error
     """
-    _ensure_ready()
-
-    tenant_n = _norm_tenant(tenant)
-    ch = _norm_channel(channel)
-    sid = (session_id or "unknown").strip() or "unknown"
-
-    m = meta or {}
+    m = dict(meta or {})
     m["error"] = True
-
-    with _conn() as con:
-        cols = _table_columns(con, "events")
-
-        fields = ["ts_utc", "tenant", "channel", "session_id", "event_type", "meta_json"]
-        vals: list[Any] = [_utc_now(), tenant_n, ch, sid, "error", json.dumps(m, ensure_ascii=False)]
-
-        if "intent" in cols:
-            fields.append("intent")
-            vals.append("system_error")
-
-        if "lead_id" in cols:
-            fields.append("lead_id")
-            vals.append((lead_id or "").strip())
-
-        if "error_code" in cols:
-            fields.append("error_code")
-            vals.append(error_code or "")
-
-        if "error_type" in cols:
-            fields.append("error_type")
-            vals.append(error_type or "")
-
-        sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({','.join(['?'] * len(fields))})"
-        con.execute(sql, tuple(vals))
+    _insert_event(
+        tenant=tenant,
+        channel=channel,
+        session_id=session_id,
+        event_type="error",
+        intent="system_error",
+        lead_id=(lead_id or ""),
+        error_code=error_code or "",
+        error_type=error_type or "",
+        meta_json=json.dumps(m, ensure_ascii=False),
+    )
 
 
-# Backwards compatible shim
-def log_event(*args, **kwargs):
-    return log_message(*args, **kwargs)
+def log_event(*args: Any, **kwargs: Any) -> None:
+    """
+    ✅ FIX: Accept multiple signatures used across the repo.
+
+    Supported:
+
+    1) log_event(
+         tenant=..., channel=..., session_id=...,
+         event_type="pipeline_in|pipeline_out|pipeline_turn|msg_in|msg_out|error",
+         intent=..., text=..., lead_id=..., meta_json=...
+       )
+
+    2) log_event(tenant, {"type": "...", "channel": "...", "session_id": "...", ...})
+
+    IMPORTANT:
+    - msg_in/msg_out/error should only be used at transport boundary,
+      but we still support them so nothing silently breaks.
+    - pipeline_* is allowed (telemetry) and won't affect KPIs because KPI queries
+      only count msg_in/msg_out/error.
+    """
+    try:
+        # Signature (tenant, dict)
+        if len(args) >= 2 and isinstance(args[1], dict):
+            tenant = args[0]
+            payload = args[1] or {}
+            event_type = payload.get("type") or payload.get("event_type") or "event"
+            channel = payload.get("channel") or "web"
+            session_id = payload.get("session_id") or payload.get("sid") or "unknown"
+            intent = payload.get("intent") or ""
+            text = payload.get("text") or ""
+            lead_id = payload.get("lead_id") or ""
+            meta = payload.get("meta") or {}
+            meta_json = payload.get("meta_json") or json.dumps(meta, ensure_ascii=False)
+            error_code = payload.get("error_code") or ""
+            error_type = payload.get("error_type") or ""
+
+            if event_type == "error":
+                log_error(
+                    tenant=str(tenant),
+                    channel=str(channel),
+                    session_id=str(session_id),
+                    lead_id=str(lead_id) if lead_id else None,
+                    error_code=str(error_code),
+                    error_type=str(error_type),
+                    meta=meta if isinstance(meta, dict) else None,
+                )
+                return
+
+            _insert_event(
+                tenant=str(tenant),
+                channel=str(channel),
+                session_id=str(session_id),
+                event_type=str(event_type),
+                intent=str(intent),
+                text=str(text),
+                lead_id=str(lead_id),
+                error_code=str(error_code),
+                error_type=str(error_type),
+                meta_json=str(meta_json),
+            )
+            return
+
+        # Signature (kwargs)
+        tenant = kwargs.get("tenant") or (args[0] if args else "default")
+        channel = kwargs.get("channel") or kwargs.get("ch") or (args[1] if len(args) > 1 else "web")
+        session_id = kwargs.get("session_id") or kwargs.get("sid") or (args[2] if len(args) > 2 else "unknown")
+        event_type = kwargs.get("event_type") or kwargs.get("type") or (args[3] if len(args) > 3 else "event")
+        intent = kwargs.get("intent") or ""
+        text = kwargs.get("text") or ""
+        lead_id = kwargs.get("lead_id") or ""
+        meta_json = kwargs.get("meta_json") or ""
+
+        error_code = kwargs.get("error_code") or ""
+        error_type = kwargs.get("error_type") or ""
+
+        if event_type == "error":
+            log_error(
+                tenant=str(tenant),
+                channel=str(channel),
+                session_id=str(session_id),
+                lead_id=str(lead_id) if lead_id else None,
+                error_code=str(error_code),
+                error_type=str(error_type),
+                meta=None,
+            )
+            return
+
+        _insert_event(
+            tenant=str(tenant),
+            channel=str(channel),
+            session_id=str(session_id),
+            event_type=str(event_type),
+            intent=str(intent),
+            text=str(text),
+            lead_id=str(lead_id),
+            error_code=str(error_code),
+            error_type=str(error_type),
+            meta_json=str(meta_json),
+        )
+    except Exception:
+        # Never let analytics crash chat
+        return
 
 
 # ---------------------------------------------------------------------
@@ -400,7 +474,6 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
             (tenant_n, since),
         ).fetchone()
 
-        # leads count (support both schemas)
         leads_cols = _table_columns(con, "leads")
         if "tenant" in leads_cols:
             leads = con.execute(
@@ -513,7 +586,6 @@ def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[
         cols = _table_columns(con, "events")
         if "intent" not in cols:
             return []
-
         rows = con.execute(
             """
             SELECT COALESCE(NULLIF(intent,''),'unknown') AS intent,
@@ -538,22 +610,6 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
     top = max(1, min(_safe_int(top, 10), 50))
 
     with _conn() as con:
-        cols = _table_columns(con, "events")
-        if "intent" not in cols:
-            # still can return generic fallback count grouping
-            rows = con.execute(
-                """
-                SELECT 'fallback' AS intent, COUNT(*) AS n
-                FROM events
-                WHERE tenant=? AND ts_utc>=?
-                  AND event_type='msg_out'
-                  AND json_extract(meta_json,'$.fallback') = 1;
-                """,
-                (tenant_n, since),
-            ).fetchall()
-            n = int(rows[0]["n"] or 0) if rows else 0
-            return [{"label": "fallback", "count": n}]
-
         rows = con.execute(
             """
             SELECT COALESCE(NULLIF(intent,''),'fallback') AS intent,
@@ -581,7 +637,6 @@ def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[
     with _conn() as con:
         cols = _table_columns(con, "events")
         code_expr = "COALESCE(NULLIF(error_code,''),'error')" if "error_code" in cols else "'error'"
-
         rows = con.execute(
             f"""
             SELECT {code_expr} AS code,
@@ -609,7 +664,6 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
         cols = _table_columns(con, "events")
         if "text" not in cols:
             return []
-
         rows = con.execute(
             """
             SELECT LOWER(TRIM(COALESCE(text,''))) AS q,
@@ -636,56 +690,52 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
     with _conn() as con:
         cols = _table_columns(con, "leads")
         has_tenant = "tenant" in cols
-        has_last_session = "last_session_id" in cols
-        has_tags = "tags" in cols
 
-        select_cols = ["lead_id", "name", "phone", "status", "updated_utc"]
-        if has_tags:
-            select_cols.insert(4, "tags")
-        if has_last_session:
-            select_cols.append("last_session_id")
-
-        where = "WHERE tenant=?" if has_tenant else ""
-        params = (tenant_n, limit) if has_tenant else (limit,)
-
-        q = f"""
-        SELECT {", ".join(select_cols)}
-        FROM leads
-        {where}
-        ORDER BY updated_utc DESC
-        LIMIT ?;
-        """
-
-        rows = con.execute(q, params).fetchall()
+        if has_tenant:
+            rows = con.execute(
+                """
+                SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
+                FROM leads
+                WHERE tenant=?
+                ORDER BY updated_utc DESC
+                LIMIT ?;
+                """,
+                (tenant_n, limit),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
+                FROM leads
+                ORDER BY updated_utc DESC
+                LIMIT ?;
+                """,
+                (limit,),
+            ).fetchall()
 
     out: list[dict[str, Any]] = []
     for r in rows:
-        raw_tags = r["tags"] if ("tags" in r.keys()) else "[]"
+        raw_tags = r["tags"] or "[]"
         try:
-            tags = json.loads(raw_tags or "[]")
+            tags = json.loads(raw_tags)
             if not isinstance(tags, list):
                 tags = []
         except Exception:
             tags = []
-
-        item = {
-            "lead_id": r["lead_id"],
-            "name": r["name"],
-            "phone": r["phone"],
-            "status": r["status"] or "Open",
-            "tags": tags,
-            "updated_utc": r["updated_utc"],
-        }
-        if "last_session_id" in r.keys():
-            item["last_session_id"] = r["last_session_id"]
-        out.append(item)
-
+        out.append(
+            {
+                "lead_id": r["lead_id"],
+                "name": r["name"],
+                "phone": r["phone"],
+                "status": r["status"] or "Open",
+                "tags": tags,
+                "updated_utc": r["updated_utc"],
+                "last_session_id": r["last_session_id"],
+            }
+        )
     return out
 
 
-# ---------------------------------------------------------------------
-# Daily overview (powers your Overview chart)
-# ---------------------------------------------------------------------
 def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45) -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
@@ -717,7 +767,6 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
         fallbacks = int(r["fallbacks"] or 0)
         errors = int(r["errors"] or 0)
         outbound_net = max(0, outbound - fallbacks - errors)
-
         out.append(
             {
                 "d": r["d"],
@@ -731,9 +780,6 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
     return out
 
 
-# ---------------------------------------------------------------------
-# Optional extras used by admin_api_routes
-# ---------------------------------------------------------------------
 def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
