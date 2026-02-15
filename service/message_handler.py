@@ -2,7 +2,7 @@
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-RULES:
+RULES (critical):
 - NEVER writes msg_in/msg_out/error analytics here.
   Those belong ONLY to transport boundaries:
     - routes/webchat_routes.py
@@ -24,11 +24,11 @@ from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
 
-from . import HandlerDeps, DEFAULT_SESSION_TTL
+from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
 
-# These must NEVER be written from here.
+# KPI event types that must never be emitted from here
 _KPI_EVENT_TYPES = {"msg_in", "msg_out", "error"}
 
 
@@ -94,7 +94,7 @@ class MessageHandler:
             user_text[:120],
         )
 
-        # TELEMETRY ONLY (safe, never KPI)
+        # TELEMETRY ONLY (never KPI)
         self._telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
 
         # ---------------- DISPATCH ----------------
@@ -122,7 +122,7 @@ class MessageHandler:
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
-        # TELEMETRY ONLY (safe, never KPI)
+        # TELEMETRY ONLY (never KPI)
         self._telemetry(
             ctx,
             event_type="pipeline_out",
@@ -274,7 +274,7 @@ class MessageHandler:
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
 
-        # Optional: if analytics has lead helpers, try them (never crash)
+        # Optional: analytics lead helpers (NOT KPIs)
         try:
             if hasattr(self.analytics, "upsert_lead"):
                 self.analytics.upsert_lead(
@@ -294,33 +294,35 @@ class MessageHandler:
     def _telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
         """
         Telemetry is allowed here, but must NEVER write KPI event types.
-        We only emit pipeline_*.
+        Allowed: pipeline_in / pipeline_out / pipeline_turn (only).
+        Must never crash the bot.
         """
         if not event_type:
             return
 
-        # Hard-block KPI types even if someone passes them by mistake.
+        # Hard block KPI types
         if event_type in _KPI_EVENT_TYPES:
-            event_type = f"telemetry_{event_type}"
+            return
 
-        # Only allow pipeline telemetry (plus telemetry_* fallback above).
-        if not (event_type.startswith("pipeline_") or event_type.startswith("telemetry_")):
-            event_type = f"pipeline_{event_type}"
+        # Only allow pipeline_* events from this layer
+        if not event_type.startswith("pipeline_"):
+            return
 
         try:
-            meta_json = json.dumps(meta, separators=(",", ":"), ensure_ascii=False)
-
             fn = getattr(self.analytics, "log_event", None)
             if not callable(fn):
                 return
 
-            # Single canonical signature. No weird second signature.
+            meta_json = json.dumps(meta or {}, separators=(",", ":"), ensure_ascii=False)
+
+            # Prefer passing lead_id as None; analytics_db.log_event handles it safely.
+            # If your analytics implementation can't handle None, it should fix there, not here.
             fn(
                 tenant=ctx.tenant,
                 channel=ctx.channel,
                 session_id=ctx.session_id,
                 event_type=event_type,
-                lead_id="",  # keep it string; avoids None issues in sqlite inserts
+                lead_id=None,
                 meta_json=meta_json,
             )
         except Exception:
