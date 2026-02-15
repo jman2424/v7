@@ -1,10 +1,11 @@
 /* dashboard/static/js/charts.js
    Unified dashboard charts (Chart.js)
 
-   PATCHED:
-   - Tenant is taken from URL first (/admin/?tenant=TARIQ) so it never falls back to "default"
-   - Adds cache-bust param to avoid stale 0 payloads
-   - Keeps your chart types + overview logic (outbound_net = outbound - fallbacks - errors)
+   FIXED (proper):
+   - Tenant is taken from URL first (/admin/?tenant=TARIQ)
+   - Also pushes tenant into fetch URL ALWAYS (no silent default)
+   - Cache-bust param to avoid stale payloads (Render + CDN + browser)
+   - Overview chart uses overview_daily (fallback to KPIs if empty)
 */
 
 (function () {
@@ -28,25 +29,24 @@
   }
 
   // ---------------------------
-  // PATCH: Tenant resolver (URL param first)
+  // Tenant resolver (URL param first)
   // ---------------------------
   function getTenant() {
-    // 1) URL param beats everything: /admin/?tenant=TARIQ
+    // 1) URL param beats everything
     try {
       const params = new URLSearchParams(window.location.search || "");
       const urlTenant = (params.get("tenant") || "").trim();
       if (urlTenant) return urlTenant;
     } catch (_) {}
 
-    // 2) body dataset (if your template sets it)
-    const bodyTenant = (document.body?.dataset?.tenant || "").trim();
+    // 2) body dataset
+    const bodyTenant = (document.body && document.body.dataset && document.body.dataset.tenant) ? document.body.dataset.tenant.trim() : "";
     if (bodyTenant) return bodyTenant;
 
-    // 3) global (if you set it somewhere)
-    const globalTenant = (window.__ADMIN__?.tenant || "").trim();
+    // 3) global (if present)
+    const globalTenant = (window.__ADMIN__ && window.__ADMIN__.tenant) ? String(window.__ADMIN__.tenant).trim() : "";
     if (globalTenant) return globalTenant;
 
-    // 4) fallback
     return "default";
   }
 
@@ -56,9 +56,7 @@
     return Number.isFinite(v) && v > 0 ? v : 1440;
   }
 
-  // ---------------------------
-  // PATCH: Cache-bust + always include tenant
-  // ---------------------------
+  // Cache bust and ALWAYS include tenant
   function endpoint(tenant, minutes) {
     const ts = Date.now();
     return `/admin/api/insights?tenant=${encodeURIComponent(tenant)}&minutes=${encodeURIComponent(
@@ -76,6 +74,7 @@
       credentials: "include",
       signal: abortCtl.signal,
       headers: { Accept: "application/json" },
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -88,9 +87,7 @@
   function destroyChart(key) {
     const c = charts[key];
     if (c && typeof c.destroy === "function") {
-      try {
-        c.destroy();
-      } catch (_) {}
+      try { c.destroy(); } catch (_) {}
     }
     charts[key] = null;
   }
@@ -110,66 +107,66 @@
   // Normalizers
   // ---------------------------
   function normMessageVolume(payload) {
-    const pts = safeArray(payload?.message_volume);
+    const pts = safeArray(payload && payload.message_volume);
     return pts.map((p, i) => {
-      const label = String(p?.t ?? `#${i + 1}`);
-      const inbound = Math.round(Number(p?.inbound ?? 0)) || 0;
-      const outbound = Math.round(Number(p?.outbound ?? 0)) || 0;
+      const label = String((p && p.t) != null ? p.t : `#${i + 1}`);
+      const inbound = Math.round(Number((p && p.inbound) != null ? p.inbound : 0)) || 0;
+      const outbound = Math.round(Number((p && p.outbound) != null ? p.outbound : 0)) || 0;
       return { label, inbound, outbound };
     });
   }
 
   function normSessions(payload) {
-    const pts = safeArray(payload?.sessions_per_bucket);
+    const pts = safeArray(payload && payload.sessions_per_bucket);
     return pts.map((p, i) => {
-      const label = String(p?.t ?? `#${i + 1}`);
-      const sessions = Math.round(Number(p?.sessions ?? 0)) || 0;
+      const label = String((p && p.t) != null ? p.t : `#${i + 1}`);
+      const sessions = Math.round(Number((p && p.sessions) != null ? p.sessions : 0)) || 0;
       return { label, sessions };
     });
   }
 
   function normChannelsTotal(payload) {
-    const arr = safeArray(payload?.channels_total);
+    const arr = safeArray(payload && payload.channels_total);
     if (arr.length) {
       return arr.map((x) => ({
-        label: String(x?.label ?? "unknown"),
-        count: Math.round(Number(x?.count ?? 0)) || 0,
+        label: String((x && x.label) != null ? x.label : "unknown"),
+        count: Math.round(Number((x && x.count) != null ? x.count : 0)) || 0,
       }));
     }
-    const obj = payload?.channels && typeof payload.channels === "object" ? payload.channels : null;
+    const obj = payload && payload.channels && typeof payload.channels === "object" ? payload.channels : null;
     if (!obj) return [];
     return Object.keys(obj).map((k) => ({
       label: String(k),
-      count: Math.round(Number(obj[k]?.total ?? 0)) || 0,
+      count: Math.round(Number((obj[k] && obj[k].total) != null ? obj[k].total : 0)) || 0,
     }));
   }
 
   function normTopList(payload, key) {
-    const arr = safeArray(payload?.[key]);
+    const arr = safeArray(payload && payload[key]);
     return arr.map((x) => ({
-      label: String(x?.label ?? "unknown"),
-      count: Math.round(Number(x?.count ?? 0)) || 0,
+      label: String((x && x.label) != null ? x.label : "unknown"),
+      count: Math.round(Number((x && x.count) != null ? x.count : 0)) || 0,
     }));
   }
 
   function normOverviewDaily(payload) {
-    const arr = safeArray(payload?.overview_daily);
+    const arr = safeArray(payload && payload.overview_daily);
     return arr.map((x, i) => ({
-      label: String(x?.d ?? `#${i + 1}`),
-      inbound: Math.round(Number(x?.inbound ?? 0)) || 0,
-      outbound: Math.round(Number(x?.outbound ?? 0)) || 0,
-      fallbacks: Math.round(Number(x?.fallbacks ?? 0)) || 0,
-      errors: Math.round(Number(x?.errors ?? 0)) || 0,
-      outboundNet: Math.round(Number(x?.outbound_net ?? 0)) || 0,
+      label: String((x && x.d) != null ? x.d : `#${i + 1}`),
+      inbound: Math.round(Number((x && x.inbound) != null ? x.inbound : 0)) || 0,
+      outbound: Math.round(Number((x && x.outbound) != null ? x.outbound : 0)) || 0,
+      fallbacks: Math.round(Number((x && x.fallbacks) != null ? x.fallbacks : 0)) || 0,
+      errors: Math.round(Number((x && x.errors) != null ? x.errors : 0)) || 0,
+      outboundNet: Math.round(Number((x && x.outbound_net) != null ? x.outbound_net : 0)) || 0,
     }));
   }
 
   function buildFallbackOverviewFromKPIs(payload) {
-    const k = payload?.kpis || {};
-    const inbound = Math.round(Number(k?.inbound ?? 0)) || 0;
-    const outbound = Math.round(Number(k?.outbound ?? 0)) || 0;
-    const fallbacks = Math.round(Number(k?.fallbacks ?? 0)) || 0;
-    const errors = Math.round(Number(k?.errors ?? 0)) || 0;
+    const k = (payload && payload.kpis) ? payload.kpis : {};
+    const inbound = Math.round(Number(k.inbound || 0)) || 0;
+    const outbound = Math.round(Number(k.outbound || 0)) || 0;
+    const fallbacks = Math.round(Number(k.fallbacks || 0)) || 0;
+    const errors = Math.round(Number(k.errors || 0)) || 0;
     const outboundNet = Math.max(0, outbound - fallbacks - errors);
     return [{ label: "Window", inbound, outbound, fallbacks, errors, outboundNet }];
   }
@@ -335,56 +332,45 @@
     } catch (err) {
       if (String(err).includes("AbortError")) return;
       console.error("[charts.js] fetch insights failed:", err);
+      const dbg = $("dbg-status");
+      if (dbg) dbg.textContent = `Failed • tenant=${tenant}`;
       return;
     }
 
-    // 1) Message Volume (BAR)
+    // 1) Message Volume
     {
       const pts = normMessageVolume(payload);
       const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
-      const inbound = pts.map((p) => p.inbound);
-      const outbound = pts.map((p) => p.outbound);
-
       destroyChart("volume");
-      charts.volume = buildBarVolume("chart-volume", labels, inbound, outbound);
+      charts.volume = buildBarVolume("chart-volume", labels, pts.map(p => p.inbound), pts.map(p => p.outbound));
     }
 
-    // 2) Channels (DOUGHNUT)
+    // 2) Channels
     {
       const ch = normChannelsTotal(payload);
-      const labels = ch.map((x) => x.label);
-      const values = ch.map((x) => x.count);
-
       destroyChart("channels");
-      charts.channels = buildDoughnut("chart-channels", labels, values);
+      charts.channels = buildDoughnut("chart-channels", ch.map(x => x.label), ch.map(x => x.count));
     }
 
-    // 3) Top Intents (HORIZONTAL BAR)
+    // 3) Top Intents
     {
       const intents = normTopList(payload, "top_intents");
-      const labels = intents.map((x) => x.label);
-      const values = intents.map((x) => x.count);
-
       destroyChart("intents");
-      charts.intents = buildHorizontalBar("chart-intents", labels, values, "Intents");
+      charts.intents = buildHorizontalBar("chart-intents", intents.map(x => x.label), intents.map(x => x.count), "Intents");
     }
 
-    // 4) Fallbacks (BAR)
+    // 4) Fallbacks
     {
       const fbs = normTopList(payload, "fallbacks");
-      const labels = fbs.map((x) => x.label);
-      const values = fbs.map((x) => x.count);
-
       destroyChart("fallbacks");
-      charts.fallbacks = buildSimpleBar("chart-fallbacks", labels, values, "Fallbacks");
+      charts.fallbacks = buildSimpleBar("chart-fallbacks", fbs.map(x => x.label), fbs.map(x => x.count), "Fallbacks");
     }
 
-    // 5) Overview (DAILY LINE) — uses chart-errors canvas id
+    // 5) Overview (uses chart-errors canvas)
     {
       let ov = normOverviewDaily(payload);
       if (!ov.length) ov = buildFallbackOverviewFromKPIs(payload);
 
-      // enforce your rule: outbound_net = outbound - fallbacks - errors
       ov = ov.map((p) => {
         const outboundNet = Math.max(0, (p.outbound || 0) - (p.fallbacks || 0) - (p.errors || 0));
         return { ...p, outboundNet };
@@ -394,17 +380,14 @@
       charts.overview = buildOverview("chart-errors", ov);
     }
 
-    // 6) Sessions (LINE)
+    // 6) Sessions
     {
       const pts = normSessions(payload);
       const labels = pts.map((p, i) => (p.label && p.label !== "undefined" ? p.label : `#${i + 1}`));
-      const values = pts.map((p) => p.sessions);
-
       destroyChart("sessions");
-      charts.sessions = buildLine("chart-sessions", labels, "Sessions", values, true);
+      charts.sessions = buildLine("chart-sessions", labels, "Sessions", pts.map(p => p.sessions), true);
     }
 
-    // Debug (optional)
     const raw = $("raw");
     if (raw) raw.textContent = JSON.stringify(payload, null, 2);
     const dbg = $("dbg-status");
