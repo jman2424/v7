@@ -11,6 +11,9 @@ bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 
 
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Always import analytics_db lazily so app boots even if analytics module is missing.
+    """
     try:
         from service import analytics_db  # type: ignore
 
@@ -32,7 +35,7 @@ def _fb_list(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
     return []
 
 
-# Canonical analytics functions
+# Canonical analytics functions (pulled from service/analytics_db.py)
 get_kpis = _safe_import("get_kpis", _fb_dict)
 get_timeseries = _safe_import("get_timeseries", _fb_list)
 get_sessions_timeseries = _safe_import("get_sessions_timeseries", _fb_list)
@@ -43,7 +46,7 @@ get_errors = _safe_import("get_errors", _fb_list)
 get_common_questions = _safe_import("get_common_questions", _fb_list)
 get_leads = _safe_import("get_leads", _fb_list)
 
-# NEW: overview daily
+# NEW: per-day overview used by charts.js (overview chart)
 get_overview_daily = _safe_import("get_overview_daily", _fb_list)
 
 # Optional extras
@@ -52,6 +55,7 @@ get_whatsapp_store_share = _safe_import("get_whatsapp_store_share", _fb_list)
 
 
 def _tenant() -> str:
+    # IMPORTANT: do NOT force case here; analytics_db normalizes internally
     return (request.args.get("tenant") or "default").strip() or "default"
 
 
@@ -64,17 +68,32 @@ def _int_arg(name: str, default: int) -> int:
 
 @bp.get("/insights")
 def api_insights():
+    """
+    Single endpoint the dashboard uses.
+
+    Contract (used by dashboard/static/js/charts.js):
+      - kpis
+      - message_volume
+      - sessions_per_bucket
+      - channels_total
+      - top_intents
+      - fallbacks
+      - overview_daily
+    """
     tenant = _tenant()
     minutes = _int_arg("minutes", 1440)
     bucket = _int_arg("bucket", 60)
     top = _int_arg("top", 10)
     limit = _int_arg("limit", 50)
 
+    # KPIs
     kpis = get_kpis(tenant=tenant, minutes=minutes)
 
+    # Timeseries
     msg_series = get_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
     sess_series = get_sessions_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
 
+    # Breakdowns
     channels = get_channels_split(tenant=tenant, minutes=minutes)
     intents = get_top_intents(tenant=tenant, minutes=minutes, top=top)
     fallbacks = get_fallbacks(tenant=tenant, minutes=minutes, top=top)
@@ -82,10 +101,10 @@ def api_insights():
     questions = get_common_questions(tenant=tenant, minutes=minutes, top=top)
     leads = get_leads(tenant=tenant, limit=limit)
 
-    # NEW: per-day overview for the overview chart
+    # Overview daily series (powers the "overview" chart)
     overview_daily = get_overview_daily(tenant=tenant, minutes=minutes, limit_days=45)
 
-    # Optional extras
+    # Optional extras (safe if not implemented)
     ch_breakdown = get_channel_breakdown(tenant=tenant, minutes=minutes)
     wa_share = get_whatsapp_store_share(tenant=tenant, minutes=minutes, limit=12)
 
@@ -96,24 +115,17 @@ def api_insights():
         "window_minutes": minutes,
         "bucket_minutes": bucket,
         "kpis": kpis,
-
         "message_volume": msg_series,
         "sessions_per_bucket": sess_series,
-
         "channels": channels,
         "channels_total": channels_total,
-
         "channel_breakdown": ch_breakdown,
         "whatsapp_store_share": wa_share,
-
         "top_intents": intents,
         "fallbacks": fallbacks,
         "errors": errors,
-
         "common_questions": questions,
         "leads": leads,
-
-        # 👇 what charts.js now uses for the "Errors slot" (Overview line)
         "overview_daily": overview_daily,
     }
     return jsonify(payload)
