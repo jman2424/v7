@@ -1,24 +1,29 @@
 # routes/webchat_routes.py
 from __future__ import annotations
 
+import inspect
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, make_response, render_template, request
 
 from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
 
-# ✅ use DB-backed analytics directly
+# DB-backed analytics (same DB used by dashboard)
 from service.analytics_db import log_message, log_error, upsert_lead, set_lead_session
 
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
+# If you want multiple origins later, upgrade to a whitelist.
 ALLOWED_ORIGIN = os.environ.get("WEBCHAT_ALLOWED_ORIGIN", "https://web-tester-jnwd.onrender.com")
 
 
+# ---------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------
 def _cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
     resp.headers["Vary"] = "Origin"
@@ -28,23 +33,30 @@ def _cors(resp):
     return resp
 
 
+# ---------------------------------------------------------------------
+# Handler access
+# ---------------------------------------------------------------------
 def _get_handler(container):
+    """
+    We only use a handler that is already correctly wired into your container.
+    If container.handler is missing, that is a deployment/wiring problem and should be fixed there,
+    not hidden here.
+    """
     h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
-    if h is not None:
-        return h
-
-    # IMPORTANT: if your container is not HandlerDeps, do NOT construct here.
-    # Better to crash loudly than silently create a broken handler.
-    logger.error("WEB: No MessageHandler on container (container.handler missing).")
-    return None
+    if h is None:
+        logger.error("WEB: container.handler missing (no MessageHandler wired).")
+    return h
 
 
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
 def _lead_id_from_session(session_id: str) -> str:
     sid = (session_id or "web_unknown").strip() or "web_unknown"
     return f"web:{sid}"
 
 
-def _extract_store_from_result(result: dict) -> str | None:
+def _extract_store_from_result(result: dict) -> Optional[str]:
     if not isinstance(result, dict):
         return None
 
@@ -103,6 +115,10 @@ def _is_fallback_result(result: dict, intent: str) -> bool:
 
 
 def _extract_message_id(ev: dict) -> str:
+    """
+    Stable id per user message so analytics can dedupe retried POSTs.
+    Accepts widget variants.
+    """
     if not isinstance(ev, dict):
         return ""
     meta = ev.get("metadata") or {}
@@ -120,20 +136,52 @@ def _extract_message_id(ev: dict) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------
+# Analytics safe-call (NO silent drop)
+# - If analytics_db doesn't support message_id yet, we auto-drop the kwarg.
+# - If it fails, we LOG the failure so you can actually fix it.
+# ---------------------------------------------------------------------
+def _call_compat(fn, kwargs: dict) -> None:
+    sig = None
+    try:
+        sig = inspect.signature(fn)
+    except Exception:
+        sig = None
+
+    if sig is not None:
+        allowed = set(sig.parameters.keys())
+        cleaned = {k: v for k, v in kwargs.items() if k in allowed}
+    else:
+        cleaned = kwargs
+
+    fn(**cleaned)
+
+
 def _safe_log_message(**kwargs) -> None:
     try:
-        log_message(**kwargs)
-    except Exception:
-        return
+        _call_compat(log_message, kwargs)
+    except Exception as e:
+        logger.exception(
+            "ANALYTICS log_message FAILED: %s | keys=%s",
+            e,
+            sorted(list(kwargs.keys())),
+        )
 
 
 def _safe_log_error(**kwargs) -> None:
     try:
-        log_error(**kwargs)
-    except Exception:
-        return
+        _call_compat(log_error, kwargs)
+    except Exception as e:
+        logger.exception(
+            "ANALYTICS log_error FAILED: %s | keys=%s",
+            e,
+            sorted(list(kwargs.keys())),
+        )
 
 
+# ---------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------
 @bp.get("/chat_ui")
 def chat_ui():
     c = get_container()
@@ -175,18 +223,25 @@ def chat_api():
 
     message_id = _extract_message_id(ev)
 
-    logger.info("WEB IN: tenant=%s session=%s channel=%s mid=%s text=%r", tenant, session_id, channel, message_id or "-", text)
+    logger.info(
+        "WEB IN: tenant=%s session=%s channel=%s mid=%s text=%r",
+        tenant,
+        session_id,
+        channel,
+        message_id or "-",
+        text,
+    )
 
     lead_id = _lead_id_from_session(session_id)
 
-    # lead helpers are fine
+    # Lead table helpers (non-blocking)
     try:
         upsert_lead(tenant=tenant, lead_id=lead_id)
         set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
     except Exception:
-        pass
+        logger.exception("WEB: lead upsert failed (non-fatal)")
 
-    # ✅ inbound KPI write (deduped if retried)
+    # ✅ KPI inbound row (dedup if retried)
     _safe_log_message(
         tenant=tenant,
         channel=channel,
@@ -197,13 +252,14 @@ def chat_api():
         lead_id=lead_id,
         store=None,
         fallback=False,
-        error=False,
+        error=False,  # legacy marker only
         error_code="",
         error_type="",
         message_id=message_id,
     )
 
     handler = _get_handler(c)
+
     is_error = False
     error_code = ""
     error_type = ""
@@ -215,7 +271,14 @@ def chat_api():
         result: Dict[str, Any] = {"reply": "Sorry—bot not configured.", "intent": "system_error", "entities": {}}
     else:
         try:
-            result = handler.handle(text, tenant=tenant, session_id=session_id, channel=channel, metadata=metadata) or {}
+            # IMPORTANT: your MessageHandler expects metadata=...
+            result = handler.handle(
+                text,
+                tenant=tenant,
+                session_id=session_id,
+                channel=channel,
+                metadata=metadata,
+            ) or {}
         except Exception as exc:
             is_error = True
             error_code = "web_handler_crash"
@@ -228,11 +291,20 @@ def chat_api():
     store = _extract_store_from_result(result)
     is_fallback = _is_fallback_result(result, intent)
 
-    logger.info("WEB OUT: tenant=%s session=%s intent=%s fallback=%s error=%s reply_len=%s", tenant, session_id, intent, is_fallback, is_error, len(reply))
+    logger.info(
+        "WEB OUT: tenant=%s session=%s intent=%s fallback=%s error=%s reply_len=%s",
+        tenant,
+        session_id,
+        intent,
+        is_fallback,
+        is_error,
+        len(reply),
+    )
 
+    # outbound id derived from inbound id (dedupe retries)
     out_message_id = f"{message_id}:reply" if message_id else ""
 
-    # ✅ outbound KPI write (deduped if retried)
+    # ✅ KPI outbound row (dedup if retried)
     _safe_log_message(
         tenant=tenant,
         channel=channel,
@@ -243,13 +315,13 @@ def chat_api():
         lead_id=lead_id,
         store=store,
         fallback=is_fallback,
-        error=False,  # KPI errors are stored as separate rows
+        error=False,  # KPI errors stored as separate rows
         error_code="",
         error_type="",
         message_id=out_message_id,
     )
 
-    # ✅ real error row (separate event_type='error')
+    # ✅ error row (separate event_type='error' in analytics_db)
     if is_error:
         _safe_log_error(
             tenant=tenant,
