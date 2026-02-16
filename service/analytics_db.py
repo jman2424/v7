@@ -94,6 +94,7 @@ def init_db() -> None:
                 intent TEXT,
                 text TEXT,
                 lead_id TEXT,
+                message_id TEXT,
                 error_code TEXT,
                 error_type TEXT,
                 meta_json TEXT
@@ -118,6 +119,7 @@ def init_db() -> None:
             """
         )
 
+        # Migration-safe columns
         _ensure_columns(
             con,
             "events",
@@ -125,6 +127,7 @@ def init_db() -> None:
                 "intent": "intent TEXT",
                 "text": "text TEXT",
                 "lead_id": "lead_id TEXT",
+                "message_id": "message_id TEXT",
                 "error_code": "error_code TEXT",
                 "error_type": "error_type TEXT",
                 "meta_json": "meta_json TEXT",
@@ -151,7 +154,21 @@ def init_db() -> None:
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_channel ON events(channel)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_events_lead_id ON events(lead_id)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_events_msgid ON events(message_id)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_leads_tenant_updated ON leads(tenant, updated_utc)")
+        except Exception:
+            pass
+
+        # ✅ DEDUPE: only when message_id is present
+        # One message_id should only produce ONE msg_in / msg_out / error row.
+        try:
+            con.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uniq_events_dedupe
+                ON events(tenant, event_type, message_id)
+                WHERE message_id IS NOT NULL AND message_id != '';
+                """
+            )
         except Exception:
             pass
 
@@ -238,6 +255,7 @@ def _insert_event(
     intent: str = "",
     text: str = "",
     lead_id: str = "",
+    message_id: str = "",
     error_code: str = "",
     error_type: str = "",
     meta_json: str = "",
@@ -248,6 +266,8 @@ def _insert_event(
     ch = _norm_channel(channel)
     sid = (session_id or "unknown").strip() or "unknown"
     et = (event_type or "event").strip() or "event"
+
+    msgid = (message_id or "").strip()
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -267,6 +287,10 @@ def _insert_event(
             fields.append("lead_id")
             vals.append((lead_id or "").strip())
 
+        if "message_id" in cols:
+            fields.append("message_id")
+            vals.append(msgid)
+
         if "error_code" in cols:
             fields.append("error_code")
             vals.append(error_code or "")
@@ -280,7 +304,12 @@ def _insert_event(
             vals.append(meta_json or "")
 
         sql = f"INSERT INTO events ({','.join(fields)}) VALUES ({','.join(['?'] * len(fields))})"
-        con.execute(sql, tuple(vals))
+
+        try:
+            con.execute(sql, tuple(vals))
+        except sqlite3.IntegrityError:
+            # ✅ Dedup hit (same tenant/event_type/message_id) -> ignore
+            return
 
 
 def log_message(
@@ -297,10 +326,13 @@ def log_message(
     error: bool = False,  # legacy flag stored in meta_json
     error_code: str = "",
     error_type: str = "",
+    message_id: str = "",
 ) -> None:
     """
     Transport-boundary messages only:
       event_type = msg_in / msg_out
+
+    message_id enables dedupe (critical for web retries)
     """
     event_type = "msg_in" if (direction or "inbound").strip().lower() == "inbound" else "msg_out"
     meta = {"store": store, "fallback": bool(fallback), "error": bool(error)}
@@ -312,6 +344,7 @@ def log_message(
         intent=intent or "unknown",
         text=text or "",
         lead_id=(lead_id or ""),
+        message_id=message_id or "",
         error_code=error_code or "",
         error_type=error_type or "",
         meta_json=json.dumps(meta, ensure_ascii=False),
@@ -327,6 +360,7 @@ def log_error(
     error_code: str = "",
     error_type: str = "",
     meta: Optional[dict[str, Any]] = None,
+    message_id: str = "",
 ) -> None:
     """
     Transport-boundary errors only:
@@ -341,6 +375,7 @@ def log_error(
         event_type="error",
         intent="system_error",
         lead_id=(lead_id or ""),
+        message_id=message_id or "",
         error_code=error_code or "",
         error_type=error_type or "",
         meta_json=json.dumps(m, ensure_ascii=False),
@@ -349,23 +384,10 @@ def log_error(
 
 def log_event(*args: Any, **kwargs: Any) -> None:
     """
-    ✅ FIX: Accept multiple signatures used across the repo.
+    Accept multiple signatures used across the repo.
 
-    Supported:
-
-    1) log_event(
-         tenant=..., channel=..., session_id=...,
-         event_type="pipeline_in|pipeline_out|pipeline_turn|msg_in|msg_out|error",
-         intent=..., text=..., lead_id=..., meta_json=...
-       )
-
+    1) log_event(tenant=..., channel=..., session_id=..., event_type=..., intent=..., text=..., lead_id=..., meta_json=..., message_id=...)
     2) log_event(tenant, {"type": "...", "channel": "...", "session_id": "...", ...})
-
-    IMPORTANT:
-    - msg_in/msg_out/error should only be used at transport boundary,
-      but we still support them so nothing silently breaks.
-    - pipeline_* is allowed (telemetry) and won't affect KPIs because KPI queries
-      only count msg_in/msg_out/error.
     """
     try:
         # Signature (tenant, dict)
@@ -378,6 +400,7 @@ def log_event(*args: Any, **kwargs: Any) -> None:
             intent = payload.get("intent") or ""
             text = payload.get("text") or ""
             lead_id = payload.get("lead_id") or ""
+            message_id = payload.get("message_id") or ""
             meta = payload.get("meta") or {}
             meta_json = payload.get("meta_json") or json.dumps(meta, ensure_ascii=False)
             error_code = payload.get("error_code") or ""
@@ -392,6 +415,7 @@ def log_event(*args: Any, **kwargs: Any) -> None:
                     error_code=str(error_code),
                     error_type=str(error_type),
                     meta=meta if isinstance(meta, dict) else None,
+                    message_id=str(message_id),
                 )
                 return
 
@@ -403,6 +427,7 @@ def log_event(*args: Any, **kwargs: Any) -> None:
                 intent=str(intent),
                 text=str(text),
                 lead_id=str(lead_id),
+                message_id=str(message_id),
                 error_code=str(error_code),
                 error_type=str(error_type),
                 meta_json=str(meta_json),
@@ -417,8 +442,8 @@ def log_event(*args: Any, **kwargs: Any) -> None:
         intent = kwargs.get("intent") or ""
         text = kwargs.get("text") or ""
         lead_id = kwargs.get("lead_id") or ""
+        message_id = kwargs.get("message_id") or ""
         meta_json = kwargs.get("meta_json") or ""
-
         error_code = kwargs.get("error_code") or ""
         error_type = kwargs.get("error_type") or ""
 
@@ -431,6 +456,7 @@ def log_event(*args: Any, **kwargs: Any) -> None:
                 error_code=str(error_code),
                 error_type=str(error_type),
                 meta=None,
+                message_id=str(message_id),
             )
             return
 
@@ -442,12 +468,12 @@ def log_event(*args: Any, **kwargs: Any) -> None:
             intent=str(intent),
             text=str(text),
             lead_id=str(lead_id),
+            message_id=str(message_id),
             error_code=str(error_code),
             error_type=str(error_type),
             meta_json=str(meta_json),
         )
     except Exception:
-        # Never let analytics crash chat
         return
 
 
@@ -466,7 +492,7 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
               SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
               SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
               COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') THEN session_id END) AS sessions,
-              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
             WHERE tenant=? AND ts_utc>=?;
@@ -576,6 +602,38 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     return out
 
 
+def get_sessions_by_channel(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
+    """
+    ✅ NEW: For dashboard "Sessions" split web vs whatsapp.
+    Counts distinct session_id per channel, for msg_in/msg_out window.
+    """
+    _ensure_ready()
+    tenant_n = _norm_tenant(tenant)
+    since = _since(minutes)
+
+    base = {"web": 0, "whatsapp": 0}
+
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT channel, COUNT(DISTINCT session_id) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=?
+              AND event_type IN ('msg_in','msg_out')
+            GROUP BY channel;
+            """,
+            (tenant_n, since),
+        ).fetchall()
+
+    for r in rows:
+        ch = (r["channel"] or "web").strip().lower() or "web"
+        if ch not in base:
+            base[ch] = 0
+        base[ch] = int(r["n"] or 0)
+
+    return base
+
+
 def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
@@ -617,7 +675,7 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type='msg_out'
-              AND json_extract(meta_json,'$.fallback') = 1
+              AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1
             GROUP BY intent
             ORDER BY n DESC
             LIMIT ?;
@@ -749,7 +807,7 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
               substr(ts_utc,1,10) AS d,
               SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
               SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
-              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
             WHERE tenant=? AND ts_utc>=?
@@ -797,7 +855,7 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
               channel,
               SUM(CASE WHEN event_type='msg_in'  THEN 1 ELSE 0 END) AS inbound,
               SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound,
-              SUM(CASE WHEN event_type='msg_out' AND json_extract(meta_json,'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
+              SUM(CASE WHEN event_type='msg_out' AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks
             FROM events
             WHERE tenant=? AND ts_utc>=?
               AND event_type IN ('msg_in','msg_out')
@@ -827,7 +885,7 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
         rows = con.execute(
             """
             SELECT
-              COALESCE(NULLIF(json_extract(meta_json,'$.store'),''), 'international') AS store,
+              COALESCE(NULLIF(json_extract(COALESCE(meta_json,'{}'),'$.store'),''), 'international') AS store,
               COUNT(*) AS n
             FROM events
             WHERE tenant=? AND ts_utc>=?
