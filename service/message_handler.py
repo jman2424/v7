@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -30,6 +31,25 @@ logger = logging.getLogger("MessageHandler")
 
 # KPI event types that must never be emitted from here
 _KPI_EVENT_TYPES = {"msg_in", "msg_out", "error"}
+
+# --- pre-dispatch guards ---
+_RE_ONLY_SYMBOLS = re.compile(r"^[^A-Za-z0-9]+$")
+_RE_HAS_ALPHA = re.compile(r"[A-Za-z]")
+_RE_WORD3 = re.compile(r"[A-Za-z]{3,}")
+_RE_MULTI_SPACE = re.compile(r"\s+")
+
+# Common “catalog dump” phrases users try
+_CATALOG_PHRASES = {
+    "full catalog",
+    "full catalogue",
+    "catalog",
+    "catalogue",
+    "everything",
+    "all products",
+    "all items",
+    "show me everything",
+    "show everything",
+}
 
 
 @dataclass
@@ -83,6 +103,34 @@ class MessageHandler:
             or ctx.metadata.get("request_id")
             or "no_rid"
         )
+
+        # ---------------- PRE-DISPATCH GUARD ----------------
+        guarded = self._guard_input(user_text)
+        if guarded is not None:
+            logger.info(
+                "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s reason=%s text=%r",
+                ctx.tenant,
+                ctx.session_id,
+                ctx.channel,
+                mode,
+                rid,
+                guarded.get("intent"),
+                user_text[:120],
+            )
+
+            self._telemetry(
+                ctx,
+                event_type="pipeline_turn",
+                meta={
+                    "mode": mode,
+                    "rid": rid,
+                    "intent": guarded.get("intent"),
+                    "ok": True,
+                    "guarded": True,
+                    "channel": ctx.channel,
+                },
+            )
+            return guarded
 
         logger.info(
             "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
@@ -146,6 +194,74 @@ class MessageHandler:
         )
 
         return reply
+
+    # ---------------------------------------------------------
+    # PRE-DISPATCH INPUT GUARD
+    # ---------------------------------------------------------
+    def _guard_input(self, user_text: str) -> Optional[Dict[str, Any]]:
+        t = (user_text or "").strip()
+        if not t:
+            return {
+                "reply": "Send what you want (e.g. chicken wings, lamb chops, delivery to E1 6AN).",
+                "intent": "system_empty",
+                "resolved": False,
+                "facts": {},
+                "entities": {},
+            }
+
+        tl = _RE_MULTI_SPACE.sub(" ", t).strip().lower()
+
+        # Hard noise like "!!!" or "&*("
+        if _RE_ONLY_SYMBOLS.match(t):
+            return {
+                "reply": "Type what you’re after (e.g. chicken wings / lamb chops) or a postcode for delivery.",
+                "intent": "system_clarify",
+                "resolved": False,
+                "facts": {"reason": "symbols_only"},
+                "entities": {},
+            }
+
+        # “full catalog” requests -> don’t pretend it’s a product search
+        if tl in _CATALOG_PHRASES:
+            return {
+                "reply": (
+                    "I can’t dump the full catalogue in one go.\n\n"
+                    "Pick a section and I’ll show it:\n"
+                    "• chicken\n"
+                    "• lamb\n"
+                    "• beef\n"
+                    "• groceries\n"
+                    "• frozen meats\n"
+                    "• marinated meats\n\n"
+                    "Or tell me what you’re cooking (BBQ / curry / burgers)."
+                ),
+                "intent": "system_catalog_hint",
+                "resolved": True,
+                "facts": {"reason": "catalog_request"},
+                "entities": {},
+            }
+
+        # Random short codes / gibberish (your “E79QS” case)
+        letters = sum(ch.isalpha() for ch in t)
+        digits = sum(ch.isdigit() for ch in t)
+
+        looks_like_short_code = (len(t) <= 8 and letters >= 2 and digits >= 2 and " " not in t)
+        looks_like_gibberish = (len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t))
+
+        if looks_like_short_code or looks_like_gibberish:
+            return {
+                "reply": (
+                    "I didn’t catch that.\n\n"
+                    "Do you mean a product (e.g. **chicken wings**, **lamb chops**) "
+                    "or a postcode for delivery (e.g. **E1 6AN**)?"
+                ),
+                "intent": "system_clarify",
+                "resolved": False,
+                "facts": {"reason": "nonsense_input"},
+                "entities": {},
+            }
+
+        return None
 
     # ---------------------------------------------------------
     # MODE
@@ -315,8 +431,6 @@ class MessageHandler:
 
             meta_json = json.dumps(meta or {}, separators=(",", ":"), ensure_ascii=False)
 
-            # Prefer passing lead_id as None; analytics_db.log_event handles it safely.
-            # If your analytics implementation can't handle None, it should fix there, not here.
             fn(
                 tenant=ctx.tenant,
                 channel=ctx.channel,
@@ -326,5 +440,4 @@ class MessageHandler:
                 meta_json=meta_json,
             )
         except Exception:
-            # telemetry must never break the app
             logger.exception("telemetry failed event_type=%s", event_type)
