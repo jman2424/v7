@@ -1,18 +1,8 @@
-"""
-OverridesStore
-- Loads per-tenant overrides from business/{TENANT}/overrides.json
-- Provides simple dotted-key get() and type helpers
-- Common fields:
-  {
-    "tone": { "concise": true },
-    "flags": { "rewriter_enabled": true, "tool_use_enabled": false, "analytics_to_sheets": false },
-    "thresholds": { "intent_confidence": 0.72 }
-  }
-"""
-
+# retrieval/overrides_store.py
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from retrieval.storage import Storage
 
@@ -31,14 +21,11 @@ class OverridesStore:
         except FileNotFoundError:
             return {}
 
-    # -------- public API --------
-
     def get(self, dotted_key: str, default: Any = None) -> Any:
-        """
-        Fetch value by dotted path, e.g., 'flags.rewriter_enabled'.
-        """
         node: Any = self._data
-        for part in dotted_key.split("."):
+        for part in (dotted_key or "").split("."):
+            if not part:
+                continue
             if not isinstance(node, dict) or part not in node:
                 return default
             node = node[part]
@@ -46,10 +33,7 @@ class OverridesStore:
 
     def get_bool(self, dotted_key: str, default: bool = False) -> bool:
         v = self.get(dotted_key, default)
-        try:
-            return bool(v)
-        except Exception:
-            return default
+        return bool(v)
 
     def get_float(self, dotted_key: str, default: float = 0.0) -> float:
         v = self.get(dotted_key, default)
