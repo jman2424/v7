@@ -11,6 +11,12 @@ RULES (critical):
 - This handler may write TELEMETRY only:
     pipeline_in / pipeline_out / pipeline_turn
   Telemetry must never crash the bot.
+
+What changed vs your current version:
+- Stronger pre-dispatch guard:
+  - Detects "postcode-ish" inputs like E79QS and suggests the correct spaced format (E7 9QS)
+  - Still handles symbols-only, empty, and catalog-dump requests cleanly
+- More consistent normalization (collapse whitespace, lowercasing for phrase checks)
 """
 
 from __future__ import annotations
@@ -50,6 +56,51 @@ _CATALOG_PHRASES = {
     "show me everything",
     "show everything",
 }
+
+
+def _collapse_spaces(s: str) -> str:
+    return _RE_MULTI_SPACE.sub(" ", (s or "")).strip()
+
+
+def _looks_like_possible_postcode_no_space(s: str) -> bool:
+    """
+    Detect things like:
+      E79QS, N43NG, E11AA
+    Heuristic:
+      - length 5-8
+      - contains letters and digits
+      - no spaces
+      - not pure word
+      - not pure digits
+    """
+    t = (s or "").strip()
+    if " " in t:
+        return False
+    if len(t) < 5 or len(t) > 8:
+        return False
+    letters = sum(ch.isalpha() for ch in t)
+    digits = sum(ch.isdigit() for ch in t)
+    if letters < 2 or digits < 1:
+        return False
+    # avoid matching normal words like "hello"
+    if digits == 0:
+        return False
+    return True
+
+
+def _suggest_postcode_spacing(s: str) -> Optional[str]:
+    """
+    If input looks like a postcode with missing space, suggest inserting space
+    before the last 3 chars:
+      E79QS -> E7 9QS
+      N43NG -> N4 3NG
+    """
+    t = (s or "").strip().upper().replace(" ", "")
+    if not _looks_like_possible_postcode_no_space(t):
+        return None
+    if len(t) <= 3:
+        return None
+    return f"{t[:-3]} {t[-3:]}"
 
 
 @dataclass
@@ -108,7 +159,7 @@ class MessageHandler:
         guarded = self._guard_input(user_text)
         if guarded is not None:
             logger.info(
-                "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s reason=%s text=%r",
+                "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s intent=%s text=%r",
                 ctx.tenant,
                 ctx.session_id,
                 ctx.channel,
@@ -209,7 +260,7 @@ class MessageHandler:
                 "entities": {},
             }
 
-        tl = _RE_MULTI_SPACE.sub(" ", t).strip().lower()
+        tl = _collapse_spaces(t).lower()
 
         # Hard noise like "!!!" or "&*("
         if _RE_ONLY_SYMBOLS.match(t):
@@ -241,19 +292,41 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # Random short codes / gibberish (your “E79QS” case)
+        # Postcode-ish but missing space: E79QS -> E7 9QS
+        suggestion = _suggest_postcode_spacing(t)
+        if suggestion:
+            return {
+                "reply": (
+                    "That looks like a postcode, but it’s missing the space.\n\n"
+                    f"Try: **{suggestion}**\n"
+                    "Then I can check delivery and the nearest branch."
+                ),
+                "intent": "system_postcode_format_hint",
+                "resolved": False,
+                "facts": {"reason": "postcode_missing_space", "suggested": suggestion},
+                "entities": {},
+            }
+
+        # Random short codes / gibberish
         letters = sum(ch.isalpha() for ch in t)
         digits = sum(ch.isdigit() for ch in t)
 
         looks_like_short_code = (len(t) <= 8 and letters >= 2 and digits >= 2 and " " not in t)
-        looks_like_gibberish = (len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t))
+        looks_like_gibberish = (
+            len(t) <= 5
+            and _RE_HAS_ALPHA.search(t)
+            and digits == 0
+            and " " not in t
+            and not _RE_WORD3.search(t)
+        )
 
         if looks_like_short_code or looks_like_gibberish:
             return {
                 "reply": (
                     "I didn’t catch that.\n\n"
-                    "Do you mean a product (e.g. **chicken wings**, **lamb chops**) "
-                    "or a postcode for delivery (e.g. **E1 6AN**)?"
+                    "Send either:\n"
+                    "• a product (e.g. **chicken wings**, **lamb chops**)\n"
+                    "• or a postcode for delivery (e.g. **E1 6AN**)"
                 ),
                 "intent": "system_clarify",
                 "resolved": False,
