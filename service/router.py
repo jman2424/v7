@@ -1,29 +1,15 @@
-"""
-Router: intent detection, entity extraction, clarifiers, and deterministic fallbacks.
-
-Intents:
-- check_delivery (needs postcode if missing)
-- search_product (free text / tags)
-- browse_category (category-only)
-- price_check (explicit SKU)
-- faq (generic question matched later)
-- unknown
-
-Entities:
-- postcode (UK-ish normalization)
-- sku
-- category
-- tags (canonical via synonyms store)
-- phone (optional)
-"""
-
 from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-POSTCODE_RE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s?(\d[A-Z]{2})\b", re.I)
+# Full UK postcode (simplified but strong enough for your use)
+POSTCODE_FULL_RE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
+
+# Outward only: E7, E1, SW11, etc.
+POSTCODE_OUTWARD_RE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\b", re.I)
+
 SKU_RE = re.compile(r"\b([A-Z0-9_]{3,})\b")
 PHONE_RE = re.compile(r"\+?\d{7,15}")
 
@@ -40,11 +26,13 @@ def _tokens(s: str) -> List[str]:
     return [t for t in re.findall(r"[a-z0-9'_]+", _norm(s)) if t not in STOPWORDS]
 
 
+def _only_alnum(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", s or "")
+
+
 @dataclass
 class Router:
-    # SynonymsStore-like object (must ideally expose .canonical(term: str) -> str)
     synonyms: Any
-    # Cached coverage prefixes (e.g., ["E1", "E2"]); not strictly required but kept for future use
     geo_prefixes: List[str]
 
     def route(self, text: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,11 +44,18 @@ class Router:
         entities: Dict[str, Any] = {}
         utterance = text
 
-        # Extract entities
-        pc = self._extract_postcode(norm)
-        if pc:
-            entities["postcode"] = pc
+        # ---- Extract postcode (robust) ----
+        pc_norm, pc_is_full, pc_is_outward, pc_needs_space_fix = self._extract_postcode(text)
+        if pc_norm:
+            entities["postcode_normalized"] = pc_norm
+            entities["postcode_is_full"] = pc_is_full
+            entities["postcode_is_outward"] = pc_is_outward
+            entities["postcode_needs_space_fix"] = pc_needs_space_fix
 
+            # Backwards-compat: if your other code expects "postcode"
+            entities["postcode"] = pc_norm
+
+        # ---- Other entities ----
         phone = self._extract_phone(norm)
         if phone:
             entities["phone"] = phone
@@ -69,19 +64,16 @@ class Router:
         if sku:
             entities["sku"] = sku
 
-        # Canonical tags via synonyms
+        # ---- Canonical tags via synonyms ----
         tags = self._guess_tags(toks)
         if tags:
             entities["tags"] = tags
-
-        # Category guess (first canonical tag if plausible)
-        if tags:
             entities["category"] = tags[0]
 
-        # Intent heuristics
+        # ---- Intent ----
         intent = self._infer_intent(norm, toks, entities)
 
-        # Clarifiers
+        # ---- Clarifiers ----
         needs_clarification, clarifier = self._maybe_clarify(intent, entities, ctx)
 
         return {
@@ -93,48 +85,67 @@ class Router:
             "_latency_ms": int((time.time() - t0) * 1000),
         }
 
-    # ---- extractors ----
+    # -------------------
+    # Extractors
+    # -------------------
 
-    def _extract_postcode(self, norm: str) -> Optional[str]:
-        m = POSTCODE_RE.search(norm.upper())
-        if not m:
-            # Accept outward prefixes if match coverage (E1, E2, SW11, etc.)
-            m2 = re.search(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\b", norm.upper())
-            if m2:
-                return m2.group(1)
-            return None
-        return f"{m.group(1)} {m.group(2)}".strip()
+    def _extract_postcode(self, raw_text: str) -> Tuple[Optional[str], bool, bool, bool]:
+        """
+        Returns:
+          (postcode_normalized, is_full, is_outward, needs_space_fix)
+
+        Rules:
+        - Accepts E7 9QS and E79QS (normalizes to "E7 9QS")
+        - If only outward exists (e.g., "E7"), return that as outward
+        """
+        raw_up = (raw_text or "").upper()
+
+        # Try full postcode first (space optional in match)
+        m = POSTCODE_FULL_RE.search(raw_up)
+        if m:
+            outward = m.group(1).strip()
+            inward = m.group(2).strip()
+            normalized = f"{outward} {inward}"
+
+            # Determine if user typed without a space (so you can decide to *not* nag)
+            compact = _only_alnum(raw_up)
+            compact_norm = _only_alnum(normalized)
+            needs_space_fix = (compact == compact_norm) and (" " not in raw_up[m.start():m.end()])
+
+            return normalized, True, False, needs_space_fix
+
+        # If not full, try outward-only
+        m2 = POSTCODE_OUTWARD_RE.search(raw_up)
+        if m2:
+            outward = m2.group(1).strip()
+            # Outward-only is not "missing a space" — it’s just incomplete
+            return outward, False, True, False
+
+        return None, False, False, False
 
     def _extract_sku(self, text: str) -> Optional[str]:
-        # SKU uppercase with underscores or digits; avoid false positives by checking length
-        cands = [m.group(1) for m in SKU_RE.finditer(text.upper())]
+        cands = [m.group(1) for m in SKU_RE.finditer((text or "").upper())]
         for c in cands:
             if len(c) >= 4 and any(ch.isdigit() for ch in c):
                 return c
         return None
 
     def _extract_phone(self, norm: str) -> Optional[str]:
-        m = PHONE_RE.search(norm)
+        m = PHONE_RE.search(norm or "")
         return m.group(0) if m else None
 
     def _guess_tags(self, toks: List[str]) -> List[str]:
-        """
-        Map each token to a canonical tag via the synonyms store.
-        Defensive: if synonyms is miswired or lacks .canonical, fall back to raw tokens.
-        """
         syn = getattr(self, "synonyms", None)
 
         if syn is not None and hasattr(syn, "canonical"):
-            canon = []
+            canon: List[str] = []
             for t in toks:
                 try:
                     c = syn.canonical(t)
                 except Exception:
-                    # In case the store misbehaves, just treat this token as-is
                     c = t
                 canon.append(c)
         else:
-            # Misconfiguration safety net: no synonyms store wired
             canon = toks
 
         seen, out = set(), []
@@ -144,38 +155,65 @@ class Router:
                 out.append(c)
         return out[:5]
 
-    # ---- intent ----
+    # -------------------
+    # Intent
+    # -------------------
 
     def _infer_intent(self, norm: str, toks: List[str], ent: Dict[str, Any]) -> str:
-        if any(k in norm for k in ["deliver", "delivery", "ship", "postcode", "post code"]):
+        # If the user just sent a postcode (full or outward), treat it as delivery/nearest-store intent
+        if ent.get("postcode_normalized"):
+            # Optional: if message is basically only the postcode, force check_delivery
+            cleaned = _only_alnum(norm)
+            pc_clean = _only_alnum(ent["postcode_normalized"].lower())
+            if cleaned == pc_clean:
+                return "check_delivery"
+
+        if any(k in norm for k in ["deliver", "delivery", "ship", "postcode", "post code", "nearest", "closest", "branch"]):
             return "check_delivery"
+
         if "price" in toks or "cost" in toks or "how much" in norm:
             if ent.get("sku"):
                 return "price_check"
             return "search_product"
+
         if any(k in toks for k in ["open", "hours", "time", "when"]):
             return "faq"
+
         if ent.get("sku"):
             return "price_check"
+
         if ent.get("tags"):
             return "search_product"
-        # generic question?
+
         if norm.endswith("?") or any(k in toks for k in ["do", "can", "is", "are"]):
             return "faq"
+
         return "unknown"
 
-    # ---- clarifiers ----
+    # -------------------
+    # Clarifiers
+    # -------------------
 
     def _maybe_clarify(self, intent: str, ent: Dict[str, Any], ctx: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         if intent == "check_delivery":
-            pc = ent.get("postcode") or ctx.get("session", {}).get("postcode")
+            # Accept full postcodes immediately. Only clarify if missing.
+            pc = ent.get("postcode_normalized") or ctx.get("session", {}).get("postcode")
             if not pc:
-                # nudge toward coverage prefixes if available
                 pref = ctx.get("coverage_prefixes") or self.geo_prefixes or []
                 hint = f" (e.g., {'/'.join(pref[:3])})" if pref else ""
                 return True, f"What's your postcode{hint}?"
+
+            # If they only gave outward code, ask for full postcode (don’t talk about spaces)
+            if ent.get("postcode_is_outward"):
+                return True, f"Got it — what's the full postcode (e.g., {pc} 9QS) so I can check delivery and the nearest branch?"
+
+            # If they gave a full postcode, NEVER nag about spacing. You can silently normalize.
+            return False, None
+
         if intent == "search_product" and not (ent.get("tags") or ent.get("category")):
             return True, "Which product or category are you after?"
+
         if intent == "price_check" and not ent.get("sku"):
             return True, "Which SKU should I price-check?"
+
         return False, None
