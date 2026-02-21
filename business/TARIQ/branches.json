@@ -1,28 +1,156 @@
-[
-  {
-    "id": "east-london",
-    "name": "East London Branch",
-    "address": "12 Whitechapel Rd, London E1 1AA",
-    "postcode": "E1 1AA",
-    "phone": "+44 20 7946 1001",
-    "lat": 51.5151,
-    "lon": -0.0672,
-    "hours": {
-      "mon-sat": "09:00–20:00",
-      "sun": "10:00–18:00"
+{
+  "store_info": [
+    {
+      "name": "store_name",
+      "price": "Tariq Halal Meats"
+    },
+    {
+      "name": "contact",
+      "price": {
+        "sales_email": "sales@tariqhalalmeats.com",
+        "customer_service_email": "info@tariqhalalmeats.com",
+        "phone": "0208 908 9440"
+      }
+    },
+    {
+      "name": "branches",
+      "price": {
+        "Cardiff": {
+          "address": "104-106 Albany Road, CF24 3RT",
+          "phone": "02920 485 569",
+          "postcode": "CF24 3RT"
+        },
+        "Crawley": {
+          "address": "33 Queensway, RH10 1EG",
+          "phone": "01293 522189",
+          "postcode": "RH10 1EG"
+        },
+        "Croydon": {
+          "address": "89 London Road, CR0 2RF",
+          "phone": "0208 686 8846",
+          "postcode": "CR0 2RF"
+        },
+        "Finsbury Park": {
+          "address": "258 Seven Sisters Road, N4 2HY",
+          "phone": "0207 281 5450",
+          "postcode": "N4 2HY"
+        },
+        "Forest Gate": {
+          "address": "11 Woodgrange Road, E7 8BA",
+          "phone": "0208 555 6508",
+          "postcode": "E7 8BA"
+        },
+        "Fulham": {
+          "address": "431 North End Road, SW6 1NY",
+          "phone": "0207 381 4252",
+          "postcode": "SW6 1NY"
+        },
+        "Green Street": {
+          "address": "252 Green St, E7 8LF",
+          "phone": "0203 649 5332",
+          "postcode": "E7 8LF"
+        },
+        "Hammersmith": {
+          "address": "120-124 King Street, W6 0QT",
+          "phone": "0208 741 6655",
+          "postcode": "W6 0QT"
+        },
+        "Hounslow": {
+          "address": "9 High Street, TW3 1RH",
+          "phone": "0203 302 4330",
+          "postcode": "TW3 1RH"
+        },
+        "Ilford": {
+          "address": "48 Ilford Lane, IG1 2JY",
+          "phone": "0208 911 8201",
+          "postcode": "IG1 2JY"
+        },
+        "Leyton": {
+          "address": "794 High Road, E10 6AE",
+          "phone": "0208 539 6200",
+          "postcode": "E10 6AE"
+        },
+        "Slough": {
+          "address": "251 Farnham Road, SL2 1DE",
+          "phone": "01753 571609",
+          "postcode": "SL2 1DE"
+        },
+        "South Harrow": {
+          "address": "387 Northolt Road, HA2 8JD",
+          "phone": "0208 423 4975",
+          "postcode": "HA2 8JD"
+        },
+        "Southall": {
+          "address": "126 The Broadway, UB1 1QF",
+          "phone": "0203 337 8794",
+          "postcode": "UB1 1QF"
+        },
+        "St Johns Wood": {
+          "address": "10 Lodge Road, NW8 7JA",
+          "phone": "0207 483 2938",
+          "postcode": "NW8 7JA"
+        },
+        "Stratford": {
+          "address": "Unit 47/48 The Mall, E15 1XE",
+          "phone": "0204 506 5693",
+          "postcode": "E15 1XE"
+        },
+        "Streatham": {
+          "address": "14 Leighham Parade, SW16 1DR",
+          "phone": "0208 664 7045",
+          "postcode": "SW16 1DR"
+        },
+        "Wealdstone": {
+          "address": "14-20 High Street, HA3 7HA",
+          "phone": "0208 863 1353",
+          "postcode": "HA3 7HA"
+        },
+        "Wembley": {
+          "address": "259 Water Road, HA0 1HX",
+          "phone": "0208 908 9440",
+          "postcode": "HA0 1HX"
+        }
+      }
+    },
+    {
+      "name": "policies",
+      "price": {
+        "delivery": {
+          "regions_not_served": [
+            "Isle of Man",
+            "Isle of Wight",
+            "Jersey"
+          ],
+          "service_area": "Mainland UK",
+          "operating_days": "7 days a week",
+          "fees": {
+            "orders_under_£100": "£9.99",
+            "orders_£100_and_over": "Free"
+          },
+          "packaging": "Delivered in insulated boxes with ice packs",
+          "order_cutoff_time": "9am (Mon-Sun)",
+          "next_day_delivery": true,
+          "click_and_collect": {
+            "order_cutoff_time": "1pm (Mon-Sun)",
+            "available_after": "5pm next day"
+          },
+          "schedule": {
+            "Monday_before_9am": "Arrives Tuesday",
+            "Tuesday_before_9am": "Arrives Wednesday",
+            "Wednesday_before_9am": "Arrives Thursday",
+            "Thursday_before_9am": "Arrives Friday",
+            "Friday_before_9am": "Arrives Saturday",
+            "Saturday_before_9am": "Arrives Sunday",
+            "Sunday_before_9am": "Arrives Monday"
+          }
+        },
+        "customer_service": {
+          "complaints_review_time": "1-2 working days",
+          "email_support": "info@tariqhalalmeats.com",
+          "returns_policy": "No returns due to perishable nature of goods"
+        },
+        "halal_certification": "All products certified Halal by reputable bodies"
+      }
     }
-  },
-  {
-    "id": "north-london",
-    "name": "North London Branch",
-    "address": "220 Seven Sisters Rd, London N4 3NG",
-    "postcode": "N4 3NG",
-    "phone": "+44 20 7946 1002",
-    "lat": 51.5658,
-    "lon": -0.1065,
-    "hours": {
-      "mon-sat": "09:00–20:00",
-      "sun": "10:00–18:00"
-    }
-  }
-]
+  ]
+}
