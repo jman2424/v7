@@ -12,11 +12,10 @@ RULES (critical):
     pipeline_in / pipeline_out / pipeline_turn
   Telemetry must never crash the bot.
 
-What changed vs your current version:
-- Stronger pre-dispatch guard:
-  - Detects "postcode-ish" inputs like E79QS and suggests the correct spaced format (E7 9QS)
-  - Still handles symbols-only, empty, and catalog-dump requests cleanly
-- More consistent normalization (collapse whitespace, lowercasing for phrase checks)
+Key fix in this version:
+- Postcodes like "E79QS" are now AUTO-NORMALIZED to "E7 9QS"
+  and the message continues through the normal pipeline.
+- We DO NOT block with system_postcode_format_hint anymore.
 """
 
 from __future__ import annotations
@@ -30,6 +29,8 @@ from typing import Any, Dict, Optional
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
+
+from service.validators import normalize_postcode
 
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
@@ -82,7 +83,6 @@ def _looks_like_possible_postcode_no_space(s: str) -> bool:
     digits = sum(ch.isdigit() for ch in t)
     if letters < 2 or digits < 1:
         return False
-    # avoid matching normal words like "hello"
     if digits == 0:
         return False
     return True
@@ -90,8 +90,7 @@ def _looks_like_possible_postcode_no_space(s: str) -> bool:
 
 def _suggest_postcode_spacing(s: str) -> Optional[str]:
     """
-    If input looks like a postcode with missing space, suggest inserting space
-    before the last 3 chars:
+    Insert space before last 3 chars:
       E79QS -> E7 9QS
       N43NG -> N4 3NG
     """
@@ -101,6 +100,35 @@ def _suggest_postcode_spacing(s: str) -> Optional[str]:
     if len(t) <= 3:
         return None
     return f"{t[:-3]} {t[-3:]}"
+
+
+def _maybe_normalize_standalone_postcode(user_text: str) -> Optional[str]:
+    """
+    If the entire message is just a postcode (or postcode-ish),
+    normalize it and return the normalized value. Otherwise None.
+
+    Examples:
+      "e7 9qs" -> "E7 9QS"
+      "E79QS"  -> "E7 9QS"
+      "hello e79qs" -> None (not standalone)
+    """
+    t = (user_text or "").strip()
+    if not t:
+        return None
+
+    # If it's already a valid full/outward-only postcode (validators file)
+    pc = normalize_postcode(t)
+    if pc:
+        return pc
+
+    # If it looks like a no-space postcode, try spacing then validate
+    suggestion = _suggest_postcode_spacing(t)
+    if suggestion:
+        pc2 = normalize_postcode(suggestion)
+        if pc2:
+            return pc2
+
+    return None
 
 
 @dataclass
@@ -144,6 +172,13 @@ class MessageHandler:
         )
 
         user_text = (user_text or "").strip()
+
+        # ✅ KEY FIX: Normalize standalone postcode inputs BEFORE guard/dispatch.
+        # This prevents "E79QS" from being blocked by any guard rules.
+        normalized_pc = _maybe_normalize_standalone_postcode(user_text)
+        if normalized_pc:
+            user_text = normalized_pc
+
         sess = self._load_session(ctx)
         mode = self._decide_mode(ctx)
 
@@ -292,20 +327,8 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # Postcode-ish but missing space: E79QS -> E7 9QS
-        suggestion = _suggest_postcode_spacing(t)
-        if suggestion:
-            return {
-                "reply": (
-                    "That looks like a postcode, but it’s missing the space.\n\n"
-                    f"Try: **{suggestion}**\n"
-                    "Then I can check delivery and the nearest branch."
-                ),
-                "intent": "system_postcode_format_hint",
-                "resolved": False,
-                "facts": {"reason": "postcode_missing_space", "suggested": suggestion},
-                "entities": {},
-            }
+        # ✅ IMPORTANT: We no longer return a postcode spacing hint intent.
+        # Standalone postcodes are normalized before guard; mixed messages pass through.
 
         # Random short codes / gibberish
         letters = sum(ch.isalpha() for ch in t)
@@ -320,7 +343,23 @@ class MessageHandler:
             and not _RE_WORD3.search(t)
         )
 
-        if looks_like_short_code or looks_like_gibberish:
+        # If it "looks like a postcode" but normalize_postcode says no,
+        # we treat it as clarify, not a format-hint block.
+        if looks_like_short_code and not normalize_postcode(t):
+            return {
+                "reply": (
+                    "I didn’t catch that.\n\n"
+                    "Send either:\n"
+                    "• a product (e.g. **chicken wings**, **lamb chops**)\n"
+                    "• or a postcode for delivery (e.g. **E1 6AN**) "
+                ),
+                "intent": "system_clarify",
+                "resolved": False,
+                "facts": {"reason": "nonsense_input"},
+                "entities": {},
+            }
+
+        if looks_like_gibberish:
             return {
                 "reply": (
                     "I didn’t catch that.\n\n"
