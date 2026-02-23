@@ -18,17 +18,14 @@ class MessageHandlerV7:
     """
     V7 handler (crash-proof + smarter guidance)
 
-    Guarantees:
-    - NEVER crashes webhook: _info/_debug/_exc always exist
-    - UK postcodes supported (full + outward-only), with/without space, embedded in text
-    - Postcode-only OR postcode-in-message forces CHECK_DELIVERY + nearest branch
-    - "nearest branch" uses session postcode if present; otherwise asks for postcode
-    - No dependency on OpenAI for delivery/branch flows
+    Fixes included:
+    - _info/_debug/_exc always exist (no more crash)
+    - Robust UK postcode extraction + normalization
+    - ✅ NEW: nearest-branch + delivery questions use:
+        * postcode in message OR session postcode
+        * if missing: ask for postcode (instead of falling into product pipeline)
     """
 
-    # -----------------------------
-    # Basic language
-    # -----------------------------
     _GREETINGS = {
         "hello", "hi", "hey", "hiya", "yo", "sup",
         "asalam", "assalam", "salam", "asalaam", "salaam",
@@ -40,41 +37,59 @@ class MessageHandlerV7:
         "help", "can you help", "can u help", "need help",
     }
 
-    # -----------------------------
-    # Product vocab (kept short)
-    # -----------------------------
     _MEATS = ("chicken", "beef", "lamb", "goat")
+
     _TOPIC_WORDS = (
         "steak", "chops", "wings", "mince", "kofta", "breast", "thigh", "drumsticks", "ribs",
         "fillet", "sirloin", "ribeye", "rump", "leg", "shoulder", "neck", "shank", "burger", "patties"
     )
-    _MEAT_ALIASES = {"poultry": "chicken", "hen": "chicken", "mutton": "lamb", "cow": "beef"}
 
-    # -----------------------------
-    # UK Postcode (pragmatic)
-    # Full: SW1A 1AA / SW1A1AA / E7 9QS / E79QS etc.
-    # Outward-only: SW1A / E7 / N4 etc.
-    # -----------------------------
-    _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
-    _POSTCODE_OUTWARD = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
+    _MEAT_ALIASES = {
+        "poultry": "chicken",
+        "hen": "chicken",
+        "mutton": "lamb",
+        "cow": "beef",
+    }
 
-    # Detect “nearest branch” intent
-    _NEAREST_PAT = re.compile(
-        r"\b(nearest|closest|nearby)\s+(branch|store|shop)\b|\bnearst\s+(branch|store|shop)\b|\bmy\s+nearest\s+(branch|store|shop)\b",
-        re.I,
+    # ---- Postcode regexes (pragmatic UK-ish) ----
+    _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
+    _POSTCODE_OUTWARD = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", re.I)
+
+    # ✅ “nearest branch” & “delivery” triggers (keep small but high-signal)
+    _BRANCH_PHRASES = (
+        "nearest branch",
+        "nearest store",
+        "closest branch",
+        "closest store",
+        "near me",
+        "nearby",
+        "which branch",
+        "what branch",
+        "where is the nearest",
+        "where is your nearest",
+        "where is the closest",
+        "where are you located",
+        "what is my nearest branch",
     )
 
-    # Detect delivery intent
-    _DELIVERY_PAT = re.compile(r"\b(deliver|delivery|do you deliver|can you deliver)\b", re.I)
+    _DELIVERY_PHRASES = (
+        "delivery",
+        "deliver",
+        "do you deliver",
+        "can you deliver",
+        "deliver to",
+        "deliveries",
+        "delivery to",
+    )
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
-        self.policy = getattr(deps, "policy", None)
-        self.geo = getattr(deps, "geo", None)
+        self.policy = getattr(deps, "policy", None)  # should expose: delivery_rule_for, delivery_summary
+        self.geo = getattr(deps, "geo", None)        # should expose: nearest_for_postcode
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
 
-        # Optional structured logger from deps; fallback to module logger
+        # Optional structured logger from deps; if absent, use module logger
         self.logger = getattr(deps, "logger", None)
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
@@ -128,26 +143,63 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # 1) If user asks “nearest branch” (or similar), use session postcode if possible.
-            if self._looks_like_nearest_branch_request(user_text):
-                pc = self._extract_postcode(user_text) or self._normalize_postcode(session_snapshot.get("postcode"))
+            # ✅ 1) Branch/delivery questions should NOT fall into product pipeline
+            # If user asks nearest branch/delivery and we have a postcode (message or session), run CHECK_DELIVERY.
+            # If no postcode, ask for it.
+            if self._looks_like_branch_or_delivery_question(user_text):
+                extracted_pc = self._extract_postcode(user_text)
+                pc = extracted_pc or session_snapshot.get("postcode")
+
                 if not pc:
+                    # Ask for postcode (critical: do not pretend it’s a product search)
+                    reply_text = "Sure — what’s your postcode? (e.g. E7 9QS) I’ll tell you delivery + nearest branch."
+                    plan = {
+                        "intent": "check_delivery",
+                        "action": "CHECK_DELIVERY",
+                        "category": None,
+                        "product_name": None,
+                        "postcode": None,
+                        "sku": None,
+                        "handoff_channel": None,
+                        "needs_clarification": True,
+                        "clarification_question": "What’s your postcode?",
+                        "meta": {"max_items": 0},
+                    }
                     return self._wrap_reply(
                         request_id=request_id,
                         t0=t0,
-                        reply="Send your postcode (e.g. **E7 9QS**) and I’ll tell you the nearest branch.",
-                        intent="check_nearest_branch_needs_postcode",
-                        plan=None,
+                        reply=reply_text,
+                        intent="check_delivery_needs_postcode",
+                        plan=plan,
                         facts={},
                         entities={},
                         items=[],
                     )
 
-                plan = self._delivery_plan(postcode=pc)
+                plan = {
+                    "intent": "check_delivery",
+                    "action": "CHECK_DELIVERY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": pc,
+                    "sku": None,
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"max_items": 0},
+                }
+                self._info(request_id, "V7.branch_delivery_intent", postcode=str(pc))
+
                 facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
                 entities = self._entities_from_plan(plan)
 
-                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                reply_text = self.renderer.render(
+                    user_text=user_text,
+                    plan=plan,
+                    facts=facts,
+                    session=session_snapshot,
+                )
+
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -159,48 +211,58 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 2) Postcode present anywhere -> force delivery/nearest branch path (BIG FIX)
+            # 2) Postcode-only (BIG FIX)
             extracted_pc = self._extract_postcode(user_text)
             if extracted_pc:
-                plan = self._delivery_plan(postcode=extracted_pc)
+                plan = {
+                    "intent": "check_delivery",
+                    "action": "CHECK_DELIVERY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": extracted_pc,
+                    "sku": None,
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"max_items": 0},
+                }
                 self._info(request_id, "V7.force_delivery_from_postcode", postcode=extracted_pc)
 
                 facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
                 entities = self._entities_from_plan(plan)
 
-                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                reply_text = self.renderer.render(
+                    user_text=user_text,
+                    plan=plan,
+                    facts=facts,
+                    session=session_snapshot,
+                )
+
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
                     reply=reply_text,
-                    intent="check_delivery",
+                    intent=plan.get("intent") or "check_delivery",
                     plan=plan,
                     facts=facts,
                     entities=entities,
                     items=facts.get("items") or [],
                 )
 
-            # 3) Delivery phrasing without postcode -> ask for postcode (don’t go to product search)
-            if self._DELIVERY_PAT.search(user_text or ""):
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply="Send your postcode (e.g. **E1 6AN**) and I’ll check delivery and your nearest branch.",
-                    intent="check_delivery_needs_postcode",
-                    plan=None,
-                    facts={},
-                    entities={},
-                    items=[],
-                )
-
-            # 4) Multi-meat join
+            # 3) Multi-meat join
             multi = self._multi_query_plan(user_text, request_id=request_id)
             if multi:
                 plan = multi["plan"]
                 facts = multi["facts"]
                 entities = self._entities_from_plan(plan)
 
-                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                reply_text = self.renderer.render(
+                    user_text=user_text,
+                    plan=plan,
+                    facts=facts,
+                    session=session_snapshot,
+                )
+
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -212,18 +274,20 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 5) Heuristic plan (no OpenAI)
+            # 4) Heuristic plan
             plan = self._heuristic_plan(user_text, request_id=request_id)
             if plan:
                 self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
             else:
-                # 6) Brain plan (OpenAI) — if out of credit, safe_plan returns unknown/do_nothing
+                # 5) Brain plan
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
                 self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
 
+                # 6) Normalize plan
                 plan = self._normalize_plan(plan, user_text=user_text)
                 self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
+                # 7) Force product search if it looks product-ish
                 if self._looks_like_product_query(user_text) and (plan.get("intent") in (None, "", "unknown")):
                     mods = self._parse_modifiers(user_text)
                     tags = self._token_tags(user_text)
@@ -251,11 +315,19 @@ class MessageHandlerV7:
                     }
                     self._info(request_id, "V7.force_search_fallback", plan=self._safe_plan_log(plan))
 
-            # 7) Execute
+            # 8) Execute plan
             facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
+
+            # 9) Entities
             entities = self._entities_from_plan(plan)
 
-            reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+            # 10) Render
+            reply_text = self.renderer.render(
+                user_text=user_text,
+                plan=plan,
+                facts=facts,
+                session=session_snapshot,
+            )
 
             return self._wrap_reply(
                 request_id=request_id,
@@ -282,31 +354,31 @@ class MessageHandlerV7:
             }
 
     # ------------------------------------------------------------------
-    # DELIVERY PLAN HELPER
+    # BRANCH / DELIVERY INTENT DETECTION
     # ------------------------------------------------------------------
 
-    def _delivery_plan(self, *, postcode: str) -> Dict[str, Any]:
-        pc = self._normalize_postcode(postcode) or postcode
-        return {
-            "intent": "check_delivery",
-            "action": "CHECK_DELIVERY",
-            "category": None,
-            "product_name": None,
-            "postcode": pc,
-            "sku": None,
-            "handoff_channel": None,
-            "needs_clarification": False,
-            "clarification_question": "",
-            "meta": {"max_items": 0},
-        }
-
-    def _looks_like_nearest_branch_request(self, text: str) -> bool:
-        if not text:
+    def _looks_like_branch_or_delivery_question(self, text: str) -> bool:
+        t = self._clean_text(text)
+        if not t:
             return False
-        t = text.strip().lower()
-        if "nearst branch" in t:  # your typo case
+
+        # direct phrases
+        for p in self._BRANCH_PHRASES:
+            if p in t:
+                return True
+        for p in self._DELIVERY_PHRASES:
+            if p in t:
+                return True
+
+        # lightweight keyword signals
+        if "nearest" in t and ("branch" in t or "store" in t):
             return True
-        return bool(self._NEAREST_PAT.search(text))
+        if "closest" in t and ("branch" in t or "store" in t):
+            return True
+        if "deliver" in t or "delivery" in t:
+            return True
+
+        return False
 
     # ------------------------------------------------------------------
     # RESPONSE WRAPPER
@@ -325,7 +397,10 @@ class MessageHandlerV7:
         items: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         dt_ms = int((time.perf_counter() - t0) * 1000)
-        ui = {"has_catalog": bool(items), "catalog_items": self._format_items_for_ui(items or [])}
+        ui = {
+            "has_catalog": bool(items),
+            "catalog_items": self._format_items_for_ui(items or []),
+        }
         return {
             "reply": reply,
             "mode": "v7",
@@ -353,60 +428,35 @@ class MessageHandlerV7:
     # POSTCODE (EXTRACT + NORMALIZE)
     # ------------------------------------------------------------------
 
-    def _normalize_postcode(self, text: Any) -> Optional[str]:
-        """
-        Normalize UK postcode:
-          "E79QS" -> "E7 9QS"
-          "E7 9QS" -> "E7 9QS"
-          "SW1A1AA" -> "SW1A 1AA"
-          "SW1A" -> "SW1A" (outward-only)
-        """
-        if text is None:
+    def _normalize_postcode(self, text: str) -> Optional[str]:
+        if not text:
             return None
-        raw = str(text).strip().upper()
-        if not raw:
-            return None
+        raw = text.strip().upper()
 
-        # If embedded in longer text, extract full first
         m = self._POSTCODE_FULL.search(raw)
         if m:
             return f"{m.group(1)} {m.group(2)}"
 
-        # Outward-only exact match
-        m2 = self._POSTCODE_OUTWARD.match(raw)
+        m2 = self._POSTCODE_OUTWARD.fullmatch(raw)
         if m2:
             return m2.group(1)
-
-        # Try compacting and matching full
-        compact = re.sub(r"[^A-Z0-9]", "", raw)
-        m3 = self._POSTCODE_FULL.search(compact)
-        if m3:
-            return f"{m3.group(1)} {m3.group(2)}"
 
         return None
 
     def _extract_postcode(self, user_text: str) -> Optional[str]:
-        """
-        Extract postcode even if embedded:
-          "delivery to E79QS"
-          "postcode is sw1a1aa"
-          "E7 9QS"
-        """
         if not user_text:
             return None
 
         s = user_text.strip().upper()
 
-        # Full postcode anywhere
         m = self._POSTCODE_FULL.search(s)
         if m:
             return f"{m.group(1)} {m.group(2)}"
 
-        # If message is short, try normalize (captures compact/no-space)
-        if len(user_text.split()) <= 5:
-            compact = re.sub(r"[^A-Z0-9]", "", s)
-            pc = self._normalize_postcode(compact)
-            if pc:
+        compact = re.sub(r"[^A-Z0-9]", "", s)
+        pc = self._normalize_postcode(compact)
+        if pc:
+            if len(user_text.split()) <= 4 or "POSTCODE" in s or "DELIVERY" in s or "NEAREST" in s or "BRANCH" in s:
                 return pc
 
         return None
@@ -434,7 +484,7 @@ class MessageHandlerV7:
         return bool(gmatch)
 
     # ------------------------------------------------------------------
-    # MULTI-MEAT JOIN (safe)
+    # MULTI-MEAT JOIN
     # ------------------------------------------------------------------
 
     def _multi_query_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
@@ -730,12 +780,16 @@ class MessageHandlerV7:
             if self.synonyms:
                 hints["synonyms"] = self.synonyms
 
-            plan = self.brain.plan(user_text=user_text, session=session, history=[], hints=hints)
+            plan = self.brain.plan(
+                user_text=user_text,
+                session=session,
+                history=[],
+                hints=hints,
+            )
             if not isinstance(plan, dict):
                 return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 12}}
             return plan
         except Exception as e:
-            # If OpenAI is out of credit, this path should be hit.
             self._exc(request_id, "V7.brain_plan_failed", err=str(e))
             return {"intent": "unknown", "action": "DO_NOTHING", "meta": {"max_items": 12}}
 
@@ -743,11 +797,11 @@ class MessageHandlerV7:
         p = dict(plan or {})
         action = (p.get("action") or "").strip().upper()
 
-        if p.get("postcode"):
-            p["postcode"] = self._normalize_postcode(p.get("postcode")) or p.get("postcode")
-
         category = p.get("category")
         product_name = p.get("product_name")
+
+        if p.get("postcode"):
+            p["postcode"] = self._normalize_postcode(str(p["postcode"])) or p["postcode"]
 
         if (category or product_name) and action in {"", "DO_NOTHING", "STORE_INFO", "FAQ_LOOKUP"}:
             p["action"] = "SEARCH_PRODUCTS"
@@ -772,13 +826,20 @@ class MessageHandlerV7:
         p.setdefault("handoff_channel", None)
         p.setdefault("needs_clarification", False)
         p.setdefault("clarification_question", "")
+
         return p
 
     # ------------------------------------------------------------------
     # EXECUTION
     # ------------------------------------------------------------------
 
-    def _execute_plan(self, plan: Dict[str, Any], user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
+    def _execute_plan(
+        self,
+        plan: Dict[str, Any],
+        user_text: str,
+        session: Dict[str, Any],
+        request_id: str,
+    ) -> Dict[str, Any]:
         facts: Dict[str, Any] = {}
 
         action = (plan.get("action") or "DO_NOTHING").strip().upper()
@@ -789,17 +850,33 @@ class MessageHandlerV7:
         product_name = plan.get("product_name") or None
 
         raw_postcode = plan.get("postcode") or session.get("postcode")
-        postcode = self._normalize_postcode(raw_postcode) if raw_postcode else None
+        postcode = self._normalize_postcode(str(raw_postcode)) if raw_postcode else None
 
         sku = plan.get("sku")
 
-        # DELIVERY + NEAREST BRANCH
+        # DELIVERY
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:
+                # DIAG: confirm deps are present
+                self._info(
+                    request_id,
+                    "V7.delivery.deps",
+                    has_policy=bool(self.policy),
+                    has_geo=bool(self.geo),
+                    postcode=postcode,
+                )
+
+                # Delivery policy
                 if self.policy:
                     try:
                         rule = self.policy.delivery_rule_for(postcode)
                         summary = self.policy.delivery_summary(postcode)
+                        self._info(
+                            request_id,
+                            "V7.delivery.ok",
+                            has_rule=bool(rule),
+                            summary_len=len(summary or ""),
+                        )
                     except Exception as e:
                         self._exc(request_id, "V7.delivery_failed", err=str(e))
                         rule, summary = None, ""
@@ -807,9 +884,16 @@ class MessageHandlerV7:
                 else:
                     facts["delivery"] = {"postcode": postcode, "rule": None, "summary": ""}
 
+                # Nearest branch
                 if self.geo:
                     try:
                         nb = self.geo.nearest_for_postcode(postcode)
+                        self._info(
+                            request_id,
+                            "V7.geo.ok",
+                            has_nearest=bool(nb),
+                            nearest_id=(nb or {}).get("id") if isinstance(nb, dict) else None,
+                        )
                     except Exception as e:
                         self._exc(request_id, "V7.geo_failed", err=str(e))
                         nb = None
@@ -819,12 +903,14 @@ class MessageHandlerV7:
         # PRODUCTS
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
             query, tags = self._build_search_query(user_text, category, product_name, meta)
+
             try:
                 limit = int((meta or {}).get("max_items") or 12)
             except Exception:
                 limit = 12
 
             self._info(request_id, "V7.catalog.search", query=self._clip(query, 120), tags=(tags or [])[:20], limit=limit)
+
             items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
 
             required = meta.get("required_terms") or self._required_terms_from_text(user_text)
@@ -949,7 +1035,13 @@ class MessageHandlerV7:
 
         return cleaned
 
-    def _build_search_query(self, user_text: str, category: Optional[str], product_name: Optional[str], meta: Dict[str, Any]) -> Tuple[str, List[str]]:
+    def _build_search_query(
+        self,
+        user_text: str,
+        category: Optional[str],
+        product_name: Optional[str],
+        meta: Dict[str, Any],
+    ) -> Tuple[str, List[str]]:
         tags: List[str] = []
         query = ""
 
@@ -990,7 +1082,8 @@ class MessageHandlerV7:
         if plan.get("category"):
             entities["category"] = plan["category"]
         if plan.get("postcode"):
-            entities["postcode"] = self._normalize_postcode(plan["postcode"]) or plan["postcode"]
+            pc = self._normalize_postcode(str(plan["postcode"])) or plan["postcode"]
+            entities["postcode"] = pc
         if plan.get("sku"):
             entities["sku"] = plan["sku"]
         if plan.get("product_name"):
@@ -1132,7 +1225,17 @@ class MessageHandlerV7:
     def _safe_plan_log(self, plan: Any) -> Dict[str, Any]:
         if not isinstance(plan, dict):
             return {"_type": str(type(plan))}
-        keep = ("intent", "action", "category", "product_name", "postcode", "sku", "needs_clarification", "clarification_question", "meta")
+        keep = (
+            "intent",
+            "action",
+            "category",
+            "product_name",
+            "postcode",
+            "sku",
+            "needs_clarification",
+            "clarification_question",
+            "meta",
+        )
         out: Dict[str, Any] = {}
         for k in keep:
             if k in plan:
