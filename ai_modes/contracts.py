@@ -8,8 +8,11 @@ Keep this file dependency-light (stdlib only) to avoid circular imports.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, TypeAlias
+from typing import Any, Dict, List, Protocol, TypeAlias
+
+import re
 
 
 # ---- Public protocol used by services.message_handler ----
@@ -29,10 +32,21 @@ ModeContracts: TypeAlias = ModeStrategy
 
 @dataclass
 class ToolCall:
-    """A single tool call the planner wants to execute."""
-    name: str                        # e.g., "catalog.search", "geo.nearest"
+    """
+    A single tool call the planner wants to execute.
+
+    Name MUST match the runtime resolver format: "<namespace>.<method>"
+    Examples:
+      - "catalog.search"
+      - "catalog.price_of"
+      - "policy.delivery_rule_for"
+      - "policy.delivery_summary"
+      - "geo.nearest_for_postcode"
+      - "faq.best_match"
+    """
+    name: str
     args: Dict[str, Any] = field(default_factory=dict)
-    required: bool = True            # if True and it fails → fallback/clarify
+    required: bool = True
 
 
 @dataclass
@@ -62,14 +76,12 @@ class Plan:
 
 def safe_minimal_rewrite(text: str) -> str:
     """
-    A compact normalization pass used by V5 or as fallback by other modes.
+    Compact normalization pass:
     - Trim whitespace
     - Collapse multiple spaces
-    - Ensure first letter capitalized
-    - Keep punctuation as-is (no hallucinations)
+    - Capitalize first letter (if present)
+    - Keep punctuation/content as-is (no hallucinations)
     """
-    import re
-
     t = (text or "").strip()
     t = re.sub(r"\s+", " ", t)
     if not t:
