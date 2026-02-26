@@ -1,6 +1,7 @@
 # ai_modes/v7_flagship.py
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+
+from typing import Any, Dict, List
 
 from .contracts import ModeStrategy, Plan, ToolCall, safe_minimal_rewrite
 
@@ -14,8 +15,9 @@ DEFAULT_CLARIFIERS = {
 }
 
 DEFAULT_GUARDRAILS = {
+    # IMPORTANT: if we don't have a rule, we must not claim coverage.
     "deny_unknown_delivery": "We currently don’t deliver to that area.",
-    "no_price_without_sku": "Tell me the product name and I’ll check the price for you.",
+    "no_price_without_sku": "Tell me the product name (or SKU) and I’ll check the price for you.",
 }
 
 
@@ -26,6 +28,11 @@ class AIV7Flagship(ModeStrategy):
     - Planner describes operations (delivery check, product search, etc.)
     - Handler executes tools
     - This class formats the **final reply** using grounded facts ONLY
+
+    Key fixes:
+    - Delivery planning now pulls BOTH rule + summary (so renderer can use it).
+    - “No delivery” replies can still include nearest branch details IF provided in facts.
+    - Never invent branch details, coverage, prices, or ETAs.
     """
 
     def __init__(self, **deps: Any):
@@ -59,37 +66,52 @@ class AIV7Flagship(ModeStrategy):
         """
         intent = (ctx.get("intent") or "").strip()
         ent = ctx.get("entities") or {}
+        sess = ctx.get("session") or {}
 
         tools: List[ToolCall] = []
 
         # DELIVERY CHECK
         if intent == "check_delivery":
-            pc = ent.get("postcode") or ctx.get("session", {}).get("postcode")
+            pc = ent.get("postcode") or sess.get("postcode")
             if not pc:
                 return Plan(
                     goal="Ask for postcode",
                     tools=[],
-                    constraints={"needs_clarification": True}
+                    constraints={"needs_clarification": True},
                 ).to_dict()
 
-            tools.append(ToolCall(
-                name="policy.delivery_rule_for",
-                args={"postcode": pc},
-                required=True
-            ))
-            tools.append(ToolCall(
-                name="geo.nearest_for_postcode",
-                args={"postcode": pc},
-                required=False
-            ))
+            # Get rule and summary as separate facts so rendering stays grounded.
+            tools.append(
+                ToolCall(
+                    name="policy.delivery_rule_for",
+                    args={"postcode": pc},
+                    required=True,
+                )
+            )
+            tools.append(
+                ToolCall(
+                    name="policy.delivery_summary",
+                    args={"postcode": pc},
+                    required=False,  # summary is optional, rule is the real signal
+                )
+            )
+            tools.append(
+                ToolCall(
+                    name="geo.nearest_for_postcode",
+                    args={"postcode": pc},
+                    required=False,
+                )
+            )
 
         # PRODUCT SEARCH
         elif intent in {"search_product", "browse_category"}:
-            tools.append(ToolCall(
-                name="catalog.search",
-                args={"query": ent.get("query"), "tags": ent.get("tags"), "limit": 6},
-                required=True
-            ))
+            tools.append(
+                ToolCall(
+                    name="catalog.search",
+                    args={"query": ent.get("query"), "tags": ent.get("tags"), "limit": 6},
+                    required=True,
+                )
+            )
 
         # PRICE CHECK
         elif intent == "price_check":
@@ -98,23 +120,25 @@ class AIV7Flagship(ModeStrategy):
                 return Plan(
                     goal="Ask which product to price check",
                     tools=[],
-                    constraints={"needs_clarification": True}
+                    constraints={"needs_clarification": True},
                 ).to_dict()
             tools.append(ToolCall("catalog.price_of", {"sku": sku}, required=True))
             tools.append(ToolCall("catalog.in_stock", {"sku": sku}, required=False))
 
         # GENERAL FAQ / UNKNOWN
         else:
-            tools.append(ToolCall(
-                name="faq.best_match",
-                args={"question": user_text, "top_k": 1},
-                required=False
-            ))
+            tools.append(
+                ToolCall(
+                    name="faq.best_match",
+                    args={"question": user_text, "top_k": 1},
+                    required=False,
+                )
+            )
 
         return Plan(
             goal=f"Answer intent={intent} with grounded facts.",
             tools=tools,
-            constraints={"no_fabrication": True, "concise": self.concise}
+            constraints={"no_fabrication": True, "concise": self.concise},
         ).to_dict()
 
     # ------------------------------------------------------------------
@@ -144,7 +168,7 @@ class AIV7Flagship(ModeStrategy):
         # FAQ
         faq = facts.get("faq")
         if faq and faq.get("answer"):
-            return self._cta(faq["answer"])
+            return self._cta(str(faq["answer"]))
 
         # Unknown → clarifier
         if draft:
@@ -157,25 +181,81 @@ class AIV7Flagship(ModeStrategy):
     # ------------------------------------------------------------------
 
     def _delivery_reply(self, facts: Dict[str, Any], ent: Dict[str, Any]) -> str:
-        d = facts.get("delivery")
-        pc = ent.get("postcode") or (d or {}).get("postcode")
+        """
+        Grounded delivery response.
+        Expects facts possibly shaped like:
+          facts["delivery"] = {"postcode": "...", "rule": {...}|None, "summary": "..."}
+          facts["branch"] = {"nearest": {...}}
+        But also supports tool-style facts where rule/summary are top-level.
+        """
+        # Accept both "wrapped" facts and tool-style facts.
+        d = facts.get("delivery") or {}
+        pc = ent.get("postcode") or d.get("postcode") or facts.get("postcode")
 
-        if not d or not pc:
+        # Rule may live in:
+        # - d["rule"] (wrapped)
+        # - facts["delivery_rule_for"] / facts["delivery_rule"] / facts["rule"] (tool outputs)
+        rule = d.get("rule")
+        if rule is None:
+            rule = facts.get("delivery_rule_for") or facts.get("delivery_rule") or facts.get("rule")
+
+        # Summary may live in:
+        # - d["summary"] (wrapped)
+        # - facts["delivery_summary"] (tool output)
+        summary = (d.get("summary") or facts.get("delivery_summary") or "").strip()
+
+        # Nearest may live in:
+        # - facts["branch"]["nearest"] (wrapped)
+        # - facts["nearest_branch"] / facts["geo_nearest"] (tool output)
+        nearest = (facts.get("branch") or {}).get("nearest") or facts.get("nearest_branch") or facts.get("geo_nearest")
+
+        if not pc:
             return self.clarifiers["check_delivery"]
 
-        if d.get("rule"):
+        # If we have a rule, we can say "Yes"
+        if rule:
             base = f"Yes, we deliver to {pc}."
-            summary = (d.get("summary") or "").strip()
             if summary:
                 base += f" {summary}"
-
-            branch = (facts.get("branch") or {}).get("nearest")
-            if branch and branch.get("name"):
-                base += f" Nearest branch: {branch['name']}."
-
+            base = self._append_nearest_branch(base, nearest)
             return self._cta(base)
 
-        return self.guardrails["deny_unknown_delivery"]
+        # If no rule, do NOT pretend coverage.
+        # But we CAN still show nearest branch IF we have it (grounded).
+        base = f"We currently don’t deliver to {pc}."
+        base = self._append_nearest_branch(base, nearest, include_phone=True, include_address=True)
+        return self._cta(base)
+
+    def _append_nearest_branch(
+        self,
+        base: str,
+        nearest: Any,
+        *,
+        include_phone: bool = False,
+        include_address: bool = False,
+    ) -> str:
+        if not isinstance(nearest, dict):
+            return base
+
+        name = (nearest.get("name") or "").strip()
+        if not name:
+            return base
+
+        out = f"{base} Nearest branch: {name}."
+        if include_address:
+            addr = (nearest.get("address") or "").strip()
+            pc = (nearest.get("postcode") or "").strip()
+            if addr and pc:
+                out += f" {addr}, {pc}."
+            elif addr:
+                out += f" {addr}."
+            elif pc:
+                out += f" {pc}."
+        if include_phone:
+            phone = (nearest.get("phone") or "").strip()
+            if phone:
+                out += f" Call: {phone}."
+        return out
 
     # ------------------------------------------------------------------
     # PRODUCT SEARCH RENDERING
@@ -183,20 +263,34 @@ class AIV7Flagship(ModeStrategy):
 
     def _product_reply(self, facts: Dict[str, Any], ent: Dict[str, Any]) -> str:
         items = facts.get("items") or []
-        q = ent.get("query") or ent.get("category")
+        q = ent.get("query") or ent.get("category") or ent.get("product_name")
 
         if not items:
             if q:
-                return f"No matching items found for “{q}”. Want to try a different product?"
+                return self._cta(f"No matching items found for “{q}”. Want to try a different product?")
             return self.clarifiers["search_product"]
 
+        def fmt_item(it: Dict[str, Any]) -> str:
+            name = (it.get("name") or it.get("title") or "").strip()
+            if not name:
+                return ""
+            unit = (it.get("unit") or it.get("size") or "").strip()
+            price = it.get("price")
+            label = name
+            if unit and unit.lower() not in name.lower():
+                label = f"{label} ({unit})"
+            if isinstance(price, (int, float)):
+                label = f"{label} – £{price:.2f}"
+            return label
+
         top = items[:3]
-        names = [i.get("name") for i in top if i.get("name")]
+        lines = [fmt_item(i) for i in top if isinstance(i, dict)]
+        lines = [x for x in lines if x]
 
-        if not names:
-            return "I found items but couldn’t read their names. Try another search?"
+        if not lines:
+            return self._cta("I found items but couldn’t read their names. Try another search?")
 
-        msg = f"Top picks: {', '.join(names)}."
+        msg = "Top picks:\n" + "\n".join(f"• {x}" for x in lines)
         return self._cta(msg)
 
     # ------------------------------------------------------------------
@@ -214,7 +308,7 @@ class AIV7Flagship(ModeStrategy):
         stock = p.get("in_stock")
 
         if price is None:
-            return f"I couldn’t find a price for {sku}."
+            return self._cta(f"I couldn’t find a price for {sku}.")
 
         stock_text = "in stock" if stock else "out of stock"
         msg = f"{sku} is £{price:.2f} and {stock_text}."
@@ -226,6 +320,8 @@ class AIV7Flagship(ModeStrategy):
 
     def _cta(self, text: str) -> str:
         t = (text or "").strip()
+        if not t:
+            return ""
         if t.endswith("?"):
             return t
         if t.lower().endswith("anything else"):
