@@ -15,9 +15,8 @@ DEFAULT_CLARIFIERS = {
 }
 
 DEFAULT_GUARDRAILS = {
-    # IMPORTANT: if we don't have a rule, we must not claim coverage.
     "deny_unknown_delivery": "We currently don’t deliver to that area.",
-    "no_price_without_sku": "Tell me the product name (or SKU) and I’ll check the price for you.",
+    "no_price_without_sku": "Tell me the product name and I’ll check the price for you.",
 }
 
 
@@ -29,10 +28,9 @@ class AIV7Flagship(ModeStrategy):
     - Handler executes tools
     - This class formats the **final reply** using grounded facts ONLY
 
-    Key fixes:
-    - Delivery planning now pulls BOTH rule + summary (so renderer can use it).
-    - “No delivery” replies can still include nearest branch details IF provided in facts.
-    - Never invent branch details, coverage, prices, or ETAs.
+    IMPORTANT:
+    - Nearest branch must be read from facts robustly (several possible shapes).
+    - When delivery is NOT available, still show nearest branch + phone if we have it.
     """
 
     def __init__(self, **deps: Any):
@@ -80,7 +78,7 @@ class AIV7Flagship(ModeStrategy):
                     constraints={"needs_clarification": True},
                 ).to_dict()
 
-            # Get rule and summary as separate facts so rendering stays grounded.
+            # Rule (required)
             tools.append(
                 ToolCall(
                     name="policy.delivery_rule_for",
@@ -88,13 +86,8 @@ class AIV7Flagship(ModeStrategy):
                     required=True,
                 )
             )
-            tools.append(
-                ToolCall(
-                    name="policy.delivery_summary",
-                    args={"postcode": pc},
-                    required=False,  # summary is optional, rule is the real signal
-                )
-            )
+
+            # Nearest branch (optional but very useful)
             tools.append(
                 ToolCall(
                     name="geo.nearest_for_postcode",
@@ -122,6 +115,7 @@ class AIV7Flagship(ModeStrategy):
                     tools=[],
                     constraints={"needs_clarification": True},
                 ).to_dict()
+
             tools.append(ToolCall("catalog.price_of", {"sku": sku}, required=True))
             tools.append(ToolCall("catalog.in_stock", {"sku": sku}, required=False))
 
@@ -168,13 +162,45 @@ class AIV7Flagship(ModeStrategy):
         # FAQ
         faq = facts.get("faq")
         if faq and faq.get("answer"):
-            return self._cta(str(faq["answer"]))
+            return self._cta(str(faq["answer"]).strip())
 
-        # Unknown → clarifier
+        # Unknown → clarifier / cleaned draft
         if draft:
             return self._cta(safe_minimal_rewrite(draft))
 
         return self.clarifiers.get(intent, self.clarifiers["unknown"])
+
+    # ------------------------------------------------------------------
+    # FACT HELPERS
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _clean_phone(phone: Any) -> str:
+        p = str(phone or "").strip()
+        # keep it simple; don’t reformat aggressively
+        return p
+
+    def _get_nearest_branch(self, facts: Dict[str, Any]) -> Dict[str, Any] | None:
+        """
+        Your pipeline may store nearest branch under different keys.
+        We try them all, and only accept dict-shaped branches.
+        """
+        # Preferred shape: facts["branch"]["nearest"] = {..}
+        br_block = facts.get("branch")
+        if isinstance(br_block, dict):
+            n = br_block.get("nearest")
+            if isinstance(n, dict):
+                return n
+
+        # Common alternates
+        for k in ("nearest_branch", "geo_nearest", "nearest"):
+            v = facts.get(k)
+            if isinstance(v, dict):
+                return v
+
+        # If you stored only an ID, we can't reliably inflate it here without direct access
+        # to geo store. So we do not fake it.
+        return None
 
     # ------------------------------------------------------------------
     # DELIVERY RENDERING
@@ -182,80 +208,51 @@ class AIV7Flagship(ModeStrategy):
 
     def _delivery_reply(self, facts: Dict[str, Any], ent: Dict[str, Any]) -> str:
         """
-        Grounded delivery response.
-        Expects facts possibly shaped like:
+        Expected ideal facts shape (but we defend against variations):
           facts["delivery"] = {"postcode": "...", "rule": {...}|None, "summary": "..."}
-          facts["branch"] = {"nearest": {...}}
-        But also supports tool-style facts where rule/summary are top-level.
+          facts["branch"]["nearest"] = {"name": "...", "phone": "...", "address": "...", "postcode": "..."}
         """
-        # Accept both "wrapped" facts and tool-style facts.
         d = facts.get("delivery") or {}
-        pc = ent.get("postcode") or d.get("postcode") or facts.get("postcode")
-
-        # Rule may live in:
-        # - d["rule"] (wrapped)
-        # - facts["delivery_rule_for"] / facts["delivery_rule"] / facts["rule"] (tool outputs)
-        rule = d.get("rule")
-        if rule is None:
-            rule = facts.get("delivery_rule_for") or facts.get("delivery_rule") or facts.get("rule")
-
-        # Summary may live in:
-        # - d["summary"] (wrapped)
-        # - facts["delivery_summary"] (tool output)
-        summary = (d.get("summary") or facts.get("delivery_summary") or "").strip()
-
-        # Nearest may live in:
-        # - facts["branch"]["nearest"] (wrapped)
-        # - facts["nearest_branch"] / facts["geo_nearest"] (tool output)
-        nearest = (facts.get("branch") or {}).get("nearest") or facts.get("nearest_branch") or facts.get("geo_nearest")
-
+        pc = ent.get("postcode") or d.get("postcode")
         if not pc:
             return self.clarifiers["check_delivery"]
 
-        # If we have a rule, we can say "Yes"
+        rule = d.get("rule")
+        summary = str(d.get("summary") or "").strip()
+
+        nearest = self._get_nearest_branch(facts)
+
+        # If we have a rule → deliverable
         if rule:
             base = f"Yes, we deliver to {pc}."
             if summary:
                 base += f" {summary}"
-            base = self._append_nearest_branch(base, nearest)
+            if nearest and nearest.get("name"):
+                base += f" Nearest branch: {nearest['name']}."
+                phone = self._clean_phone(nearest.get("phone"))
+                if phone:
+                    base += f" Call: {phone}."
             return self._cta(base)
 
-        # If no rule, do NOT pretend coverage.
-        # But we CAN still show nearest branch IF we have it (grounded).
+        # No rule → not deliverable, BUT still show nearest branch if available
         base = f"We currently don’t deliver to {pc}."
-        base = self._append_nearest_branch(base, nearest, include_phone=True, include_address=True)
-        return self._cta(base)
-
-    def _append_nearest_branch(
-        self,
-        base: str,
-        nearest: Any,
-        *,
-        include_phone: bool = False,
-        include_address: bool = False,
-    ) -> str:
-        if not isinstance(nearest, dict):
-            return base
-
-        name = (nearest.get("name") or "").strip()
-        if not name:
-            return base
-
-        out = f"{base} Nearest branch: {name}."
-        if include_address:
-            addr = (nearest.get("address") or "").strip()
-            pc = (nearest.get("postcode") or "").strip()
-            if addr and pc:
-                out += f" {addr}, {pc}."
-            elif addr:
-                out += f" {addr}."
-            elif pc:
-                out += f" {pc}."
-        if include_phone:
-            phone = (nearest.get("phone") or "").strip()
+        if nearest and nearest.get("name"):
+            base += f" Nearest branch: {nearest['name']}."
+            # include address/postcode if present
+            addr = str(nearest.get("address") or "").strip()
+            bpc = str(nearest.get("postcode") or "").strip()
+            if addr:
+                base += f" {addr}"
+                if bpc and bpc not in addr:
+                    base += f", {bpc}"
+                base += "."
+            phone = self._clean_phone(nearest.get("phone"))
             if phone:
-                out += f" Call: {phone}."
-        return out
+                base += f" Call: {phone}."
+        else:
+            base += " You can still visit the nearest branch or call the store for options."
+
+        return self._cta(base)
 
     # ------------------------------------------------------------------
     # PRODUCT SEARCH RENDERING
@@ -263,34 +260,20 @@ class AIV7Flagship(ModeStrategy):
 
     def _product_reply(self, facts: Dict[str, Any], ent: Dict[str, Any]) -> str:
         items = facts.get("items") or []
-        q = ent.get("query") or ent.get("category") or ent.get("product_name")
+        q = ent.get("query") or ent.get("category")
 
         if not items:
             if q:
                 return self._cta(f"No matching items found for “{q}”. Want to try a different product?")
             return self.clarifiers["search_product"]
 
-        def fmt_item(it: Dict[str, Any]) -> str:
-            name = (it.get("name") or it.get("title") or "").strip()
-            if not name:
-                return ""
-            unit = (it.get("unit") or it.get("size") or "").strip()
-            price = it.get("price")
-            label = name
-            if unit and unit.lower() not in name.lower():
-                label = f"{label} ({unit})"
-            if isinstance(price, (int, float)):
-                label = f"{label} – £{price:.2f}"
-            return label
-
         top = items[:3]
-        lines = [fmt_item(i) for i in top if isinstance(i, dict)]
-        lines = [x for x in lines if x]
+        names = [i.get("name") for i in top if isinstance(i, dict) and i.get("name")]
 
-        if not lines:
+        if not names:
             return self._cta("I found items but couldn’t read their names. Try another search?")
 
-        msg = "Top picks:\n" + "\n".join(f"• {x}" for x in lines)
+        msg = f"Top picks: {', '.join(names)}."
         return self._cta(msg)
 
     # ------------------------------------------------------------------
@@ -311,7 +294,7 @@ class AIV7Flagship(ModeStrategy):
             return self._cta(f"I couldn’t find a price for {sku}.")
 
         stock_text = "in stock" if stock else "out of stock"
-        msg = f"{sku} is £{price:.2f} and {stock_text}."
+        msg = f"{sku} is £{float(price):.2f} and {stock_text}."
         return self._cta(msg)
 
     # ------------------------------------------------------------------
