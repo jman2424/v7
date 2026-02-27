@@ -1,3 +1,4 @@
+# ai_modes/renderer_v7.py
 from __future__ import annotations
 
 import random
@@ -6,8 +7,9 @@ from typing import Any, Dict, List, Optional
 
 class RendererV7:
     """
-    V7 renderer: turns BrainV7 plan + facts into the final user-facing message.
+    V7 renderer: turns plan + facts into the final user-facing message.
 
+    Rules:
     - NO intent detection or slot logic here.
     - ONLY phrasing, grounded on `facts` and `plan`.
     - Optional LLM-based polish via `rewriter`, but it must never invent
@@ -60,8 +62,7 @@ class RendererV7:
 
         if action == "HUMAN_HANDOFF" or intent == "human_handoff":
             base = (
-                "No problem, I can connect you to the store team. "
-                "What’s your postcode so I can find the nearest branch and phone number?"
+                "No problem. What’s your postcode so I can find the nearest branch and phone number?"
             )
             return self._polish(base, facts)
 
@@ -100,42 +101,62 @@ class RendererV7:
         session: Dict[str, Any],
     ) -> str:
         delivery = facts.get("delivery") or {}
+
         postcode = (
             delivery.get("postcode")
             or plan.get("postcode")
             or session.get("postcode")
         )
 
+        # Nearest branch should be attached regardless of delivery coverage
+        nearest = (facts.get("branch") or {}).get("nearest") or {}
+        nearest_name = (nearest.get("name") or "").strip()
+        nearest_addr = (nearest.get("address") or "").strip()
+        nearest_phone = (nearest.get("phone") or "").strip()
+
+        def nearest_suffix() -> str:
+            if not nearest_name:
+                return ""
+            parts: List[str] = [nearest_name]
+            if nearest_addr:
+                parts.append(nearest_addr)
+            if nearest_phone:
+                parts.append(f"Call: {nearest_phone}")
+            return " Nearest branch: " + " | ".join(parts) + "."
+
+        # If we have no delivery object at all, ask for postcode or show "no info"
         if not delivery:
             if postcode:
-                return (
+                base = (
                     f"I don’t have delivery info for {postcode} yet. "
                     "Could you double-check the postcode or ask about a nearby branch instead?"
                 )
+                return self._append_cta(base + nearest_suffix())
             return "What’s your postcode (for example: E1 6AN)? I’ll check delivery options for you."
 
         rule = delivery.get("rule")
         summary = (delivery.get("summary") or "").strip()
 
+        # Covered
         if rule:
             base = f"Yes, we deliver to {postcode}."
             if summary:
                 base = f"{base} {summary}"
-            branch = (facts.get("branch") or {}).get("nearest") or {}
-            if branch.get("name"):
-                base = f"{base} Nearest branch: {branch['name']}."
-            return self._append_cta(base)
+            return self._append_cta(base + nearest_suffix())
 
-        # No rule → no coverage
+        # Not covered (still show nearest branch if available)
         if postcode:
-            return (
+            base = (
                 f"We currently don’t deliver to {postcode}. "
                 "You can still visit the nearest branch or call the store for options."
             )
-        return (
+            return self._append_cta(base + nearest_suffix())
+
+        base = (
             "We currently don’t deliver to that area. "
             "You can still visit the nearest branch or call the store for options."
         )
+        return self._append_cta(base + nearest_suffix())
 
     # ------------------------------------------------------------------ #
     # PRODUCTS                                                           #
@@ -143,16 +164,10 @@ class RendererV7:
 
     @staticmethod
     def _pretty_category(category: str) -> str:
-        # Turn "frozen_meats" → "frozen meats", "marinated_meats" → "marinated meats"
         return (category or "").replace("_", " ").strip()
 
     @staticmethod
     def _format_item_line(item: Dict[str, Any]) -> str:
-        """
-        Build a human line like:
-        "Chicken Wings (1kg) – £6.99"
-        grounded only on fields present in `item`.
-        """
         name = item.get("name") or item.get("_norm_name") or ""
         name = name.strip()
         if not name:
@@ -162,10 +177,8 @@ class RendererV7:
         price = item.get("price")
         bits: List[str] = [name]
 
-        if unit:
-            # avoid repeating "1kg" if name already clearly contains it
-            if unit.lower() not in name.lower():
-                bits[-1] = f"{name} ({unit})"
+        if unit and unit.lower() not in name.lower():
+            bits[-1] = f"{name} ({unit})"
 
         if isinstance(price, (int, float)):
             bits.append(f"£{price:.2f}")
@@ -183,23 +196,23 @@ class RendererV7:
         raw_category = plan.get("category") or session.get("last_category") or ""
         category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
+
         user_text_raw = (user_text or "").strip()
         user_text_lower = user_text_raw.lower()
 
-        # --- meta from search layer (scope + size + item-level) ---
         search_meta = facts.get("search_meta") or {}
         scope = search_meta.get("scope", "top_picks")
         item_level = bool(search_meta.get("item_level", False))
         primary_cut = search_meta.get("primary_cut")
+
         try:
             max_items = int(search_meta.get("max_items", 8))
         except Exception:
             max_items = 8
+
         wants_chunking = bool(search_meta.get("wants_chunking", False))
 
-        # ------------------------ NO ITEMS ---------------------------
         if not items:
-            # Handle “full catalog / all options / everything” style requests gracefully
             keywords = ("full", "all", "everything", "entire", "whole")
             pn_lower = (product_name or "").lower()
 
@@ -220,20 +233,13 @@ class RendererV7:
                 return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
             return "I couldn’t find matching items. Any specific product or cut you’re after?"
 
-        # ------------------------ LIMIT SIZE -------------------------
-        # Decide how many items to show, based on scope and max_items.
         total_items = len(items)
 
         if scope == "item_list":
-            # Specific cut (e.g. wings, brain, mince)
             limit = min(total_items, max(4, min(max_items, 10)))
-        elif scope == "full_category":
-            # Full category – allow more, but still keep single message sane
+        elif scope in {"full_category", "full_store"}:
             limit = min(total_items, max(10, min(max_items, 20)))
-        elif scope == "full_store":
-            # Massive – show a sample only
-            limit = min(total_items, max(10, min(max_items, 20)))
-        else:  # "top_picks" or unknown
+        else:
             limit = min(total_items, max(4, min(max_items, 8)))
 
         top = items[:limit]
@@ -241,22 +247,14 @@ class RendererV7:
         lines: List[str] = []
         for idx, item in enumerate(top, start=1):
             line = self._format_item_line(item)
-            if not line:
-                continue
-            lines.append(f"{idx}) {line}")
+            if line:
+                lines.append(f"{idx}) {line}")
 
         if not lines:
             return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
 
-        # ------------------------ INTRO TEXT -------------------------
-        intro: str
-
         if item_level and primary_cut:
-            # e.g. "Here are our wings options in chicken:"
-            if category:
-                intro = f"Here are our {primary_cut} options in {category}:"
-            else:
-                intro = f"Here are our {primary_cut} options:"
+            intro = f"Here are our {primary_cut} options" + (f" in {category}:" if category else ":")
         elif scope == "full_category" and category:
             intro = f"Here’s a wider selection from our {category} range:"
         elif scope == "full_store":
@@ -268,8 +266,6 @@ class RendererV7:
 
         body = " ".join(lines)
 
-        # ------------------------ FOLLOW-UP TEXT ---------------------
-        # If we showed only part of a big list, be honest and invite narrowing.
         extra_tail = ""
         if total_items > limit:
             if scope in {"full_category", "full_store"} or wants_chunking:
@@ -331,7 +327,6 @@ class RendererV7:
         if answer:
             return self._append_cta(answer)
 
-        # If we have a postcode + delivery summary but no FAQ text, still be helpful
         delivery = facts.get("delivery") or {}
         postcode = (
             delivery.get("postcode")
@@ -341,8 +336,7 @@ class RendererV7:
         summary = (delivery.get("summary") or "").strip()
 
         if postcode and summary:
-            base = f"For {postcode}: {summary}"
-            return self._append_cta(base)
+            return self._append_cta(f"For {postcode}: {summary}")
 
         return (
             "I’m not fully sure about that from my data. "
@@ -380,10 +374,6 @@ class RendererV7:
     # ------------------------------------------------------------------ #
 
     def _append_cta(self, text: str) -> str:
-        """
-        Attach a short closing CTA, but vary the wording a bit so the bot
-        doesn’t sound identical every turn.
-        """
         t = (text or "").strip()
         if not t:
             return t
@@ -399,15 +389,9 @@ class RendererV7:
             "Want to look at anything else?",
             "Anything else I can help you with?",
         ]
-        suffix = random.choice(variants)
-        return f"{t} {suffix}"
+        return f"{t} {random.choice(variants)}"
 
     def _polish(self, text: str, facts: Dict[str, Any]) -> str:
-        """
-        Optional AI polish:
-        - Keep it short, clear, and store-focused.
-        - Must NOT add products or prices that aren’t in `facts`.
-        """
         text = (text or "").strip()
         if not text:
             return ""
@@ -416,11 +400,6 @@ class RendererV7:
             return text
 
         try:
-            return self.rewriter.rewrite(
-                text,
-                style="sales",
-                facts=facts,
-            )
+            return self.rewriter.rewrite(text, style="sales", facts=facts)
         except Exception:
-            # If polish fails, fall back to raw text rather than erroring
             return text
