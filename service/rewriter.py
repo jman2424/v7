@@ -236,4 +236,4 @@ class Rewriter:
         # Capitalization pass
         if s and not s[0].isupper():
             s = s[0].upper() + s[1:]
-        return s
+        return s remake this file aswell    
