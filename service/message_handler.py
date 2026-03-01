@@ -2,25 +2,10 @@
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-RULES (critical):
-- NEVER writes msg_in/msg_out/error analytics here.
-  Those belong ONLY to transport boundaries:
-    - routes/webchat_routes.py
-    - routes/whatsapp_routes.py
-
-- This handler may write TELEMETRY only:
-    pipeline_in / pipeline_out / pipeline_turn
-  Telemetry must never crash the bot.
-
-Key upgrades in this remake:
-- Postcodes are AUTO-NORMALIZED:
-    * full:  "E79QS" -> "E7 9QS"
-    * spaced:"E7 9QS"-> "E7 9QS"
-    * full:  "SW1A1AA"->"SW1A 1AA"
-    * outward-only: "SW1A" stays "SW1A"
-    * embedded: "delivery to E79QS" extracts and stores session postcode downstream
-- Guards will NOT block postcode-ish inputs.
-- “nearest branch” is treated as a valid intent-like input (never fails as nonsense).
+Key points:
+- This file is NOT the AI brain. It is the dispatcher + safety/UX guard + validation.
+- It should never pretend the system is broken when user simply typed nonsense.
+- It should not block postcodes or "nearest branch" requests.
 """
 
 from __future__ import annotations
@@ -34,9 +19,7 @@ from typing import Any, Dict, Optional
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
-
 from service.validators import normalize_postcode
-
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
@@ -50,19 +33,6 @@ _RE_HAS_ALPHA = re.compile(r"[A-Za-z]")
 _RE_WORD3 = re.compile(r"[A-Za-z]{3,}")
 _RE_MULTI_SPACE = re.compile(r"\s+")
 
-# Common “catalog dump” phrases users try
-_CATALOG_PHRASES = {
-    "full catalog",
-    "full catalogue",
-    "catalog",
-    "catalogue",
-    "everything",
-    "all products",
-    "all items",
-    "show me everything",
-    "show everything",
-}
-
 # Recognize “nearest branch/store” requests (typos included)
 _NEAREST_BRANCH_PAT = re.compile(
     r"\b(nearest|closest|nearby)\s+(branch|store|shop)\b"
@@ -71,12 +41,24 @@ _NEAREST_BRANCH_PAT = re.compile(
     re.I,
 )
 
-# Detect full postcode anywhere, spaced or not (normalize later)
-# This is intentionally pragmatic, not perfect UK spec.
+# Detect full postcode anywhere, spaced or not
 _POSTCODE_FULL_IN_TEXT = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
 
 # Outward-only standalone: E7 / SW1A / N4 etc.
 _POSTCODE_OUTWARD_STANDALONE = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
+
+# Users asking for a full category list
+_FULL_LIST_PAT = re.compile(
+    r"\b(full|all|everything|entire|whole)\b.*\b(chicken|lamb|beef|grocer(?:y|ies)|frozen|marinated)\b",
+    re.I,
+)
+
+# Some common “test” words that should not trigger a “system broken” message
+_TEST_NOISE = {
+    "test", "tester", "testing", "demo", "dmo", "tst",
+    "test1", "test2", "test3",
+    "hello", "hi", "hey", "yo", "there", "sup",
+}
 
 
 def _collapse_spaces(s: str) -> str:
@@ -86,9 +68,6 @@ def _collapse_spaces(s: str) -> str:
 def _extract_postcode_anywhere(text: str) -> Optional[str]:
     """
     Extract a postcode from inside a longer message, then normalize spacing.
-    Examples:
-      "delivery to E79QS" -> "E7 9QS"
-      "postcode is sw1a1aa" -> "SW1A 1AA"
     """
     if not text:
         return None
@@ -103,7 +82,6 @@ def _extract_postcode_anywhere(text: str) -> Optional[str]:
     if m2:
         return m2.group(1)
 
-    # last resort: compact and try normalize_postcode (your validators may accept more)
     compact = re.sub(r"[^A-Z0-9]", "", s)
     pc = normalize_postcode(compact)
     return pc
@@ -111,22 +89,16 @@ def _extract_postcode_anywhere(text: str) -> Optional[str]:
 
 def _maybe_normalize_postcode_for_dispatch(user_text: str) -> str:
     """
-    Always attempt to normalize if a postcode is present.
-    - If message is just postcode, replace the whole message with normalized postcode.
-    - If postcode appears inside text, keep original text (V7 will extract too),
-      but we can optionally normalize *standalone* only to avoid messing intent text.
+    Normalize standalone postcode inputs BEFORE guard/dispatch.
     """
     t = (user_text or "").strip()
     if not t:
         return t
 
-    # Standalone normalize (most important for "E79QS")
     pc = normalize_postcode(t)
     if pc:
         return pc
 
-    # If user typed something like E79QS without space, try insert space before last 3 and validate
-    # (Works for common cases; validators does the final accept.)
     compact = re.sub(r"\s+", "", t).upper()
     if " " not in compact and 5 <= len(compact) <= 8:
         suggestion = f"{compact[:-3]} {compact[-3:]}"
@@ -138,17 +110,10 @@ def _maybe_normalize_postcode_for_dispatch(user_text: str) -> str:
 
 
 def _is_postcode_like(text: str) -> bool:
-    """
-    A safe check to prevent guards from blocking postcodes.
-    Uses validators first, then a light heuristic.
-    """
     if not text:
         return False
-
     if normalize_postcode(text):
         return True
-
-    # If a postcode exists anywhere inside text, treat as postcode-like.
     if _POSTCODE_FULL_IN_TEXT.search(text.upper()):
         return True
 
@@ -158,6 +123,51 @@ def _is_postcode_like(text: str) -> bool:
     letters = sum(ch.isalpha() for ch in s)
     digits = sum(ch.isdigit() for ch in s)
     return letters >= 2 and digits >= 1
+
+
+def _looks_like_noise(text: str) -> bool:
+    """
+    Detect low-signal messages that should not trigger a “system broken” fallback.
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    if t in _TEST_NOISE:
+        return True
+
+    # single short word with no digits and no strong keyword
+    if len(t) <= 7 and t.isalpha():
+        # if it's not a known category or common product keyword, treat as noise-ish
+        known = {"chicken", "lamb", "beef", "groceries", "grocery", "frozen", "marinated", "delivery", "postcode"}
+        if t not in known:
+            return True
+
+    return False
+
+
+def _category_from_full_list(text: str) -> Optional[str]:
+    """
+    If user says "full chicken list" / "all lamb" etc, extract the category word.
+    """
+    if not text:
+        return None
+    m = _FULL_LIST_PAT.search(text)
+    if not m:
+        return None
+    s = m.group(0).lower()
+    if "chicken" in s:
+        return "chicken"
+    if "lamb" in s:
+        return "lamb"
+    if "beef" in s:
+        return "beef"
+    if "grocer" in s:
+        return "groceries"
+    if "frozen" in s:
+        return "frozen_meats"
+    if "marinated" in s:
+        return "marinated_meats"
+    return None
 
 
 @dataclass
@@ -201,8 +211,6 @@ class MessageHandler:
         )
 
         user_text = (user_text or "").strip()
-
-        # ✅ Normalize standalone postcode inputs BEFORE guard/dispatch.
         user_text = _maybe_normalize_postcode_for_dispatch(user_text)
 
         sess = self._load_session(ctx)
@@ -221,40 +229,20 @@ class MessageHandler:
         if guarded is not None:
             logger.info(
                 "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s intent=%s text=%r",
-                ctx.tenant,
-                ctx.session_id,
-                ctx.channel,
-                mode,
-                rid,
-                guarded.get("intent"),
-                user_text[:120],
+                ctx.tenant, ctx.session_id, ctx.channel, mode, rid, guarded.get("intent"), user_text[:120],
             )
-
             self._telemetry(
                 ctx,
                 event_type="pipeline_turn",
-                meta={
-                    "mode": mode,
-                    "rid": rid,
-                    "intent": guarded.get("intent"),
-                    "ok": True,
-                    "guarded": True,
-                    "channel": ctx.channel,
-                },
+                meta={"mode": mode, "rid": rid, "intent": guarded.get("intent"), "ok": True, "guarded": True, "channel": ctx.channel},
             )
             return guarded
 
         logger.info(
             "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
-            ctx.tenant,
-            ctx.session_id,
-            ctx.channel,
-            mode,
-            rid,
-            user_text[:120],
+            ctx.tenant, ctx.session_id, ctx.channel, mode, rid, user_text[:120],
         )
 
-        # TELEMETRY ONLY (never KPI)
         self._telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
 
         # ---------------- DISPATCH ----------------
@@ -267,43 +255,18 @@ class MessageHandler:
 
         logger.info(
             "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
-            ctx.tenant,
-            ctx.session_id,
-            mode,
-            rid,
-            reply.get("intent"),
-            sorted(list(reply.keys())),
+            ctx.tenant, ctx.session_id, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
         )
 
         # ---------------- VALIDATION ----------------
-        reply = self._validate_reply(reply, user_text, ctx)
+        reply = self._validate_reply(reply, user_text, ctx, sess)
 
         # ---------------- PERSIST ----------------
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
-        # TELEMETRY ONLY (never KPI)
-        self._telemetry(
-            ctx,
-            event_type="pipeline_out",
-            meta={
-                "mode": mode,
-                "rid": rid,
-                "intent": reply.get("intent"),
-                "reply_len": len((reply.get("reply") or "")),
-            },
-        )
-        self._telemetry(
-            ctx,
-            event_type="pipeline_turn",
-            meta={
-                "mode": mode,
-                "rid": rid,
-                "intent": reply.get("intent"),
-                "ok": True,
-                "channel": ctx.channel,
-            },
-        )
+        self._telemetry(ctx, event_type="pipeline_out", meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "reply_len": len((reply.get("reply") or ""))})
+        self._telemetry(ctx, event_type="pipeline_turn", meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "ok": True, "channel": ctx.channel})
 
         return reply
 
@@ -321,14 +284,16 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # ✅ Never guard-block postcodes or postcode-containing messages.
-        # Let V7 do the right thing.
-        if _is_postcode_like(t):
+        # Never guard-block postcodes or postcode-containing messages.
+        if _is_postcode_like(t) or _POSTCODE_FULL_IN_TEXT.search(t.upper()):
             return None
 
-        # ✅ Never block “nearest branch/store” requests (even without postcode),
-        # because V7 will ask for postcode if needed.
+        # Never block “nearest branch/store”
         if _NEAREST_BRANCH_PAT.search(t):
+            return None
+
+        # If user asked "full chicken list" etc, do NOT guard it.
+        if _FULL_LIST_PAT.search(t):
             return None
 
         tl = _collapse_spaces(t).lower()
@@ -343,38 +308,11 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # “full catalog” requests -> don’t pretend it’s a product search
-        if tl in _CATALOG_PHRASES:
-            return {
-                "reply": (
-                    "I can’t dump the full catalogue in one go.\n\n"
-                    "Pick a section and I’ll show it:\n"
-                    "• chicken\n"
-                    "• lamb\n"
-                    "• beef\n"
-                    "• groceries\n"
-                    "• frozen meats\n"
-                    "• marinated meats\n\n"
-                    "Or tell me what you’re cooking (BBQ / curry / burgers)."
-                ),
-                "intent": "system_catalog_hint",
-                "resolved": True,
-                "facts": {"reason": "catalog_request"},
-                "entities": {},
-            }
-
-        # Random short codes / gibberish (but we already exempted postcodes above)
+        # Random short gibberish
         letters = sum(ch.isalpha() for ch in t)
         digits = sum(ch.isdigit() for ch in t)
-
         looks_like_short_code = (len(t) <= 8 and letters >= 2 and digits >= 2 and " " not in t)
-        looks_like_gibberish = (
-            len(t) <= 5
-            and _RE_HAS_ALPHA.search(t)
-            and digits == 0
-            and " " not in t
-            and not _RE_WORD3.search(t)
-        )
+        looks_like_gibberish = (len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t))
 
         if looks_like_short_code or looks_like_gibberish:
             return {
@@ -401,38 +339,57 @@ class MessageHandler:
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
     # ---------------------------------------------------------
-    def _validate_reply(self, reply: Dict[str, Any], user_text: str, ctx: MessageContext) -> Dict[str, Any]:
+    def _validate_reply(self, reply: Dict[str, Any], user_text: str, ctx: MessageContext, sess: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        IMPORTANT change:
+        - Don't say "having trouble pulling products" just because search returned 0 items.
+        - Use a clarifier when the user's message is low-signal or "test/demo".
+        - If user requested "full chicken list", nudge to a category browse question instead of failure.
+        """
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
+        text = (user_text or "").strip()
 
-        text = (user_text or "").strip().lower()
+        # If user typed "full chicken list" etc and V7 didn't return items, guide them cleanly.
+        cat = _category_from_full_list(text)
+        if cat and not items:
+            pretty = cat.replace("_", " ")
+            return {
+                "reply": (
+                    f"Got it — **full {pretty} list**.\n\n"
+                    "Before I list everything, tell me what you want to see:\n"
+                    "• wings\n"
+                    "• breast\n"
+                    "• thighs\n"
+                    "• drumsticks\n"
+                    "• whole chicken\n\n"
+                    "Or say: **cheap chicken** / **BBQ chicken**."
+                ),
+                "intent": "system_force_browse",
+                "resolved": False,
+                "facts": {"force_category": cat},
+                "entities": {"category": cat},
+            }
+
+        # Bare-category handling (existing behaviour but kept)
+        lower = text.lower()
         known_category_words = {
-            "chicken",
-            "lamb",
-            "beef",
-            "groceries",
-            "grocery",
-            "frozen",
-            "frozen meats",
-            "frozen_meats",
-            "marinated",
-            "marinated meats",
-            "marinated_meats",
+            "chicken", "lamb", "beef",
+            "groceries", "grocery",
+            "frozen", "frozen meats", "frozen_meats",
+            "marinated", "marinated meats", "marinated_meats",
         }
-        looks_like_bare_category = (len(text.split()) <= 2) and (text in known_category_words)
+        looks_like_bare_category = (len(lower.split()) <= 2) and (lower in known_category_words)
 
         if looks_like_bare_category and not items:
             logger.warning(
-                "PIPELINE FAILURE: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
-                user_text,
-                intent,
-                ctx.tenant,
-                ctx.session_id,
+                "PIPELINE WARNING: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
+                user_text, intent, ctx.tenant, ctx.session_id,
             )
             return {
                 "reply": (
-                    f"Got it — **{text}**.\n\n"
+                    f"Got it — **{lower}**.\n\n"
                     "Tell me what you want and I’ll pull options:\n"
                     "• wings / thighs / breast\n"
                     "• mince / chops / ribs\n"
@@ -440,30 +397,43 @@ class MessageHandler:
                 ),
                 "intent": "system_force_browse",
                 "resolved": False,
-                "facts": {"force_category": text},
-                "entities": {"category": text},
+                "facts": {"force_category": lower},
+                "entities": {"category": lower},
             }
 
+        # If intent *expects* items but none returned, DO NOT claim system is broken.
         requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
         if requires_items and not items:
-            logger.warning(
-                "PIPELINE FAILURE: intent=%s but no items returned | text=%r tenant=%s session=%s",
-                intent,
-                user_text,
-                ctx.tenant,
-                ctx.session_id,
-            )
+            # If user typed low-signal / test words, treat as clarifier not failure.
+            if _looks_like_noise(text):
+                return {
+                    "reply": (
+                        "Tell me what you want to do:\n"
+                        "• search products (e.g. **chicken wings**)\n"
+                        "• check delivery (e.g. **E7 9QS**)\n"
+                        "• nearest branch (type **nearest branch**)\n"
+                        "• or ask for a category (e.g. **chicken**)"
+                    ),
+                    "intent": "system_clarify",
+                    "resolved": False,
+                    "facts": {"reason": "low_signal_input"},
+                    "entities": {},
+                }
+
+            # Otherwise it's a normal “no results” case.
+            q = (reply.get("entities") or {}).get("query") or text
             return {
                 "reply": (
-                    "I’m having trouble pulling products right now.\n\n"
-                    "Try asking like:\n"
-                    "• **lamb chops**\n"
+                    f"I couldn’t find matches for **{q}**.\n\n"
+                    "Try one of these:\n"
                     "• **chicken wings**\n"
-                    "• **cheapest lamb**"
+                    "• **lamb chops**\n"
+                    "• **beef mince**\n"
+                    "• **cheapest chicken**"
                 ),
-                "intent": "system_fallback",
+                "intent": "system_no_results",
                 "resolved": False,
-                "facts": {},
+                "facts": {"reason": "no_items"},
                 "entities": {},
             }
 
@@ -519,7 +489,6 @@ class MessageHandler:
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
 
-        # Optional: analytics lead helpers (NOT KPIs)
         try:
             if hasattr(self.analytics, "upsert_lead"):
                 self.analytics.upsert_lead(
@@ -537,19 +506,10 @@ class MessageHandler:
     # TELEMETRY (safe)
     # ---------------------------------------------------------
     def _telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
-        """
-        Telemetry is allowed here, but must NEVER write KPI event types.
-        Allowed: pipeline_in / pipeline_out / pipeline_turn (only).
-        Must never crash the bot.
-        """
         if not event_type:
             return
-
-        # Hard block KPI types
         if event_type in _KPI_EVENT_TYPES:
             return
-
-        # Only allow pipeline_* events from this layer
         if not event_type.startswith("pipeline_"):
             return
 
@@ -559,7 +519,6 @@ class MessageHandler:
                 return
 
             meta_json = json.dumps(meta or {}, separators=(",", ":"), ensure_ascii=False)
-
             fn(
                 tenant=ctx.tenant,
                 channel=ctx.channel,
