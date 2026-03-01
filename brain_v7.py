@@ -1,3 +1,4 @@
+# brain_v7.py
 from __future__ import annotations
 
 import json
@@ -13,7 +14,6 @@ from openai import OpenAI
 
 DEFAULT_MODEL = "gpt-4.1-mini"
 
-
 SYSTEM_PROMPT = """
 You are StoreBrainV7 — the PLANNING BRAIN for a halal meat shop assistant.
 
@@ -28,134 +28,9 @@ Your job is to think like a smart human sales assistant:
 - fill useful slots (category, product_name, postcode, sku, handoff_channel)
 - only ask clarifying questions when genuinely needed.
 
-======================================================================
-INTENTS (pick one)
-======================================================================
-"greeting"        -> hi, salam, hello, etc.
-"search_product"  -> customer wants items, ideas, or suggestions.
-"browse_category" -> they only specify a broad family (e.g. "chicken", "lamb").
-"price_check"     -> clearly asking price of a specific product/SKU.
-"check_delivery"  -> anything about delivery / shipping / coverage / minimum order.
-"store_info"      -> opening times, branches, phone numbers, locations.
-"faq"             -> returns, halal status, frozen rules, storage, etc.
-"human_handoff"   -> wants a real person (phone / WhatsApp / in-store).
-"smalltalk"       -> non-business chat.
-"unknown"         -> too unclear to classify.
+Return ONLY valid JSON (no markdown).
 
-======================================================================
-ACTIONS (pick one)
-======================================================================
-"GREET"           -> send a greeting-style reply.
-"ASK_SLOT"        -> ask for one missing key piece of info.
-"SEARCH_PRODUCTS" -> call catalog search with category / product_name / tags.
-"CHECK_DELIVERY"  -> call delivery + nearest-branch tools.
-"PRICE_CHECK"     -> call price_of + in_stock tools.
-"STORE_INFO"      -> call store/FAQ tools for branches & hours.
-"FAQ_LOOKUP"      -> general FAQ search.
-"HUMAN_HANDOFF"   -> prepare to hand over to human (phone / WhatsApp / in-store).
-"SMALLTALK_REPLY" -> lightweight conversational reply.
-"DO_NOTHING"      -> completely empty / unusable input.
-
-======================================================================
-SLOTS
-======================================================================
-category:
-  - Short category key like "poultry", "lamb", "beef", "groceries",
-    "marinated_meats", "frozen_meats", "exotic_meats", etc.
-  - Use whatever categories exist for the store.
-  - null if no category is implied.
-
-product_name:
-  - Free text used for catalog search.
-  - Include occasion, budget, people, etc when helpful.
-  - Example: "bbq for 6 people, medium spicy, budget 30 pounds, mostly chicken".
-
-postcode:
-  - UK-style postcode string (e.g. "E1 6AN") OR null.
-
-sku:
-  - Exact internal SKU code OR null.
-
-handoff_channel:
-  - "phone" | "whatsapp" | "in_store" | null
-
-======================================================================
-SESSION
-======================================================================
-You receive a "session" object with:
-- postcode
-- last_intent
-- last_category
-- last_sku
-
-You MAY reuse these when the user refers back with vague language.
-
-Examples:
-- "same again", "same thing", "that one"      -> reuse last_sku if present.
-- "more", "more options", "all options"      -> reuse last_category.
-- "anything else for chicken"                -> intent=search_product, category="chicken".
-
-======================================================================
-PRODUCT-LEVEL UNDERSTANDING
-======================================================================
-You must treat products as INDIVIDUAL ITEMS when the user clearly
-asks for a specific cut or item, for example:
-
-- "wings", "chicken wings", "prime wings"
-- "lamb brain", "brain", "paya", "kidneys", "liver"
-- "mince", "5% mince", "beef burgers"
-
-In those cases:
-- intent = "search_product"
-- action = "SEARCH_PRODUCTS"
-- category = best guess (reuse last_category if reasonable)
-- product_name = the concrete request (e.g. "chicken wings only")
-- meta.item_level = true
-- meta.search_scope = "item_list"
-- meta.search_tags should include the main cut name ("wings", "brain", "mince")
-- meta.primary_cut = that main cut name (e.g. "wings")
-
-======================================================================
-CATALOG SCOPE & MESSAGE SIZE
-======================================================================
-You must also decide HOW BIG the answer should be (roughly):
-
-meta.search_scope:
-  - "top_picks"     -> small curated list (3–8 items)
-  - "item_list"     -> list of items matching a specific cut (e.g. wings)
-  - "full_category" -> as many products as available in one category (needs chunking)
-  - "full_store"    -> all products in the shop (the renderer will usually ask the user to narrow down)
-
-meta.max_items:
-  - Suggest a maximum number of items the renderer should show at once.
-  - Default 8 for normal queries.
-  - For full_category requests, 20–40 and set meta.wants_chunking = true.
-
-meta.wants_chunking:
-  - true when the result will be LONG (full category or store).
-  - This tells the renderer/handler to split into multiple WhatsApp messages.
-
-======================================================================
-CLARIFICATION (be confident)
-======================================================================
-- If you have enough info to act (SEARCH_PRODUCTS, PRICE_CHECK, etc.), then:
-    needs_clarification = false
-    action = chosen action
-
-- Only set needs_clarification = true when:
-    - you cannot safely choose a category / postcode / sku
-    - or the message is totally ambiguous.
-
-When you DO need clarification:
-  action = "ASK_SLOT"
-  clarification_question = short and specific.
-
-======================================================================
-OUTPUT FORMAT (STRICT JSON)
-======================================================================
-You MUST ALWAYS return valid JSON (no markdown, no comments).
-
-Required fields:
+Required shape:
 
 {
   "intent": "...",
@@ -180,10 +55,10 @@ Required fields:
 }
 """
 
-
 # -------------------------------------------------------------------
 # CONFIG DATACLASS
 # -------------------------------------------------------------------
+
 
 @dataclass
 class BrainConfig:
@@ -195,14 +70,19 @@ class BrainConfig:
 # BRAIN IMPLEMENTATION
 # -------------------------------------------------------------------
 
+
 class BrainV7:
     """
     StoreBrainV7 — planning-only brain for V7.
 
-    Dynamic version:
-    - No hard-coded category list.
-    - Categories are inferred from hints (catalog + synonyms) and/or the model.
-    - Still gives hints about size (search_scope, max_items, wants_chunking).
+    Key upgrades in this remake:
+    - Standalone postcode (e.g. "E79QS" / "SW1A 1AA") ALWAYS triggers check_delivery.
+      (Even if user didn't type "delivery")
+    - Better "full <category> list" behavior:
+      - If category is detectable => search_scope=full_category, wants_chunking=True
+      - If no category => search_scope=full_store, wants_chunking=True
+    - Cut keywords produce item_level planning (wings/mince/brain/etc.)
+    - Dynamic category resolution using hints (categories + synonyms)
     """
 
     CUT_KEYWORDS = {
@@ -220,7 +100,12 @@ class BrainV7:
         "feet", "paya",
         "nugget", "nuggets",
         "kebab", "kebabs",
+        "fillet", "fillets",
     }
+
+    # UK-ish: inward part is digit + 2 letters
+    _PC_FULL = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
+    _PC_OUTWARD_ONLY = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
 
     def __init__(self, client: Optional[OpenAI] = None, config: Optional[BrainConfig] = None):
         self.client = client or OpenAI()
@@ -246,7 +131,7 @@ class BrainV7:
             return self._blank_plan(session)
 
         # 1) fast path
-        fast = self._fast_path(user_text, session)
+        fast = self._fast_path(user_text, session, hints)
         if fast is not None:
             return fast
 
@@ -273,17 +158,22 @@ class BrainV7:
             response_format={"type": "json_object"},
             messages=messages,
         )
-        raw = completion.choices[0].message.content
+        raw = completion.choices[0].message.content or ""
         return self._post_process(raw, user_text, session, hints)
 
     # --------------------------------------------------------------- #
     # FAST PATH                                                       #
     # --------------------------------------------------------------- #
 
-    def _fast_path(self, text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _fast_path(self, text: str, session: Dict[str, Any], hints: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         low = text.lower().strip()
 
-        # greetings
+        # A) standalone postcode => ALWAYS delivery check
+        pc_only = self._extract_postcode_anywhere(text, allow_outward_only=True)
+        if pc_only and self._looks_like_just_postcode(text):
+            return self._plan_delivery(pc_only, session)
+
+        # B) greetings
         if self._is_greeting(low):
             return {
                 "intent": "greeting",
@@ -295,32 +185,31 @@ class BrainV7:
                 "handoff_channel": None,
                 "needs_clarification": False,
                 "clarification_question": "",
-                "meta": {
-                    "is_greeting": True,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
+                "meta": self._meta_base(is_greeting=True),
             }
 
-        # more / more options
-        if low in {"more", "more options", "all options", "anything else"}:
+        # C) explicit delivery language (with or without postcode)
+        if self._looks_like_delivery(low):
+            pc = self._extract_postcode_anywhere(text, allow_outward_only=False) or session.get("postcode")
+            if pc:
+                return self._plan_delivery(pc, session)
+            return {
+                "intent": "check_delivery",
+                "action": "ASK_SLOT",
+                "category": None,
+                "product_name": None,
+                "postcode": session.get("postcode"),
+                "sku": session.get("last_sku"),
+                "handoff_channel": None,
+                "needs_clarification": True,
+                "clarification_question": "What’s your postcode (for example: E1 6AN)?",
+                "meta": self._meta_base(),
+            }
+
+        # D) "more" / "more options"
+        if low in {"more", "more options", "all options", "anything else", "show me more", "more please"}:
             last_cat = session.get("last_category")
             last_intent = session.get("last_intent")
-            base_meta = {
-                "is_greeting": False,
-                "is_goodbye": False,
-                "search_scope": "top_picks",
-                "item_level": False,
-                "search_tags": [],
-                "max_items": 8,
-                "wants_chunking": False,
-                "primary_cut": None,
-            }
             if last_cat:
                 return {
                     "intent": "search_product",
@@ -332,7 +221,7 @@ class BrainV7:
                     "handoff_channel": None,
                     "needs_clarification": False,
                     "clarification_question": "",
-                    "meta": base_meta,
+                    "meta": self._meta_base(search_scope="top_picks", max_items=8),
                 }
             if last_intent in {"search_product", "browse_category"}:
                 return {
@@ -345,80 +234,48 @@ class BrainV7:
                     "handoff_channel": None,
                     "needs_clarification": False,
                     "clarification_question": "",
-                    "meta": base_meta,
+                    "meta": self._meta_base(search_scope="top_picks", max_items=8),
                 }
 
-        # "meat" / "meat catalog" – ONLY exact forms, so
-        # "exotic meat", "marinated meat", etc go to the LLM path.
-        if low in {"meat", "meat catalog"}:
+        # E) Human handoff keywords
+        if re.search(r"\b(human|real person|call you|call the shop|speak to someone|agent)\b", low):
             return {
-                "intent": "search_product",
-                "action": "ASK_SLOT",
-                "category": None,
-                "product_name": "mixed meat request",
-                "postcode": session.get("postcode"),
-                "sku": session.get("last_sku"),
-                "handoff_channel": None,
-                "needs_clarification": True,
-                "clarification_question": "Are you looking for chicken, lamb, beef, or a mix of meats?",
-                "meta": {
-                    "is_greeting": False,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
-            }
-
-        # delivery with postcode
-        postcode = self._extract_postcode(text)
-        if self._looks_like_delivery(low):
-            if postcode:
-                return {
-                    "intent": "check_delivery",
-                    "action": "CHECK_DELIVERY",
-                    "category": None,
-                    "product_name": None,
-                    "postcode": postcode,
-                    "sku": session.get("last_sku"),
-                    "handoff_channel": None,
-                    "needs_clarification": False,
-                    "clarification_question": "",
-                    "meta": {
-                        "is_greeting": False,
-                        "is_goodbye": False,
-                        "search_scope": "top_picks",
-                        "item_level": False,
-                        "search_tags": [],
-                        "max_items": 8,
-                        "wants_chunking": False,
-                        "primary_cut": None,
-                    },
-                }
-            return {
-                "intent": "check_delivery",
-                "action": "ASK_SLOT",
+                "intent": "human_handoff",
+                "action": "HUMAN_HANDOFF",
                 "category": None,
                 "product_name": None,
                 "postcode": session.get("postcode"),
                 "sku": session.get("last_sku"),
-                "handoff_channel": None,
-                "needs_clarification": True,
-                "clarification_question": "What’s your postcode (for example: E1 6AN)?",
-                "meta": {
-                    "is_greeting": False,
-                    "is_goodbye": False,
-                    "search_scope": "top_picks",
-                    "item_level": False,
-                    "search_tags": [],
-                    "max_items": 8,
-                    "wants_chunking": False,
-                    "primary_cut": None,
-                },
+                "handoff_channel": "phone",
+                "needs_clarification": False,
+                "clarification_question": "",
+                "meta": self._meta_base(),
             }
+
+        # F) If message CONTAINS a postcode anywhere, treat as delivery check
+        # (covers: "E79QS", "postcode is SW1A1AA", "deliver to E7 9QS")
+        pc_any = self._extract_postcode_anywhere(text, allow_outward_only=False)
+        if pc_any:
+            return self._plan_delivery(pc_any, session)
+
+        # G) Full catalog-ish keywords are better handled after category resolution (post-process),
+        # but we can early-hint if user says "full chicken list" etc.
+        if any(k in low for k in ("full", "all", "everything", "entire", "whole", "catalog", "catalogue", "list")):
+            # try resolve category from hints quickly
+            cat = self._resolve_category(None, text, session, hints)
+            if cat:
+                return {
+                    "intent": "search_product",
+                    "action": "SEARCH_PRODUCTS",
+                    "category": cat,
+                    "product_name": f"full {cat.replace('_', ' ')} catalog",
+                    "postcode": session.get("postcode"),
+                    "sku": session.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": self._meta_base(search_scope="full_category", max_items=30, wants_chunking=True),
+                }
 
         return None
 
@@ -444,28 +301,19 @@ class BrainV7:
         base = cls._clean_phrase(label)
         if not base:
             return
-        if base not in mapping:
-            mapping[base] = key
+        mapping.setdefault(base, key)
 
         parts = base.split()
         if not parts:
             return
         last = parts[-1]
-        singular = None
-        plural = None
         if last.endswith("s"):
             singular = last[:-1]
+            if singular:
+                mapping.setdefault(" ".join(parts[:-1] + [singular]), key)
         else:
             plural = last + "s"
-
-        if singular:
-            s_phrase = " ".join(parts[:-1] + [singular])
-            if s_phrase and s_phrase not in mapping:
-                mapping[s_phrase] = key
-        if plural:
-            p_phrase = " ".join(parts[:-1] + [plural])
-            if p_phrase and p_phrase not in mapping:
-                mapping[p_phrase] = key
+            mapping.setdefault(" ".join(parts[:-1] + [plural]), key)
 
     def _build_category_mapping(self, hints: Dict[str, Any]) -> Dict[str, str]:
         mapping: Dict[str, str] = {}
@@ -473,7 +321,6 @@ class BrainV7:
         categories = hints.get("categories") or []
         cat_syn = hints.get("category_synonyms") or hints.get("synonyms") or {}
 
-        # from categories list
         for c in categories:
             cid = str(c.get("id") or "").strip()
             cname = str(c.get("name") or "").strip()
@@ -481,13 +328,11 @@ class BrainV7:
                 continue
             key_source = cid or cname
             key = self._norm_cat_key(key_source)
-
             if cid:
                 self._add_label_variants(mapping, cid, key)
             if cname:
                 self._add_label_variants(mapping, cname, key)
 
-        # from synonyms mapping
         if isinstance(cat_syn, dict):
             for base, syns in cat_syn.items():
                 base_key = self._norm_cat_key(str(base))
@@ -506,40 +351,32 @@ class BrainV7:
         hints: Dict[str, Any],
     ) -> Optional[str]:
         mapping = self._build_category_mapping(hints)
-        low = user_text.lower()
+        low = (user_text or "").lower()
 
         if isinstance(raw_cat, str) and raw_cat.strip():
             cleaned = self._clean_phrase(raw_cat)
-            key_from_clean = mapping.get(cleaned)
-            if key_from_clean:
-                return key_from_clean
+            if cleaned in mapping:
+                return mapping[cleaned]
 
             norm_key = self._norm_cat_key(raw_cat)
             if norm_key in mapping.values():
                 return norm_key
 
+        # scan longest-first phrase match in message
         for phrase in sorted(mapping.keys(), key=len, reverse=True):
             if phrase and phrase in low:
                 return mapping[phrase]
 
-        if isinstance(raw_cat, str) and raw_cat.strip():
-            return self._norm_cat_key(raw_cat)
-
+        # fallback: session last_category
         last_cat = session.get("last_category")
         if isinstance(last_cat, str) and last_cat.strip():
             return last_cat
 
         return None
 
-    def _is_pure_category_query(
-        self,
-        user_text: str,
-        cat_key: Optional[str],
-        mapping: Dict[str, str],
-    ) -> bool:
+    def _is_pure_category_query(self, user_text: str, cat_key: Optional[str], mapping: Dict[str, str]) -> bool:
         if not cat_key:
             return False
-
         low = self._clean_phrase(user_text)
         if not low:
             return False
@@ -549,8 +386,8 @@ class BrainV7:
             return False
 
         generic_words = {
-            "meat", "meats", "catalog", "category", "products", "range",
-            "stuff", "things", "items", "selection", "options"
+            "meat", "meats", "catalog", "catalogue", "category", "products", "range",
+            "stuff", "things", "items", "selection", "options", "list", "full", "all"
         }
 
         for ph in phrases:
@@ -560,7 +397,7 @@ class BrainV7:
                 if not leftover:
                     return True
                 tokens = leftover.split()
-                if all(t in generic_words for t in tokens):
+                if tokens and all(t in generic_words for t in tokens):
                     return True
 
         return False
@@ -569,13 +406,7 @@ class BrainV7:
     # POST PROCESS                                                     #
     # --------------------------------------------------------------- #
 
-    def _post_process(
-        self,
-        raw: str,
-        user_text: str,
-        session: Dict[str, Any],
-        hints: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    def _post_process(self, raw: str, user_text: str, session: Dict[str, Any], hints: Dict[str, Any]) -> Dict[str, Any]:
         try:
             data = json.loads(raw)
         except Exception:
@@ -586,75 +417,67 @@ class BrainV7:
 
         raw_cat = data.get("category")
         product_name = data.get("product_name")
-        postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
         sku = data.get("sku") or session.get("last_sku")
         handoff_channel = data.get("handoff_channel")
+
         needs_clarification = bool(data.get("needs_clarification", False))
-        clarification_question = data.get("clarification_question") or ""
+        clarification_question = str(data.get("clarification_question") or "")
 
         meta_in = data.get("meta") or {}
-        low = user_text.lower()
+        low = (user_text or "").lower()
 
-        search_scope = meta_in.get("search_scope") or "top_picks"
-        item_level = bool(meta_in.get("item_level", False))
-        search_tags = meta_in.get("search_tags") or []
-        if not isinstance(search_tags, list):
-            search_tags = []
-        try:
-            max_items = int(meta_in.get("max_items", 8))
-        except Exception:
-            max_items = 8
-        wants_chunking = bool(meta_in.get("wants_chunking", False))
-        primary_cut = meta_in.get("primary_cut")
+        meta = self._meta_base(
+            is_greeting=bool(meta_in.get("is_greeting", False)),
+            is_goodbye=bool(meta_in.get("is_goodbye", False)),
+            search_scope=str(meta_in.get("search_scope") or "top_picks"),
+            item_level=bool(meta_in.get("item_level", False)),
+            search_tags=(meta_in.get("search_tags") or []),
+            max_items=self._to_int(meta_in.get("max_items"), default=8),
+            wants_chunking=bool(meta_in.get("wants_chunking", False)),
+            primary_cut=meta_in.get("primary_cut"),
+        )
+        if not isinstance(meta["search_tags"], list):
+            meta["search_tags"] = []
 
-        meta = {
-            "is_greeting": bool(meta_in.get("is_greeting", False)),
-            "is_goodbye": bool(meta_in.get("is_goodbye", False)),
-            "search_scope": search_scope,
-            "item_level": item_level,
-            "search_tags": search_tags,
-            "max_items": max_items,
-            "wants_chunking": wants_chunking,
-            "primary_cut": primary_cut,
-        }
-
-        # dynamic category resolution
+        # category resolve
         category_map = self._build_category_mapping(hints)
         cat = self._resolve_category(raw_cat, user_text, session, hints)
 
-        # bbq upgrade
+        # postcode: always try extract, then fallback to session
+        postcode = (
+            data.get("postcode")
+            or self._extract_postcode_anywhere(user_text, allow_outward_only=True)
+            or session.get("postcode")
+        )
+
+        # 0) If message is basically a postcode, force delivery intent
+        if self._looks_like_just_postcode(user_text) and postcode:
+            return self._plan_delivery(postcode, session)
+
+        # 1) BBQ upgrade
         if intent in {"unknown", "faq"} and "bbq" in low:
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
             product_name = product_name or "bbq selection, mix of popular cuts for grilling"
 
-        # vague meat
-        if intent in {"unknown", "faq"} and low.strip() == "meat":
-            intent = "search_product"
-            action = "ASK_SLOT"
-            needs_clarification = True
-            clarification_question = "Are you looking for chicken, lamb, beef, or a mix of meats?"
-
-        # full catalog detection
-        full_keywords = ("full", "all", "everything", "entire", "whole", "catalog")
+        # 2) Full catalog detection (strong)
+        full_keywords = ("full", "all", "everything", "entire", "whole", "catalog", "catalogue", "list")
         if any(k in low for k in full_keywords):
+            intent = "search_product"
+            action = "SEARCH_PRODUCTS"
             if cat:
-                intent = "search_product"
-                action = "SEARCH_PRODUCTS"
                 meta["search_scope"] = "full_category"
-                meta["max_items"] = max_items if max_items > 8 else 30
-                meta["wants_chunking"] = True
-                if not product_name:
-                    pretty_cat = cat.replace("_", " ")
-                    product_name = f"full {pretty_cat} catalog"
             else:
-                intent = "search_product"
-                action = "SEARCH_PRODUCTS"
                 meta["search_scope"] = "full_store"
-                meta["max_items"] = max_items if max_items > 8 else 30
-                meta["wants_chunking"] = True
+            meta["max_items"] = max(meta["max_items"], 30)
+            meta["wants_chunking"] = True
+            if not product_name:
+                if cat:
+                    product_name = f"full {cat.replace('_', ' ')} catalog"
+                else:
+                    product_name = "full store catalog"
 
-        # item-level cuts like wings / brain / mince
+        # 3) Item-level cut detection
         detected_cut = None
         for word in self.CUT_KEYWORDS:
             if re.search(rf"\b{re.escape(word)}\b", low):
@@ -664,52 +487,34 @@ class BrainV7:
         if detected_cut:
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
-            item_level = True
             meta["item_level"] = True
             meta["primary_cut"] = detected_cut
-            if detected_cut not in search_tags:
-                search_tags.append(detected_cut)
-                meta["search_tags"] = search_tags
-            if meta["search_scope"] in {"top_picks", None}:
+            if detected_cut not in meta["search_tags"]:
+                meta["search_tags"].append(detected_cut)
+            if meta["search_scope"] in {"top_picks", None, ""}:
                 meta["search_scope"] = "item_list"
-            if not max_items or max_items < 1:
-                meta["max_items"] = 8
-
-            if not cat and session.get("last_category"):
-                cat = session["last_category"]
             if not product_name:
                 product_name = user_text
 
-        # pure category queries ("exotic meat", "marinated meat", "groceries catalog")
+        # 4) Pure category queries
         if self._is_pure_category_query(user_text, cat, category_map):
             intent = "search_product"
             action = "SEARCH_PRODUCTS"
             if any(k in low for k in full_keywords):
                 meta["search_scope"] = "full_category"
-                meta["max_items"] = max_items if max_items > 8 else 30
+                meta["max_items"] = max(meta["max_items"], 30)
                 meta["wants_chunking"] = True
             else:
                 meta["search_scope"] = "top_picks"
                 meta["wants_chunking"] = False
 
-        # if intent says CHECK_DELIVERY but no postcode
+        # 5) Delivery intent without postcode -> ask
         if intent == "check_delivery" and not postcode:
             action = "ASK_SLOT"
             needs_clarification = True
             clarification_question = "What’s your postcode (for example: E1 6AN)?"
 
-        # more-options safety net
-        if intent in {"unknown", "smalltalk"} and self._looks_like_more_options(low):
-            last_cat = session.get("last_category")
-            if last_cat:
-                intent = "search_product"
-                action = "SEARCH_PRODUCTS"
-                cat = last_cat
-                product_name = f"more options in {last_cat}"
-                needs_clarification = False
-                clarification_question = ""
-
-        # greetings safety net
+        # 6) Greetings safety net
         if self._is_greeting(low) and intent == "unknown":
             intent = "greeting"
             action = "GREET"
@@ -729,6 +534,24 @@ class BrainV7:
         }
 
     # --------------------------------------------------------------- #
+    # PLAN BUILDERS                                                    #
+    # --------------------------------------------------------------- #
+
+    def _plan_delivery(self, postcode: str, session: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "intent": "check_delivery",
+            "action": "CHECK_DELIVERY",
+            "category": None,
+            "product_name": None,
+            "postcode": postcode,
+            "sku": session.get("last_sku"),
+            "handoff_channel": None,
+            "needs_clarification": False,
+            "clarification_question": "",
+            "meta": self._meta_base(),
+        }
+
+    # --------------------------------------------------------------- #
     # BASELINE PLAN                                                    #
     # --------------------------------------------------------------- #
 
@@ -743,17 +566,42 @@ class BrainV7:
             "handoff_channel": None,
             "needs_clarification": False,
             "clarification_question": "",
-            "meta": {
-                "is_greeting": False,
-                "is_goodbye": False,
-                "search_scope": "top_picks",
-                "item_level": False,
-                "search_tags": [],
-                "max_items": 8,
-                "wants_chunking": False,
-                "primary_cut": None,
-            },
+            "meta": self._meta_base(),
         }
+
+    # --------------------------------------------------------------- #
+    # META                                                            #
+    # --------------------------------------------------------------- #
+
+    def _meta_base(
+        self,
+        *,
+        is_greeting: bool = False,
+        is_goodbye: bool = False,
+        search_scope: str = "top_picks",
+        item_level: bool = False,
+        search_tags: Optional[List[str]] = None,
+        max_items: int = 8,
+        wants_chunking: bool = False,
+        primary_cut: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "is_greeting": bool(is_greeting),
+            "is_goodbye": bool(is_goodbye),
+            "search_scope": search_scope,
+            "item_level": bool(item_level),
+            "search_tags": list(search_tags or []),
+            "max_items": int(max_items),
+            "wants_chunking": bool(wants_chunking),
+            "primary_cut": primary_cut,
+        }
+
+    @staticmethod
+    def _to_int(v: Any, *, default: int) -> int:
+        try:
+            return int(v)
+        except Exception:
+            return default
 
     # --------------------------------------------------------------- #
     # UTILITIES                                                        #
@@ -764,42 +612,71 @@ class BrainV7:
         return bool(
             re.search(
                 r"\b(hi|hello|hey|salam|salaam|assalamu alaikum|assalamualaikum|as-salamu alaykum)\b",
-                low,
+                low or "",
             )
         )
 
     @staticmethod
-    def _looks_like_more_options(low: str) -> bool:
-        return low in {
-            "more",
-            "more options",
-            "all options",
-            "anything else",
-            "show me more",
-            "more please",
-        }
-
-    @staticmethod
     def _looks_like_delivery(low: str) -> bool:
+        low = low or ""
         return any(
             w in low
             for w in [
-                "deliver",
-                "delivery",
-                "ship",
-                "shipping",
-                "postcode",
-                "post code",
-                "minimum order",
-                "min order",
+                "deliver", "delivery", "ship", "shipping",
+                "postcode", "post code",
+                "minimum order", "min order",
             ]
         )
 
-    @staticmethod
-    def _extract_postcode(text: str) -> Optional[str]:
-        m = re.search(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b", text.upper())
-        if not m:
+    def _extract_postcode_anywhere(self, text: str, *, allow_outward_only: bool) -> Optional[str]:
+        if not text:
             return None
-        pc = m.group(1)
-        pc = re.sub(r"\s+", " ", pc).strip()
-        return pc
+        s = text.strip().upper()
+
+        m = self._PC_FULL.search(s)
+        if m:
+            return f"{m.group(1)} {m.group(2)}".strip()
+
+        if allow_outward_only:
+            m2 = self._PC_OUTWARD_ONLY.match(s)
+            if m2:
+                return m2.group(1).strip()
+
+        # last resort: compact into alnum then try full again
+        compact = re.sub(r"[^A-Z0-9]", "", s)
+        m3 = self._PC_FULL.search(compact)
+        if m3:
+            return f"{m3.group(1)} {m3.group(2)}".strip()
+
+        return None
+
+    def _looks_like_just_postcode(self, text: str) -> bool:
+        """
+        True if the whole message is basically a postcode (with/without space).
+        Prevents the bot from treating "SW1A1AA" as a random product query.
+        """
+        if not text:
+            return False
+        t = text.strip().upper()
+        # allow only letters/digits/spaces
+        if re.sub(r"[A-Z0-9\s]", "", t):
+            return False
+
+        # spaced or unspaced full
+        if self._PC_FULL.fullmatch(t.replace(" ", "")):
+            return True
+        if self._PC_FULL.fullmatch(t):
+            return True
+
+        # outward-only
+        if self._PC_OUTWARD_ONLY.fullmatch(t):
+            return True
+
+        # heuristic: short (4-8) and has both letters+digits
+        compact = re.sub(r"\s+", "", t)
+        if 4 <= len(compact) <= 8:
+            letters = sum(ch.isalpha() for ch in compact)
+            digits = sum(ch.isdigit() for ch in compact)
+            return letters >= 2 and digits >= 1
+
+        return False
