@@ -16,14 +16,16 @@ logger = logging.getLogger("handler_v7")
 
 class MessageHandlerV7:
     """
-    V7 handler (crash-proof + smarter guidance)
+    V7 handler (crash-proof + smarter routing)
 
-    Fixes included:
-    - _info/_debug/_exc always exist (no more crash)
-    - Robust UK postcode extraction + normalization
-    - ✅ NEW: nearest-branch + delivery questions use:
-        * postcode in message OR session postcode
-        * if missing: ask for postcode (instead of falling into product pipeline)
+    Fixes in this remake:
+    - Stop treating ANY short message (<=7 words) as a product query
+      (this was the reason “is this ai” got forced into product search).
+    - Respect Brain smalltalk/greeting outcomes (don’t force SEARCH_PRODUCTS).
+    - Stronger item/cut handling: “fillets”, “wings”, “mince”, etc can search without category.
+    - If a product-ish query returns zero items, do ONE safe retry search with a simplified query
+      (prevents menu-fallback when the catalog would match a simpler query).
+    - Delivery/nearest-branch logic kept (postcode in message or session, else ask).
     """
 
     _GREETINGS = {
@@ -35,13 +37,24 @@ class MessageHandlerV7:
     _SMALLTALK = {
         "how are you", "how r u", "hru", "whats up", "what's up",
         "help", "can you help", "can u help", "need help",
+        "is this ai", "are you ai", "are you real", "who are you",
     }
 
     _MEATS = ("chicken", "beef", "lamb", "goat")
 
+    # “cut/topic” words that usually mean product search
     _TOPIC_WORDS = (
-        "steak", "chops", "wings", "mince", "kofta", "breast", "thigh", "drumsticks", "ribs",
-        "fillet", "sirloin", "ribeye", "rump", "leg", "shoulder", "neck", "shank", "burger", "patties"
+        "steak", "chops", "wings", "wing", "mince", "kofta", "breast", "thigh", "drumsticks",
+        "ribs", "rib", "fillet", "fillets", "sirloin", "ribeye", "rump", "leg", "shoulder",
+        "neck", "shank", "burger", "burgers", "patties", "liver", "kidney", "kidneys",
+        "paya", "feet", "nuggets", "kebab", "kebabs"
+    )
+
+    # Words that imply “I want products” even if not a cut
+    _BUY_WORDS = (
+        "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
+        "recommend", "recommendation", "suggest", "suggestion", "options", "list", "full list",
+        "family pack", "bbq", "barbecue", "grill", "grilling", "curry"
     )
 
     _MEAT_ALIASES = {
@@ -55,7 +68,6 @@ class MessageHandlerV7:
     _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
     _POSTCODE_OUTWARD = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", re.I)
 
-    # ✅ “nearest branch” & “delivery” triggers (keep small but high-signal)
     _BRANCH_PHRASES = (
         "nearest branch",
         "nearest store",
@@ -84,8 +96,8 @@ class MessageHandlerV7:
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
-        self.policy = getattr(deps, "policy", None)  # should expose: delivery_rule_for, delivery_summary
-        self.geo = getattr(deps, "geo", None)        # should expose: nearest_for_postcode
+        self.policy = getattr(deps, "policy", None)  # delivery_rule_for, delivery_summary
+        self.geo = getattr(deps, "geo", None)        # nearest_for_postcode
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
 
@@ -126,7 +138,7 @@ class MessageHandlerV7:
         )
 
         try:
-            # 0) Greeting / small talk
+            # 0) Greeting / small talk (pure)
             if self._is_greeting_or_smalltalk(user_text):
                 reply_text = (
                     "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
@@ -143,15 +155,12 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # ✅ 1) Branch/delivery questions should NOT fall into product pipeline
-            # If user asks nearest branch/delivery and we have a postcode (message or session), run CHECK_DELIVERY.
-            # If no postcode, ask for it.
+            # 1) Branch/delivery questions: do NOT fall into product pipeline
             if self._looks_like_branch_or_delivery_question(user_text):
                 extracted_pc = self._extract_postcode(user_text)
                 pc = extracted_pc or session_snapshot.get("postcode")
 
                 if not pc:
-                    # Ask for postcode (critical: do not pretend it’s a product search)
                     reply_text = "Sure — what’s your postcode? (e.g. E7 9QS) I’ll tell you delivery + nearest branch."
                     plan = {
                         "intent": "check_delivery",
@@ -211,7 +220,7 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 2) Postcode-only (BIG FIX)
+            # 2) Postcode-only (force delivery)
             extracted_pc = self._extract_postcode(user_text)
             if extracted_pc:
                 plan = {
@@ -274,49 +283,78 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 4) Heuristic plan
-            plan = self._heuristic_plan(user_text, request_id=request_id)
-            if plan:
-                self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
-            else:
-                # 5) Brain plan
+            # 4) Heuristic plan (only when truly product-ish)
+            plan = None
+            if self._looks_like_product_query(user_text):
+                plan = self._heuristic_plan(user_text, request_id=request_id)
+                if plan:
+                    self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
+
+            # 5) Brain plan
+            if not plan:
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
                 self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
 
-                # 6) Normalize plan
                 plan = self._normalize_plan(plan, user_text=user_text)
                 self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
-                # 7) Force product search if it looks product-ish
-                if self._looks_like_product_query(user_text) and (plan.get("intent") in (None, "", "unknown")):
-                    mods = self._parse_modifiers(user_text)
-                    tags = self._token_tags(user_text)
-                    for t in mods.get("tags") or []:
-                        if t not in tags:
-                            tags.append(t)
+            # 6) If Brain says smalltalk/unknown AND input is not product-ish, DO NOT force search.
+            intent_norm = (plan.get("intent") or "unknown").strip().lower()
+            action_norm = (plan.get("action") or "").strip().upper()
 
-                    plan = {
-                        "intent": "search_product",
-                        "action": "SEARCH_PRODUCTS",
-                        "category": None,
-                        "product_name": self._normalize_text(user_text),
-                        "postcode": None,
-                        "sku": None,
-                        "handoff_channel": None,
-                        "needs_clarification": False,
-                        "clarification_question": "",
-                        "meta": {
-                            "max_items": 12,
-                            "search_tags": tags,
-                            "sort": mods.get("sort"),
-                            "max_price": mods.get("max_price"),
-                            "required_terms": self._required_terms_from_text(user_text),
-                        },
-                    }
-                    self._info(request_id, "V7.force_search_fallback", plan=self._safe_plan_log(plan))
+            if intent_norm in {"smalltalk", "greeting"} or action_norm in {"SMALLTALK_REPLY", "GREET"}:
+                facts = {}
+                entities = self._entities_from_plan(plan)
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent=plan.get("intent"),
+                    plan=plan,
+                    facts=facts,
+                    entities=entities,
+                    items=[],
+                )
 
-            # 8) Execute plan
+            if intent_norm in {"unknown"} and (not self._looks_like_product_query(user_text)):
+                # Keep it conversational instead of forcing catalog search
+                safe_plan = {
+                    "intent": "smalltalk",
+                    "action": "SMALLTALK_REPLY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": session_snapshot.get("postcode"),
+                    "sku": session_snapshot.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"max_items": 0},
+                }
+                facts = {}
+                entities = self._entities_from_plan(safe_plan)
+                reply_text = self.renderer.render(user_text=user_text, plan=safe_plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="smalltalk",
+                    plan=safe_plan,
+                    facts=facts,
+                    entities=entities,
+                    items=[],
+                )
+
+            # 7) Execute plan
             facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
+
+            # 8) If it was product search and came back empty, do ONE retry with a simplified query
+            if (plan.get("action") or "").strip().upper() == "SEARCH_PRODUCTS":
+                items0 = facts.get("items") or []
+                if not items0:
+                    retry = self._retry_search_if_worth_it(plan, user_text=user_text, request_id=request_id)
+                    if retry is not None:
+                        facts["items"] = retry
 
             # 9) Entities
             entities = self._entities_from_plan(plan)
@@ -354,6 +392,44 @@ class MessageHandlerV7:
             }
 
     # ------------------------------------------------------------------
+    # RETRY SEARCH (prevents “menu fallback” when query was too narrow)
+    # ------------------------------------------------------------------
+
+    def _retry_search_if_worth_it(self, plan: Dict[str, Any], *, user_text: str, request_id: str) -> Optional[List[Dict[str, Any]]]:
+        if not self.catalog:
+            return None
+
+        meta = plan.get("meta") or {}
+        q = (plan.get("product_name") or user_text or "").strip()
+        q_clean = self._normalize_text(q)
+
+        # Only retry when query is short or a single cut word
+        tokens = [t for t in q_clean.split() if t]
+        if not tokens or len(tokens) > 3:
+            return None
+
+        # Try the strongest “cut” token as both query + tag
+        cut = None
+        for t in tokens:
+            if t in set(self._TOPIC_WORDS):
+                cut = t
+                break
+
+        if not cut:
+            return None
+
+        try:
+            limit = int(meta.get("max_items") or 12)
+        except Exception:
+            limit = 12
+
+        tags = self._token_tags(cut)
+        self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
+
+        items = self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
+        return items
+
+    # ------------------------------------------------------------------
     # BRANCH / DELIVERY INTENT DETECTION
     # ------------------------------------------------------------------
 
@@ -362,7 +438,6 @@ class MessageHandlerV7:
         if not t:
             return False
 
-        # direct phrases
         for p in self._BRANCH_PHRASES:
             if p in t:
                 return True
@@ -370,7 +445,6 @@ class MessageHandlerV7:
             if p in t:
                 return True
 
-        # lightweight keyword signals
         if "nearest" in t and ("branch" in t or "store" in t):
             return True
         if "closest" in t and ("branch" in t or "store" in t):
@@ -599,20 +673,32 @@ class MessageHandlerV7:
         return t or "all"
 
     # ------------------------------------------------------------------
-    # HEURISTICS
+    # HEURISTICS (IMPORTANT FIX: stop “<=7 words => product query”)
     # ------------------------------------------------------------------
 
     def _looks_like_product_query(self, user_text: str) -> bool:
         t = self._clean_text(user_text)
         if not t:
             return False
-        if len(t.split()) <= 7:
+
+        # If it contains a clear signal, it’s product-y
+        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
             return True
-        for w in self._TOPIC_WORDS:
-            if re.search(rf"\b{re.escape(w)}\b", t):
-                return True
-        if re.search(r"\b(cheapest|cheap|under|below|less than|£)\b", t):
+        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
             return True
+        if any(w in t for w in self._BUY_WORDS):
+            return True
+        if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
+            return True
+
+        # If it’s basically a noun-like single token (but NOT obvious smalltalk)
+        toks = t.split()
+        if len(toks) == 1:
+            if toks[0] in {"ai", "bot", "hello", "hi", "hey", "salam"}:
+                return False
+            # single token like "fillets" or "wings" should already have matched _TOPIC_WORDS above
+            return toks[0] in set(self._TOPIC_WORDS)
+
         return False
 
     def _parse_modifiers(self, text: str) -> Dict[str, Any]:
@@ -667,9 +753,6 @@ class MessageHandlerV7:
     def _heuristic_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
         t = self._normalize_text(user_text)
         if not t:
-            return None
-
-        if len(t.split()) > 7 and not self._looks_like_product_query(t):
             return None
 
         mods = self._parse_modifiers(t)
@@ -808,9 +891,12 @@ class MessageHandlerV7:
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        if len(self._clean_text(user_text).split()) <= 7 and p.get("needs_clarification"):
-            p["needs_clarification"] = False
-            p["clarification_question"] = ""
+        # Don’t auto-cancel a real clarification from the brain if the text is short;
+        # brain might need a slot. Only cancel if text is clearly a cut/product term.
+        if p.get("needs_clarification"):
+            if self._looks_like_product_query(user_text):
+                p["needs_clarification"] = False
+                p["clarification_question"] = ""
 
         meta = p.get("meta") or {}
         if not isinstance(meta, dict):
@@ -857,7 +943,6 @@ class MessageHandlerV7:
         # DELIVERY
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:
-                # DIAG: confirm deps are present
                 self._info(
                     request_id,
                     "V7.delivery.deps",
@@ -866,17 +951,11 @@ class MessageHandlerV7:
                     postcode=postcode,
                 )
 
-                # Delivery policy
                 if self.policy:
                     try:
                         rule = self.policy.delivery_rule_for(postcode)
                         summary = self.policy.delivery_summary(postcode)
-                        self._info(
-                            request_id,
-                            "V7.delivery.ok",
-                            has_rule=bool(rule),
-                            summary_len=len(summary or ""),
-                        )
+                        self._info(request_id, "V7.delivery.ok", has_rule=bool(rule), summary_len=len(summary or ""))
                     except Exception as e:
                         self._exc(request_id, "V7.delivery_failed", err=str(e))
                         rule, summary = None, ""
@@ -884,7 +963,6 @@ class MessageHandlerV7:
                 else:
                     facts["delivery"] = {"postcode": postcode, "rule": None, "summary": ""}
 
-                # Nearest branch
                 if self.geo:
                     try:
                         nb = self.geo.nearest_for_postcode(postcode)
@@ -1066,6 +1144,11 @@ class MessageHandlerV7:
                     tags.append(token)
         else:
             query = (user_text or "").strip()
+
+        # If it’s a cut-only query like “fillets”, make sure it’s in tags too
+        q_norm = self._normalize_text(query)
+        if q_norm and q_norm not in tags and len(q_norm.split()) <= 2:
+            tags.extend([x for x in q_norm.split() if x and x not in tags])
 
         if not category and not product_name and tags:
             query = " ".join(tags)
