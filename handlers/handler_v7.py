@@ -18,16 +18,13 @@ class MessageHandlerV7:
     """
     V7 handler (crash-proof + smarter routing)
 
-    This remake fixes the key bug:
-    - DO NOT intercept smalltalk with the greeting menu.
-      Only true greetings get the greeting menu.
-      Smalltalk like “are you ai” goes to Brain/SMALLTALK instead.
-
-    Also keeps:
-    - Delivery/nearest-branch routing (postcode from message or session, else ask).
+    Fixes included:
+    - Greeting menu only triggers for real greetings (not smalltalk).
+    - Smalltalk routed to Brain (or a safe local reply).
+    - NEW: out-of-scope detection (weather/news/etc) -> polite redirect.
+    - Delivery/nearest-branch routing preserved.
     - Better product-ish detection (no “<=7 words => product query”).
-    - Cut handling (“fillets”, “wings”, etc) can search without category.
-    - One safe retry search when product search returns zero items.
+    - One safe retry search if product search returns zero items.
     """
 
     _GREETINGS = {
@@ -36,16 +33,25 @@ class MessageHandlerV7:
         "good morning", "good afternoon", "good evening",
     }
 
-    # Keep these as smalltalk signals, but DO NOT use them to trigger the greeting menu.
     _SMALLTALK = {
         "how are you", "how r u", "hru", "whats up", "what's up",
         "help", "can you help", "can u help", "need help",
         "is this ai", "are you ai", "are you real", "who are you",
+        "not ai", "you're not ai", "u not ai",
     }
+
+    # Keep these separate from smalltalk — they should be “sorry, I can’t help with that”.
+    _OUT_OF_SCOPE_HINTS = (
+        "weather", "temperature outside", "forecast", "rain",
+        "news", "headlines",
+        "sports", "score", "match result",
+        "stock", "crypto", "bitcoin",
+        "translate this", "homework", "maths", "equation",
+        "what time is it in",  # if you later add time support, remove this
+    )
 
     _MEATS = ("chicken", "beef", "lamb", "goat")
 
-    # “cut/topic” words that usually mean product search
     _TOPIC_WORDS = (
         "steak", "chops", "wings", "wing", "mince", "kofta", "breast", "thigh", "drumsticks",
         "ribs", "rib", "fillet", "fillets", "sirloin", "ribeye", "rump", "leg", "shoulder",
@@ -53,7 +59,6 @@ class MessageHandlerV7:
         "paya", "feet", "nuggets", "kebab", "kebabs",
     )
 
-    # Words that imply “I want products” even if not a cut
     _BUY_WORDS = (
         "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
         "recommend", "recommendation", "suggest", "suggestion", "options", "list", "full list",
@@ -67,7 +72,6 @@ class MessageHandlerV7:
         "cow": "beef",
     }
 
-    # ---- Postcode regexes (pragmatic UK-ish) ----
     _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
     _POSTCODE_OUTWARD = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", re.I)
 
@@ -104,7 +108,6 @@ class MessageHandlerV7:
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
 
-        # Optional structured logger from deps; if absent, use module logger
         self.logger = getattr(deps, "logger", None)
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
@@ -141,7 +144,7 @@ class MessageHandlerV7:
         )
 
         try:
-            # 0) Greeting ONLY (critical fix: do not intercept smalltalk)
+            # 0) Greeting ONLY
             if self._is_greeting(user_text):
                 reply_text = (
                     "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
@@ -158,7 +161,36 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # 1) Branch/delivery questions: do NOT fall into product pipeline
+            # 0.5) Out-of-scope questions (weather/news/etc)
+            if self._looks_out_of_scope(user_text):
+                reply_text = (
+                    "I can’t check things like live weather/news — I’m the Tariq Halal assistant.\n"
+                    "If you tell me what you need (e.g. chicken wings, lamb chops, delivery to E7 9QS), I’ll help."
+                )
+                safe_plan = {
+                    "intent": "out_of_scope",
+                    "action": "SMALLTALK_REPLY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": session_snapshot.get("postcode"),
+                    "sku": session_snapshot.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"max_items": 0},
+                }
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="out_of_scope",
+                    plan=safe_plan,
+                    facts={},
+                    entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
+
+            # 1) Branch/delivery questions
             if self._looks_like_branch_or_delivery_question(user_text):
                 extracted_pc = self._extract_postcode(user_text)
                 pc = extracted_pc or session_snapshot.get("postcode")
@@ -200,17 +232,9 @@ class MessageHandlerV7:
                     "clarification_question": "",
                     "meta": {"max_items": 0},
                 }
-                self._info(request_id, "V7.branch_delivery_intent", postcode=str(pc))
 
                 facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
-                entities = self._entities_from_plan(plan)
-
-                reply_text = self.renderer.render(
-                    user_text=user_text,
-                    plan=plan,
-                    facts=facts,
-                    session=session_snapshot,
-                )
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
 
                 return self._wrap_reply(
                     request_id=request_id,
@@ -219,11 +243,11 @@ class MessageHandlerV7:
                     intent="check_delivery",
                     plan=plan,
                     facts=facts,
-                    entities=entities,
+                    entities=self._entities_from_plan(plan),
                     items=facts.get("items") or [],
                 )
 
-            # 2) Postcode-only (force delivery)
+            # 2) Postcode-only forces delivery
             extracted_pc = self._extract_postcode(user_text)
             if extracted_pc:
                 plan = {
@@ -238,88 +262,36 @@ class MessageHandlerV7:
                     "clarification_question": "",
                     "meta": {"max_items": 0},
                 }
-                self._info(request_id, "V7.force_delivery_from_postcode", postcode=extracted_pc)
-
                 facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
-                entities = self._entities_from_plan(plan)
-
-                reply_text = self.renderer.render(
-                    user_text=user_text,
-                    plan=plan,
-                    facts=facts,
-                    session=session_snapshot,
-                )
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
 
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
                     reply=reply_text,
-                    intent=plan.get("intent") or "check_delivery",
+                    intent="check_delivery",
                     plan=plan,
                     facts=facts,
-                    entities=entities,
+                    entities=self._entities_from_plan(plan),
                     items=facts.get("items") or [],
                 )
 
-            # 3) Multi-meat join
-            multi = self._multi_query_plan(user_text, request_id=request_id)
-            if multi:
-                plan = multi["plan"]
-                facts = multi["facts"]
-                entities = self._entities_from_plan(plan)
-
-                reply_text = self.renderer.render(
-                    user_text=user_text,
-                    plan=plan,
-                    facts=facts,
-                    session=session_snapshot,
-                )
-
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent=plan.get("intent"),
-                    plan=plan,
-                    facts=facts,
-                    entities=entities,
-                    items=facts.get("items") or [],
-                )
-
-            # 4) Heuristic plan (only when truly product-ish)
+            # 3) Heuristic only if product-ish
             plan: Optional[Dict[str, Any]] = None
             if self._looks_like_product_query(user_text):
                 plan = self._heuristic_plan(user_text, request_id=request_id)
-                if plan:
-                    self._info(request_id, "V7.heuristic_used", plan=self._safe_plan_log(plan))
 
-            # 5) Brain plan
+            # 4) Otherwise Brain
             if not plan:
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
-                self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
                 plan = self._normalize_plan(plan, user_text=user_text)
-                self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
-            # 6) Respect Brain smalltalk/greeting outcomes (don’t force SEARCH_PRODUCTS)
+            # 5) Respect Brain smalltalk + handle AI disclosure locally if needed
             intent_norm = (plan.get("intent") or "unknown").strip().lower()
             action_norm = (plan.get("action") or "").strip().upper()
 
-            if intent_norm in {"smalltalk", "greeting"} or action_norm in {"SMALLTALK_REPLY", "GREET"}:
-                facts: Dict[str, Any] = {}
-                entities = self._entities_from_plan(plan)
-                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent=plan.get("intent"),
-                    plan=plan,
-                    facts=facts,
-                    entities=entities,
-                    items=[],
-                )
-
-            if intent_norm == "unknown" and (not self._looks_like_product_query(user_text)):
+            if self._is_smalltalk(user_text) or intent_norm in {"smalltalk"} or action_norm in {"SMALLTALK_REPLY"}:
+                reply_text = self._smalltalk_reply(user_text)
                 safe_plan = {
                     "intent": "smalltalk",
                     "action": "SMALLTALK_REPLY",
@@ -332,41 +304,53 @@ class MessageHandlerV7:
                     "clarification_question": "",
                     "meta": {"max_items": 0},
                 }
-                facts = {}
-                entities = self._entities_from_plan(safe_plan)
-                reply_text = self.renderer.render(user_text=user_text, plan=safe_plan, facts=facts, session=session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
                     reply=reply_text,
                     intent="smalltalk",
                     plan=safe_plan,
-                    facts=facts,
-                    entities=entities,
+                    facts={},
+                    entities=self._entities_from_plan(safe_plan),
                     items=[],
                 )
 
-            # 7) Execute plan
+            if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
+                reply_text = "Tell me what you want: products (e.g. chicken wings) or delivery (e.g. E7 9QS)."
+                safe_plan = {
+                    "intent": "smalltalk",
+                    "action": "SMALLTALK_REPLY",
+                    "category": None,
+                    "product_name": None,
+                    "postcode": session_snapshot.get("postcode"),
+                    "sku": session_snapshot.get("last_sku"),
+                    "handoff_channel": None,
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "meta": {"max_items": 0},
+                }
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="smalltalk",
+                    plan=safe_plan,
+                    facts={},
+                    entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
+
+            # 6) Execute
             facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
 
-            # 8) If it was product search and came back empty, do ONE retry with a simplified query
+            # 7) Retry if search empty
             if (plan.get("action") or "").strip().upper() == "SEARCH_PRODUCTS":
-                items0 = facts.get("items") or []
-                if not items0:
+                if not (facts.get("items") or []):
                     retry = self._retry_search_if_worth_it(plan, user_text=user_text, request_id=request_id)
                     if retry is not None:
                         facts["items"] = retry
 
-            # 9) Entities
-            entities = self._entities_from_plan(plan)
-
-            # 10) Render
-            reply_text = self.renderer.render(
-                user_text=user_text,
-                plan=plan,
-                facts=facts,
-                session=session_snapshot,
-            )
+            reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
 
             return self._wrap_reply(
                 request_id=request_id,
@@ -375,7 +359,7 @@ class MessageHandlerV7:
                 intent=plan.get("intent"),
                 plan=plan,
                 facts=facts,
-                entities=entities,
+                entities=self._entities_from_plan(plan),
                 items=facts.get("items") or [],
             )
 
@@ -393,7 +377,41 @@ class MessageHandlerV7:
             }
 
     # ------------------------------------------------------------------
-    # RETRY SEARCH (prevents “menu fallback” when query was too narrow)
+    # Smalltalk replies (local)
+    # ------------------------------------------------------------------
+
+    def _smalltalk_reply(self, user_text: str) -> str:
+        t = self._clean_text(user_text)
+
+        if "ai" in t or "bot" in t or "real" in t or "who are you" in t:
+            return (
+                "Yes — I’m an AI-powered Tariq Halal assistant.\n"
+                "I can help with products, prices, and delivery/nearest branch. What do you need today?"
+            )
+
+        if "help" in t:
+            return "Sure — tell me what you need (e.g. chicken wings, lamb chops, delivery to E7 9QS)."
+
+        return "Tell me what you’re after (products or delivery) and I’ll help."
+
+    # ------------------------------------------------------------------
+    # Out-of-scope detection
+    # ------------------------------------------------------------------
+
+    def _looks_out_of_scope(self, text: str) -> bool:
+        t = self._clean_text(text)
+        if not t:
+            return False
+        for h in self._OUT_OF_SCOPE_HINTS:
+            if h in t:
+                # but don’t block if it’s also clearly product-y
+                if self._looks_like_product_query(text):
+                    return False
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # RETRY SEARCH
     # ------------------------------------------------------------------
 
     def _retry_search_if_worth_it(
@@ -410,12 +428,10 @@ class MessageHandlerV7:
         q = (plan.get("product_name") or user_text or "").strip()
         q_clean = self._normalize_text(q)
 
-        # Only retry when query is short or a single cut word
         tokens = [t for t in q_clean.split() if t]
         if not tokens or len(tokens) > 3:
             return None
 
-        # Try strongest cut token as query + tag
         cut = None
         for t in tokens:
             if t in set(self._TOPIC_WORDS):
@@ -431,11 +447,10 @@ class MessageHandlerV7:
 
         tags = self._token_tags(cut)
         self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
-        items = self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
-        return items
+        return self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
 
     # ------------------------------------------------------------------
-    # BRANCH / DELIVERY INTENT DETECTION
+    # Branch / delivery detection
     # ------------------------------------------------------------------
 
     def _looks_like_branch_or_delivery_question(self, text: str) -> bool:
@@ -460,7 +475,7 @@ class MessageHandlerV7:
         return False
 
     # ------------------------------------------------------------------
-    # RESPONSE WRAPPER
+    # Wrappers / helpers (unchanged core)
     # ------------------------------------------------------------------
 
     def _wrap_reply(
@@ -490,10 +505,6 @@ class MessageHandlerV7:
             "meta": {"request_id": request_id, "latency_ms": dt_ms},
         }
 
-    # ------------------------------------------------------------------
-    # REQUEST ID
-    # ------------------------------------------------------------------
-
     def _get_request_id(self, ctx: Any) -> Optional[str]:
         try:
             md = getattr(ctx, "metadata", None) or {}
@@ -502,10 +513,6 @@ class MessageHandlerV7:
         except Exception:
             return None
         return None
-
-    # ------------------------------------------------------------------
-    # POSTCODE (EXTRACT + NORMALIZE)
-    # ------------------------------------------------------------------
 
     def _normalize_postcode(self, text: str) -> Optional[str]:
         if not text:
@@ -540,10 +547,6 @@ class MessageHandlerV7:
 
         return None
 
-    # ------------------------------------------------------------------
-    # GREETING / SMALLTALK HELPERS
-    # ------------------------------------------------------------------
-
     def _is_greeting(self, text: str) -> bool:
         t = self._clean_text(text)
         if not t:
@@ -567,131 +570,11 @@ class MessageHandlerV7:
                 return True
         return False
 
-    # ------------------------------------------------------------------
-    # MULTI-MEAT JOIN
-    # ------------------------------------------------------------------
-
-    def _multi_query_plan(self, user_text: str, request_id: str) -> Optional[Dict[str, Any]]:
-        if not self.catalog:
-            return None
-
-        text = self._normalize_text(user_text)
-        if not text:
-            return None
-
-        meats = self._extract_meats(text)
-        if len(meats) < 2:
-            return None
-
-        mods = self._parse_modifiers(text)
-        topic = self._extract_topic(text)
-
-        per_meat_limit = 8
-        total_limit = 18
-
-        merged: List[Dict[str, Any]] = []
-        seen: set = set()
-        groups: Dict[str, List[Dict[str, Any]]] = {}
-
-        for meat in meats:
-            query = f"{meat} {topic}".strip()
-            tags = self._token_tags(query)
-            for x in mods.get("tags") or []:
-                if x not in tags:
-                    tags.append(x)
-
-            self._info(request_id, "V7.multi.search", meat=meat, query=self._clip(query, 120), tags=tags[:20])
-
-            items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=per_meat_limit)
-            items = self._topic_enforce(items, required=self._required_terms_from_text(topic))
-            items = self._post_filter_items(items, {"max_price": mods.get("max_price"), "sort": mods.get("sort")})
-
-            groups[meat] = items
-
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                key = (it.get("sku") or it.get("id") or it.get("code") or it.get("name") or "").strip()
-                if not key or key in seen:
-                    continue
-                seen.add(key)
-                merged.append(it)
-
-        merged = self._post_filter_items(merged, {"max_price": mods.get("max_price"), "sort": mods.get("sort")})
-        merged = merged[:total_limit]
-
-        plan = {
-            "intent": "search_product",
-            "action": "SEARCH_PRODUCTS",
-            "category": None,
-            "product_name": text,
-            "postcode": None,
-            "sku": None,
-            "handoff_channel": None,
-            "needs_clarification": False,
-            "clarification_question": "",
-            "meta": {
-                "max_items": total_limit,
-                "search_tags": self._token_tags(text),
-                "sort": mods.get("sort"),
-                "max_price": mods.get("max_price"),
-                "required_terms": self._required_terms_from_text(topic),
-                "multi_meats": meats,
-                "topic": topic,
-            },
-        }
-
-        facts = {"items": merged, "groups": groups, "multi_meats": meats, "topic": topic}
-        self._info(request_id, "V7.multi.merged", meats=meats, topic=topic, count=len(merged))
-        return {"plan": plan, "facts": facts}
-
-    def _extract_meats(self, text: str) -> List[str]:
-        t = self._clean_text(text)
-
-        for k, v in self._MEAT_ALIASES.items():
-            t = re.sub(rf"\b{re.escape(k)}\b", v, t)
-
-        found: List[str] = []
-        for meat in self._MEATS:
-            if re.search(rf"\b{re.escape(meat)}\b", t):
-                found.append(meat)
-
-        for target in ("chicken", "lamb", "beef"):
-            if target not in found:
-                for tok in t.split():
-                    if difflib.get_close_matches(tok, [target], n=1, cutoff=0.78):
-                        found.append(target)
-                        break
-
-        out: List[str] = []
-        for x in found:
-            if x not in out:
-                out.append(x)
-        return out
-
-    def _extract_topic(self, text: str) -> str:
-        t = self._clean_text(text)
-        t = self._strip_modifier_words(t)
-        t = re.sub(r"\b(and|or|with|plus)\b", " ", t)
-        for meat in self._MEATS:
-            t = re.sub(rf"\b{re.escape(meat)}\b", " ", t)
-        t = re.sub(r"\s+", " ", t).strip()
-
-        present = self._required_terms_from_text(t)
-        if present:
-            return " ".join(present)
-        return t or "all"
-
-    # ------------------------------------------------------------------
-    # HEURISTICS (IMPORTANT FIX: no “<=7 words => product query”)
-    # ------------------------------------------------------------------
-
     def _looks_like_product_query(self, user_text: str) -> bool:
         t = self._clean_text(user_text)
         if not t:
             return False
 
-        # If it's clearly smalltalk, never treat as product query
         if self._is_smalltalk(t):
             return False
 
@@ -772,8 +655,6 @@ class MessageHandlerV7:
         core = self._strip_modifier_words(t) or t
         core = self._normalize_text(core)
 
-        cat = self._fuzzy_category_match(core, request_id=request_id)
-
         tags = self._token_tags(core)
         for x in mods.get("tags") or []:
             if x not in tags:
@@ -786,20 +667,6 @@ class MessageHandlerV7:
             "max_price": mods.get("max_price"),
             "required_terms": required,
         }
-
-        if cat:
-            return {
-                "intent": "browse_category",
-                "action": "SEARCH_PRODUCTS",
-                "category": cat,
-                "product_name": None,
-                "postcode": None,
-                "sku": None,
-                "handoff_channel": None,
-                "needs_clarification": False,
-                "clarification_question": "",
-                "meta": meta,
-            }
 
         return {
             "intent": "search_product",
@@ -814,63 +681,9 @@ class MessageHandlerV7:
             "meta": meta,
         }
 
-    def _fuzzy_category_match(self, text: str, request_id: str) -> Optional[str]:
-        if not self.catalog:
-            return None
-        try:
-            cats = self.catalog.categories() or []
-        except Exception as e:
-            self._exc(request_id, "V7.categories_failed", err=str(e))
-            return None
-
-        candidates: List[str] = []
-        id_map: Dict[str, str] = {}
-
-        for c in cats:
-            if not isinstance(c, dict):
-                continue
-            cid = (c.get("id") or "").strip()
-            nm = (c.get("name") or "").strip()
-            if cid:
-                k = cid.lower()
-                candidates.append(k)
-                id_map[k] = cid
-            if nm:
-                k = nm.lower()
-                candidates.append(k)
-                id_map[k] = cid or nm
-
-        if not candidates:
-            return None
-
-        text_l = self._clean_text(text)
-        if text_l in id_map:
-            return id_map[text_l]
-
-        match = difflib.get_close_matches(text_l, candidates, n=1, cutoff=0.78)
-        if match:
-            return id_map.get(match[0]) or match[0]
-        return None
-
-    # ------------------------------------------------------------------
-    # BRAIN WRAPPER + NORMALIZER
-    # ------------------------------------------------------------------
-
     def _safe_plan(self, user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         try:
             hints: Dict[str, Any] = {}
-
-            if self.catalog:
-                try:
-                    cats = self.catalog.categories()
-                    hints["categories"] = [
-                        {"id": c.get("id"), "name": c.get("name")}
-                        for c in (cats or [])
-                        if isinstance(c, dict) and c.get("id") and c.get("name")
-                    ]
-                except Exception as e:
-                    self._exc(request_id, "V7.hints_categories_failed", err=str(e))
-
             if self.synonyms:
                 hints["synonyms"] = self.synonyms
 
@@ -902,7 +715,6 @@ class MessageHandlerV7:
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        # Only cancel clarification if it actually looks like a product query
         if p.get("needs_clarification") and self._looks_like_product_query(user_text):
             p["needs_clarification"] = False
             p["clarification_question"] = ""
@@ -924,19 +736,8 @@ class MessageHandlerV7:
 
         return p
 
-    # ------------------------------------------------------------------
-    # EXECUTION
-    # ------------------------------------------------------------------
-
-    def _execute_plan(
-        self,
-        plan: Dict[str, Any],
-        user_text: str,
-        session: Dict[str, Any],
-        request_id: str,
-    ) -> Dict[str, Any]:
+    def _execute_plan(self, plan: Dict[str, Any], user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         facts: Dict[str, Any] = {}
-
         action = (plan.get("action") or "DO_NOTHING").strip().upper()
         intent = (plan.get("intent") or "unknown").strip().lower()
         meta = plan.get("meta") or {}
@@ -947,24 +748,13 @@ class MessageHandlerV7:
         raw_postcode = plan.get("postcode") or session.get("postcode")
         postcode = self._normalize_postcode(str(raw_postcode)) if raw_postcode else None
 
-        sku = plan.get("sku")
-
         # DELIVERY
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:
-                self._info(
-                    request_id,
-                    "V7.delivery.deps",
-                    has_policy=bool(self.policy),
-                    has_geo=bool(self.geo),
-                    postcode=postcode,
-                )
-
                 if self.policy:
                     try:
                         rule = self.policy.delivery_rule_for(postcode)
                         summary = self.policy.delivery_summary(postcode)
-                        self._info(request_id, "V7.delivery.ok", has_rule=bool(rule), summary_len=len(summary or ""))
                     except Exception as e:
                         self._exc(request_id, "V7.delivery_failed", err=str(e))
                         rule, summary = None, ""
@@ -975,12 +765,6 @@ class MessageHandlerV7:
                 if self.geo:
                     try:
                         nb = self.geo.nearest_for_postcode(postcode)
-                        self._info(
-                            request_id,
-                            "V7.geo.ok",
-                            has_nearest=bool(nb),
-                            nearest_id=(nb or {}).get("id") if isinstance(nb, dict) else None,
-                        )
                     except Exception as e:
                         self._exc(request_id, "V7.geo_failed", err=str(e))
                         nb = None
@@ -990,82 +774,21 @@ class MessageHandlerV7:
         # PRODUCTS
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
             query, tags = self._build_search_query(user_text, category, product_name, meta)
-
             try:
                 limit = int((meta or {}).get("max_items") or 12)
             except Exception:
                 limit = 12
 
-            self._info(
-                request_id,
-                "V7.catalog.search",
-                query=self._clip(query, 120),
-                tags=(tags or [])[:20],
-                limit=limit,
-            )
-
             items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
-
             required = meta.get("required_terms") or self._required_terms_from_text(user_text)
             items = self._topic_enforce(items, required=required)
             items = self._post_filter_items(items, meta)
-
             facts["items"] = items
-            self._debug(request_id, "V7.catalog.result", count=len(items or []), preview=self._preview_items(items))
-
-        # PRICE CHECK
-        if action == "PRICE_CHECK" or intent == "price_check":
-            if self.catalog and sku:
-                try:
-                    price_val = self.catalog.price_of(sku)
-                    in_stock = self.catalog.in_stock(sku)
-                    try:
-                        meta_info = self.catalog.meta_of(sku)
-                    except Exception:
-                        meta_info = {}
-                except Exception as e:
-                    self._exc(request_id, "V7.price_failed", err=str(e))
-                    price_val, in_stock, meta_info = None, None, {}
-                facts["price"] = {
-                    "sku": sku,
-                    "price": price_val,
-                    "in_stock": in_stock,
-                    "name": meta_info.get("name"),
-                    "unit": meta_info.get("unit"),
-                }
-
-        # FAQ / STORE INFO
-        if action in {"STORE_INFO", "FAQ_LOOKUP"} or intent in {"store_info", "faq"}:
-            if self.faq:
-                try:
-                    m = self.faq.best_match(user_text, hint_tags=None, top_k=1)
-                except Exception as e:
-                    self._exc(request_id, "V7.faq_best_match_failed", err=str(e))
-                    m = None
-
-                if m:
-                    entry = m[0]
-                    placeholders: Dict[str, Any] = {}
-                    if postcode and self.policy:
-                        placeholders["postcode"] = postcode
-                        try:
-                            placeholders["delivery_summary"] = self.policy.delivery_summary(postcode) or ""
-                        except Exception:
-                            placeholders["delivery_summary"] = ""
-
-                    try:
-                        answer = self.faq.render_answer(entry, placeholders)
-                    except Exception as e:
-                        self._exc(request_id, "V7.faq_render_failed", err=str(e))
-                        answer = ""
-
-                    facts["faq"] = {"entry": entry, "answer": answer}
 
         return facts
 
     def _catalog_search_safe(self, request_id: str, query: str, tags: List[str], limit: int) -> List[Dict[str, Any]]:
         if not self.catalog:
-            self._debug(request_id, "V7.catalog_missing")
             return []
         if not query and not tags:
             return []
@@ -1089,12 +812,7 @@ class MessageHandlerV7:
             tags = it.get("tags") or []
             tags_s = " ".join([str(x).lower() for x in tags])
 
-            ok = False
-            for r in required:
-                if r in name or r in tags_s:
-                    ok = True
-                    break
-            if ok:
+            if any(r in name or r in tags_s for r in required):
                 kept.append(it)
 
         return kept if kept else items
@@ -1128,13 +846,7 @@ class MessageHandlerV7:
 
         return cleaned
 
-    def _build_search_query(
-        self,
-        user_text: str,
-        category: Optional[str],
-        product_name: Optional[str],
-        meta: Dict[str, Any],
-    ) -> Tuple[str, List[str]]:
+    def _build_search_query(self, user_text: str, category: Optional[str], product_name: Optional[str], meta: Dict[str, Any]) -> Tuple[str, List[str]]:
         tags: List[str] = []
         query = ""
 
@@ -1150,30 +862,21 @@ class MessageHandlerV7:
         if product_name:
             query = str(product_name).strip()
         elif category:
-            cat_key = str(category).strip().lower()
-            query = cat_key.replace("_", " ")
-            if cat_key and cat_key not in tags:
-                tags.append(cat_key)
-            for token in re.split(r"[ _]+", cat_key):
-                if token and token not in tags:
-                    tags.append(token)
+            query = str(category).strip().replace("_", " ")
         else:
             query = (user_text or "").strip()
 
-        # If it’s a cut-only query like “fillets”, make sure it’s in tags too
         q_norm = self._normalize_text(query)
-        if q_norm and q_norm not in tags and len(q_norm.split()) <= 2:
-            tags.extend([x for x in q_norm.split() if x and x not in tags])
+        if q_norm and len(q_norm.split()) <= 2:
+            for x in q_norm.split():
+                if x and x not in tags:
+                    tags.append(x)
 
         if not category and not product_name and tags:
             query = " ".join(tags)
 
         query = self._normalize_text(query)
         return (query or "").strip(), tags
-
-    # ------------------------------------------------------------------
-    # ENTITIES + UI
-    # ------------------------------------------------------------------
 
     def _entities_from_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         entities: Dict[str, Any] = {}
@@ -1195,22 +898,13 @@ class MessageHandlerV7:
         for it in items or []:
             if not isinstance(it, dict):
                 continue
-            sku = it.get("sku") or it.get("id") or it.get("code")
-            name = it.get("name") or it.get("title")
-            price = it.get("price") or it.get("price_gbp") or it.get("amount")
-            unit = it.get("unit") or it.get("size") or ""
-            in_stock = it.get("in_stock")
-            if in_stock is None:
-                stock_val = it.get("stock", None)
-                if isinstance(stock_val, int):
-                    in_stock = stock_val > 0
             out.append(
                 {
-                    "sku": sku,
-                    "name": name,
-                    "price": price,
-                    "unit": unit,
-                    "in_stock": in_stock,
+                    "sku": it.get("sku") or it.get("id") or it.get("code"),
+                    "name": it.get("name") or it.get("title"),
+                    "price": it.get("price") or it.get("price_gbp") or it.get("amount"),
+                    "unit": it.get("unit") or it.get("size") or "",
+                    "in_stock": it.get("in_stock"),
                     "tags": it.get("tags") or [],
                     "category": it.get("category") or it.get("category_id"),
                     "url": it.get("url") or it.get("link"),
@@ -1219,10 +913,6 @@ class MessageHandlerV7:
                 }
             )
         return out
-
-    # ------------------------------------------------------------------
-    # TEXT NORMALIZATION
-    # ------------------------------------------------------------------
 
     def _clean_text(self, text: str) -> str:
         t = (text or "").lower().strip()
@@ -1234,24 +924,14 @@ class MessageHandlerV7:
         t = self._clean_text(text)
         if not t:
             return t
-
         toks = t.split()
         out: List[str] = []
         for tok in toks:
             if tok in self._MEAT_ALIASES:
                 out.append(self._MEAT_ALIASES[tok])
-                continue
-            out.append(self._fuzzy_fix_meat_token(tok))
+            else:
+                out.append(tok)
         return " ".join(out).strip()
-
-    def _fuzzy_fix_meat_token(self, tok: str) -> str:
-        tok = (tok or "").lower().strip()
-        if not tok:
-            return tok
-        if tok in self._MEATS:
-            return tok
-        m = difflib.get_close_matches(tok, list(self._MEATS), n=1, cutoff=0.78)
-        return m[0] if m else tok
 
     def _token_tags(self, text: str) -> List[str]:
         t = self._normalize_text(text)
@@ -1262,10 +942,6 @@ class MessageHandlerV7:
             if tok not in out:
                 out.append(tok)
         return out
-
-    # ------------------------------------------------------------------
-    # LOGGING (never crash)
-    # ------------------------------------------------------------------
 
     def _info(self, rid: str, msg: str, **fields: Any) -> None:
         try:
@@ -1319,45 +995,3 @@ class MessageHandlerV7:
     def _clip(s: str, n: int) -> str:
         s = s or ""
         return s if len(s) <= n else s[:n] + "…"
-
-    def _safe_plan_log(self, plan: Any) -> Dict[str, Any]:
-        if not isinstance(plan, dict):
-            return {"_type": str(type(plan))}
-        keep = (
-            "intent",
-            "action",
-            "category",
-            "product_name",
-            "postcode",
-            "sku",
-            "needs_clarification",
-            "clarification_question",
-            "meta",
-        )
-        out: Dict[str, Any] = {}
-        for k in keep:
-            if k in plan:
-                val = plan.get(k)
-                if k == "clarification_question":
-                    val = self._clip(str(val or ""), 160)
-                if k == "product_name":
-                    val = self._clip(str(val or ""), 120)
-                out[k] = val
-        return out
-
-    @staticmethod
-    def _preview_items(items: Any, n: int = 3) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
-        if not isinstance(items, list):
-            return out
-        for it in items[:n]:
-            if not isinstance(it, dict):
-                continue
-            out.append(
-                {
-                    "sku": it.get("sku") or it.get("id") or it.get("code"),
-                    "name": it.get("name") or it.get("title"),
-                    "price": it.get("price") or it.get("price_gbp") or it.get("amount"),
-                }
-            )
-        return out
