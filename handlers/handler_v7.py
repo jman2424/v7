@@ -18,14 +18,16 @@ class MessageHandlerV7:
     """
     V7 handler (crash-proof + smarter routing)
 
-    Fixes in this remake:
-    - Stop treating ANY short message (<=7 words) as a product query
-      (this was the reason “is this ai” got forced into product search).
-    - Respect Brain smalltalk/greeting outcomes (don’t force SEARCH_PRODUCTS).
-    - Stronger item/cut handling: “fillets”, “wings”, “mince”, etc can search without category.
-    - If a product-ish query returns zero items, do ONE safe retry search with a simplified query
-      (prevents menu-fallback when the catalog would match a simpler query).
-    - Delivery/nearest-branch logic kept (postcode in message or session, else ask).
+    This remake fixes the key bug:
+    - DO NOT intercept smalltalk with the greeting menu.
+      Only true greetings get the greeting menu.
+      Smalltalk like “are you ai” goes to Brain/SMALLTALK instead.
+
+    Also keeps:
+    - Delivery/nearest-branch routing (postcode from message or session, else ask).
+    - Better product-ish detection (no “<=7 words => product query”).
+    - Cut handling (“fillets”, “wings”, etc) can search without category.
+    - One safe retry search when product search returns zero items.
     """
 
     _GREETINGS = {
@@ -34,6 +36,7 @@ class MessageHandlerV7:
         "good morning", "good afternoon", "good evening",
     }
 
+    # Keep these as smalltalk signals, but DO NOT use them to trigger the greeting menu.
     _SMALLTALK = {
         "how are you", "how r u", "hru", "whats up", "what's up",
         "help", "can you help", "can u help", "need help",
@@ -47,14 +50,14 @@ class MessageHandlerV7:
         "steak", "chops", "wings", "wing", "mince", "kofta", "breast", "thigh", "drumsticks",
         "ribs", "rib", "fillet", "fillets", "sirloin", "ribeye", "rump", "leg", "shoulder",
         "neck", "shank", "burger", "burgers", "patties", "liver", "kidney", "kidneys",
-        "paya", "feet", "nuggets", "kebab", "kebabs"
+        "paya", "feet", "nuggets", "kebab", "kebabs",
     )
 
     # Words that imply “I want products” even if not a cut
     _BUY_WORDS = (
         "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
         "recommend", "recommendation", "suggest", "suggestion", "options", "list", "full list",
-        "family pack", "bbq", "barbecue", "grill", "grilling", "curry"
+        "family pack", "bbq", "barbecue", "grill", "grilling", "curry",
     )
 
     _MEAT_ALIASES = {
@@ -138,8 +141,8 @@ class MessageHandlerV7:
         )
 
         try:
-            # 0) Greeting / small talk (pure)
-            if self._is_greeting_or_smalltalk(user_text):
+            # 0) Greeting ONLY (critical fix: do not intercept smalltalk)
+            if self._is_greeting(user_text):
                 reply_text = (
                     "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
                     "Examples: chicken wings • lamb chops • beef steak • cheapest lamb • delivery to E1 6AN"
@@ -284,7 +287,7 @@ class MessageHandlerV7:
                 )
 
             # 4) Heuristic plan (only when truly product-ish)
-            plan = None
+            plan: Optional[Dict[str, Any]] = None
             if self._looks_like_product_query(user_text):
                 plan = self._heuristic_plan(user_text, request_id=request_id)
                 if plan:
@@ -294,16 +297,15 @@ class MessageHandlerV7:
             if not plan:
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
                 self._debug(request_id, "V7.plan_raw", plan=self._safe_plan_log(plan))
-
                 plan = self._normalize_plan(plan, user_text=user_text)
                 self._debug(request_id, "V7.plan_norm", plan=self._safe_plan_log(plan))
 
-            # 6) If Brain says smalltalk/unknown AND input is not product-ish, DO NOT force search.
+            # 6) Respect Brain smalltalk/greeting outcomes (don’t force SEARCH_PRODUCTS)
             intent_norm = (plan.get("intent") or "unknown").strip().lower()
             action_norm = (plan.get("action") or "").strip().upper()
 
             if intent_norm in {"smalltalk", "greeting"} or action_norm in {"SMALLTALK_REPLY", "GREET"}:
-                facts = {}
+                facts: Dict[str, Any] = {}
                 entities = self._entities_from_plan(plan)
                 reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
                 return self._wrap_reply(
@@ -317,8 +319,7 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            if intent_norm in {"unknown"} and (not self._looks_like_product_query(user_text)):
-                # Keep it conversational instead of forcing catalog search
+            if intent_norm == "unknown" and (not self._looks_like_product_query(user_text)):
                 safe_plan = {
                     "intent": "smalltalk",
                     "action": "SMALLTALK_REPLY",
@@ -395,7 +396,13 @@ class MessageHandlerV7:
     # RETRY SEARCH (prevents “menu fallback” when query was too narrow)
     # ------------------------------------------------------------------
 
-    def _retry_search_if_worth_it(self, plan: Dict[str, Any], *, user_text: str, request_id: str) -> Optional[List[Dict[str, Any]]]:
+    def _retry_search_if_worth_it(
+        self,
+        plan: Dict[str, Any],
+        *,
+        user_text: str,
+        request_id: str,
+    ) -> Optional[List[Dict[str, Any]]]:
         if not self.catalog:
             return None
 
@@ -408,13 +415,12 @@ class MessageHandlerV7:
         if not tokens or len(tokens) > 3:
             return None
 
-        # Try the strongest “cut” token as both query + tag
+        # Try strongest cut token as query + tag
         cut = None
         for t in tokens:
             if t in set(self._TOPIC_WORDS):
                 cut = t
                 break
-
         if not cut:
             return None
 
@@ -425,7 +431,6 @@ class MessageHandlerV7:
 
         tags = self._token_tags(cut)
         self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
-
         items = self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
         return items
 
@@ -536,17 +541,13 @@ class MessageHandlerV7:
         return None
 
     # ------------------------------------------------------------------
-    # GREETING / SMALL TALK
+    # GREETING / SMALLTALK HELPERS
     # ------------------------------------------------------------------
 
-    def _is_greeting_or_smalltalk(self, text: str) -> bool:
+    def _is_greeting(self, text: str) -> bool:
         t = self._clean_text(text)
         if not t:
             return False
-
-        for s in self._SMALLTALK:
-            if s in t:
-                return True
 
         if t in self._GREETINGS:
             return True
@@ -556,6 +557,15 @@ class MessageHandlerV7:
 
         gmatch = difflib.get_close_matches(t, list(self._GREETINGS), n=1, cutoff=0.82)
         return bool(gmatch)
+
+    def _is_smalltalk(self, text: str) -> bool:
+        t = self._clean_text(text)
+        if not t:
+            return False
+        for s in self._SMALLTALK:
+            if s in t:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # MULTI-MEAT JOIN
@@ -673,7 +683,7 @@ class MessageHandlerV7:
         return t or "all"
 
     # ------------------------------------------------------------------
-    # HEURISTICS (IMPORTANT FIX: stop “<=7 words => product query”)
+    # HEURISTICS (IMPORTANT FIX: no “<=7 words => product query”)
     # ------------------------------------------------------------------
 
     def _looks_like_product_query(self, user_text: str) -> bool:
@@ -681,7 +691,10 @@ class MessageHandlerV7:
         if not t:
             return False
 
-        # If it contains a clear signal, it’s product-y
+        # If it's clearly smalltalk, never treat as product query
+        if self._is_smalltalk(t):
+            return False
+
         if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
             return True
         if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
@@ -691,12 +704,10 @@ class MessageHandlerV7:
         if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
             return True
 
-        # If it’s basically a noun-like single token (but NOT obvious smalltalk)
         toks = t.split()
         if len(toks) == 1:
-            if toks[0] in {"ai", "bot", "hello", "hi", "hey", "salam"}:
+            if toks[0] in {"ai", "bot"}:
                 return False
-            # single token like "fillets" or "wings" should already have matched _TOPIC_WORDS above
             return toks[0] in set(self._TOPIC_WORDS)
 
         return False
@@ -891,12 +902,10 @@ class MessageHandlerV7:
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        # Don’t auto-cancel a real clarification from the brain if the text is short;
-        # brain might need a slot. Only cancel if text is clearly a cut/product term.
-        if p.get("needs_clarification"):
-            if self._looks_like_product_query(user_text):
-                p["needs_clarification"] = False
-                p["clarification_question"] = ""
+        # Only cancel clarification if it actually looks like a product query
+        if p.get("needs_clarification") and self._looks_like_product_query(user_text):
+            p["needs_clarification"] = False
+            p["clarification_question"] = ""
 
         meta = p.get("meta") or {}
         if not isinstance(meta, dict):
@@ -987,7 +996,13 @@ class MessageHandlerV7:
             except Exception:
                 limit = 12
 
-            self._info(request_id, "V7.catalog.search", query=self._clip(query, 120), tags=(tags or [])[:20], limit=limit)
+            self._info(
+                request_id,
+                "V7.catalog.search",
+                query=self._clip(query, 120),
+                tags=(tags or [])[:20],
+                limit=limit,
+            )
 
             items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
 
