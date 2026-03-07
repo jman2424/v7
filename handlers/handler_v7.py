@@ -18,13 +18,14 @@ class MessageHandlerV7:
     """
     V7 handler (crash-proof + smarter routing)
 
-    Fixes included:
-    - Greeting menu only triggers for real greetings (not smalltalk).
-    - Smalltalk routed to Brain (or a safe local reply).
-    - NEW: out-of-scope detection (weather/news/etc) -> polite redirect.
-    - Delivery/nearest-branch routing preserved.
-    - Better product-ish detection (no “<=7 words => product query”).
-    - One safe retry search if product search returns zero items.
+    Main fixes:
+    - Real greeting detection only.
+    - Smalltalk/meta-AI handled locally.
+    - Out-of-scope detection handled cleanly.
+    - Delivery / nearest-branch logic preserved.
+    - Product typo handling restored (e.g. chciken -> chicken).
+    - Better product-ish detection.
+    - One safe retry search for empty product results.
     """
 
     _GREETINGS = {
@@ -37,32 +38,33 @@ class MessageHandlerV7:
         "how are you", "how r u", "hru", "whats up", "what's up",
         "help", "can you help", "can u help", "need help",
         "is this ai", "are you ai", "are you real", "who are you",
-        "not ai", "you're not ai", "u not ai",
+        "not ai", "you're not ai", "youre not ai", "u not ai",
+        "where is the ai", "were is the ai", "where's the ai", "wheres the ai",
     }
 
-    # Keep these separate from smalltalk — they should be “sorry, I can’t help with that”.
     _OUT_OF_SCOPE_HINTS = (
         "weather", "temperature outside", "forecast", "rain",
         "news", "headlines",
         "sports", "score", "match result",
         "stock", "crypto", "bitcoin",
         "translate this", "homework", "maths", "equation",
-        "what time is it in",  # if you later add time support, remove this
+        "what time is it in",
     )
 
     _MEATS = ("chicken", "beef", "lamb", "goat")
 
     _TOPIC_WORDS = (
-        "steak", "chops", "wings", "wing", "mince", "kofta", "breast", "thigh", "drumsticks",
-        "ribs", "rib", "fillet", "fillets", "sirloin", "ribeye", "rump", "leg", "shoulder",
-        "neck", "shank", "burger", "burgers", "patties", "liver", "kidney", "kidneys",
-        "paya", "feet", "nuggets", "kebab", "kebabs",
+        "steak", "chops", "wing", "wings", "mince", "kofta", "breast", "thigh",
+        "drumstick", "drumsticks", "ribs", "rib", "fillet", "fillets", "sirloin",
+        "ribeye", "rump", "leg", "shoulder", "neck", "shank", "burger", "burgers",
+        "patty", "patties", "liver", "kidney", "kidneys", "paya", "feet",
+        "nugget", "nuggets", "kebab", "kebabs",
     )
 
     _BUY_WORDS = (
         "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
-        "recommend", "recommendation", "suggest", "suggestion", "options", "list", "full list",
-        "family pack", "bbq", "barbecue", "grill", "grilling", "curry",
+        "recommend", "recommendation", "suggest", "suggestion", "options", "list",
+        "full list", "family pack", "bbq", "barbecue", "grill", "grilling", "curry",
     )
 
     _MEAT_ALIASES = {
@@ -103,11 +105,10 @@ class MessageHandlerV7:
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
-        self.policy = getattr(deps, "policy", None)  # delivery_rule_for, delivery_summary
-        self.geo = getattr(deps, "geo", None)        # nearest_for_postcode
+        self.policy = getattr(deps, "policy", None)
+        self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
-
         self.logger = getattr(deps, "logger", None)
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
@@ -144,7 +145,7 @@ class MessageHandlerV7:
         )
 
         try:
-            # 0) Greeting ONLY
+            # 0) Greeting only
             if self._is_greeting(user_text):
                 reply_text = (
                     "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
@@ -161,24 +162,28 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # 0.5) Out-of-scope questions (weather/news/etc)
+            # 0.5) Smalltalk / meta
+            if self._is_smalltalk(user_text):
+                reply_text = self._smalltalk_reply(user_text)
+                safe_plan = self._simple_plan("smalltalk", "SMALLTALK_REPLY", session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="smalltalk",
+                    plan=safe_plan,
+                    facts={},
+                    entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
+
+            # 0.75) Out of scope
             if self._looks_out_of_scope(user_text):
                 reply_text = (
-                    "I can’t check things like live weather/news — I’m the Tariq Halal assistant.\n"
-                    "If you tell me what you need (e.g. chicken wings, lamb chops, delivery to E7 9QS), I’ll help."
+                    "I can’t help with that — I’m the Tariq Halal assistant.\n"
+                    "Ask me about products, prices, delivery, or your nearest branch."
                 )
-                safe_plan = {
-                    "intent": "out_of_scope",
-                    "action": "SMALLTALK_REPLY",
-                    "category": None,
-                    "product_name": None,
-                    "postcode": session_snapshot.get("postcode"),
-                    "sku": session_snapshot.get("last_sku"),
-                    "handoff_channel": None,
-                    "needs_clarification": False,
-                    "clarification_question": "",
-                    "meta": {"max_items": 0},
-                }
+                safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -190,7 +195,7 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # 1) Branch/delivery questions
+            # 1) Branch / delivery questions
             if self._looks_like_branch_or_delivery_question(user_text):
                 extracted_pc = self._extract_postcode(user_text)
                 pc = extracted_pc or session_snapshot.get("postcode")
@@ -232,7 +237,6 @@ class MessageHandlerV7:
                     "clarification_question": "",
                     "meta": {"max_items": 0},
                 }
-
                 facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
                 reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
 
@@ -247,7 +251,7 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 2) Postcode-only forces delivery
+            # 2) Postcode-only => delivery
             extracted_pc = self._extract_postcode(user_text)
             if extracted_pc:
                 plan = {
@@ -276,34 +280,23 @@ class MessageHandlerV7:
                     items=facts.get("items") or [],
                 )
 
-            # 3) Heuristic only if product-ish
+            # 3) Heuristic plan only if product-ish
             plan: Optional[Dict[str, Any]] = None
             if self._looks_like_product_query(user_text):
                 plan = self._heuristic_plan(user_text, request_id=request_id)
 
-            # 4) Otherwise Brain
+            # 4) Otherwise brain
             if not plan:
                 plan = self._safe_plan(user_text=user_text, session=session_snapshot, request_id=request_id)
                 plan = self._normalize_plan(plan, user_text=user_text)
 
-            # 5) Respect Brain smalltalk + handle AI disclosure locally if needed
             intent_norm = (plan.get("intent") or "unknown").strip().lower()
             action_norm = (plan.get("action") or "").strip().upper()
 
-            if self._is_smalltalk(user_text) or intent_norm in {"smalltalk"} or action_norm in {"SMALLTALK_REPLY"}:
+            # 5) Respect brain smalltalk
+            if intent_norm == "smalltalk" or action_norm == "SMALLTALK_REPLY":
                 reply_text = self._smalltalk_reply(user_text)
-                safe_plan = {
-                    "intent": "smalltalk",
-                    "action": "SMALLTALK_REPLY",
-                    "category": None,
-                    "product_name": None,
-                    "postcode": session_snapshot.get("postcode"),
-                    "sku": session_snapshot.get("last_sku"),
-                    "handoff_channel": None,
-                    "needs_clarification": False,
-                    "clarification_question": "",
-                    "meta": {"max_items": 0},
-                }
+                safe_plan = self._simple_plan("smalltalk", "SMALLTALK_REPLY", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -315,35 +308,25 @@ class MessageHandlerV7:
                     items=[],
                 )
 
+            # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
                 reply_text = "Tell me what you want: products (e.g. chicken wings) or delivery (e.g. E7 9QS)."
-                safe_plan = {
-                    "intent": "smalltalk",
-                    "action": "SMALLTALK_REPLY",
-                    "category": None,
-                    "product_name": None,
-                    "postcode": session_snapshot.get("postcode"),
-                    "sku": session_snapshot.get("last_sku"),
-                    "handoff_channel": None,
-                    "needs_clarification": False,
-                    "clarification_question": "",
-                    "meta": {"max_items": 0},
-                }
+                safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
                     reply=reply_text,
-                    intent="smalltalk",
+                    intent="unknown",
                     plan=safe_plan,
                     facts={},
                     entities=self._entities_from_plan(safe_plan),
                     items=[],
                 )
 
-            # 6) Execute
+            # 7) Execute
             facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
 
-            # 7) Retry if search empty
+            # 8) Retry if empty search
             if (plan.get("action") or "").strip().upper() == "SEARCH_PRODUCTS":
                 if not (facts.get("items") or []):
                     retry = self._retry_search_if_worth_it(plan, user_text=user_text, request_id=request_id)
@@ -377,25 +360,42 @@ class MessageHandlerV7:
             }
 
     # ------------------------------------------------------------------
-    # Smalltalk replies (local)
+    # Local replies
     # ------------------------------------------------------------------
 
     def _smalltalk_reply(self, user_text: str) -> str:
         t = self._clean_text(user_text)
 
-        if "ai" in t or "bot" in t or "real" in t or "who are you" in t:
+        if any(x in t for x in ("ai", "bot", "real", "who are you", "where is the ai", "were is the ai")):
             return (
                 "Yes — I’m an AI-powered Tariq Halal assistant.\n"
-                "I can help with products, prices, and delivery/nearest branch. What do you need today?"
+                "I can help with products, prices, delivery, and nearest branch details."
             )
 
         if "help" in t:
-            return "Sure — tell me what you need (e.g. chicken wings, lamb chops, delivery to E7 9QS)."
+            return "Sure — tell me what you need. For example: chicken wings, lamb chops, or delivery to E7 9QS."
 
-        return "Tell me what you’re after (products or delivery) and I’ll help."
+        if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
+            return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
+
+        return "I’m your Tariq Halal assistant. Ask me about products, prices, delivery, or nearest branch."
+
+    def _simple_plan(self, intent: str, action: str, session: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "intent": intent,
+            "action": action,
+            "category": None,
+            "product_name": None,
+            "postcode": session.get("postcode"),
+            "sku": session.get("last_sku"),
+            "handoff_channel": None,
+            "needs_clarification": False,
+            "clarification_question": "",
+            "meta": {"max_items": 0},
+        }
 
     # ------------------------------------------------------------------
-    # Out-of-scope detection
+    # Detection helpers
     # ------------------------------------------------------------------
 
     def _looks_out_of_scope(self, text: str) -> bool:
@@ -404,54 +404,10 @@ class MessageHandlerV7:
             return False
         for h in self._OUT_OF_SCOPE_HINTS:
             if h in t:
-                # but don’t block if it’s also clearly product-y
                 if self._looks_like_product_query(text):
                     return False
                 return True
         return False
-
-    # ------------------------------------------------------------------
-    # RETRY SEARCH
-    # ------------------------------------------------------------------
-
-    def _retry_search_if_worth_it(
-        self,
-        plan: Dict[str, Any],
-        *,
-        user_text: str,
-        request_id: str,
-    ) -> Optional[List[Dict[str, Any]]]:
-        if not self.catalog:
-            return None
-
-        meta = plan.get("meta") or {}
-        q = (plan.get("product_name") or user_text or "").strip()
-        q_clean = self._normalize_text(q)
-
-        tokens = [t for t in q_clean.split() if t]
-        if not tokens or len(tokens) > 3:
-            return None
-
-        cut = None
-        for t in tokens:
-            if t in set(self._TOPIC_WORDS):
-                cut = t
-                break
-        if not cut:
-            return None
-
-        try:
-            limit = int(meta.get("max_items") or 12)
-        except Exception:
-            limit = 12
-
-        tags = self._token_tags(cut)
-        self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
-        return self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
-
-    # ------------------------------------------------------------------
-    # Branch / delivery detection
-    # ------------------------------------------------------------------
 
     def _looks_like_branch_or_delivery_question(self, text: str) -> bool:
         t = self._clean_text(text)
@@ -474,8 +430,105 @@ class MessageHandlerV7:
 
         return False
 
+    def _is_greeting(self, text: str) -> bool:
+        t = self._clean_text(text)
+        if not t:
+            return False
+
+        if t in self._GREETINGS:
+            return True
+
+        toks = t.split()
+        if len(toks) <= 2:
+            for g in self._GREETINGS:
+                if t.startswith(g + " "):
+                    return True
+
+        gmatch = difflib.get_close_matches(t, list(self._GREETINGS), n=1, cutoff=0.88)
+        return bool(gmatch)
+
+    def _is_smalltalk(self, text: str) -> bool:
+        t = self._clean_text(text)
+        if not t:
+            return False
+
+        for s in self._SMALLTALK:
+            if s in t:
+                return True
+
+        if ("ai" in t or "bot" in t or "real" in t) and any(w in t for w in ("where", "were", "what", "is", "are", "you")):
+            return True
+
+        return False
+
+    def _looks_like_product_query(self, user_text: str) -> bool:
+        t = self._normalize_text(user_text)
+        if not t:
+            return False
+
+        if self._is_smalltalk(t):
+            return False
+
+        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
+            return True
+        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
+            return True
+        if any(w in t for w in self._BUY_WORDS):
+            return True
+        if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
+            return True
+
+        toks = t.split()
+        if len(toks) == 1:
+            tok = toks[0]
+            if tok in {"ai", "bot"}:
+                return False
+            if tok in set(self._TOPIC_WORDS) or tok in set(self._MEATS):
+                return True
+
+        return False
+
     # ------------------------------------------------------------------
-    # Wrappers / helpers (unchanged core)
+    # Retry search
+    # ------------------------------------------------------------------
+
+    def _retry_search_if_worth_it(
+        self,
+        plan: Dict[str, Any],
+        *,
+        user_text: str,
+        request_id: str,
+    ) -> Optional[List[Dict[str, Any]]]:
+        if not self.catalog:
+            return None
+
+        meta = plan.get("meta") or {}
+        q = (plan.get("product_name") or user_text or "").strip()
+        q_clean = self._normalize_text(q)
+
+        tokens = [t for t in q_clean.split() if t]
+        if not tokens or len(tokens) > 3:
+            return None
+
+        cut = None
+        for t in tokens:
+            if t in set(self._TOPIC_WORDS) or t in set(self._MEATS):
+                cut = t
+                break
+        if not cut:
+            return None
+
+        try:
+            limit = int(meta.get("max_items") or 12)
+        except Exception:
+            limit = 12
+
+        tags = self._token_tags(cut)
+        self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
+        return self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
+
+    # ------------------------------------------------------------------
+    # Wrappers / request helpers
     # ------------------------------------------------------------------
 
     def _wrap_reply(
@@ -514,6 +567,10 @@ class MessageHandlerV7:
             return None
         return None
 
+    # ------------------------------------------------------------------
+    # Postcodes
+    # ------------------------------------------------------------------
+
     def _normalize_postcode(self, text: str) -> Optional[str]:
         if not text:
             return None
@@ -547,53 +604,9 @@ class MessageHandlerV7:
 
         return None
 
-    def _is_greeting(self, text: str) -> bool:
-        t = self._clean_text(text)
-        if not t:
-            return False
-
-        if t in self._GREETINGS:
-            return True
-        for g in self._GREETINGS:
-            if t.startswith(g + " "):
-                return True
-
-        gmatch = difflib.get_close_matches(t, list(self._GREETINGS), n=1, cutoff=0.82)
-        return bool(gmatch)
-
-    def _is_smalltalk(self, text: str) -> bool:
-        t = self._clean_text(text)
-        if not t:
-            return False
-        for s in self._SMALLTALK:
-            if s in t:
-                return True
-        return False
-
-    def _looks_like_product_query(self, user_text: str) -> bool:
-        t = self._clean_text(user_text)
-        if not t:
-            return False
-
-        if self._is_smalltalk(t):
-            return False
-
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
-            return True
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
-            return True
-        if any(w in t for w in self._BUY_WORDS):
-            return True
-        if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
-            return True
-
-        toks = t.split()
-        if len(toks) == 1:
-            if toks[0] in {"ai", "bot"}:
-                return False
-            return toks[0] in set(self._TOPIC_WORDS)
-
-        return False
+    # ------------------------------------------------------------------
+    # Query building / plans
+    # ------------------------------------------------------------------
 
     def _parse_modifiers(self, text: str) -> Dict[str, Any]:
         t = self._clean_text(text)
@@ -623,7 +636,7 @@ class MessageHandlerV7:
         return {"sort": sort, "max_price": max_price, "tags": tags}
 
     def _required_terms_from_text(self, text: str) -> List[str]:
-        t = self._clean_text(text)
+        t = self._normalize_text(text)
         if not t:
             return []
         out: List[str] = []
@@ -633,7 +646,7 @@ class MessageHandlerV7:
         return out
 
     def _strip_modifier_words(self, text: str) -> str:
-        s = self._clean_text(text)
+        s = self._normalize_text(text)
         s = re.sub(
             r"\b(cheapest|chepest|cheap|lowest|low|most|expensive|highest|premium|best|"
             r"under|below|less|than|boneless|bbq|barbecue|marinated|marinted)\b",
@@ -736,6 +749,10 @@ class MessageHandlerV7:
 
         return p
 
+    # ------------------------------------------------------------------
+    # Execution
+    # ------------------------------------------------------------------
+
     def _execute_plan(self, plan: Dict[str, Any], user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         facts: Dict[str, Any] = {}
         action = (plan.get("action") or "DO_NOTHING").strip().upper()
@@ -748,7 +765,6 @@ class MessageHandlerV7:
         raw_postcode = plan.get("postcode") or session.get("postcode")
         postcode = self._normalize_postcode(str(raw_postcode)) if raw_postcode else None
 
-        # DELIVERY
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:
                 if self.policy:
@@ -771,7 +787,6 @@ class MessageHandlerV7:
                     if nb:
                         facts.setdefault("branch", {})["nearest"] = nb
 
-        # PRODUCTS
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
             query, tags = self._build_search_query(user_text, category, product_name, meta)
             try:
@@ -811,7 +826,6 @@ class MessageHandlerV7:
             name = str(it.get("name") or it.get("title") or "").lower()
             tags = it.get("tags") or []
             tags_s = " ".join([str(x).lower() for x in tags])
-
             if any(r in name or r in tags_s for r in required):
                 kept.append(it)
 
@@ -854,6 +868,7 @@ class MessageHandlerV7:
         meta_tags = meta.get("search_tags") or []
         if isinstance(meta_tags, str):
             meta_tags = [meta_tags]
+
         for t in meta_tags:
             t = str(t).strip().lower()
             if t and t not in tags:
@@ -877,6 +892,10 @@ class MessageHandlerV7:
 
         query = self._normalize_text(query)
         return (query or "").strip(), tags
+
+    # ------------------------------------------------------------------
+    # Entities / UI
+    # ------------------------------------------------------------------
 
     def _entities_from_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         entities: Dict[str, Any] = {}
@@ -914,6 +933,10 @@ class MessageHandlerV7:
             )
         return out
 
+    # ------------------------------------------------------------------
+    # Text normalization
+    # ------------------------------------------------------------------
+
     def _clean_text(self, text: str) -> str:
         t = (text or "").lower().strip()
         t = re.sub(r"[^a-z0-9\s£_-]+", " ", t)
@@ -924,14 +947,29 @@ class MessageHandlerV7:
         t = self._clean_text(text)
         if not t:
             return t
+
         toks = t.split()
         out: List[str] = []
+
         for tok in toks:
             if tok in self._MEAT_ALIASES:
                 out.append(self._MEAT_ALIASES[tok])
-            else:
-                out.append(tok)
+                continue
+            out.append(self._fuzzy_fix_meat_token(tok))
+
         return " ".join(out).strip()
+
+    def _fuzzy_fix_meat_token(self, tok: str) -> str:
+        tok = (tok or "").lower().strip()
+        if not tok:
+            return tok
+        if tok in self._MEATS:
+            return tok
+
+        match = difflib.get_close_matches(tok, list(self._MEATS), n=1, cutoff=0.72)
+        if match:
+            return match[0]
+        return tok
 
     def _token_tags(self, text: str) -> List[str]:
         t = self._normalize_text(text)
@@ -942,6 +980,10 @@ class MessageHandlerV7:
             if tok not in out:
                 out.append(tok)
         return out
+
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
 
     def _info(self, rid: str, msg: str, **fields: Any) -> None:
         try:
