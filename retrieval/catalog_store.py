@@ -1,14 +1,17 @@
-# retrieval/catalog_store.py
 """
-CatalogStore (Auto-Refreshing + Tag-Driven Version)
+CatalogStore (Auto-Refreshing + Smarter Search Version)
 
-- Always reloads catalog.json before serving data.
-- Builds rich tag indices (exotic_meats → exotic_meats, exotic, meats, meat).
-- Works with ANY categories that appear in catalog.json (no hard-coding).
+Upgrades:
+- Always reloads catalog.json before serving data
+- Builds richer token/tag indices
+- Works with any categories in catalog.json
+- Better fuzzy search for typos and partial terms
+- Better scoring for product names, tags, and category matches
 """
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,8 +23,15 @@ from retrieval.storage import Storage
 # Normalisation helpers
 # ---------------------------------------------------
 
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_WS_RE = re.compile(r"\s+")
+
+
 def _norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9\s_/-]+", " ", s)
+    s = _WS_RE.sub(" ", s).strip()
+    return s
 
 
 def _slug_id(s: str) -> str:
@@ -34,7 +44,7 @@ def _slug_id(s: str) -> str:
 def _parse_price_str(price_str: str) -> Optional[float]:
     if not price_str:
         return None
-    s = price_str.replace("£", "").strip()
+    s = str(price_str).replace("£", "").strip()
     m = re.findall(r"[0-9]+(?:[.,][0-9]+)?", s)
     if not m:
         return None
@@ -42,6 +52,27 @@ def _parse_price_str(price_str: str) -> Optional[float]:
         return float(m[0].replace(",", "."))
     except Exception:
         return None
+
+
+def _tokenize(text: str) -> List[str]:
+    t = _norm_text(text)
+    if not t:
+        return []
+    toks = _WORD_RE.findall(t)
+    out: List[str] = []
+    for tok in toks:
+        if tok not in out:
+            out.append(tok)
+        # crude singular
+        if tok.endswith("s") and len(tok) > 3:
+            sing = tok[:-1]
+            if sing not in out:
+                out.append(sing)
+    return out
+
+
+def _similar(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a, b).ratio()
 
 
 # ---------------------------------------------------
@@ -55,7 +86,6 @@ class CatalogStore:
     # --------------- INIT -----------------
 
     def __post_init__(self):
-        # Load once initially — but every API call refreshes anyway.
         self._catalog: Dict[str, Any] = self._load()
         self._sku_index: Dict[str, Dict[str, Any]] = {}
         self._tag_index: Dict[str, List[Dict[str, Any]]] = {}
@@ -65,9 +95,6 @@ class CatalogStore:
     # --------------- AUTO REFRESH -----------------
 
     def _refresh(self) -> None:
-        """
-        ALWAYS reload latest catalog.json and rebuild indices.
-        """
         self._catalog = self._load()
         self._build_indices()
 
@@ -85,20 +112,17 @@ class CatalogStore:
                 except Exception:
                     return 1
 
-            # Case 1: Sheets webhook legacy schema
             if isinstance(raw.get("product_catalog"), list):
                 cat = self._from_legacy_product_catalog(raw["product_catalog"])
                 cat["version"] = _safe_version(raw.get("version", 1))
                 return cat
 
-            # Case 2: Already in v7 schema
             if isinstance(raw.get("categories"), list):
                 return {
                     "version": _safe_version(raw.get("version", 1)),
                     "categories": raw.get("categories") or [],
                 }
 
-            # Fallback empty
             return {"version": 1, "categories": []}
 
         except FileNotFoundError:
@@ -125,7 +149,7 @@ class CatalogStore:
                     continue
 
                 price = _parse_price_str(item.get("price_str") or "")
-                stock_str = (item.get("stock") or "").strip().lower()
+                stock_str = str(item.get("stock") or "").strip().lower()
                 in_stock = not any(x in stock_str for x in ("out", "sold", "no"))
 
                 base = f"{cat_id}_{_slug_id(raw_name)}"
@@ -136,7 +160,7 @@ class CatalogStore:
                     i += 1
                 used_skus.add(sku)
 
-                subcat = (item.get("subcategory") or "").strip()
+                subcat = str(item.get("subcategory") or "").strip()
 
                 tags = [cat_id, _slug_id(raw_name)]
                 if subcat:
@@ -174,54 +198,62 @@ class CatalogStore:
 
         for cat in self._catalog.get("categories") or []:
             cid = str(cat.get("id") or "").strip()
+            cname = str(cat.get("name") or "").strip()
             if not cid:
                 continue
 
             self._cat_index[cid] = cat
+            cat_tokens = _tokenize(cid) + _tokenize(cname)
 
             for item in cat.get("items") or []:
                 sku = str(item.get("sku") or "").strip()
                 if not sku:
                     continue
 
-                # Build rich tag set:
-                # - original tags
-                # - split tokens (exotic_meats -> exotic, meats)
-                # - singular forms (meats -> meat)
                 raw_tags = item.get("tags") or []
                 norm_tags: List[str] = []
+                token_pool: List[str] = []
 
+                # item tags
                 for t in raw_tags:
-                    nt = _norm_text(t)
+                    nt = _norm_text(str(t))
                     if not nt:
                         continue
                     if nt not in norm_tags:
                         norm_tags.append(nt)
 
-                    # split on _ or space
-                    for token in re.split(r"[ _]+", nt):
-                        token = token.strip()
-                        if token and token not in norm_tags:
-                            norm_tags.append(token)
-                            # crude singular
-                            if token.endswith("s"):
-                                sing = token[:-1]
-                                if sing and sing not in norm_tags:
-                                    norm_tags.append(sing)
+                    for token in _tokenize(nt):
+                        if token not in token_pool:
+                            token_pool.append(token)
+
+                # category id/name tokens
+                for tok in cat_tokens:
+                    if tok not in token_pool:
+                        token_pool.append(tok)
+                    if tok not in norm_tags:
+                        norm_tags.append(tok)
+
+                # product name tokens
+                name = str(item.get("name") or "")
+                name_tokens = _tokenize(name)
+                for tok in name_tokens:
+                    if tok not in token_pool:
+                        token_pool.append(tok)
 
                 entry = {
                     **item,
                     "_category_id": cid,
-                    "_category_name": cat.get("name"),
-                    "_norm_name": _norm_text(item.get("name")),
+                    "_category_name": cname,
+                    "_norm_name": _norm_text(name),
                     "_norm_tags": norm_tags,
+                    "_name_tokens": name_tokens,
+                    "_all_tokens": token_pool,
                 }
 
                 self._sku_index[sku] = entry
 
-                for t in entry["_norm_tags"]:
-                    if t:
-                        self._tag_index.setdefault(t, []).append(entry)
+                for tok in token_pool:
+                    self._tag_index.setdefault(tok, []).append(entry)
 
     # --------------- PUBLIC API (AUTO REFRESH) -----------------
 
@@ -270,63 +302,120 @@ class CatalogStore:
 
     def search(self, text=None, tags=None, limit=10):
         """
-        Tag-driven search:
-
-        - If tags are provided, we use them as the primary filter.
-          Text is only used for scoring, NOT as a hard filter.
-        - If only text is provided, match on name + tags.
-        - If nothing is provided, return all items (up to limit).
+        Smarter search:
+        - tags are primary hints, but fuzzy/partial matching is allowed
+        - text is split into tokens and matched against name/tags/category
+        - supports typo-ish inputs like 'chciken'
         """
         self._refresh()
 
-        limit = max(1, min(limit, 50))
+        limit = max(1, min(int(limit or 10), 50))
         text_q = _norm_text(text or "")
+        text_tokens = _tokenize(text_q)
         tag_qs = [_norm_text(t) for t in (tags or []) if t]
+        tag_tokens: List[str] = []
+        for t in tag_qs:
+            for tok in _tokenize(t):
+                if tok not in tag_tokens:
+                    tag_tokens.append(tok)
 
-        results: List[Tuple[int, Dict[str, Any]]] = []
+        query_tokens: List[str] = []
+        for tok in text_tokens + tag_tokens:
+            if tok not in query_tokens:
+                query_tokens.append(tok)
 
-        # Tag-priority search
-        if tag_qs:
-            seen = set()
-            for tq in tag_qs:
-                for item in self._tag_index.get(tq, []):
-                    if item["sku"] in seen:
-                        continue
-                    seen.add(item["sku"])
-                    results.append((self._score(item, text_q, tag_qs), item))
+        # no filters -> return all ranked lightly by stock/name
+        if not text_q and not query_tokens:
+            items = list(self._sku_index.values())
+            items.sort(key=lambda x: (bool(x.get("in_stock", True)), x.get("name") or ""), reverse=True)
+            return items[:limit]
 
-        # Text-only search
-        elif text_q:
-            for item in self._sku_index.values():
-                if text_q in item["_norm_name"]:
-                    results.append((self._score(item, text_q, tag_qs), item))
-                elif any(text_q in t for t in item["_norm_tags"]):
-                    # weaker fallback
-                    results.append((self._score(item, text_q, tag_qs) - 1, item))
+        candidates: Dict[str, Tuple[int, Dict[str, Any]]] = {}
 
-        # No filter → return all (for “full catalog” type flows)
-        else:
-            for item in self._sku_index.values():
-                results.append((0, item))
+        # First pass: direct token-index hits
+        for qtok in query_tokens:
+            direct_hits = self._tag_index.get(qtok, [])
+            for item in direct_hits:
+                score = self._score(item, text_q=text_q, query_tokens=query_tokens)
+                prev = candidates.get(item["sku"])
+                if prev is None or score > prev[0]:
+                    candidates[item["sku"]] = (score, item)
 
-        results.sort(key=lambda x: x[0], reverse=True)
+        # Second pass: broader scan for partial/fuzzy name matches
+        for item in self._sku_index.values():
+            score = self._score(item, text_q=text_q, query_tokens=query_tokens)
+            if score <= 0:
+                continue
+            prev = candidates.get(item["sku"])
+            if prev is None or score > prev[0]:
+                candidates[item["sku"]] = (score, item)
+
+        results = sorted(candidates.values(), key=lambda x: x[0], reverse=True)
         return [item for _, item in results[:limit]]
 
-    def _score(self, item, text_q, tags):
+    def _score(self, item: Dict[str, Any], text_q: str, query_tokens: List[str]) -> int:
         score = 0
         name = item.get("_norm_name") or ""
+        name_tokens = item.get("_name_tokens") or []
+        all_tokens = item.get("_all_tokens") or []
+        category_id = str(item.get("_category_id") or "").lower()
+        category_name = _norm_text(item.get("_category_name") or "")
 
+        # full phrase boosts
         if text_q:
-            if name.startswith(text_q):
-                score += 4
+            if name == text_q:
+                score += 14
+            elif name.startswith(text_q):
+                score += 10
             elif text_q in name:
-                score += 3
+                score += 7
 
-        item_tags = item.get("_norm_tags") or []
-        for t in tags:
-            if t in item_tags:
+            if text_q == category_id or text_q == category_name:
+                score += 9
+            elif text_q in category_name:
+                score += 5
+
+        # token-based scoring
+        for q in query_tokens:
+            # exact token in name
+            if q in name_tokens:
+                score += 6
+                continue
+
+            # exact token anywhere
+            if q in all_tokens:
+                score += 4
+                continue
+
+            # partial token match
+            if any(q in tok or tok in q for tok in all_tokens):
+                score += 2
+                continue
+
+            # fuzzy token match
+            best_sim = 0.0
+            for tok in all_tokens:
+                sim = _similar(q, tok)
+                if sim > best_sim:
+                    best_sim = sim
+
+            if best_sim >= 0.90:
+                score += 4
+            elif best_sim >= 0.82:
                 score += 2
 
+        # bonus when multiple query tokens hit
+        matched_count = 0
+        for q in query_tokens:
+            if (
+                q in name_tokens
+                or q in all_tokens
+                or any(q in tok or tok in q for tok in all_tokens)
+            ):
+                matched_count += 1
+        score += matched_count
+
+        # in stock bonus
         if item.get("in_stock", True):
             score += 1
 
