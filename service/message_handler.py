@@ -2,10 +2,15 @@
 """
 MASTER MESSAGE HANDLER (V7-first, safe-dispatch)
 
-Key points:
-- This file is NOT the AI brain. It is the dispatcher + safety/UX guard + validation.
-- It should never pretend the system is broken when user simply typed nonsense.
-- It should not block postcodes or "nearest branch" requests.
+Key upgrades in this remake:
+- Keeps postcode + nearest-branch safe routing
+- Does NOT pretend the system is broken for weak/noisy inputs
+- Adds real session follow-up memory:
+    * last_product_query
+    * last_items
+    * last_product_names
+- Preserves existing category / sku / postcode memory
+- Makes follow-up questions like "are they halal" more likely to work downstream
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
@@ -24,16 +29,13 @@ from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
 
-# KPI event types that must never be emitted from here
 _KPI_EVENT_TYPES = {"msg_in", "msg_out", "error"}
 
-# --- pre-dispatch guards ---
 _RE_ONLY_SYMBOLS = re.compile(r"^[^A-Za-z0-9]+$")
 _RE_HAS_ALPHA = re.compile(r"[A-Za-z]")
 _RE_WORD3 = re.compile(r"[A-Za-z]{3,}")
 _RE_MULTI_SPACE = re.compile(r"\s+")
 
-# Recognize “nearest branch/store” requests (typos included)
 _NEAREST_BRANCH_PAT = re.compile(
     r"\b(nearest|closest|nearby)\s+(branch|store|shop)\b"
     r"|\bmy\s+nearest\s+(branch|store|shop)\b"
@@ -41,24 +43,26 @@ _NEAREST_BRANCH_PAT = re.compile(
     re.I,
 )
 
-# Detect full postcode anywhere, spaced or not
 _POSTCODE_FULL_IN_TEXT = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
-
-# Outward-only standalone: E7 / SW1A / N4 etc.
 _POSTCODE_OUTWARD_STANDALONE = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
 
-# Users asking for a full category list
 _FULL_LIST_PAT = re.compile(
     r"\b(full|all|everything|entire|whole)\b.*\b(chicken|lamb|beef|grocer(?:y|ies)|frozen|marinated)\b",
     re.I,
 )
 
-# Some common “test” words that should not trigger a “system broken” message
 _TEST_NOISE = {
     "test", "tester", "testing", "demo", "dmo", "tst",
     "test1", "test2", "test3",
     "hello", "hi", "hey", "yo", "there", "sup",
 }
+
+_FOLLOWUP_PAT = re.compile(
+    r"\b(they|them|those|these|that|it|this one|that one|the first one|the second one|the third one)\b",
+    re.I,
+)
+
+_HALAL_PAT = re.compile(r"\b(halal|hala|halaal|is it halal|are they halal)\b", re.I)
 
 
 def _collapse_spaces(s: str) -> str:
@@ -66,9 +70,6 @@ def _collapse_spaces(s: str) -> str:
 
 
 def _extract_postcode_anywhere(text: str) -> Optional[str]:
-    """
-    Extract a postcode from inside a longer message, then normalize spacing.
-    """
     if not text:
         return None
     s = text.strip().upper()
@@ -77,20 +78,15 @@ def _extract_postcode_anywhere(text: str) -> Optional[str]:
     if m:
         return f"{m.group(1)} {m.group(2)}"
 
-    # outward-only only if the whole message is basically outward-only
     m2 = _POSTCODE_OUTWARD_STANDALONE.match(s)
     if m2:
         return m2.group(1)
 
     compact = re.sub(r"[^A-Z0-9]", "", s)
-    pc = normalize_postcode(compact)
-    return pc
+    return normalize_postcode(compact)
 
 
 def _maybe_normalize_postcode_for_dispatch(user_text: str) -> str:
-    """
-    Normalize standalone postcode inputs BEFORE guard/dispatch.
-    """
     t = (user_text or "").strip()
     if not t:
         return t
@@ -126,19 +122,18 @@ def _is_postcode_like(text: str) -> bool:
 
 
 def _looks_like_noise(text: str) -> bool:
-    """
-    Detect low-signal messages that should not trigger a “system broken” fallback.
-    """
     t = (text or "").strip().lower()
     if not t:
         return True
     if t in _TEST_NOISE:
         return True
 
-    # single short word with no digits and no strong keyword
     if len(t) <= 7 and t.isalpha():
-        # if it's not a known category or common product keyword, treat as noise-ish
-        known = {"chicken", "lamb", "beef", "groceries", "grocery", "frozen", "marinated", "delivery", "postcode"}
+        known = {
+            "chicken", "lamb", "beef", "groceries", "grocery",
+            "frozen", "marinated", "delivery", "postcode",
+            "wings", "breast", "fillets", "fillet", "mince",
+        }
         if t not in known:
             return True
 
@@ -146,14 +141,12 @@ def _looks_like_noise(text: str) -> bool:
 
 
 def _category_from_full_list(text: str) -> Optional[str]:
-    """
-    If user says "full chicken list" / "all lamb" etc, extract the category word.
-    """
     if not text:
         return None
     m = _FULL_LIST_PAT.search(text)
     if not m:
         return None
+
     s = m.group(0).lower()
     if "chicken" in s:
         return "chicken"
@@ -168,6 +161,17 @@ def _category_from_full_list(text: str) -> Optional[str]:
     if "marinated" in s:
         return "marinated_meats"
     return None
+
+
+def _safe_list_strings(values: Any, limit: int = 12) -> List[str]:
+    out: List[str] = []
+    if not isinstance(values, list):
+        return out
+    for v in values[:limit]:
+        s = str(v).strip()
+        if s:
+            out.append(s)
+    return out
 
 
 @dataclass
@@ -224,7 +228,6 @@ class MessageHandler:
             or "no_rid"
         )
 
-        # ---------------- PRE-DISPATCH GUARD ----------------
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
             logger.info(
@@ -234,7 +237,14 @@ class MessageHandler:
             self._telemetry(
                 ctx,
                 event_type="pipeline_turn",
-                meta={"mode": mode, "rid": rid, "intent": guarded.get("intent"), "ok": True, "guarded": True, "channel": ctx.channel},
+                meta={
+                    "mode": mode,
+                    "rid": rid,
+                    "intent": guarded.get("intent"),
+                    "ok": True,
+                    "guarded": True,
+                    "channel": ctx.channel,
+                },
             )
             return guarded
 
@@ -243,9 +253,12 @@ class MessageHandler:
             ctx.tenant, ctx.session_id, ctx.channel, mode, rid, user_text[:120],
         )
 
-        self._telemetry(ctx, event_type="pipeline_in", meta={"mode": mode, "rid": rid, "text_len": len(user_text)})
+        self._telemetry(
+            ctx,
+            event_type="pipeline_in",
+            meta={"mode": mode, "rid": rid, "text_len": len(user_text)},
+        )
 
-        # ---------------- DISPATCH ----------------
         if mode == "v5":
             reply = self.h_v5.handle(user_text, ctx, sess)
         elif mode == "v6":
@@ -258,15 +271,25 @@ class MessageHandler:
             ctx.tenant, ctx.session_id, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
         )
 
-        # ---------------- VALIDATION ----------------
         reply = self._validate_reply(reply, user_text, ctx, sess)
-
-        # ---------------- PERSIST ----------------
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
-        self._telemetry(ctx, event_type="pipeline_out", meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "reply_len": len((reply.get("reply") or ""))})
-        self._telemetry(ctx, event_type="pipeline_turn", meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "ok": True, "channel": ctx.channel})
+        self._telemetry(
+            ctx,
+            event_type="pipeline_out",
+            meta={
+                "mode": mode,
+                "rid": rid,
+                "intent": reply.get("intent"),
+                "reply_len": len((reply.get("reply") or "")),
+            },
+        )
+        self._telemetry(
+            ctx,
+            event_type="pipeline_turn",
+            meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "ok": True, "channel": ctx.channel},
+        )
 
         return reply
 
@@ -284,21 +307,17 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # Never guard-block postcodes or postcode-containing messages.
         if _is_postcode_like(t) or _POSTCODE_FULL_IN_TEXT.search(t.upper()):
             return None
 
-        # Never block “nearest branch/store”
         if _NEAREST_BRANCH_PAT.search(t):
             return None
 
-        # If user asked "full chicken list" etc, do NOT guard it.
         if _FULL_LIST_PAT.search(t):
             return None
 
         tl = _collapse_spaces(t).lower()
 
-        # Hard noise like "!!!" or "&*("
         if _RE_ONLY_SYMBOLS.match(t):
             return {
                 "reply": "Type what you’re after (e.g. chicken wings / lamb chops) or a postcode for delivery.",
@@ -308,11 +327,12 @@ class MessageHandler:
                 "entities": {},
             }
 
-        # Random short gibberish
         letters = sum(ch.isalpha() for ch in t)
         digits = sum(ch.isdigit() for ch in t)
         looks_like_short_code = (len(t) <= 8 and letters >= 2 and digits >= 2 and " " not in t)
-        looks_like_gibberish = (len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t))
+        looks_like_gibberish = (
+            len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t)
+        )
 
         if looks_like_short_code or looks_like_gibberish:
             return {
@@ -339,19 +359,34 @@ class MessageHandler:
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
     # ---------------------------------------------------------
-    def _validate_reply(self, reply: Dict[str, Any], user_text: str, ctx: MessageContext, sess: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        IMPORTANT change:
-        - Don't say "having trouble pulling products" just because search returned 0 items.
-        - Use a clarifier when the user's message is low-signal or "test/demo".
-        - If user requested "full chicken list", nudge to a category browse question instead of failure.
-        """
+    def _validate_reply(
+        self,
+        reply: Dict[str, Any],
+        user_text: str,
+        ctx: MessageContext,
+        sess: Dict[str, Any],
+    ) -> Dict[str, Any]:
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
         text = (user_text or "").strip()
+        lower = text.lower()
 
-        # If user typed "full chicken list" etc and V7 didn't return items, guide them cleanly.
+        # Follow-up halal recovery using memory
+        if _HALAL_PAT.search(lower) and _FOLLOWUP_PAT.search(lower):
+            last_items = sess.get("last_items") or []
+            last_names = sess.get("last_product_names") or []
+            last_query = sess.get("last_product_query")
+            if last_items or last_names or last_query:
+                target = ", ".join(last_names[:3]) if last_names else (last_query or "those items")
+                return {
+                    "reply": f"Yes — our meat products are halal. If you want, I can also show you more options related to {target}.",
+                    "intent": "faq",
+                    "resolved": True,
+                    "facts": {"reason": "followup_halal_memory"},
+                    "entities": {},
+                }
+
         cat = _category_from_full_list(text)
         if cat and not items:
             pretty = cat.replace("_", " ")
@@ -372,8 +407,6 @@ class MessageHandler:
                 "entities": {"category": cat},
             }
 
-        # Bare-category handling (existing behaviour but kept)
-        lower = text.lower()
         known_category_words = {
             "chicken", "lamb", "beef",
             "groceries", "grocery",
@@ -401,10 +434,8 @@ class MessageHandler:
                 "entities": {"category": lower},
             }
 
-        # If intent *expects* items but none returned, DO NOT claim system is broken.
         requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
         if requires_items and not items:
-            # If user typed low-signal / test words, treat as clarifier not failure.
             if _looks_like_noise(text):
                 return {
                     "reply": (
@@ -420,8 +451,11 @@ class MessageHandler:
                     "entities": {},
                 }
 
-            # Otherwise it's a normal “no results” case.
-            q = (reply.get("entities") or {}).get("query") or text
+            q = (
+                (reply.get("entities") or {}).get("query")
+                or (reply.get("entities") or {}).get("product_name")
+                or text
+            )
             return {
                 "reply": (
                     f"I couldn’t find matches for **{q}**.\n\n"
@@ -449,12 +483,16 @@ class MessageHandler:
             "last_category": self.memory.get(ctx.session_id, "last_category"),
             "last_sku": self.memory.get(ctx.session_id, "last_sku"),
             "last_intent": self.memory.get(ctx.session_id, "last_intent"),
+            "last_product_query": self.memory.get(ctx.session_id, "last_product_query"),
+            "last_items": self.memory.get(ctx.session_id, "last_items", []),
+            "last_product_names": self.memory.get(ctx.session_id, "last_product_names", []),
         }
 
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
         ttl = DEFAULT_SESSION_TTL
         entities = reply.get("entities") or {}
         facts = reply.get("facts") or {}
+        items = facts.get("items") or []
 
         if entities.get("postcode"):
             self.memory.set(ctx.session_id, "postcode", entities["postcode"], ttl)
@@ -471,6 +509,37 @@ class MessageHandler:
 
         if reply.get("intent"):
             self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl)
+
+        product_query = entities.get("product_name")
+        if product_query:
+            self.memory.set(ctx.session_id, "last_product_query", product_query, ttl)
+
+        if items:
+            item_skus = []
+            item_names = []
+            for it in items[:12]:
+                if not isinstance(it, dict):
+                    continue
+                sku = str(it.get("sku") or it.get("id") or it.get("code") or "").strip()
+                name = str(it.get("name") or it.get("title") or "").strip()
+                if sku:
+                    item_skus.append(sku)
+                if name:
+                    item_names.append(name)
+
+            if item_skus:
+                self.memory.set(ctx.session_id, "last_items", item_skus, ttl)
+            if item_names:
+                self.memory.set(ctx.session_id, "last_product_names", item_names, ttl)
+
+            # fallback category from first returned item if plan didn’t set one
+            if not entities.get("category"):
+                first_cat = None
+                first = items[0] if items else {}
+                if isinstance(first, dict):
+                    first_cat = first.get("category") or first.get("category_id") or first.get("_category_id")
+                if first_cat:
+                    self.memory.set(ctx.session_id, "last_category", str(first_cat), ttl)
 
     # ---------------------------------------------------------
     # CRM
