@@ -1,0 +1,13 @@
+{
+  "name": "EXAMPLE Halal Butchers",
+  "about": "Independent halal-certified butcher offering fresh poultry, lamb, and beef with same-day delivery in selected London postcodes.",
+  "email": "support@examplebutchers.co.uk",
+  "phone": "+44 20 7946 0000",
+  "website": "https://examplebutchers.co.uk",
+  "halal_certified": true,
+  "certifications": ["HMC-inspected"],
+  "social": {
+    "instagram": "https://instagram.com/examplebutchers",
+    "facebook": "https://facebook.com/examplebutchers"
+  }
+}

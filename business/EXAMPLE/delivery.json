@@ -1,0 +1,13 @@
+{
+  "zones": [
+    { "area": "E1-E4", "min_order": 25.0, "fee": 3.50, "eta_hours": "Same-day (order before 5pm)" },
+    { "area": "E5-E14", "min_order": 35.0, "fee": 4.00, "eta_hours": "Next-day (Mon–Sat)" },
+    { "area": "EC1-EC4", "min_order": 30.0, "fee": 3.50, "eta_hours": "Same-day (order before 3pm)" },
+    { "area": "N1-N8", "min_order": 35.0, "fee": 4.50, "eta_hours": "Next-day (Mon–Sat)" }
+  ],
+  "notes": "Free delivery over £50 across all serviced postcodes. Click & collect available during opening hours.",
+  "exceptions": [
+    { "date": "2025-12-25", "note": "Closed on Christmas Day" },
+    { "date": "2025-12-26", "note": "Limited delivery windows" }
+  ]
+}

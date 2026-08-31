@@ -75,12 +75,41 @@ def _read_json(path: Path) -> Any:
         return json.load(f)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Storage:
     tenant_key: str
     business_root: Path = BUSINESS_ROOT
     versions_root: Path = VERSIONS_ROOT
     schemas_root: Path = SCHEMAS_ROOT
+
+    def __init__(
+        self,
+        tenant_key: str = "EXAMPLE",
+        *,
+        base_dir: Optional[Path | str] = None,
+        business_root: Optional[Path | str] = None,
+        versions_root: Optional[Path | str] = None,
+        schemas_root: Optional[Path | str] = None,
+    ) -> None:
+        runtime_root = Path(os.getcwd()).resolve()
+        root = Path(base_dir).resolve() if base_dir is not None else runtime_root / "business"
+        if business_root is not None:
+            root = Path(business_root).resolve()
+
+        object.__setattr__(self, "tenant_key", tenant_key)
+        object.__setattr__(self, "business_root", root)
+        object.__setattr__(
+            self,
+            "versions_root",
+            Path(versions_root).resolve() if versions_root is not None else root / "versions",
+        )
+        object.__setattr__(
+            self,
+            "schemas_root",
+            Path(schemas_root).resolve()
+            if schemas_root is not None
+            else (runtime_root / "schemas" if (runtime_root / "schemas").exists() else SCHEMAS_ROOT),
+        )
 
     # -------- paths --------
 
@@ -102,6 +131,15 @@ class Storage:
         """
         path = self.file_path(tenant, filename)
         return _read_json(path)
+
+    def load_json(self, path: str) -> Any:
+        """
+        Backwards-compatible loader for paths like ``EXAMPLE/catalog.json``.
+        """
+        rel = Path(path)
+        if rel.is_absolute():
+            return _read_json(rel)
+        return _read_json(self.business_root / rel)
 
     def write_json(
         self,
@@ -240,6 +278,10 @@ class Storage:
                         # tolerate partial copies; writes will still snapshot file-by-file
                         pass
         # write a snapshot metadata file
-        meta = {"tenant": tenant, "created_at": _utc_now_iso(), "source": str(src.relative_to(REPO_ROOT))}
+        try:
+            source = str(src.relative_to(REPO_ROOT))
+        except ValueError:
+            source = str(src)
+        meta = {"tenant": tenant, "created_at": _utc_now_iso(), "source": source}
         _atomic_write_json(today_dir / "_snapshot.json", meta)
         return today_dir

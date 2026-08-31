@@ -17,8 +17,8 @@ RUN useradd -ms /bin/bash appuser
 WORKDIR /app
 
 # --- Install Python deps early (better layer cache) ---
-COPY requirement.txt /app/requirement.txt
-RUN pip install --upgrade pip && pip install -r /app/requirement.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 # --- Copy source ---
 COPY . /app

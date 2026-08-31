@@ -1,0 +1,26 @@
+[
+  {
+    "q": "Is everything halal?",
+    "a": "Yes - all meat products are halal and HMC-inspected.",
+    "tags": [
+      "halal",
+      "certification"
+    ]
+  },
+  {
+    "q": "What time do you open on Sunday?",
+    "a": "Mon-Sat 09:00-20:00; Sun 10:00-18:00.",
+    "tags": [
+      "hours",
+      "opening"
+    ]
+  },
+  {
+    "q": "Do you deliver to E1 6AN?",
+    "a": "We deliver to {postcode} with {delivery_summary}.",
+    "tags": [
+      "delivery",
+      "postcode"
+    ]
+  }
+]

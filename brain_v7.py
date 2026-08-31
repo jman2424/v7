@@ -135,7 +135,7 @@ class BrainV7:
         if self.client is None:
             # Fallback to env-based client if not provided
             api_key = os.getenv("OPENAI_API_KEY") or ""
-            self.client = OpenAI(api_key=api_key) if api_key.strip() else OpenAI()
+            self.client = OpenAI(api_key=api_key) if api_key.strip() else None
 
     # --------------------------------------------------------------- #
     # PUBLIC: PLAN
@@ -178,6 +178,12 @@ class BrainV7:
             *history,
             {"role": "user", "content": json.dumps(payload)},
         ]
+
+        if self.client is None:
+            plan = self._blank_plan(session)
+            plan["needs_clarification"] = True
+            plan["clarification_question"] = "Tell me what product, delivery area, or store info you need."
+            return plan
 
         completion = self.client.chat.completions.create(
             model=self.config.model,

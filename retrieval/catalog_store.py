@@ -79,14 +79,26 @@ def _similar(a: str, b: str) -> float:
 # MAIN CLASS
 # ---------------------------------------------------
 
-@dataclass
+@dataclass(init=False)
 class CatalogStore:
-    storage: Storage
+    storage: Optional[Storage]
 
     # --------------- INIT -----------------
 
-    def __post_init__(self):
-        self._catalog: Dict[str, Any] = self._load()
+    def __init__(
+        self,
+        storage: Optional[Storage | Dict[str, Any]] = None,
+        *,
+        catalog: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if isinstance(storage, dict) and catalog is None and data is None:
+            catalog = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._static = catalog is not None or data is not None
+        self._catalog: Dict[str, Any] = self._normalize_catalog(catalog or data) if self._static else self._load()
         self._sku_index: Dict[str, Dict[str, Any]] = {}
         self._tag_index: Dict[str, List[Dict[str, Any]]] = {}
         self._cat_index: Dict[str, Dict[str, Any]] = {}
@@ -95,12 +107,16 @@ class CatalogStore:
     # --------------- AUTO REFRESH -----------------
 
     def _refresh(self) -> None:
+        if self._static:
+            return
         self._catalog = self._load()
         self._build_indices()
 
     # --------------- LOAD + NORMALISE -----------------
 
     def _load(self) -> Dict[str, Any]:
+        if self.storage is None:
+            return {"version": 1, "categories": []}
         try:
             raw = self.storage.read_json(self.storage.tenant_key, "catalog.json")
             if not isinstance(raw, dict):
@@ -127,6 +143,29 @@ class CatalogStore:
 
         except FileNotFoundError:
             return {"version": 1, "categories": []}
+
+    def _normalize_catalog(self, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(raw, dict):
+            return {"version": 1, "categories": []}
+
+        def _safe_version(v: Any) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return 1
+
+        if isinstance(raw.get("product_catalog"), list):
+            cat = self._from_legacy_product_catalog(raw["product_catalog"])
+            cat["version"] = _safe_version(raw.get("version", 1))
+            return cat
+
+        if isinstance(raw.get("categories"), list):
+            return {
+                "version": _safe_version(raw.get("version", 1)),
+                "categories": raw.get("categories") or [],
+            }
+
+        return {"version": 1, "categories": []}
 
     def _from_legacy_product_catalog(self, pc: List[Dict[str, Any]]) -> Dict[str, Any]:
         categories: List[Dict[str, Any]] = []
@@ -300,7 +339,7 @@ class CatalogStore:
 
     # --------------- SEARCH -----------------
 
-    def search(self, text=None, tags=None, limit=10):
+    def search(self, text=None, tags=None, limit=10, query=None):
         """
         Smarter search:
         - tags are primary hints, but fuzzy/partial matching is allowed
@@ -310,7 +349,7 @@ class CatalogStore:
         self._refresh()
 
         limit = max(1, min(int(limit or 10), 50))
-        text_q = _norm_text(text or "")
+        text_q = _norm_text(text or query or "")
         text_tokens = _tokenize(text_q)
         tag_qs = [_norm_text(t) for t in (tags or []) if t]
         tag_tokens: List[str] = []

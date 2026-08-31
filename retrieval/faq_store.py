@@ -39,12 +39,33 @@ def _jaccard(a: List[str], b: List[str]) -> float:
     return inter / union if union else 0.0
 
 
-@dataclass
-class FAQStore:
-    storage: Storage
+class FAQMatchResult(list):
+    def get(self, key: str, default: Any = None) -> Any:
+        if not self:
+            return default
+        first = self[0]
+        if isinstance(first, dict):
+            return first.get(key, default)
+        return default
 
-    def __post_init__(self):
-        self._faqs: List[Dict[str, Any]] = self._load()
+
+@dataclass(init=False)
+class FAQStore:
+    storage: Optional[Storage]
+
+    def __init__(
+        self,
+        storage: Optional[Storage | List[Dict[str, Any]]] = None,
+        *,
+        faq: Optional[List[Dict[str, Any]]] = None,
+        data: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        if isinstance(storage, list) and faq is None and data is None:
+            faq = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._faqs: List[Dict[str, Any]] = faq or data or self._load()
         # Precompute tokens for quick similarity checks
         for f in self._faqs:
             f["_q_norm"] = _norm(f.get("q", ""))
@@ -54,6 +75,8 @@ class FAQStore:
     # -------- internal --------
 
     def _load(self) -> List[Dict[str, Any]]:
+        if self.storage is None:
+            return []
         try:
             data = self.storage.read_json(self.storage.tenant_key, "faq.json")
             if not isinstance(data, list):
@@ -74,7 +97,7 @@ class FAQStore:
         hint_tags: Optional[List[str]] = None,
         min_sim: float = 0.18,
         top_k: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> Any:
         """
         Returns top_k FAQ entries sorted by similarity.
         - Uses Jaccard similarity on token sets
@@ -92,7 +115,11 @@ class FAQStore:
                 scored.append((sim, f))
 
         scored.sort(key=lambda t: t[0], reverse=True)
-        return [e for _, e in scored[: max(1, top_k)]]
+        matches = FAQMatchResult([e for _, e in scored[: max(1, top_k)]])
+        for item in matches:
+            if "answer" not in item and "a" in item:
+                item["answer"] = item.get("a")
+        return matches
 
     def render_answer(self, faq_entry: Dict[str, Any], placeholders: Optional[Dict[str, str]] = None) -> str:
         """

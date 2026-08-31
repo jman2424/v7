@@ -4,10 +4,16 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request, session
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
+
+
+@bp.before_request
+def _require_admin_session() -> None:
+    if not session.get("user"):
+        abort(401, description="unauthorized")
 
 
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
@@ -56,7 +62,21 @@ get_whatsapp_store_share = _safe_import("get_whatsapp_store_share", _fb_list)
 
 def _tenant() -> str:
     # IMPORTANT: do NOT force case here; analytics_db normalizes internally
-    return (request.args.get("tenant") or "default").strip() or "default"
+    requested = (request.args.get("tenant") or "").strip()
+    if requested:
+        return requested
+
+    user = session.get("user") or {}
+    if isinstance(user, dict) and user.get("tenant"):
+        return str(user["tenant"]).strip() or "default"
+
+    try:
+        from routes import get_container
+
+        c = get_container()
+        return str(getattr(c.settings, "BUSINESS_KEY", "") or "default").strip() or "default"
+    except Exception:
+        return "default"
 
 
 def _int_arg(name: str, default: int) -> int:
@@ -64,6 +84,78 @@ def _int_arg(name: str, default: int) -> int:
         return int(request.args.get(name) or default)
     except Exception:
         return default
+
+
+def _storage():
+    from routes import get_container
+
+    c = get_container()
+    return c.storage
+
+
+def _audit(action: str, target: str, before: Any = None, after: Any = None) -> None:
+    try:
+        from services.audit import AuditService
+
+        user = session.get("user") or {}
+        AuditService().record(
+            user=str(user.get("email") or user.get("username") or user.get("id") or "admin"),
+            role=str((user.get("roles") or [user.get("role") or "admin"])[0]),
+            ip=request.remote_addr or "",
+            action=action,
+            target=target,
+            before=before if isinstance(before, dict) else None,
+            after=after if isinstance(after, dict) else None,
+        )
+    except Exception:
+        logger.exception("audit failed action=%s target=%s", action, target)
+
+
+@bp.get("/catalog")
+def api_catalog_get():
+    return jsonify(_storage().read_json(_tenant(), "catalog.json"))
+
+
+@bp.put("/catalog")
+def api_catalog_put():
+    data = request.get_json(force=True)
+    tenant = _tenant()
+    before = _storage().read_json(tenant, "catalog.json")
+    snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
+    _audit("catalog.update", f"{tenant}/catalog.json", before=before, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
+@bp.get("/faq")
+def api_faq_get():
+    return jsonify(_storage().read_json(_tenant(), "faq.json"))
+
+
+@bp.put("/faq")
+def api_faq_put():
+    data = request.get_json(force=True)
+    if not isinstance(data, list):
+        return jsonify({"error": "faq_must_be_array"}), 400
+
+    tenant = _tenant()
+    before = _storage().read_json(tenant, "faq.json")
+    snap = _storage().write_json(tenant, "faq.json", data, schema="faq.schema.json")
+    _audit("faq.update", f"{tenant}/faq.json", before={"items": before}, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
+@bp.post("/mode")
+def api_mode_set():
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode") or "").strip().upper()
+    if mode not in {"V5", "V6", "V7", "AIV7", "AIV7_FLAGSHIP"}:
+        return jsonify({"error": "invalid_mode"}), 400
+
+    from routes import get_container
+
+    c = get_container()
+    object.__setattr__(c.settings, "MODE", "V7" if mode.startswith("AIV7") else mode)
+    return jsonify({"ok": True, "mode": c.settings.MODE})
 
 
 @bp.get("/insights")

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "east-london",
+    "name": "East London Branch",
+    "address": "12 Commercial Road, London",
+    "postcode": "E1 1AA",
+    "phone": "020 7000 1000",
+    "lat": 51.5151,
+    "lon": -0.0672,
+    "hours": {
+      "mon-sat": "09:00-20:00",
+      "sun": "10:00-18:00"
+    }
+  },
+  {
+    "id": "north-london",
+    "name": "North London Branch",
+    "address": "22 Essex Road, London",
+    "postcode": "N1 1AA",
+    "phone": "020 7000 2000",
+    "lat": 51.5465,
+    "lon": -0.1024,
+    "hours": {
+      "mon-sat": "09:00-20:00",
+      "sun": "10:00-18:00"
+    }
+  },
+  {
+    "id": "south-bank",
+    "name": "South Bank Branch",
+    "address": "8 Borough High Street, London",
+    "postcode": "SE1 0AA",
+    "phone": "020 7000 3000",
+    "lat": 51.5055,
+    "lon": -0.0901,
+    "hours": {
+      "mon-sat": "09:00-20:00",
+      "sun": "10:00-18:00"
+    }
+  }
+]

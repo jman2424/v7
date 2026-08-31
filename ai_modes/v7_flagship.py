@@ -47,9 +47,13 @@ class AIV7Flagship(ModeStrategy):
         tools: List[ToolCall] = []
 
         if intent == "check_delivery":
-            pc = ent.get("postcode") or ctx.get("session", {}).get("postcode")
+            pc = ent.get("postcode")
             if not pc:
-                return Plan(goal="Ask for postcode", tools=[], constraints={"needs_clarification": True}).to_dict()
+                return Plan(
+                    goal="Ask for postcode",
+                    tools=[],
+                    constraints={"no_fabrication": True, "needs_clarification": True},
+                ).to_dict()
 
             tools.append(ToolCall(name="policy.delivery_rule_for", args={"postcode": pc}, required=True))
             # optional but makes replies better
@@ -68,7 +72,11 @@ class AIV7Flagship(ModeStrategy):
         elif intent == "price_check":
             sku = ent.get("sku")
             if not sku:
-                return Plan(goal="Ask which product to price check", tools=[], constraints={"needs_clarification": True}).to_dict()
+                return Plan(
+                    goal="Ask which product to price check",
+                    tools=[],
+                    constraints={"no_fabrication": True, "needs_clarification": True},
+                ).to_dict()
             tools.append(ToolCall("catalog.price_of", {"sku": sku}, required=True))
             tools.append(ToolCall("catalog.in_stock", {"sku": sku}, required=False))
 

@@ -169,15 +169,28 @@ def _area_matches_outward(area: str, outward: str) -> bool:
     return False
 
 
-@dataclass
+@dataclass(init=False)
 class PolicyStore:
-    storage: Storage
+    storage: Optional[Storage]
 
-    def __post_init__(self):
-        self._delivery = self._load("delivery.json") or {}
+    def __init__(
+        self,
+        storage: Optional[Storage | Dict[str, Any]] = None,
+        *,
+        delivery: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if isinstance(storage, dict) and delivery is None and data is None:
+            delivery = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._delivery = delivery or data or self._load("delivery.json") or {}
         self._branches: List[Dict[str, Any]] = self._load("branches.json") or []
 
     def _load(self, filename: str):
+        if self.storage is None:
+            return None
         try:
             return self.storage.read_json(self.storage.tenant_key, filename)
         except FileNotFoundError:
@@ -219,8 +232,8 @@ class PolicyStore:
                 if _area_matches_outward(area, out):
                     return {
                         "fee": z.get("fee"),
-                        "min_order": z.get("min"),
-                        "eta_min": z.get("eta"),
+                        "min_order": z.get("min_order", z.get("min")),
+                        "eta_min": z.get("eta_min", z.get("eta")),
                         "source": "zone",
                         "zone": z.get("code") or None,
                         "area": area,

@@ -1,0 +1,220 @@
+{
+  "version": "2025-11-09",
+  "currency": "GBP",
+  "categories": [
+    {
+      "id": "POULTRY",
+      "name": "Poultry",
+      "items": [
+        {
+          "sku": "CHICK_BREAST_1KG",
+          "name": "Chicken Breast Fillets (1kg)",
+          "unit": "kg",
+          "price": 8.99,
+          "in_stock": true,
+          "tags": ["chicken", "breast", "fillet", "lean", "bbq", "grill"]
+        },
+        {
+          "sku": "CHICK_THIGH_1KG",
+          "name": "Chicken Thigh (Bone-in, 1kg)",
+          "unit": "kg",
+          "price": 6.49,
+          "in_stock": true,
+          "tags": ["chicken", "thigh", "bbq", "stew"]
+        },
+        {
+          "sku": "CHICK_WINGS_1KG",
+          "name": "Chicken Wings (1kg)",
+          "unit": "kg",
+          "price": 5.99,
+          "in_stock": true,
+          "tags": ["chicken", "wings", "bbq", "party"]
+        },
+        {
+          "sku": "CHICK_DRUM_1KG",
+          "name": "Chicken Drumsticks (1kg)",
+          "unit": "kg",
+          "price": 5.79,
+          "in_stock": true,
+          "tags": ["chicken", "drumstick", "bbq"]
+        },
+        {
+          "sku": "CHICK_WHOLE_1_3KG",
+          "name": "Whole Chicken (1.3–1.5kg)",
+          "unit": "each",
+          "price": 6.99,
+          "in_stock": true,
+          "tags": ["chicken", "whole", "roast"]
+        },
+        {
+          "sku": "TURKEY_MINCE_500G",
+          "name": "Turkey Mince (5% fat, 500g)",
+          "unit": "pack",
+          "price": 4.49,
+          "in_stock": true,
+          "tags": ["turkey", "mince", "lean"]
+        }
+      ]
+    },
+    {
+      "id": "LAMB",
+      "name": "Lamb",
+      "items": [
+        {
+          "sku": "LAMB_SHOULDER_BONEIN_1KG",
+          "name": "Lamb Shoulder (Bone-in, 1kg)",
+          "unit": "kg",
+          "price": 12.99,
+          "in_stock": true,
+          "tags": ["lamb", "shoulder", "roast", "slow-cook"]
+        },
+        {
+          "sku": "LAMB_LEG_BONELESS_1KG",
+          "name": "Lamb Leg (Boneless, 1kg)",
+          "unit": "kg",
+          "price": 14.49,
+          "in_stock": true,
+          "tags": ["lamb", "leg", "roast", "bbq"]
+        },
+        {
+          "sku": "LAMB_CHOPS_1KG",
+          "name": "Lamb Chops (1kg)",
+          "unit": "kg",
+          "price": 16.99,
+          "in_stock": true,
+          "tags": ["lamb", "chop", "bbq", "grill"]
+        },
+        {
+          "sku": "LAMB_MINCE_10FAT_500G",
+          "name": "Lamb Mince (10% fat, 500g)",
+          "unit": "pack",
+          "price": 5.49,
+          "in_stock": true,
+          "tags": ["lamb", "mince", "kebab", "kofta", "bbq"]
+        },
+        {
+          "sku": "MUTTON_STEW_1KG",
+          "name": "Mutton Stewing Pieces (1kg)",
+          "unit": "kg",
+          "price": 9.99,
+          "in_stock": true,
+          "tags": ["mutton", "stew", "curry", "slow-cook"]
+        }
+      ]
+    },
+    {
+      "id": "BEEF",
+      "name": "Beef",
+      "items": [
+        {
+          "sku": "BEEF_MINCE_5FAT_500G",
+          "name": "Beef Mince (5% fat, 500g)",
+          "unit": "pack",
+          "price": 4.99,
+          "in_stock": true,
+          "tags": ["beef", "mince", "lean", "burger", "bolognese"]
+        },
+        {
+          "sku": "BEEF_RUMP_STEAK_1KG",
+          "name": "Rump Steak (1kg)",
+          "unit": "kg",
+          "price": 17.99,
+          "in_stock": true,
+          "tags": ["beef", "steak", "grill", "bbq"]
+        },
+        {
+          "sku": "BEEF_BRISKET_1KG",
+          "name": "Brisket (1kg)",
+          "unit": "kg",
+          "price": 10.99,
+          "in_stock": true,
+          "tags": ["beef", "brisket", "slow-cook", "smoke", "bbq"]
+        },
+        {
+          "sku": "BEEF_STEWING_1KG",
+          "name": "Beef Stewing Pieces (1kg)",
+          "unit": "kg",
+          "price": 9.49,
+          "in_stock": true,
+          "tags": ["beef", "stew", "curry"]
+        }
+      ]
+    },
+    {
+      "id": "BBQ_READY",
+      "name": "BBQ & Ready-to-Cook",
+      "items": [
+        {
+          "sku": "CHICK_WINGS_MARINATED_1KG",
+          "name": "Marinated Chicken Wings (BBQ, 1kg)",
+          "unit": "kg",
+          "price": 6.79,
+          "in_stock": true,
+          "tags": ["bbq", "wings", "marinated", "party"]
+        },
+        {
+          "sku": "CHICK_DRUM_MARINATED_1KG",
+          "name": "Marinated Drumsticks (Peri-Peri, 1kg)",
+          "unit": "kg",
+          "price": 6.49,
+          "in_stock": true,
+          "tags": ["bbq", "drumstick", "marinated", "spicy"]
+        },
+        {
+          "sku": "LAMB_KEBAB_SKEWERS_6PK",
+          "name": "Lamb Kofta Skewers (6 pcs)",
+          "unit": "pack",
+          "price": 7.99,
+          "in_stock": true,
+          "tags": ["lamb", "kofta", "skewer", "bbq"]
+        },
+        {
+          "sku": "BEEF_BURGER_PATTIES_4PK",
+          "name": "Beef Burger Patties (4 pcs)",
+          "unit": "pack",
+          "price": 5.99,
+          "in_stock": true,
+          "tags": ["beef", "burger", "bbq", "grill"]
+        }
+      ]
+    },
+    {
+      "id": "GROCERIES",
+      "name": "Groceries & Essentials",
+      "items": [
+        {
+          "sku": "BBQ_SAUCE_500ML",
+          "name": "BBQ Sauce (500ml)",
+          "unit": "bottle",
+          "price": 2.49,
+          "in_stock": true,
+          "tags": ["sauce", "bbq", "condiment"]
+        },
+        {
+          "sku": "PERI_PERI_SAUCE_350ML",
+          "name": "Peri-Peri Sauce (350ml)",
+          "unit": "bottle",
+          "price": 2.99,
+          "in_stock": true,
+          "tags": ["sauce", "peri-peri", "spicy"]
+        },
+        {
+          "sku": "CHARCOAL_5KG",
+          "name": "Charcoal Briquettes (5kg)",
+          "unit": "bag",
+          "price": 6.99,
+          "in_stock": true,
+          "tags": ["charcoal", "bbq", "fuel"]
+        },
+        {
+          "sku": "SKEWERS_METAL_6PK",
+          "name": "Metal Skewers (6 pcs)",
+          "unit": "pack",
+          "price": 3.49,
+          "in_stock": true,
+          "tags": ["skewer", "accessory", "bbq"]
+        }
+      ]
+    }
+  ]
+}

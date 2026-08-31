@@ -44,7 +44,7 @@ class AIV6Hybrid(ModeStrategy):
     V6 Hybrid — light AI polish, no hallucinations, fully grounded.
     """
 
-    def __init__(self, router: Any, rewriter: Any, sales: Any, **deps: Any):
+    def __init__(self, router: Any = None, rewriter: Any = None, sales: Any = None, **deps: Any):
         # store services (even if V6 doesn’t use every one yet)
         self.router = router
         self.rewriter = rewriter

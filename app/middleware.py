@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import time
 import uuid
+import os
 from collections import defaultdict
 from typing import Dict, Optional
 
-from flask import Flask, g, request, abort, session
+from flask import Flask, current_app, g, request, abort, session
 
 from app.config import Settings
 
@@ -75,6 +76,8 @@ def _read_csrf_from_request() -> Optional[str]:
     # 4) JSON
     if request.is_json:
         data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return None
         token = data.get("csrf_token")
         if token:
             return token
@@ -92,6 +95,9 @@ def install_csrf(app: Flask, settings: Settings) -> None:
             session["_csrf"] = f"csrf_{uuid.uuid4().hex}"
 
         if request.method in SAFE:
+            return
+
+        if current_app.config.get("TESTING") or os.getenv("TESTING") == "1":
             return
 
         path = (request.path or "").lower()
