@@ -4,7 +4,13 @@
   "type": "object",
   "required": ["version", "categories"],
   "properties": {
-    "version": { "type": "integer", "minimum": 1 },
+    "version": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
     "categories": {
       "type": "array",
       "minItems": 1,

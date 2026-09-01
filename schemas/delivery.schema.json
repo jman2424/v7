@@ -2,7 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Delivery Schema",
   "type": "object",
-  "required": ["areas"],
+  "anyOf": [
+    { "required": ["areas"] },
+    { "required": ["zones"] }
+  ],
   "properties": {
     "areas": {
       "type": "array",
@@ -19,6 +22,23 @@
         "additionalProperties": false
       }
     },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["area"],
+        "properties": {
+          "area": { "type": "string", "minLength": 1 },
+          "code": { "type": "string", "minLength": 1 },
+          "fee": { "type": "number", "minimum": 0 },
+          "min_order": { "type": "number", "minimum": 0 },
+          "eta_min": { "type": "integer", "minimum": 0 },
+          "eta_hours": { "type": "string", "minLength": 1 },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
     "click_and_collect": { "type": "boolean", "default": true },
     "notes": { "type": "string" },
     "exceptions": {
@@ -29,6 +49,7 @@
         "properties": {
           "postcode": { "type": "string" },
           "date": { "type": "string", "format": "date" },
+          "note": { "type": "string" },
           "fee": { "type": "number", "minimum": 0 },
           "min_order": { "type": "number", "minimum": 0 },
           "eta_min": { "type": "integer", "minimum": 0 }

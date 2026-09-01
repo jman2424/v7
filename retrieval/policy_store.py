@@ -234,6 +234,7 @@ class PolicyStore:
                         "fee": z.get("fee"),
                         "min_order": z.get("min_order", z.get("min")),
                         "eta_min": z.get("eta_min", z.get("eta")),
+                        "eta_hours": z.get("eta_hours"),
                         "source": "zone",
                         "zone": z.get("code") or None,
                         "area": area,
@@ -260,6 +261,7 @@ class PolicyStore:
         fee = rule.get("fee")
         min_order = rule.get("min_order")
         eta_min = rule.get("eta_min")
+        eta_hours = rule.get("eta_hours")
 
         if isinstance(fee, (int, float)) or (isinstance(fee, str) and fee.strip().replace(".", "", 1).isdigit()):
             parts.append(f"£{float(fee):.2f} fee")
@@ -267,6 +269,8 @@ class PolicyStore:
             parts.append(f"min £{float(min_order):.2f}")
         if isinstance(eta_min, (int, float)) or (isinstance(eta_min, str) and str(eta_min).strip().isdigit()):
             parts.append(f"~{int(float(eta_min))} mins")
+        elif isinstance(eta_hours, str) and eta_hours.strip():
+            parts.append(eta_hours.strip())
 
         return ", ".join(parts) if parts else None
 

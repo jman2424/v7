@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List
 from urllib.parse import quote
 
 from flask import Blueprint, abort, jsonify, request, session
+from jsonschema.exceptions import ValidationError
 
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
 from routes.tenancy import require_admin_role, require_platform_operator, resolve_admin_tenant
@@ -148,10 +149,16 @@ def api_catalog_get():
 
 @bp.put("/catalog")
 def api_catalog_put():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "catalog_must_be_object"}), 400
+
     tenant = _tenant()
     before = _storage().read_json(tenant, "catalog.json")
-    snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
+    try:
+        snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_catalog", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
     _audit("catalog.update", f"{tenant}/catalog.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
@@ -164,15 +171,40 @@ def api_faq_get():
 
 @bp.put("/faq")
 def api_faq_put():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
     if not isinstance(data, list):
         return jsonify({"error": "faq_must_be_array"}), 400
 
     tenant = _tenant()
     before = _storage().read_json(tenant, "faq.json")
-    snap = _storage().write_json(tenant, "faq.json", data, schema="faq.schema.json")
+    try:
+        snap = _storage().write_json(tenant, "faq.json", data, schema="faq.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_faq", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
     _audit("faq.update", f"{tenant}/faq.json", before={"items": before}, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
+@bp.get("/delivery")
+def api_delivery_get():
+    return jsonify(_storage().read_json(_tenant(), "delivery.json"))
+
+
+@bp.put("/delivery")
+def api_delivery_put():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "delivery_must_be_object"}), 400
+
+    tenant = _tenant()
+    before = _storage().read_json(tenant, "delivery.json")
+    try:
+        snap = _storage().write_json(tenant, "delivery.json", data, schema="delivery.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_delivery", "detail": exc.message}), 400
+    _invalidate_tenant(tenant)
+    _audit("delivery.update", f"{tenant}/delivery.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 

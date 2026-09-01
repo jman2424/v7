@@ -66,3 +66,8 @@ Tenant owners can be configured with `BUSINESS_USERS_JSON`. Each entry has an
 email, tenant key, bcrypt `password_hash`, optional TOTP secret, and a role such
 as `business_owner`. The value is server-only configuration; never put it in a
 client bundle or commit a real password/hash.
+
+The console currently gives each owner structured controls for their website
+widget, product catalog, FAQs, delivery areas, fees, minimum orders, collection
+availability, and service exceptions. Changes are tenant-scoped, validated,
+audited, snapshotted, and applied to new conversations immediately.

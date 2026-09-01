@@ -17,14 +17,32 @@ The new tenant is intentionally not launch-ready: its starter catalog is marked
 out of stock and its widget has no allowed website origins. Complete the setup
 before sharing the embed code.
 
-2️⃣ Edit Core Files
-File	Description
-catalog.json	Add your full product listings (categories, SKUs, prices).
-delivery.json	Define delivery zones, fees, and minimum order values.
-branches.json	List all branch locations with coordinates and hours.
-store_info.json	Set the business name, about text, certifications, and contact.
-branding.json	Add logo URLs, theme colors, and UI assets for dashboards/widgets.
-3️⃣ Link Google Sheets (Optional)
+## Configure the sales agent
+
+The normal setup path is the SvelteKit owner console in `frontend/`. A business
+owner can sign in to manage their own tenant's website widget, product catalog,
+FAQs, delivery coverage, fees, minimum orders, collection setting, and delivery
+exceptions. The console saves atomically, validates the tenant data, records an
+audit event, and reloads the tenant runtime so new conversations use the updated
+knowledge.
+
+Platform operators can select a tenant in the console; business owners are
+restricted to the tenant bound to their account. The corresponding protected
+endpoints are:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET/PUT /admin/api/widget` | Widget branding and approved website origins |
+| `GET/PUT /admin/api/catalog` | Products, categories, prices, tags, and stock status |
+| `GET/PUT /admin/api/faq` | Sales FAQs and topic tags |
+| `GET/PUT /admin/api/delivery` | Delivery zones or postcode prefixes, fees, and exceptions |
+
+`catalog.json`, `faq.json`, and `delivery.json` remain useful for an audited
+bulk import or controlled deployment change. The schemas accept both the
+existing postcode-prefix delivery format and the zone format used by the owner
+console.
+
+## Link Google Sheets (optional)
 
 If using analytics or data sync:
 
@@ -34,7 +52,7 @@ Add the sheet ID in .env as SHEETS_ID.
 
 Enable sync with SHEETS_SYNC=true.
 
-4️⃣ Validate Setup
+## Validate setup
 
 Run validation to catch schema or SKU issues:
 
@@ -42,7 +60,7 @@ python scripts/validate_catalog.py
 
 This ensures your JSON files follow all required formats and contain valid data.
 
-5. Deploy Tenant
+## Deploy tenant
 
 Commit and push the new tenant folder:
 
@@ -52,7 +70,7 @@ git push
 
 Render or your deployment environment will automatically include the new tenant data.
 
-6. Test Tenant
+## Test tenant
 
 After deployment, test your bot via /chat_ui or WhatsApp:
 
@@ -62,7 +80,7 @@ Check delivery fees match postcode rules.
 
 Verify store info responses.
 
-7. Backups and Snapshots
+## Backups and snapshots
 
 Nightly snapshots run automatically via scripts/snapshot_backup.py.
 You can also trigger manual backups:

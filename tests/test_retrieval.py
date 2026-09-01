@@ -94,6 +94,23 @@ def test_policy_delivery_rules(storage):
     assert not miss
 
 
+def test_policy_delivery_summary_includes_zone_eta_text():
+    ps = make_policy_store(
+        {
+            "zones": [
+                {
+                    "area": "E1-E4",
+                    "fee": 3.5,
+                    "min_order": 25,
+                    "eta_hours": "Same-day before 5pm",
+                }
+            ]
+        }
+    )
+
+    assert ps.delivery_summary("E2 8AA") == "£3.50 fee, min £25.00, Same-day before 5pm"
+
+
 def test_geo_nearest_branch(storage):
     branches = storage.load_json("EXAMPLE/branches.json")
     gs = make_geo_store(branches)

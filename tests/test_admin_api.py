@@ -35,6 +35,15 @@ def test_get_catalog_ok_as_admin(client):
     assert isinstance(cats, list) and len(cats) > 0
 
 
+def test_put_catalog_accepts_existing_version_and_currency_metadata(client):
+    as_admin(client)
+    catalog = client.get("/admin/api/catalog").get_json()
+    response = client.put("/admin/api/catalog", json=catalog)
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
+
+
 def test_put_faq_updates_and_audits(client, monkeypatch):
     # stub audit to observe calls
     calls = []
@@ -63,6 +72,30 @@ def test_put_faq_updates_and_audits(client, monkeypatch):
     assert isinstance(saved, list) and len(saved) >= 2
     # at least one audit record should exist (best-effort)
     assert len(calls) >= 0  # not hard-failing if audit is no-op in implementation
+
+
+def test_delivery_api_accepts_zone_rules_and_rejects_bad_shapes(client):
+    as_admin(client)
+    delivery = {
+        "zones": [
+            {
+                "area": "E1-E4",
+                "fee": 3.5,
+                "min_order": 25,
+                "eta_hours": "Same-day",
+            }
+        ],
+        "click_and_collect": True,
+        "notes": "Free delivery over £50.",
+        "exceptions": [{"date": "2026-12-25", "note": "Closed"}],
+    }
+    saved = client.put("/admin/api/delivery", json=delivery)
+    invalid = client.put("/admin/api/delivery", json={"notes": "Missing delivery rules"})
+
+    assert saved.status_code == 200
+    assert client.get("/admin/api/delivery").get_json()["zones"] == delivery["zones"]
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "invalid_delivery"
 
 
 def test_mode_switch_and_reflects(client):
