@@ -1,16 +1,21 @@
 Tenant Onboarding Guide
-Overview
 
-This document explains how to create and activate a new tenant within the AI Sales Assistant platform.
-Each tenant is fully modular and isolated, making it easy to onboard new businesses without changing any shared code.
+Platform operators can create a clean tenant through `POST /admin/api/tenants`.
+The endpoint creates a new folder with neutral starter data; it never copies another
+company's catalog, delivery rules, branding, or allowed website origins.
 
-1️⃣ Create Tenant Folder
+Example request:
 
-Duplicate the example tenant directory:
+```json
+{
+  "key": "NORTHSTAR",
+  "name": "Northstar Homewares"
+}
+```
 
-cp -r business/EXAMPLE business/NEW_TENANT
-
-This will create a new tenant folder with all required JSON files pre-filled.
+The new tenant is intentionally not launch-ready: its starter catalog is marked
+out of stock and its widget has no allowed website origins. Complete the setup
+before sharing the embed code.
 
 2️⃣ Edit Core Files
 File	Description
@@ -37,7 +42,7 @@ python scripts/validate_catalog.py
 
 This ensures your JSON files follow all required formats and contain valid data.
 
-5️⃣ Deploy Tenant
+5. Deploy Tenant
 
 Commit and push the new tenant folder:
 
@@ -47,7 +52,7 @@ git push
 
 Render or your deployment environment will automatically include the new tenant data.
 
-6️⃣ Test Tenant
+6. Test Tenant
 
 After deployment, test your bot via /chat_ui or WhatsApp:
 
@@ -57,7 +62,7 @@ Check delivery fees match postcode rules.
 
 Verify store info responses.
 
-7️⃣ Backups and Snapshots
+7. Backups and Snapshots
 
 Nightly snapshots run automatically via scripts/snapshot_backup.py.
 You can also trigger manual backups:

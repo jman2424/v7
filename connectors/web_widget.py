@@ -62,6 +62,42 @@ def _canon_origin(u: str) -> str:
         return ""
 
 
+def canonical_origin(origin: str) -> str:
+    """Return an exact HTTP(S) browser origin or an empty string."""
+    value = _canon_origin(origin)
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    return value
+
+
+def allowed_origins_from_branding(branding: Dict[str, Any] | None) -> List[str]:
+    """Read a tenant's explicit website allowlist from branding.json."""
+    if not isinstance(branding, dict):
+        return []
+    widget = branding.get("widget") or {}
+    if not isinstance(widget, dict):
+        return []
+    configured = widget.get("allowed_origins") or []
+    if not isinstance(configured, list):
+        return []
+
+    origins: List[str] = []
+    for raw in configured:
+        origin = canonical_origin(str(raw or ""))
+        if origin and origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+def is_allowed_origin(origin: str, allowed_origins: List[str]) -> bool:
+    """Use exact origin comparison; prefix matching permits lookalike domains."""
+    normalized = canonical_origin(origin)
+    return bool(normalized and normalized in set(allowed_origins or []))
+
+
 def _safe_str(v: Any, max_len: int = 300) -> str:
     """
     Safe string for logs to avoid huge payloads + newlines.
@@ -203,8 +239,12 @@ class WidgetBridge:
             logger.warning("validate_origin: missing origin %s", _log_ctx(req_id))
             return False
 
-        allowed = self.allowed_origins or DEFAULT_ALLOWED_ORIGINS
-        o = _canon_origin(origin)
+        allowed = [
+            normalized
+            for raw in (self.allowed_origins or DEFAULT_ALLOWED_ORIGINS)
+            if (normalized := canonical_origin(raw))
+        ]
+        o = canonical_origin(origin)
 
         if not o:
             logger.warning(
@@ -214,7 +254,7 @@ class WidgetBridge:
             )
             return False
 
-        ok = any(o == a or o.startswith(a) for a in allowed)
+        ok = is_allowed_origin(o, allowed)
 
         logger.debug(
             "validate_origin: origin=%s ok=%s allowed=%s %s",

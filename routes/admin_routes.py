@@ -1,8 +1,10 @@
 # routes/admin_routes.py
 from __future__ import annotations
 
-from flask import Blueprint, render_template, request, redirect, url_for, session
+from flask import Blueprint, abort, render_template, request, redirect, url_for, session
 from routes import get_container
+from routes.tenancy import resolve_admin_tenant
+from retrieval.storage import Storage
 
 bp = Blueprint("admin_ui", __name__, url_prefix="/admin")
 
@@ -25,9 +27,18 @@ def _csrf_token() -> str:
 def _tenant() -> str:
     t = (request.args.get("tenant") or "").strip()
     if t:
-        return t
+        if session.get("user"):
+            c = get_container()
+            return resolve_admin_tenant(t, str(getattr(c.settings, "BUSINESS_KEY", "") or "default"))
+        try:
+            return Storage.validate_tenant_key(t)
+        except ValueError:
+            abort(400, description="invalid_tenant")
     c = get_container()
-    return (str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip() or "default")
+    default_tenant = str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip() or "default"
+    if session.get("user"):
+        return resolve_admin_tenant("", default_tenant)
+    return default_tenant
 
 
 def _redirect(endpoint: str, **kwargs):
@@ -52,6 +63,21 @@ def dashboard():
         branding=None,
         csrf_token=_csrf_token(),
         version="7",
+    )
+
+
+@bp.get("/widget")
+def widget_settings():
+    if not _is_logged_in():
+        return _redirect("admin_ui.login_page")
+
+    user = session.get("user") or {}
+    role = (user.get("roles") or [user.get("role") or "business_owner"])[0]
+    return render_template(
+        "widget_settings.html",
+        tenant=_tenant(),
+        role=role,
+        csrf_token=_csrf_token(),
     )
 
 
@@ -91,7 +117,7 @@ def login_submit():
     c = get_container()
 
     # ✅ IMPORTANT: your authenticate_user signature is (c, *, email=, password=)
-    user = authenticate_user(c, email=identifier, password=password)
+    user = authenticate_user(c, email=identifier, password=password, tenant=tenant)
     if not user:
         return (
             render_template(
@@ -116,7 +142,7 @@ def login_submit():
         )
 
     # ✅ store tenant in session so admin_api defaults correctly
-    user["tenant"] = tenant
+    user["tenant"] = str(user.get("tenant") or tenant)
     session["user"] = user
     session["admin_session_id"] = user.get("id") or "admin"
 

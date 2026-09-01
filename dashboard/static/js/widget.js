@@ -36,6 +36,9 @@
   }
 
   function genId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
@@ -47,8 +50,10 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
+          tenant: TENANT,
           session_id: sessionId,
-          metadata: { channel: CHANNEL, widget: "web" }
+          client_message_id: genId(),
+          metadata: { channel: CHANNEL, widget: "web", embedded: Boolean(W.embedded) }
         })
       });
       if (!res.ok) {

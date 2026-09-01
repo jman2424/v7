@@ -20,6 +20,11 @@ def get_container():
     return c
 
 
+def get_tenant_container(tenant: str):
+    """Return the container whose retrieval stores are bound to `tenant`."""
+    return get_container().for_tenant(tenant)
+
+
 def _has_any_role(user_roles: Iterable[str], required: Set[str]) -> bool:
     user_set = {str(r) for r in (user_roles or [])}
     return bool(user_set.intersection(required))

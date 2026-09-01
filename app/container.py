@@ -9,8 +9,8 @@ Provides:
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional
 
 from app.config import Settings
 
@@ -48,6 +48,7 @@ class Container:
     # Filled during __post_init__
     mode: Optional[ModeStrategy] = None
     handler: Optional[MessageHandler] = None
+    _tenant_containers: Dict[str, "Container"] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self):
         # ---------- Retrieval layer ----------
@@ -113,3 +114,29 @@ class Container:
         )
 
         self.handler = MessageHandler(deps)
+
+    def for_tenant(self, tenant: str) -> "Container":
+        """Return an isolated runtime whose stores are bound to one tenant."""
+        tenant_key = Storage.validate_tenant_key(tenant)
+        if tenant_key == self.settings.BUSINESS_KEY:
+            return self
+
+        if not self.storage.tenant_dir(tenant_key).is_dir():
+            raise ValueError("unknown_tenant")
+
+        cached = self._tenant_containers.get(tenant_key)
+        if cached is not None:
+            return cached
+
+        tenant_container = Container(replace(self.settings, BUSINESS_KEY=tenant_key))
+        self._tenant_containers[tenant_key] = tenant_container
+        return tenant_container
+
+    def invalidate_tenant(self, tenant: str) -> None:
+        """Discard warmed retrieval state after an owner changes tenant data."""
+        tenant_key = Storage.validate_tenant_key(tenant)
+        if tenant_key == self.settings.BUSINESS_KEY:
+            self._tenant_containers.clear()
+            self.__post_init__()
+            return
+        self._tenant_containers.pop(tenant_key, None)

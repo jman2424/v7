@@ -7,8 +7,13 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css') }}" />
   <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg') }}" />
   <meta name="theme-color" content="{{ branding.theme.primary_color if branding and branding.theme and branding.theme.primary_color else '#127A32' }}" />
+  <style>
+    :root {
+      --waccent: {{ branding.theme.primary_color if branding and branding.theme and branding.theme.primary_color else '#127A32' }};
+    }
+  </style>
 </head>
-<body data-tenant="{{ tenant }}">
+<body class="{% if embedded %}widget-page--embedded{% endif %}" data-tenant="{{ tenant }}">
   <div id="chat-widget" class="widget">
     <header class="widget__header">
       <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg') }}" alt="Avatar" />
@@ -33,9 +38,10 @@
   <script>
     window.__WIDGET__ = {
       tenant: document.body.dataset.tenant,
-      endpoint: "{{ url_for('webchat_routes.chat_api') }}",
+      endpoint: "{{ url_for('webchat.chat_api') }}",
       channel: "web",
-      sessionId: "{{ session_id }}"
+      sessionId: "{{ session_id }}",
+      embedded: {{ 'true' if embedded else 'false' }}
     };
   </script>
   <script src="{{ url_for('static', filename='js/widget.js') }}"></script>

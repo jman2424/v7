@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
-import os
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, jsonify, make_response, render_template, request
+from flask import Blueprint, Response, jsonify, make_response, render_template, request
 
-from routes import get_container
-from connectors.web_widget import parse_inbound, send_reply
+from connectors.web_widget import (
+    allowed_origins_from_branding,
+    canonical_origin,
+    is_allowed_origin,
+    parse_inbound,
+    send_reply,
+)
+from routes import get_container, get_tenant_container
 
 # DB-backed analytics (same DB used by dashboard)
 from service.analytics_db import log_message, log_error, upsert_lead, set_lead_session
@@ -17,20 +23,92 @@ from service.analytics_db import log_message, log_error, upsert_lead, set_lead_s
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
-# If you want multiple origins later, upgrade to a whitelist.
-ALLOWED_ORIGIN = os.environ.get("WEBCHAT_ALLOWED_ORIGIN", "https://web-tester-jnwd.onrender.com")
-
-
 # ---------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------
-def _cors(resp):
-    resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
+def _tenant_branding(container, tenant: str) -> Dict[str, Any]:
+    try:
+        branding = container.storage.read_json(tenant, "branding.json")
+        return branding if isinstance(branding, dict) else {}
+    except Exception:
+        logger.exception("WEB: branding read failed tenant=%s", tenant)
+        return {}
+
+
+def _allowed_origins(container, tenant: str) -> list[str]:
+    return allowed_origins_from_branding(_tenant_branding(container, tenant))
+
+
+def _request_origin_is_allowed(container, tenant: str) -> bool:
+    origin = request.headers.get("Origin") or ""
+    if not origin:
+        return True
+
+    normalized = canonical_origin(origin)
+    own_origin = canonical_origin(request.host_url)
+    return normalized == own_origin or is_allowed_origin(normalized, _allowed_origins(container, tenant))
+
+
+def _cors(resp: Response, *, container, tenant: str) -> Response:
+    origin = request.headers.get("Origin") or ""
+    if not origin:
+        return resp
+
+    normalized = canonical_origin(origin)
+    own_origin = canonical_origin(request.host_url)
+    if normalized == own_origin or is_allowed_origin(normalized, _allowed_origins(container, tenant)):
+        resp.headers["Access-Control-Allow-Origin"] = normalized
     resp.headers["Vary"] = "Origin"
     resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
     return resp
+
+
+def _tenant_from_request(default_tenant: str) -> str:
+    return (request.args.get("tenant") or default_tenant).strip() or default_tenant
+
+
+def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
+    widget = branding.get("widget") if isinstance(branding, dict) else {}
+    widget = widget if isinstance(widget, dict) else {}
+    title = str(widget.get("chat_title") or "Sales assistant")
+    primary = str((branding.get("theme") or {}).get("primary_color") or "#0f9d58")
+    config = json.dumps({"tenant": tenant, "title": title, "primary": primary})
+
+    return f"""(function () {{
+  var config = {config};
+  var current = document.currentScript;
+  var host = new URL(current.src, window.location.href).origin;
+  var mount = current.dataset.target ? document.querySelector(current.dataset.target) : null;
+  var root = document.createElement('div');
+  var launcher = document.createElement('button');
+  var frame = document.createElement('iframe');
+  var frameId = 'v7-widget-' + Math.random().toString(36).slice(2);
+
+  root.id = frameId + '-root';
+  root.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;font-family:system-ui,-apple-system,Segoe UI,sans-serif;';
+  launcher.type = 'button';
+  launcher.setAttribute('aria-expanded', 'false');
+  launcher.setAttribute('aria-controls', frameId);
+  launcher.textContent = config.title;
+  launcher.style.cssText = 'border:0;border-radius:8px;background:' + config.primary + ';color:#fff;min-height:44px;padding:0 16px;font:600 14px system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.24);cursor:pointer;';
+  frame.id = frameId;
+  frame.title = config.title;
+  frame.loading = 'lazy';
+  frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
+  frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
+  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:8px;box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
+  launcher.addEventListener('click', function () {{
+    var open = frame.style.display !== 'none';
+    frame.style.display = open ? 'none' : 'block';
+    launcher.setAttribute('aria-expanded', String(!open));
+  }});
+  root.appendChild(frame);
+  root.appendChild(launcher);
+  (mount || document.body).appendChild(root);
+}})();
+"""
 
 
 # ---------------------------------------------------------------------
@@ -184,35 +262,83 @@ def _safe_log_error(**kwargs) -> None:
 # ---------------------------------------------------------------------
 @bp.get("/chat_ui")
 def chat_ui():
-    c = get_container()
+    root_container = get_container()
     session_id = request.args.get("session") or ""
-    tenant = request.args.get("tenant") or c.settings.BUSINESS_KEY
-    return render_template("chatbot.html", session_id=session_id, tenant=tenant)
+    tenant = _tenant_from_request(root_container.settings.BUSINESS_KEY)
+    try:
+        c = get_tenant_container(tenant)
+    except ValueError:
+        return jsonify({"error": "unknown_tenant"}), 404
+
+    response = make_response(
+        render_template(
+            "chatbot.html",
+            session_id=session_id,
+            tenant=tenant,
+            branding=_tenant_branding(c, tenant),
+            embedded=request.args.get("embed") == "1",
+        )
+    )
+    allowed = _allowed_origins(c, tenant)
+    ancestors = "'self'" if not allowed else "'self' " + " ".join(allowed)
+    response.headers["Content-Security-Policy"] = f"frame-ancestors {ancestors}"
+    return response
+
+
+@bp.get("/widget.js")
+def widget_embed():
+    root_container = get_container()
+    tenant = _tenant_from_request(root_container.settings.BUSINESS_KEY)
+    try:
+        c = get_tenant_container(tenant)
+    except ValueError:
+        return jsonify({"error": "unknown_tenant"}), 404
+
+    response = Response(_embed_javascript(tenant, _tenant_branding(c, tenant)), mimetype="application/javascript")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @bp.route("/chat_api", methods=["OPTIONS"])
 def chat_api_options():
-    return _cors(make_response("", 200))
+    root_container = get_container()
+    tenant = _tenant_from_request(root_container.settings.BUSINESS_KEY)
+    try:
+        c = get_tenant_container(tenant)
+    except ValueError:
+        return jsonify({"error": "unknown_tenant"}), 404
+    if not _request_origin_is_allowed(c, tenant):
+        return jsonify({"error": "origin_forbidden"}), 403
+    return _cors(make_response("", 204), container=c, tenant=tenant)
 
 
 @bp.route("/chat_api", methods=["POST"])
 def chat_api():
-    c = get_container()
+    root_container = get_container()
 
     try:
         data = request.get_json(force=True) or {}
     except Exception:
         logger.exception("WEB: Invalid JSON payload")
-        return _cors(jsonify({"error": "invalid_json"})), 400
+        return jsonify({"error": "invalid_json"}), 400
+
+    tenant = str(data.get("tenant") or request.args.get("tenant") or root_container.settings.BUSINESS_KEY).strip()
+    try:
+        c = get_tenant_container(tenant)
+    except ValueError:
+        return jsonify({"error": "unknown_tenant"}), 404
+    if not _request_origin_is_allowed(c, tenant):
+        return jsonify({"error": "origin_forbidden"}), 403
 
     events = parse_inbound(
         data,
-        default_tenant=c.settings.BUSINESS_KEY,
+        default_tenant=tenant,
         default_channel="web",
         remote_addr=request.remote_addr,
     )
     if not events:
-        return _cors(jsonify({"error": "missing_message"})), 400
+        return _cors(jsonify({"error": "missing_message"}), container=c, tenant=tenant), 400
 
     ev = events[0]
     text = (ev.get("text") or "").strip()
@@ -335,4 +461,8 @@ def chat_api():
         )
 
     resp_payload = send_reply(ev, reply, raw=result)
-    return _cors(jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"]})), 200
+    return _cors(
+        jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"], "session_id": resp_payload["session_id"]}),
+        container=c,
+        tenant=tenant,
+    ), 200

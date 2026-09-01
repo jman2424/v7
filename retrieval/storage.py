@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -40,6 +41,8 @@ REPO_ROOT = Path(os.getcwd()).resolve()  # assume app runs from repo root
 BUSINESS_ROOT = REPO_ROOT / "business"
 VERSIONS_ROOT = BUSINESS_ROOT / "versions"
 SCHEMAS_ROOT = REPO_ROOT / "schemas"
+
+_TENANT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 # Known tenant files and their schemas (if any)
 KNOWN_FILES: Dict[str, Optional[str]] = {
@@ -113,8 +116,16 @@ class Storage:
 
     # -------- paths --------
 
+    @staticmethod
+    def validate_tenant_key(tenant: str) -> str:
+        """Return a safe tenant key or reject path-like identifiers."""
+        value = str(tenant or "").strip()
+        if not _TENANT_KEY_RE.fullmatch(value):
+            raise ValueError("invalid_tenant")
+        return value
+
     def tenant_dir(self, tenant: Optional[str] = None) -> Path:
-        return self.business_root / (tenant or self.tenant_key)
+        return self.business_root / self.validate_tenant_key(tenant or self.tenant_key)
 
     def file_path(self, tenant: Optional[str], filename: str) -> Path:
         return self.tenant_dir(tenant) / filename

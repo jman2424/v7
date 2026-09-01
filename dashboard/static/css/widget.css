@@ -19,12 +19,16 @@ body{
   display:grid;place-items:center;padding:18px
 }
 
+body.widget-page--embedded{padding:0;display:block;background:#fff}
+
 /* WIDGET SHELL */
 .widget{
   width:min(780px, 96%); min-height:520px; background:linear-gradient(180deg, rgba(19,24,38,.7), rgba(19,24,38,.95));
   border:1px solid var(--wborder); border-radius:var(--wradius); box-shadow:var(--wshadow);
   display:grid; grid-template-rows:auto 1fr auto; overflow:hidden
 }
+
+.widget-page--embedded .widget{width:100%;min-height:100vh;height:100vh;border:0;border-radius:0;box-shadow:none}
 
 .widget__header{
   display:flex; gap:12px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--wborder);

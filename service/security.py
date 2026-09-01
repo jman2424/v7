@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import hmac
 import base64
 import hashlib
@@ -147,8 +148,20 @@ def verify_webhook_signature(*args: Any) -> bool:
 # -----------------------------
 # 2) Admin auth (env-based)
 # -----------------------------
+def _business_users() -> list[Dict[str, Any]]:
+    """Load tenant-bound users from a server-only JSON environment variable."""
+    raw = (os.getenv("BUSINESS_USERS_JSON") or "").strip()
+    if not raw:
+        return []
+    try:
+        users = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [user for user in users if isinstance(user, dict)] if isinstance(users, list) else []
+
+
 def authenticate_user(
-    c: Any = None, *, email: str = "", password: str = ""
+    c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
     """
     Dashboard login.
@@ -162,29 +175,47 @@ def authenticate_user(
     """
     admin_user = (os.getenv("ADMIN_USERNAME") or "").strip().lower()
     admin_pass = os.getenv("ADMIN_PASSWORD") or ""
-
-    if not admin_user or not admin_pass:
-        # Fail closed if env vars missing
-        return None
-
     email_norm = (email or "").strip().lower()
     password_norm = password or ""
 
-    if not (
+    if admin_user and admin_pass and (
         hmac.compare_digest(email_norm, admin_user)
         and hmac.compare_digest(password_norm, admin_pass)
     ):
-        return None
+        return {
+            "id": "admin",
+            "email": admin_user,
+            "roles": ["platform_admin"],
+            "totp_secret": (os.getenv("ADMIN_TOTP_SECRET") or "").strip() or None,
+        }
 
-    # Optional 2FA: if set, login route will require a totp code
-    totp_secret = (os.getenv("ADMIN_TOTP_SECRET") or "").strip() or None
+    target_tenant = (tenant or "").strip()
+    for configured in _business_users():
+        configured_email = str(configured.get("email") or "").strip().lower()
+        configured_tenant = str(configured.get("tenant") or "").strip()
+        password_hash = str(configured.get("password_hash") or "")
+        roles = configured.get("roles") or ["business_owner"]
+        if not isinstance(roles, list):
+            continue
+        if not (
+            configured_email
+            and configured_tenant
+            and password_hash
+            and hmac.compare_digest(email_norm, configured_email)
+            and hmac.compare_digest(target_tenant, configured_tenant)
+            and verify_password(password_norm, password_hash)
+        ):
+            continue
 
-    return {
-        "id": "admin",
-        "email": admin_user,
-        "roles": ["admin"],
-        "totp_secret": totp_secret,
-    }
+        return {
+            "id": str(configured.get("id") or f"owner:{configured_tenant}:{configured_email}"),
+            "email": configured_email,
+            "roles": [str(role) for role in roles],
+            "tenant": configured_tenant,
+            "totp_secret": str(configured.get("totp_secret") or "").strip() or None,
+        }
+
+    return None
 
 
 # -----------------------------

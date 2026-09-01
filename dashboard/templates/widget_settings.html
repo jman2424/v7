@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="csrf-token" content="{{ csrf_token or '' }}" />
+  <title>{{ tenant }} - Widget setup</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9dee8;
+      --surface: #ffffff;
+      --canvas: #f5f7fb;
+      --brand: #0f9d58;
+      --danger: #b42318;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--ink); }
+    .topbar { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px clamp(18px, 4vw, 56px); background: var(--surface); border-bottom: 1px solid var(--line); }
+    .brand { font-size: 15px; font-weight: 750; }
+    .brand span { color: var(--muted); font-weight: 500; }
+    .back { color: var(--ink); font-size: 14px; text-decoration: none; }
+    .back:hover { color: var(--brand); }
+    main { width: min(1080px, calc(100% - 32px)); margin: 36px auto 56px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    .intro { margin: 8px 0 28px; color: var(--muted); line-height: 1.5; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 20px; align-items: start; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+    .panel-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 16px; }
+    .panel-head p { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
+    .panel-body { padding: 20px; }
+    .field { display: grid; gap: 7px; margin-bottom: 18px; }
+    label { font-size: 13px; font-weight: 700; }
+    input, textarea { width: 100%; border: 1px solid #b9c2d0; border-radius: 6px; background: #fff; color: var(--ink); font: inherit; padding: 10px 11px; }
+    input:focus, textarea:focus { outline: 3px solid rgba(15, 157, 88, .16); border-color: var(--brand); }
+    textarea { min-height: 100px; resize: vertical; line-height: 1.45; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .actions { display: flex; justify-content: flex-end; margin-top: 24px; }
+    button { min-height: 38px; border: 1px solid transparent; border-radius: 6px; padding: 0 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+    .primary { background: var(--brand); color: #fff; }
+    .primary:hover { background: #0b8349; }
+    .secondary { background: #fff; color: var(--ink); border-color: #b9c2d0; }
+    .secondary:hover { background: #f5f7fb; }
+    .code { width: 100%; min-height: 132px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: #101828; color: #e9f8ef; border: 0; border-radius: 6px; padding: 12px; }
+    .status { min-height: 20px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--brand); }
+    .domain-list { display: grid; gap: 7px; margin-top: 8px; }
+    .domain-list span { display: block; padding: 8px 10px; background: #f7faf8; border-left: 3px solid var(--brand); color: #344054; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } main { margin-top: 24px; } h1 { font-size: 24px; } }
+  </style>
+</head>
+<body data-tenant="{{ tenant }}">
+  <header class="topbar">
+    <div class="brand">V7 <span>/ {{ tenant }} widget</span></div>
+    <a class="back" href="{{ url_for('admin_ui.dashboard', tenant=tenant) }}">Back to dashboard</a>
+  </header>
+  <main>
+    <h1>Website widget</h1>
+    <p class="intro">Set the customer-facing details and the websites allowed to host this tenant's chat widget.</p>
+    <div class="layout">
+      <section class="panel" aria-labelledby="widget-config-heading">
+        <div class="panel-head"><h2 id="widget-config-heading">Widget settings</h2><p>Changes take effect for new widget loads.</p></div>
+        <div class="panel-body">
+          <form id="widget-form">
+            <div class="field"><label for="chat-title">Chat title</label><input id="chat-title" name="chat_title" maxlength="80" required /></div>
+            <div class="field"><label for="greeting">Greeting</label><textarea id="greeting" name="greeting" maxlength="240" required></textarea></div>
+            <div class="field"><label for="avatar">Avatar URL</label><input id="avatar" name="avatar" type="url" placeholder="https://..." /><span class="hint">Use an HTTPS image URL, or a relative path served by this app.</span></div>
+            <div class="field"><label for="allowed-origins">Allowed website origins</label><textarea id="allowed-origins" name="allowed_origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com" required></textarea><span class="hint">One exact origin per line. HTTPS is required except for localhost development.</span></div>
+            <div class="actions"><button class="primary" type="submit">Save widget settings</button></div>
+            <div id="form-status" class="status" role="status" aria-live="polite"></div>
+          </form>
+        </div>
+      </section>
+      <aside class="panel" aria-labelledby="embed-heading">
+        <div class="panel-head"><h2 id="embed-heading">Install snippet</h2><p>Add this once before the closing body tag on an allowed website.</p></div>
+        <div class="panel-body">
+          <textarea id="embed-code" class="code" readonly aria-label="Embed script"></textarea>
+          <div class="actions"><button class="secondary" id="copy-code" type="button">Copy script</button></div>
+          <div class="field" style="margin-top: 22px; margin-bottom: 0;"><label>Allowed websites</label><div id="domain-list" class="domain-list"></div></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+  <script>
+    (() => {
+      const tenant = document.body.dataset.tenant;
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const endpoint = `/admin/api/widget?tenant=${encodeURIComponent(tenant)}`;
+      const form = document.getElementById('widget-form');
+      const status = document.getElementById('form-status');
+      const origins = document.getElementById('allowed-origins');
+      const domainList = document.getElementById('domain-list');
+      const embedCode = document.getElementById('embed-code');
+
+      function showStatus(message, tone = '') { status.textContent = message; status.className = `status ${tone}`; }
+      function renderDomains(values) {
+        domainList.replaceChildren();
+        if (!values.length) { domainList.textContent = 'No websites configured yet.'; return; }
+        values.forEach((origin) => { const item = document.createElement('span'); item.textContent = origin; domainList.appendChild(item); });
+      }
+      function fill(data) {
+        const widget = data.widget || {};
+        document.getElementById('chat-title').value = widget.chat_title || '';
+        document.getElementById('greeting').value = widget.greeting || '';
+        document.getElementById('avatar').value = widget.avatar || '';
+        origins.value = (widget.allowed_origins || []).join('\n');
+        embedCode.value = data.embed?.snippet || '';
+        renderDomains(widget.allowed_origins || []);
+      }
+      async function load() {
+        const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error('Could not load widget settings.');
+        fill(await response.json());
+      }
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        showStatus('Saving...');
+        const payload = {
+          chat_title: document.getElementById('chat-title').value,
+          greeting: document.getElementById('greeting').value,
+          avatar: document.getElementById('avatar').value,
+          allowed_origins: origins.value.split('\n').map((value) => value.trim()).filter(Boolean)
+        };
+        const response = await fetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(payload) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { showStatus(data.error || 'Could not save widget settings.', 'error'); return; }
+        fill(data);
+        showStatus('Widget settings saved.', 'success');
+      });
+      document.getElementById('copy-code').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(embedCode.value); showStatus('Script copied.', 'success'); }
+        catch (_) { embedCode.select(); document.execCommand('copy'); showStatus('Script copied.', 'success'); }
+      });
+      load().catch((error) => showStatus(error.message, 'error'));
+    })();
+  </script>
+</body>
+</html>

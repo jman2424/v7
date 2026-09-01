@@ -46,3 +46,23 @@ The app can run with Gunicorn:
 ```bash
 gunicorn -c gunicorn.conf.py 'app:create_app()'
 ```
+
+## Website Widget
+
+Platform operators can create a blank tenant with `POST /admin/api/tenants`.
+Business owners configure their chat title, greeting, avatar, and approved
+website origins in `/admin/widget`. The page provides a tenant-specific script
+tag; the chat runs in an isolated iframe and each chat request resolves that
+tenant's own catalog, policies, FAQs, and analytics.
+
+## Owner Console
+
+The SvelteKit owner console lives in [frontend](frontend/README.md). During
+local development it runs on port `5173` and proxies `/api/*` to Flask on port
+`5055`. In production, keep both behind the same HTTPS origin so the admin
+session remains same-origin and no administrative CORS policy is needed.
+
+Tenant owners can be configured with `BUSINESS_USERS_JSON`. Each entry has an
+email, tenant key, bcrypt `password_hash`, optional TOTP secret, and a role such
+as `business_owner`. The value is server-only configuration; never put it in a
+client bundle or commit a real password/hash.

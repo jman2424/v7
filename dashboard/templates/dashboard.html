@@ -316,6 +316,7 @@
 
         <button id="refresh" class="btn" type="button">Refresh</button>
         <button id="export" class="btn" type="button">Export CSV</button>
+        <a class="logout" href="{{ url_for('admin_ui.widget_settings', tenant=tenant) }}">Widget setup</a>
         <a class="logout" href="{{ url_for('admin_ui.logout', tenant=tenant) }}">Logout</a>
       </div>
     </header>

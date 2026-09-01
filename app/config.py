@@ -52,10 +52,15 @@ def _to_bool(s: str | None, default: bool = False) -> bool:
 
 def load_settings(override: dict | None = None) -> Settings:
     o = override or {}
+    secret_key = o.get("SECRET_KEY", _get("SECRET_KEY", "change-me"))
+    environment = str(o.get("ENVIRONMENT", os.environ.get("ENVIRONMENT", "development"))).strip().lower()
+    if environment in {"production", "prod"} and secret_key in {"", "change-me", "change_me"}:
+        raise RuntimeError("SECRET_KEY must be set to a strong value in production")
+
     return Settings(
         MODE=o.get("MODE", _get("MODE", "V6")),
         BUSINESS_KEY=o.get("BUSINESS_KEY", _get("BUSINESS_KEY", "EXAMPLE")),
-        SECRET_KEY=o.get("SECRET_KEY", _get("SECRET_KEY", "change-me")),
+        SECRET_KEY=secret_key,
 
         WHATSAPP_VERIFY_TOKEN=o.get("WHATSAPP_VERIFY_TOKEN", _get("WHATSAPP_VERIFY_TOKEN", "dev")),
         WHATSAPP_APP_SECRET=o.get("WHATSAPP_APP_SECRET", _get("WHATSAPP_APP_SECRET", "dev")),

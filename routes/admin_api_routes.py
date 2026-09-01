@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Dict, List
+from urllib.parse import quote
 
 from flask import Blueprint, abort, jsonify, request, session
+
+from connectors.web_widget import allowed_origins_from_branding, canonical_origin
+from routes.tenancy import require_admin_role, require_platform_operator, resolve_admin_tenant
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
@@ -14,6 +18,7 @@ bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 def _require_admin_session() -> None:
     if not session.get("user"):
         abort(401, description="unauthorized")
+    require_admin_role()
 
 
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
@@ -61,22 +66,16 @@ get_whatsapp_store_share = _safe_import("get_whatsapp_store_share", _fb_list)
 
 
 def _tenant() -> str:
-    # IMPORTANT: do NOT force case here; analytics_db normalizes internally
-    requested = (request.args.get("tenant") or "").strip()
-    if requested:
-        return requested
-
-    user = session.get("user") or {}
-    if isinstance(user, dict) and user.get("tenant"):
-        return str(user["tenant"]).strip() or "default"
-
     try:
         from routes import get_container
 
         c = get_container()
-        return str(getattr(c.settings, "BUSINESS_KEY", "") or "default").strip() or "default"
+        return resolve_admin_tenant(
+            request.args.get("tenant") or "",
+            str(getattr(c.settings, "BUSINESS_KEY", "") or "default"),
+        )
     except Exception:
-        return "default"
+        raise
 
 
 def _int_arg(name: str, default: int) -> int:
@@ -91,6 +90,12 @@ def _storage():
 
     c = get_container()
     return c.storage
+
+
+def _invalidate_tenant(tenant: str) -> None:
+    from routes import get_container
+
+    get_container().invalidate_tenant(tenant)
 
 
 def _audit(action: str, target: str, before: Any = None, after: Any = None) -> None:
@@ -111,6 +116,31 @@ def _audit(action: str, target: str, before: Any = None, after: Any = None) -> N
         logger.exception("audit failed action=%s target=%s", action, target)
 
 
+@bp.get("/tenants")
+def api_tenants_get():
+    require_platform_operator()
+    from service.tenant_service import TenantService
+
+    return jsonify({"tenants": TenantService(_storage()).list_tenants()})
+
+
+@bp.post("/tenants")
+def api_tenants_post():
+    require_platform_operator()
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "tenant_payload_must_be_object"}), 400
+
+    from service.tenant_service import TenantService
+
+    try:
+        created = TenantService(_storage()).create_tenant(data.get("key") or "", data.get("name") or "")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    _audit("tenant.create", created["key"], after=created)
+    return jsonify({"ok": True, "tenant": created}), 201
+
+
 @bp.get("/catalog")
 def api_catalog_get():
     return jsonify(_storage().read_json(_tenant(), "catalog.json"))
@@ -122,6 +152,7 @@ def api_catalog_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "catalog.json")
     snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
+    _invalidate_tenant(tenant)
     _audit("catalog.update", f"{tenant}/catalog.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
@@ -140,8 +171,102 @@ def api_faq_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "faq.json")
     snap = _storage().write_json(tenant, "faq.json", data, schema="faq.schema.json")
+    _invalidate_tenant(tenant)
     _audit("faq.update", f"{tenant}/faq.json", before={"items": before}, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
+
+
+def _clean_widget_text(value: Any, field: str, maximum: int) -> str:
+    cleaned = str(value or "").strip()
+    if len(cleaned) > maximum:
+        abort(400, description=f"{field}_too_long")
+    return cleaned
+
+
+def _clean_widget_avatar(value: Any) -> str:
+    avatar = _clean_widget_text(value, "avatar", 500)
+    if not avatar:
+        return ""
+    if avatar.startswith("/"):
+        return avatar
+    if not avatar.startswith("https://"):
+        abort(400, description="avatar_must_be_https_or_relative")
+    return avatar
+
+
+def _clean_allowed_origins(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        abort(400, description="allowed_origins_must_be_array")
+    if len(value) > 20:
+        abort(400, description="too_many_allowed_origins")
+
+    origins: List[str] = []
+    for raw in value:
+        origin = canonical_origin(str(raw or ""))
+        if not origin:
+            abort(400, description="invalid_allowed_origin")
+        if origin.startswith("http://") and not (
+            origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
+        ):
+            abort(400, description="allowed_origin_requires_https")
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
+    widget = branding.get("widget") or {}
+    widget = widget if isinstance(widget, dict) else {}
+    script_url = f"{request.url_root.rstrip('/')}/widget.js?tenant={quote(tenant)}"
+    return {
+        "tenant": tenant,
+        "widget": {
+            "chat_title": str(widget.get("chat_title") or "Sales assistant"),
+            "greeting": str(widget.get("greeting") or "Hi! How can I help you today?"),
+            "avatar": str(widget.get("avatar") or ""),
+            "allowed_origins": allowed_origins_from_branding(branding),
+        },
+        "embed": {
+            "script_url": script_url,
+            "snippet": f'<script src="{script_url}" async></script>',
+        },
+    }
+
+
+@bp.get("/widget")
+def api_widget_get():
+    tenant = _tenant()
+    branding = _storage().read_json(tenant, "branding.json")
+    if not isinstance(branding, dict):
+        branding = {}
+    return jsonify(_widget_response(tenant, branding))
+
+
+@bp.put("/widget")
+def api_widget_put():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "widget_payload_must_be_object"}), 400
+
+    tenant = _tenant()
+    storage = _storage()
+    before = storage.read_json(tenant, "branding.json")
+    branding = dict(before) if isinstance(before, dict) else {}
+    existing = branding.get("widget") or {}
+    existing = dict(existing) if isinstance(existing, dict) else {}
+
+    widget = {
+        **existing,
+        "chat_title": _clean_widget_text(data.get("chat_title"), "chat_title", 80) or "Sales assistant",
+        "greeting": _clean_widget_text(data.get("greeting"), "greeting", 240) or "Hi! How can I help you today?",
+        "avatar": _clean_widget_avatar(data.get("avatar")),
+        "allowed_origins": _clean_allowed_origins(data.get("allowed_origins", [])),
+    }
+    branding["widget"] = widget
+    snapshot = storage.write_json(tenant, "branding.json", branding)
+    _invalidate_tenant(tenant)
+    _audit("widget.update", f"{tenant}/branding.json", before=before, after={"snapshot": snapshot, "widget": widget})
+    return jsonify({"ok": True, "snapshot": snapshot, **_widget_response(tenant, branding)})
 
 
 @bp.post("/mode")
@@ -155,6 +280,7 @@ def api_mode_set():
 
     c = get_container()
     object.__setattr__(c.settings, "MODE", "V7" if mode.startswith("AIV7") else mode)
+    c.invalidate_tenant(c.settings.BUSINESS_KEY)
     return jsonify({"ok": True, "mode": c.settings.MODE})
 
 
