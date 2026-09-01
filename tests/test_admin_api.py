@@ -98,6 +98,29 @@ def test_delivery_api_accepts_zone_rules_and_rejects_bad_shapes(client):
     assert invalid.get_json()["error"] == "invalid_delivery"
 
 
+def test_profile_branches_and_agent_settings_round_trip(client):
+    as_admin(client)
+
+    profile = client.get("/admin/api/profile").get_json()
+    profile["name"] = "Example Butchers"
+    profile_saved = client.put("/admin/api/profile", json=profile)
+
+    branches = client.get("/admin/api/branches").get_json()
+    branches_saved = client.put("/admin/api/branches", json=branches)
+
+    tone_saved = client.put(
+        "/admin/api/agent-settings",
+        json={"tone": {"style": "professional", "max_sentences": 2}},
+    )
+    invalid_tone = client.put("/admin/api/agent-settings", json={"tone": {"style": "playful"}})
+
+    assert profile_saved.status_code == 200
+    assert branches_saved.status_code == 200
+    assert client.get("/admin/api/branches").get_json()[0]["address"]
+    assert tone_saved.get_json()["tone"]["style"] == "professional"
+    assert invalid_tone.status_code == 400
+
+
 def test_mode_switch_and_reflects(client):
     as_admin(client)
     r = client.post(

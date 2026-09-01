@@ -76,6 +76,22 @@ def test_v7_grounded_price_reply_and_guardrail():
     assert "in stock" in txt.lower()
 
 
+def test_v7_applies_tenant_tone_and_response_length():
+    class Overrides:
+        def __init__(self, values):
+            self.values = values
+
+        def get(self, key):
+            return self.values.get(key)
+
+    professional = make_v7(overrides=Overrides({"tone.style": "professional", "tone.max_sentences": 2}))
+    concise = make_v7(overrides=Overrides({"tone.style": "concise", "tone.max_sentences": 1}))
+    ctx = {"intent": "faq", "facts": {"faq": {"answer": "We deliver locally."}}, **ctx_base()}
+
+    assert professional.rewrite("", ctx).endswith("How else may I help?")
+    assert concise.rewrite("", ctx) == "We deliver locally."
+
+
 def test_v5_v6_v7_parity_simple_faq():
     draft = "Yes. All products are halal and HMC-inspected."
     ctx = {"intent": "faq", "facts": {"faq": {"answer": draft}}, **ctx_base()}

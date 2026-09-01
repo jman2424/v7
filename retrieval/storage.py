@@ -53,7 +53,7 @@ KNOWN_FILES: Dict[str, Optional[str]] = {
     "synonyms.json": None,
     "overrides.json": None,
     "branding.json": None,
-    "store_info.json": None,
+    "store_info.json": "store_info.schema.json",
 }
 
 

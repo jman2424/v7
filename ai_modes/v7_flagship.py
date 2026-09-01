@@ -1,6 +1,7 @@
 # ai_modes/v7_flagship.py
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from .contracts import ModeStrategy, Plan, ToolCall, safe_minimal_rewrite
@@ -13,6 +14,8 @@ DEFAULT_CLARIFIERS = {
     "faq": "Could you clarify your question?",
     "unknown": "Could you clarify what you need?",
 }
+
+_SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 class AIV7Flagship(ModeStrategy):
@@ -218,4 +221,24 @@ class AIV7Flagship(ModeStrategy):
             return t
         if t.lower().endswith("anything else"):
             return t
-        return f"{t} Anything else you’d like to check?"
+        style = "friendly"
+        max_sentences = 2
+        if self.overrides is not None:
+            try:
+                style = str(self.overrides.get("tone.style") or "friendly").lower()
+                max_sentences = int(self.overrides.get("tone.max_sentences") or 2)
+            except Exception:
+                style = "friendly"
+                max_sentences = 2
+
+        max_sentences = min(max(max_sentences, 1), 4)
+
+        if style == "professional":
+            response = f"{t} How else may I help?"
+        elif style == "concise":
+            response = t
+        else:
+            response = f"{t} Anything else you’d like to check?"
+
+        sentences = _SENTENCE_BREAK_RE.split(response)
+        return " ".join(sentences[:max_sentences]).strip()

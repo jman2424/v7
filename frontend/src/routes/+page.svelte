@@ -69,12 +69,46 @@
     exceptions: DeliveryException[];
   };
 
+  type Profile = {
+    name: string;
+    about: string;
+    email: string;
+    phone: string;
+    website: string;
+    halal_certified: boolean;
+    certifications: string[];
+    social: Record<string, string>;
+  };
+
+  type BranchHours = Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', string>;
+
+  type Branch = {
+    id: string;
+    name: string;
+    address: string;
+    postcode: string;
+    phone: string;
+    lat: number;
+    lon: number;
+    hours: BranchHours;
+  };
+
+  type AgentSettings = {
+    tone: {
+      style: 'friendly' | 'professional' | 'concise';
+      max_sentences: number;
+    };
+  };
+
   let user: User | null = null;
   let csrf = '';
   let widget: Widget = { chat_title: '', greeting: '', avatar: '', allowed_origins: [] };
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
   let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
+  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', halal_certified: false, certifications: [], social: {} };
+  let branches: Branch[] = [];
+  let agentSettings: AgentSettings = { tone: { style: 'friendly', max_sentences: 2 } };
   let snippet = '';
   let tenant = 'EXAMPLE';
   let originText = '';
@@ -96,6 +130,12 @@
   let faqError = false;
   let deliveryStatus = '';
   let deliveryError = false;
+  let profileStatus = '';
+  let profileError = false;
+  let branchesStatus = '';
+  let branchesError = false;
+  let agentStatus = '';
+  let agentError = false;
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
 
@@ -165,17 +205,66 @@
     };
   }
 
+  function normalizeProfile(value: unknown): Profile {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const socialSource = source.social && typeof source.social === 'object' ? source.social as Record<string, unknown> : {};
+    const social = Object.fromEntries(Object.entries(socialSource).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, String(item)]));
+    return {
+      name: String(source.name || ''), about: String(source.about || ''), email: String(source.email || ''), phone: String(source.phone || ''), website: String(source.website || ''),
+      halal_certified: source.halal_certified === true, certifications: stringList(source.certifications), social
+    };
+  }
+
+  function emptyHours(): BranchHours {
+    return { mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: '' };
+  }
+
+  function expandHours(value: unknown): BranchHours {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const hours = emptyHours();
+    const days: Array<keyof BranchHours> = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    for (const day of days) hours[day] = typeof source[day] === 'string' ? source[day] : '';
+    for (const [key, raw] of Object.entries(source)) {
+      if (typeof raw !== 'string' || !key.includes('-')) continue;
+      const [first, last] = key.toLowerCase().split('-', 2) as [keyof BranchHours, keyof BranchHours];
+      const start = days.indexOf(first);
+      const end = days.indexOf(last);
+      if (start >= 0 && end >= start) for (let index = start; index <= end; index += 1) if (!hours[days[index]]) hours[days[index]] = raw;
+    }
+    if (typeof source.daily === 'string') for (const day of days) if (!hours[day]) hours[day] = source.daily;
+    return hours;
+  }
+
+  function normalizeBranches(value: unknown): Branch[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((branch): branch is Record<string, unknown> => Boolean(branch && typeof branch === 'object')).map((branch) => ({
+      id: String(branch.id || ''), name: String(branch.name || ''), address: String(branch.address || ''), postcode: String(branch.postcode || ''), phone: String(branch.phone || ''),
+      lat: Number(branch.lat || 0), lon: Number(branch.lon || 0), hours: expandHours(branch.hours)
+    }));
+  }
+
+  function normalizeAgentSettings(value: unknown): AgentSettings {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const tone = source.tone && typeof source.tone === 'object' ? source.tone as Record<string, unknown> : {};
+    const style = ['friendly', 'professional', 'concise'].includes(String(tone.style)) ? String(tone.style) as AgentSettings['tone']['style'] : 'friendly';
+    const max = Number(tone.max_sentences || 2);
+    return { tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 } };
+  }
+
   async function loadTenantWorkspace(selectedTenant = tenant) {
     const encodedTenant = encodeURIComponent(selectedTenant);
     const responses = await Promise.all([
       fetch(apiPath(`/admin/api/widget?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/catalog?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/faq?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/delivery?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+      fetch(apiPath(`/admin/api/delivery?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/profile?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/branches?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/agent-settings?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
     ]);
-    const [widgetData, catalogData, faqData, deliveryData] = await Promise.all(responses.map(readJson));
+    const [widgetData, catalogData, faqData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(readJson));
     if (responses.some((response) => !response.ok)) {
-      const failed = [widgetData, catalogData, faqData, deliveryData].find((data, index) => !responses[index].ok);
+      const failed = [widgetData, catalogData, faqData, deliveryData, profileData, branchesData, agentData].find((data, index) => !responses[index].ok);
       throw new Error(failed?.error || 'Could not load this tenant workspace.');
     }
     tenant = widgetData.tenant;
@@ -185,6 +274,9 @@
     catalog = normalizeCatalog(catalogData);
     faqs = normalizeFaqs(faqData);
     delivery = normalizeDelivery(deliveryData);
+    profile = normalizeProfile(profileData);
+    branches = normalizeBranches(branchesData);
+    agentSettings = normalizeAgentSettings(agentData);
   }
 
   async function loadTenants() {
@@ -283,6 +375,9 @@
     catalogStatus = '';
     faqStatus = '';
     deliveryStatus = '';
+    profileStatus = '';
+    branchesStatus = '';
+    agentStatus = '';
     await loadTenantWorkspace(nextTenant);
   }
 
@@ -425,6 +520,82 @@
     deliveryStatus = 'Delivery settings saved. New conversations use these rules.';
   }
 
+  function addBranch() {
+    const number = branches.length + 1;
+    branches = [...branches, { id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: 0, lon: 0, hours: emptyHours() }];
+  }
+
+  function removeBranch(index: number) {
+    branches = branches.filter((_, current) => current !== index);
+  }
+
+  async function saveProfile() {
+    profileStatus = 'Saving...';
+    profileError = false;
+    const payload = {
+      name: profile.name.trim(), about: profile.about.trim(), email: profile.email.trim(), phone: profile.phone.trim(), website: profile.website.trim(),
+      halal_certified: Boolean(profile.halal_certified), certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
+      social: Object.fromEntries(Object.entries(profile.social).map(([key, value]) => [key, value.trim()]).filter(([, value]) => Boolean(value)))
+    };
+    if (!payload.name) {
+      profileStatus = 'Business name is required.';
+      profileError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/profile?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      profileStatus = data.detail || data.error || 'Could not save business profile.';
+      profileError = true;
+      return;
+    }
+    profile = { ...profile, ...payload };
+    profileStatus = 'Business profile saved.';
+  }
+
+  async function saveBranches() {
+    branchesStatus = 'Saving...';
+    branchesError = false;
+    const payload = branches.map((branch) => ({
+      id: branch.id.trim() || slug(branch.name), name: branch.name.trim(), address: branch.address.trim(), postcode: branch.postcode.trim(), phone: branch.phone.trim(),
+      lat: Number(branch.lat), lon: Number(branch.lon), hours: Object.fromEntries(Object.entries(branch.hours).map(([day, hours]) => [day, hours.trim()]).filter(([, hours]) => Boolean(hours)))
+    }));
+    if (payload.some((branch) => !branch.id || !branch.name || !branch.postcode || !Number.isFinite(branch.lat) || branch.lat < -90 || branch.lat > 90 || !Number.isFinite(branch.lon) || branch.lon < -180 || branch.lon > 180)) {
+      branchesStatus = 'Each branch needs a name, postcode, and valid latitude and longitude.';
+      branchesError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/branches?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      branchesStatus = data.detail || data.error || 'Could not save branches.';
+      branchesError = true;
+      return;
+    }
+    branches = normalizeBranches(payload);
+    branchesStatus = 'Branches and opening hours saved.';
+  }
+
+  async function saveAgentSettings() {
+    agentStatus = 'Saving...';
+    agentError = false;
+    const response = await fetch(apiPath(`/admin/api/agent-settings?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(agentSettings)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      agentStatus = data.error || 'Could not save agent settings.';
+      agentError = true;
+      return;
+    }
+    agentSettings = normalizeAgentSettings({ tone: data.tone });
+    agentStatus = 'Agent tone saved. New replies use this style.';
+  }
+
   onMount(async () => {
     try {
       await restoreSession();
@@ -465,6 +636,8 @@
         <a href="#catalog">Catalog</a>
         <a href="#faqs">FAQs</a>
         <a href="#delivery">Delivery</a>
+        <a href="#profile">Business profile</a>
+        <a href="#branches">Branches</a>
         {#if isPlatform}<button class="nav-button" type="button" on:click={() => (showCreateTenant = !showCreateTenant)}>Tenants</button>{/if}
       </nav>
       <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : 'Business owner'}</span></div>
@@ -588,6 +761,48 @@
           <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
         </section>
       </div>
+
+      <div class="management-grid business-grid">
+        <section id="profile" class="surface workspace-section" aria-labelledby="profile-heading">
+          <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">Business profile</h2></div></div>
+          <form class="profile-form" on:submit|preventDefault={saveProfile}>
+            <label>Business name<input bind:value={profile.name} maxlength="120" required /></label>
+            <label>About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What do you sell and why do customers choose you?"></textarea></label>
+            <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
+            <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /></label>
+            <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
+            <label class="collection-toggle"><input bind:checked={profile.halal_certified} type="checkbox" /><span>Halal-certified business</span></label>
+            <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
+            <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">Save profile</button></div>
+          </form>
+        </section>
+
+        <section class="surface workspace-section" aria-labelledby="tone-heading">
+          <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="tone-heading">Sales tone</h2></div></div>
+          <form class="tone-form" on:submit|preventDefault={saveAgentSettings}>
+            <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
+            <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
+            <p class="field-note">The V7 reply formatter applies this tone and length after grounding the answer in your catalog, FAQ, and delivery data.</p>
+            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save agent tone</button></div>
+          </form>
+        </section>
+      </div>
+
+      <section id="branches" class="surface workspace-section" aria-labelledby="branches-heading">
+        <div class="surface-head"><div><p class="eyebrow">Locations and handoff</p><h2 id="branches-heading">Branches and opening hours</h2></div><button class="secondary" type="button" on:click={addBranch}>Add branch</button></div>
+        <div class="branches-list">
+          {#each branches as branch, branchIndex}
+            <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
+              <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>Remove</button></div>
+              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>Phone<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" required /></label><label>Longitude<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" required /></label></div>
+              <div class="hours-grid"><h4>Opening hours</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
+            </section>
+          {:else}
+            <p class="empty-state branches-empty">No branches yet. Add a location so the assistant can direct customers to the right place.</p>
+          {/each}
+        </div>
+        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>Save branches</button></div>
+      </section>
     </main>
   </div>
 {/if}
@@ -686,7 +901,21 @@
   .exception-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid #e2e7ee; }
   .exception-heading h3 { margin: 12px 0 0; font-size: 14px; }
   .exception-row { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr) auto; align-items: end; gap: 10px; }
+  .profile-form, .tone-form { display: grid; gap: 16px; padding: 20px; }
+  .two-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .profile-footer { padding: 2px 0 0; }
+  .branches-list { display: grid; }
+  .branch-editor { padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .branch-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .branch-heading h3 { margin: 0; font-size: 16px; }
+  .branch-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .wide-field { grid-column: span 2; }
+  .hours-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 9px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #e2e7ee; }
+  .hours-grid h4 { grid-column: 1 / -1; margin: 0 0 2px; color: #344054; font-size: 14px; }
+  .hours-grid label { font-size: 11px; text-transform: uppercase; }
+  .hours-grid input { font-size: 12px; text-transform: none; }
+  .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
   @media (max-width: 900px) { .content-grid, .operator-panel { grid-template-columns: 1fr; } .tenant-form { grid-template-columns: 1fr; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row { grid-template-columns: 1fr; } .row-actions .icon-button, .exception-row .icon-button { width: fit-content; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields { grid-template-columns: 1fr; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
 </style>

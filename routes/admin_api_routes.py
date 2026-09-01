@@ -208,6 +208,97 @@ def api_delivery_put():
     return jsonify({"ok": True, "snapshot": snap})
 
 
+@bp.get("/profile")
+def api_profile_get():
+    return jsonify(_storage().read_json(_tenant(), "store_info.json"))
+
+
+@bp.put("/profile")
+def api_profile_put():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "profile_must_be_object"}), 400
+
+    tenant = _tenant()
+    before = _storage().read_json(tenant, "store_info.json")
+    try:
+        snap = _storage().write_json(tenant, "store_info.json", data, schema="store_info.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_profile", "detail": exc.message}), 400
+    _invalidate_tenant(tenant)
+    _audit("profile.update", f"{tenant}/store_info.json", before=before, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
+@bp.get("/branches")
+def api_branches_get():
+    return jsonify(_storage().read_json(_tenant(), "branches.json"))
+
+
+@bp.put("/branches")
+def api_branches_put():
+    data = request.get_json(silent=True)
+    if not isinstance(data, list):
+        return jsonify({"error": "branches_must_be_array"}), 400
+
+    tenant = _tenant()
+    before = _storage().read_json(tenant, "branches.json")
+    try:
+        snap = _storage().write_json(tenant, "branches.json", data, schema="branches.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_branches", "detail": exc.message}), 400
+    _invalidate_tenant(tenant)
+    _audit("branches.update", f"{tenant}/branches.json", before={"items": before}, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
+_TONE_STYLES = {"friendly", "professional", "concise"}
+
+
+@bp.get("/agent-settings")
+def api_agent_settings_get():
+    overrides = _storage().read_json(_tenant(), "overrides.json")
+    overrides = overrides if isinstance(overrides, dict) else {}
+    tone = overrides.get("tone") or {}
+    tone = tone if isinstance(tone, dict) else {}
+    return jsonify(
+        {
+            "tone": {
+                "style": str(tone.get("style") or "friendly"),
+                "max_sentences": int(tone.get("max_sentences") or 2),
+            }
+        }
+    )
+
+
+@bp.put("/agent-settings")
+def api_agent_settings_put():
+    data = request.get_json(silent=True)
+    tone = data.get("tone") if isinstance(data, dict) else None
+    if not isinstance(tone, dict):
+        return jsonify({"error": "tone_must_be_object"}), 400
+
+    style = str(tone.get("style") or "").strip().lower()
+    if style not in _TONE_STYLES:
+        return jsonify({"error": "invalid_tone_style"}), 400
+    try:
+        max_sentences = int(tone.get("max_sentences") or 2)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_max_sentences"}), 400
+    if not 1 <= max_sentences <= 4:
+        return jsonify({"error": "invalid_max_sentences"}), 400
+
+    tenant = _tenant()
+    storage = _storage()
+    before = storage.read_json(tenant, "overrides.json")
+    overrides = dict(before) if isinstance(before, dict) else {}
+    overrides["tone"] = {"style": style, "max_sentences": max_sentences}
+    snapshot = storage.write_json(tenant, "overrides.json", overrides)
+    _invalidate_tenant(tenant)
+    _audit("agent_settings.update", f"{tenant}/overrides.json", before=before, after={"snapshot": snapshot, "tone": overrides["tone"]})
+    return jsonify({"ok": True, "snapshot": snapshot, "tone": overrides["tone"]})
+
+
 def _clean_widget_text(value: Any, field: str, maximum: int) -> str:
     cleaned = str(value or "").strip()
     if len(cleaned) > maximum:
