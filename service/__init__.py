@@ -128,6 +128,7 @@ class HandlerDeps:
     faq: FAQStoreLike
     synonyms: SynonymsStoreLike
     overrides: OverridesStoreLike
+    business_name: str
 
 
 def make_message_handler(deps: HandlerDeps):

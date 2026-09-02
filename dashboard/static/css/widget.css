@@ -52,6 +52,9 @@ body.widget-page--embedded{padding:0;display:block;background:#fff}
 .msg--me{justify-content:flex-end}
 .msg--me .msg__bubble{background:#0b1c12;border-color:#123322}
 .msg__time{display:block;color:#7f8ab2;font-size:.8rem;margin-top:4px}
+.quick-replies{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.quick-reply{max-width:100%;border:1px solid var(--wborder);border-radius:6px;background:#fff;color:var(--waccent);padding:7px 10px;font:600 .8rem var(--wfont);cursor:pointer;text-align:left}
+.quick-reply:hover,.quick-reply:focus-visible{border-color:var(--waccent);background:#ecfff5;outline:none}
 
 /* COMPOSER */
 .widget__composer{

@@ -110,9 +110,10 @@ class MessageHandlerV7:
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
         self.logger = getattr(deps, "logger", None)
+        self.business_name = str(getattr(deps, "business_name", "") or "").strip()
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
-        self.renderer = RendererV7(getattr(deps, "rewriter", None))
+        self.renderer = RendererV7(getattr(deps, "rewriter", None), self.business_name)
 
     # ------------------------------------------------------------------
     # PUBLIC
@@ -148,8 +149,8 @@ class MessageHandlerV7:
             # 0) Greeting only
             if self._is_greeting(user_text):
                 reply_text = (
-                    "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
-                    "Examples: chicken wings • lamb chops • beef steak • cheapest lamb • delivery to E1 6AN"
+                    f"Hi, I’m the {self._assistant_label()}. Tell me what you’re looking for and I’ll pull the right options.\n"
+                    "You can ask about products, prices, delivery, or the nearest branch."
                 )
                 return self._wrap_reply(
                     request_id=request_id,
@@ -180,8 +181,7 @@ class MessageHandlerV7:
             # 0.75) Out of scope
             if self._looks_out_of_scope(user_text):
                 reply_text = (
-                    "I can’t help with that — I’m the Tariq Halal assistant.\n"
-                    "Ask me about products, prices, delivery, or your nearest branch."
+                    f"I can only help with {self._business_label()} products, prices, delivery, and branch details."
                 )
                 safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
                 return self._wrap_reply(
@@ -368,7 +368,7 @@ class MessageHandlerV7:
 
         if any(x in t for x in ("ai", "bot", "real", "who are you", "where is the ai", "were is the ai")):
             return (
-                "Yes — I’m an AI-powered Tariq Halal assistant.\n"
+                f"Yes — I’m an AI-powered {self._assistant_label()}. "
                 "I can help with products, prices, delivery, and nearest branch details."
             )
 
@@ -378,7 +378,15 @@ class MessageHandlerV7:
         if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
             return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
 
-        return "I’m your Tariq Halal assistant. Ask me about products, prices, delivery, or nearest branch."
+        return f"I’m the {self._assistant_label()}. Ask me about products, prices, delivery, or the nearest branch."
+
+    def _business_label(self) -> str:
+        return self.business_name or "this business"
+
+    def _assistant_label(self) -> str:
+        if self.business_name:
+            return f"{self.business_name} sales assistant"
+        return "sales assistant for this business"
 
     def _simple_plan(self, intent: str, action: str, session: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -468,6 +476,13 @@ class MessageHandlerV7:
 
         if self._is_smalltalk(t):
             return False
+
+        if self.catalog:
+            try:
+                if self.catalog.search(text=t, limit=1):
+                    return True
+            except Exception:
+                logger.debug("V7 catalog probe failed", exc_info=True)
 
         if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
             return True

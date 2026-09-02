@@ -1,7 +1,6 @@
 # ai_modes/renderer_v7.py
 from __future__ import annotations
 
-import random
 from typing import Any, Dict, List, Optional
 
 
@@ -16,10 +15,11 @@ class RendererV7:
       products, prices, or delivery areas that aren't already in `facts`.
     """
 
-    def __init__(self, rewriter: Optional[Any] = None) -> None:
+    def __init__(self, rewriter: Optional[Any] = None, business_name: str = "") -> None:
         # `rewriter` is expected to provide:
         #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
         self.rewriter = rewriter
+        self.business_name = (business_name or "").strip()
 
     # ------------------------------------------------------------------ #
     # PUBLIC ENTRYPOINT                                                  #
@@ -50,7 +50,8 @@ class RendererV7:
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
-            base = "I’m your Tariq Halal assistant. I can help with meats, groceries, prices, and delivery details."
+            label = self.business_name or "this business"
+            base = f"I’m an AI sales assistant for {label}. I can help with products, prices, delivery, and business details."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
@@ -384,12 +385,7 @@ class RendererV7:
         if t.endswith("?"):
             return t
 
-        variants = [
-            "Anything else you’d like to check?",
-            "Want to look at anything else?",
-            "Anything else I can help you with?",
-        ]
-        return f"{t} {random.choice(variants)}"
+        return t
 
     def _polish(self, text: str, facts: Dict[str, Any]) -> str:
         text = (text or "").strip()

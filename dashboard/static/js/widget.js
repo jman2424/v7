@@ -19,6 +19,7 @@
   const form = $("#chat-form");
   const input = $("#chat-input");
   const btn = $("#chat-send");
+  let suggestionRow = null;
 
   function addMsg(text, from = "bot") {
     const row = document.createElement("div");
@@ -33,6 +34,35 @@
     row.appendChild(time);
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
+  }
+
+  function clearSuggestions() {
+    if (suggestionRow) {
+      suggestionRow.remove();
+      suggestionRow = null;
+    }
+  }
+
+  function addSuggestions(suggestions) {
+    clearSuggestions();
+    if (!Array.isArray(suggestions) || !suggestions.length) return;
+
+    const row = document.createElement("div");
+    row.className = "quick-replies";
+    for (const suggestion of suggestions.slice(0, 3)) {
+      if (typeof suggestion !== "string" || !suggestion.trim()) continue;
+      const choice = document.createElement("button");
+      choice.type = "button";
+      choice.className = "quick-reply";
+      choice.textContent = suggestion;
+      choice.addEventListener("click", () => submitText(suggestion));
+      row.appendChild(choice);
+    }
+    if (row.childElementCount) {
+      log.appendChild(row);
+      suggestionRow = row;
+      log.scrollTop = log.scrollHeight;
+    }
   }
 
   function genId() {
@@ -63,6 +93,7 @@
       const data = await res.json();
       const reply = data.reply || "(no reply)";
       addMsg(reply, "bot");
+      addSuggestions(data.agent?.suggested_replies || data.raw?.agent?.suggested_replies);
       // keep session stable if backend sends an id
       if (data.session_id && data.session_id !== sessionId) {
         sessionId = data.session_id;
@@ -77,13 +108,18 @@
   }
 
   // ---------- Bindings ----------
+  function submitText(text) {
+    const message = (text || "").trim();
+    if (!message || btn.disabled) return;
+    clearSuggestions();
+    addMsg(message, "me");
+    input.value = "";
+    sendMessage(message);
+  }
+
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const text = (input.value || "").trim();
-    if (!text) return;
-    addMsg(text, "me");
-    input.value = "";
-    sendMessage(text);
+    submitText(input.value);
   });
 
   // Greet only once per session (optional)

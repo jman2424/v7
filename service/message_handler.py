@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
+from service.sales_agent import SalesAgentPolicy
 from service.validators import normalize_postcode
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
@@ -55,6 +56,11 @@ _TEST_NOISE = {
     "test", "tester", "testing", "demo", "dmo", "tst",
     "test1", "test2", "test3",
     "hello", "hi", "hey", "yo", "there", "sup",
+}
+
+_GREETINGS = {
+    "hello", "hi", "hey", "hiya", "yo", "sup", "salam", "salaam",
+    "asalam", "assalam", "good morning", "good afternoon", "good evening",
 }
 
 _FOLLOWUP_PAT = re.compile(
@@ -194,6 +200,7 @@ class MessageHandler:
         self.crm = deps.crm
         self.memory = deps.memory
         self.overrides = deps.overrides
+        self.sales_agent = SalesAgentPolicy()
 
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT
@@ -230,6 +237,8 @@ class MessageHandler:
 
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
+            guarded = self.sales_agent.guide(guarded, user_text=user_text, session=sess)
+            self._save_session(ctx, sess, guarded)
             logger.info(
                 "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s intent=%s text=%r",
                 ctx.tenant, ctx.session_id, ctx.channel, mode, rid, guarded.get("intent"), user_text[:120],
@@ -272,6 +281,7 @@ class MessageHandler:
         )
 
         reply = self._validate_reply(reply, user_text, ctx, sess)
+        reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
@@ -317,6 +327,9 @@ class MessageHandler:
             return None
 
         tl = _collapse_spaces(t).lower()
+
+        if tl in _GREETINGS:
+            return None
 
         if _RE_ONLY_SYMBOLS.match(t):
             return {
@@ -486,6 +499,7 @@ class MessageHandler:
             "last_product_query": self.memory.get(ctx.session_id, "last_product_query"),
             "last_items": self.memory.get(ctx.session_id, "last_items", []),
             "last_product_names": self.memory.get(ctx.session_id, "last_product_names", []),
+            "sales_agent": self.memory.get(ctx.session_id, "sales_agent", {}),
         }
 
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
@@ -509,6 +523,19 @@ class MessageHandler:
 
         if reply.get("intent"):
             self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl)
+
+        agent = reply.get("agent")
+        if isinstance(agent, dict):
+            self.memory.set(
+                ctx.session_id,
+                "sales_agent",
+                {
+                    "stage": agent.get("stage"),
+                    "objective": agent.get("objective"),
+                    "next_action": agent.get("next_action"),
+                },
+                ttl,
+            )
 
         product_query = entities.get("product_name")
         if product_query:
