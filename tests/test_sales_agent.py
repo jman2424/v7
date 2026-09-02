@@ -28,6 +28,22 @@ def test_sales_agent_turns_catalog_results_into_a_recommendation_step():
     assert "Which option would you like" in response["reply"]
 
 
+def test_sales_agent_does_not_repeat_an_existing_product_selection_prompt():
+    policy = SalesAgentPolicy()
+    response = policy.guide(
+        {
+            "reply": "Here are some options. Tell me the number you like and I can give you prices.",
+            "intent": "search_product",
+            "facts": {"items": [{"name": "Chicken Wings"}]},
+        },
+        user_text="show chicken",
+        session={},
+    )
+
+    assert response["agent"]["stage"] == "recommend"
+    assert response["reply"].count("Which option would you like") == 0
+
+
 def test_sales_agent_moves_delivery_eligibility_to_product_selection():
     policy = SalesAgentPolicy()
     response = policy.guide(

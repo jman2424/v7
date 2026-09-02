@@ -38,7 +38,12 @@ class SalesAgentPolicy:
 
         prompt = agent["next_question"]
         text = self._remove_generic_cta(str(result.get("reply") or ""))
-        if prompt and prompt.casefold() not in text.casefold() and not text.rstrip().endswith("?"):
+        if (
+            prompt
+            and prompt.casefold() not in text.casefold()
+            and not text.rstrip().endswith("?")
+            and not self._already_requests_next_action(text, agent["next_action"])
+        ):
             text = f"{text.rstrip()} {prompt}".strip()
         result["reply"] = text
         return result
@@ -153,3 +158,9 @@ class SalesAgentPolicy:
     @staticmethod
     def _remove_generic_cta(text: str) -> str:
         return _GENERIC_CTA.sub("", (text or "").strip()).strip()
+
+    @staticmethod
+    def _already_requests_next_action(text: str, next_action: str) -> bool:
+        if next_action != "compare_or_price_selection":
+            return False
+        return bool(re.search(r"\btell me (?:the )?(?:number|option)\b", text, re.IGNORECASE))
