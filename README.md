@@ -47,6 +47,14 @@ The app can run with Gunicorn:
 gunicorn -c gunicorn.conf.py 'app:create_app()'
 ```
 
+### Render
+
+`render.yaml` deploys the Flask web service with the existing `EXAMPLE` tenant,
+binds Gunicorn to Render's `PORT`, and performs liveness checks at `/health`.
+Render generates `SECRET_KEY` when it first creates the service. Add the
+WhatsApp and billing secrets marked `sync: false` in the Render dashboard;
+Blueprint updates intentionally do not overwrite existing secret values.
+
 ## Website Widget
 
 Platform operators can create a blank tenant with `POST /admin/api/tenants`.

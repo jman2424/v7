@@ -28,6 +28,9 @@ class Settings:
     # External tokens/creds
     WHATSAPP_VERIFY_TOKEN: str
     WHATSAPP_APP_SECRET: str
+    WHATSAPP_TOKEN: str
+    WHATSAPP_PHONE_ID: str
+    WHATSAPP_API_URL: str
     SHEETS_SERVICE_JSON: str | None  # path or JSON string
 
     # Rate limiting
@@ -64,6 +67,9 @@ def load_settings(override: dict | None = None) -> Settings:
 
         WHATSAPP_VERIFY_TOKEN=o.get("WHATSAPP_VERIFY_TOKEN", _get("WHATSAPP_VERIFY_TOKEN", "dev")),
         WHATSAPP_APP_SECRET=o.get("WHATSAPP_APP_SECRET", _get("WHATSAPP_APP_SECRET", "dev")),
+        WHATSAPP_TOKEN=o.get("WHATSAPP_TOKEN", _get("WHATSAPP_TOKEN", "")),
+        WHATSAPP_PHONE_ID=o.get("WHATSAPP_PHONE_ID", _get("WHATSAPP_PHONE_ID", "")),
+        WHATSAPP_API_URL=o.get("WHATSAPP_API_URL", _get("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0")),
         SHEETS_SERVICE_JSON=o.get("SHEETS_SERVICE_JSON", os.environ.get("SHEETS_SERVICE_JSON")),
 
         RATE_LIMIT_PER_MIN=int(o.get("RATE_LIMIT_PER_MIN", os.environ.get("RATE_LIMIT_PER_MIN", 120))),

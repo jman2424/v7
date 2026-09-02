@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -163,7 +164,9 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     app.config["SECRET_KEY"] = settings.SECRET_KEY
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = settings.BASE_URL.startswith("https://")
+    # Render terminates HTTPS before proxying to Gunicorn. Its public service
+    # still needs Secure cookies even when no explicit BASE_URL is configured.
+    app.config["SESSION_COOKIE_SECURE"] = settings.BASE_URL.startswith("https://") or os.getenv("RENDER") == "true"
 
     # Container
     container = Container(settings)

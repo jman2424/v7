@@ -1,8 +1,9 @@
 import multiprocessing
 import os
 
-# Bind / workers / threads
-bind = os.getenv("BIND", "0.0.0.0:10000")
+# Bind / workers / threads. Render supplies PORT at runtime; keep the local
+# default so the same command remains convenient outside its environment.
+bind = os.getenv("BIND") or f"0.0.0.0:{os.getenv('PORT', '10000')}"
 workers = int(os.getenv("WEB_CONCURRENCY", str(max(2, multiprocessing.cpu_count() // 2))))
 threads = int(os.getenv("WEB_THREADS", "2"))
 
