@@ -1,10 +1,13 @@
 # ai_modes/renderer_v7.py
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 
 _CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
+_SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+")
+_TONE_STYLES = {"friendly", "professional", "concise"}
 
 
 class RendererV7:
@@ -18,11 +21,25 @@ class RendererV7:
       products, prices, or delivery areas that aren't already in `facts`.
     """
 
-    def __init__(self, rewriter: Optional[Any] = None, business_name: str = "") -> None:
+    def __init__(
+        self,
+        rewriter: Optional[Any] = None,
+        business_name: str = "",
+        *,
+        tone_style: str = "friendly",
+        max_sentences: int = 2,
+    ) -> None:
         # `rewriter` is expected to provide:
         #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
         self.rewriter = rewriter
         self.business_name = (business_name or "").strip()
+        requested_tone = (tone_style or "friendly").strip().lower()
+        self.tone_style = requested_tone if requested_tone in _TONE_STYLES else "friendly"
+        try:
+            configured_max_sentences = int(max_sentences or 2)
+        except (TypeError, ValueError):
+            configured_max_sentences = 2
+        self.max_sentences = min(max(configured_max_sentences, 1), 4)
 
     # ------------------------------------------------------------------ #
     # PUBLIC ENTRYPOINT                                                  #
@@ -402,10 +419,17 @@ class RendererV7:
         if not text:
             return ""
 
-        if not self.rewriter:
-            return text
+        rewritten = text
+        if self.rewriter:
+            try:
+                rewritten = self.rewriter.rewrite(rewritten, style=self.tone_style, facts=facts)
+            except Exception:
+                rewritten = text
 
-        try:
-            return self.rewriter.rewrite(text, style="sales", facts=facts)
-        except Exception:
-            return text
+        if self.tone_style == "professional":
+            rewritten = re.sub(r"\bI['’]m\b", "I am", rewritten)
+            rewritten = re.sub(r"\bwe['’]re\b", "we are", rewritten, flags=re.IGNORECASE)
+            rewritten = re.sub(r"\bdon['’]t\b", "do not", rewritten, flags=re.IGNORECASE)
+
+        sentences = [part.strip() for part in _SENTENCE_BREAK_RE.split(rewritten) if part.strip()]
+        return " ".join(sentences[: self.max_sentences]).strip()

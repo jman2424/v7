@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from ai_modes import make_v5, make_v6, make_v7  # type: ignore
+from renderer_v7 import RendererV7
 
 
 # ---- Shared context helpers ----
@@ -111,3 +112,16 @@ def test_v5_v6_v7_parity_simple_faq():
     # None should introduce external claims
     for r in (r5, r6, r7):
         assert "guaranteed next-day worldwide" not in r.lower()
+
+
+def test_renderer_applies_professional_style_without_changing_facts():
+    renderer = RendererV7(None, tone_style="professional", max_sentences=2)
+
+    reply = renderer.render(
+        user_text="What is your policy?",
+        plan={"intent": "faq", "action": "FAQ_LOOKUP", "needs_clarification": False},
+        facts={"faq": {"answer": "I’m happy to help. Returns are accepted within 30 days."}},
+        session={},
+    )
+
+    assert reply == "I am happy to help. Returns are accepted within 30 days."

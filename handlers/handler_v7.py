@@ -113,11 +113,18 @@ class MessageHandlerV7:
         self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
+        self.overrides = getattr(deps, "overrides", None)
         self.logger = getattr(deps, "logger", None)
         self.business_name = str(getattr(deps, "business_name", "") or "").strip()
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
-        self.renderer = RendererV7(getattr(deps, "rewriter", None), self.business_name)
+        tone_style, max_sentences = self._tone_settings()
+        self.renderer = RendererV7(
+            getattr(deps, "rewriter", None),
+            self.business_name,
+            tone_style=tone_style,
+            max_sentences=max_sentences,
+        )
 
     # ------------------------------------------------------------------
     # PUBLIC
@@ -408,6 +415,19 @@ class MessageHandlerV7:
         if self.business_name:
             return f"{self.business_name} sales assistant"
         return "sales assistant for this business"
+
+    def _tone_settings(self) -> Tuple[str, int]:
+        style = "friendly"
+        max_sentences = 2
+        if self.overrides:
+            try:
+                candidate = str(self.overrides.get("tone.style") or style).strip().lower()
+                if candidate in {"friendly", "professional", "concise"}:
+                    style = candidate
+                max_sentences = int(self.overrides.get("tone.max_sentences") or max_sentences)
+            except (TypeError, ValueError):
+                max_sentences = 2
+        return style, min(max(max_sentences, 1), 4)
 
     def _simple_plan(self, intent: str, action: str, session: Dict[str, Any]) -> Dict[str, Any]:
         return {

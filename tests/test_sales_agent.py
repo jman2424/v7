@@ -193,3 +193,37 @@ def test_v7_answers_a_tenant_faq_without_requiring_a_model(app):
     assert response["facts"]["faq"]["answer"] == "Every Northstar Travel bag includes a two-year warranty."
     assert response["reply"] == "Every Northstar Travel bag includes a two-year warranty."
     assert response["agent"]["stage"] == "assist"
+
+
+def test_v7_applies_the_saved_tenant_response_length(app):
+    storage = app.container.storage
+    storage.write_json(
+        "EXAMPLE",
+        "faq.json",
+        [
+            {
+                "q": "What is your returns policy?",
+                "a": "Returns are accepted within 30 days. Please keep your receipt.",
+                "tags": ["returns"],
+            }
+        ],
+        schema="faq.schema.json",
+        snapshot=False,
+    )
+    storage.write_json(
+        "EXAMPLE",
+        "overrides.json",
+        {"tone": {"style": "concise", "max_sentences": 1}},
+        snapshot=False,
+    )
+    app.container.invalidate_tenant("EXAMPLE")
+
+    response = app.container.handler.handle(
+        "What is your returns policy?",
+        tenant="EXAMPLE",
+        session_id="tenant-tone",
+        channel="web",
+    )
+
+    assert response["intent"] == "faq"
+    assert response["reply"] == "Returns are accepted within 30 days."
