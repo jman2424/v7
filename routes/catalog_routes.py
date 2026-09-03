@@ -11,6 +11,7 @@ import time
 from typing import Dict, List
 
 from flask import Blueprint, current_app, jsonify, request, Response
+from routes import get_container
 
 # Match pattern used elsewhere: routes.* exposes `bp`
 bp = Blueprint("catalog", __name__)
@@ -32,11 +33,14 @@ def _get_catalog_secret() -> str | None:
 
 
 def _get_catalog_path() -> pathlib.Path:
-    # default to Tariq catalog.json if env missing
-    path = os.getenv(CATALOG_FILE_ENV, "business/TARIQ/catalog.json")
-    p = pathlib.Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    configured_path = (os.getenv(CATALOG_FILE_ENV) or "").strip()
+    if configured_path:
+        path = pathlib.Path(configured_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    container = get_container()
+    return container.storage.file_path(container.settings.BUSINESS_KEY, "catalog.json")
 
 
 def _load_catalog_doc() -> Dict:
