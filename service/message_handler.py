@@ -481,6 +481,7 @@ class MessageHandler:
             tags=[reply.get("intent")] if reply.get("intent") else None,
         )
         lead_id = lead.get("id") or lead.get("_id") or "unknown"
+        analytics_lead_id = self._analytics_lead_id(ctx)
 
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
@@ -489,14 +490,25 @@ class MessageHandler:
             if hasattr(self.analytics, "upsert_lead"):
                 self.analytics.upsert_lead(
                     tenant=ctx.tenant,
-                    lead_id=str(lead_id),
+                    lead_id=analytics_lead_id,
                     phone=entities.get("phone"),
                     name=entities.get("name"),
                 )
             if hasattr(self.analytics, "set_lead_session"):
-                self.analytics.set_lead_session(tenant=ctx.tenant, lead_id=str(lead_id), session_id=ctx.session_id)
+                self.analytics.set_lead_session(
+                    tenant=ctx.tenant,
+                    lead_id=analytics_lead_id,
+                    session_id=ctx.session_id,
+                )
         except Exception:
             logger.exception("analytics lead upsert failed")
+
+    @staticmethod
+    def _analytics_lead_id(ctx: MessageContext) -> str:
+        channel = (ctx.channel or "web").strip().lower()
+        prefix = "wa" if channel == "whatsapp" else "web"
+        session_id = (ctx.session_id or "unknown").strip() or "unknown"
+        return f"{prefix}:{session_id}"
 
     # ---------------------------------------------------------
     # TELEMETRY (safe)

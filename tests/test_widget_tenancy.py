@@ -95,6 +95,36 @@ def test_chat_api_keeps_customer_content_out_of_operational_logs(client, caplog)
     assert "text_len=" in logs
 
 
+def test_chat_api_handoff_updates_one_dashboard_lead(client, app):
+    session_id = "handoff-dashboard-lead"
+    client.post(
+        "/chat_api",
+        data=json.dumps({"tenant": "EXAMPLE", "message": "I need to speak to someone", "session_id": session_id}),
+        headers={"Content-Type": "application/json"},
+    )
+    response = client.post(
+        "/chat_api",
+        data=json.dumps(
+            {
+                "tenant": "EXAMPLE",
+                "message": "My name is Alex Morgan and you can reach me at alex@example.test",
+                "session_id": session_id,
+            }
+        ),
+        headers={"Content-Type": "application/json"},
+    )
+
+    leads = [
+        lead for lead in app.container.analytics.get_leads(tenant="EXAMPLE", limit=200)
+        if lead["last_session_id"] == session_id
+    ]
+
+    assert response.status_code == 200
+    assert len(leads) == 1
+    assert leads[0]["lead_id"] == f"web:{session_id}"
+    assert leads[0]["name"] == "Alex Morgan"
+
+
 def test_embed_script_and_hosted_chat_are_tenant_scoped(client):
     script = client.get("/widget.js?tenant=EXAMPLE")
     chat = client.get("/chat_ui?tenant=EXAMPLE&embed=1")
