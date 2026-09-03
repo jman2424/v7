@@ -21,6 +21,15 @@
     widget_configured: boolean;
   };
 
+  type ManagedAccount = {
+    id: string;
+    email: string;
+    roles: string[];
+    active: boolean;
+  };
+
+  type ManagedRole = 'business_owner' | 'business_staff';
+
   type CatalogItem = {
     sku: string;
     name: string;
@@ -124,6 +133,12 @@
   let newTenantKey = '';
   let newTenantName = '';
   let createStatus = '';
+  let accounts: ManagedAccount[] = [];
+  let accountEmail = '';
+  let accountPassword = '';
+  let accountRole: ManagedRole = 'business_owner';
+  let accountStatus = '';
+  let accountError = false;
   let catalogStatus = '';
   let catalogError = false;
   let faqStatus = '';
@@ -138,6 +153,9 @@
   let agentError = false;
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
+  $: isOwner = Boolean(user?.roles?.includes('business_owner'));
+  $: canManageAccounts = hasAccountManagementAccess();
+  $: if (!isPlatform && accountRole !== 'business_staff') accountRole = 'business_staff';
 
   function apiPath(path: string) {
     // The dev server proxies API requests. In production Flask serves this
@@ -279,6 +297,8 @@
     profile = normalizeProfile(profileData);
     branches = normalizeBranches(branchesData);
     agentSettings = normalizeAgentSettings(agentData);
+    if (hasAccountManagementAccess()) await loadAccounts(selectedTenant);
+    else accounts = [];
   }
 
   async function loadTenants() {
@@ -286,6 +306,16 @@
     const response = await fetch(apiPath('/admin/api/tenants'), { credentials: 'same-origin' });
     const data = await readJson(response);
     if (response.ok) tenants = data.tenants || [];
+  }
+
+  function hasAccountManagementAccess() {
+    return Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin' || role === 'business_owner'));
+  }
+
+  async function loadAccounts(selectedTenant = tenant) {
+    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
+    const data = await readJson(response);
+    accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
   }
 
   async function restoreSession() {
@@ -370,6 +400,27 @@
     newTenantKey = '';
     newTenantName = '';
     await loadTenants();
+  }
+
+  async function createAccount() {
+    accountStatus = 'Creating access...';
+    accountError = false;
+    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole] })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      accountStatus = data.error || 'Could not create access.';
+      accountError = true;
+      return;
+    }
+    accountStatus = `${data.account.email} can now sign in.`;
+    accountEmail = '';
+    accountPassword = '';
+    await loadAccounts(tenant);
   }
 
   async function selectTenant(nextTenant: string) {
@@ -640,6 +691,7 @@
         <a href="#delivery">Delivery</a>
         <a href="#profile">Business profile</a>
         <a href="#branches">Branches</a>
+        {#if canManageAccounts}<a href="#team">Team</a>{/if}
         {#if isPlatform}<button class="nav-button" type="button" on:click={() => (showCreateTenant = !showCreateTenant)}>Tenants</button>{/if}
       </nav>
       <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : 'Business owner'}</span></div>
@@ -662,6 +714,30 @@
             <button class="primary" type="submit">Create tenant</button>
           </form>
           {#if createStatus}<p class="form-status">{createStatus}</p>{/if}
+        </section>
+      {/if}
+
+      {#if canManageAccounts}
+        <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
+          <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
+          <form class="team-form" on:submit|preventDefault={createAccount}>
+            <label>Email<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
+            {#if isPlatform}
+              <label>Access level<select bind:value={accountRole}><option value="business_owner">Business owner</option><option value="business_staff">Business staff</option></select></label>
+            {:else}
+              <label>Access level<input value="Business staff" readonly aria-readonly="true" /></label>
+            {/if}
+            <label>Temporary password<input bind:value={accountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
+            <button class="primary" type="submit">Add access</button>
+          </form>
+          <div class="account-list" aria-live="polite">
+            {#each accounts as account}
+              <div class="account-row"><strong>{account.email}</strong><span>{account.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span><span class:account-inactive={!account.active}>{account.active ? 'Active' : 'Inactive'}</span></div>
+            {:else}
+              <p class="empty-state">No team access has been added for this business.</p>
+            {/each}
+          </div>
+          {#if accountStatus}<p class:error={accountError} class="form-status team-status">{accountStatus}</p>{/if}
         </section>
       {/if}
 
@@ -849,6 +925,12 @@
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
   .operator-panel p:not(.eyebrow) { margin-bottom: 0; color: #526172; line-height: 1.45; }
   .tenant-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; }
+  .team-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .account-list { display: grid; }
+  .account-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px 90px; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #edf0f4; color: #526172; font-size: 13px; }
+  .account-row strong { color: #172033; overflow-wrap: anywhere; }
+  .account-inactive { color: #b42318; }
+  .team-status { display: block; margin: 14px 20px 20px; }
   .content-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: 20px; align-items: start; }
   .surface { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; }
   .surface-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
@@ -918,6 +1000,6 @@
   .hours-grid input { font-size: 12px; text-transform: none; }
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
-  @media (max-width: 900px) { .content-grid, .operator-panel { grid-template-columns: 1fr; } .tenant-form { grid-template-columns: 1fr; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields { grid-template-columns: 1fr; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
+  @media (max-width: 900px) { .content-grid, .operator-panel { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .account-row { grid-template-columns: 1fr; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
 </style>

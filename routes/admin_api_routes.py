@@ -9,7 +9,7 @@ from flask import Blueprint, abort, jsonify, request, session
 from jsonschema.exceptions import ValidationError
 
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
-from routes.tenancy import require_admin_role, require_platform_operator, resolve_admin_tenant
+from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
@@ -140,6 +140,49 @@ def api_tenants_post():
         return jsonify({"error": str(exc)}), 400
     _audit("tenant.create", created["key"], after=created)
     return jsonify({"ok": True, "tenant": created}), 201
+
+
+def _may_manage_accounts() -> bool:
+    return is_platform_operator() or "business_owner" in user_roles()
+
+
+def _account_roles(data: Dict[str, Any]) -> List[str]:
+    roles = data.get("roles")
+    return roles if isinstance(roles, list) else []
+
+
+@bp.get("/accounts")
+def api_accounts_get():
+    if not _may_manage_accounts():
+        abort(403, description="account_management_forbidden")
+    from service.account_service import AccountService
+
+    return jsonify({"accounts": AccountService(_storage()).list_accounts(_tenant())})
+
+
+@bp.post("/accounts")
+def api_accounts_post():
+    if not _may_manage_accounts():
+        abort(403, description="account_management_forbidden")
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "account_payload_must_be_object"}), 400
+
+    roles = _account_roles(data)
+    if not is_platform_operator() and set(roles) != {"business_staff"}:
+        abort(403, description="owner_can_only_create_staff")
+
+    tenant = _tenant()
+    from service.account_service import AccountService
+
+    try:
+        account = AccountService(_storage()).create_account(tenant, data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    _audit("account.create", f"{tenant}/{account['id']}", after=account)
+    return jsonify({"ok": True, "account": account}), 201
 
 
 @bp.get("/catalog")

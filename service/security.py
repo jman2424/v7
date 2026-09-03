@@ -1,8 +1,8 @@
 # service/security.py
 from __future__ import annotations
 
-import os
 import json
+import os
 import hmac
 import base64
 import hashlib
@@ -160,6 +160,19 @@ def _business_users() -> list[Dict[str, Any]]:
     return [user for user in users if isinstance(user, dict)] if isinstance(users, list) else []
 
 
+def _stored_business_users(c: Any, tenant: str) -> list[Dict[str, Any]]:
+    """Load tenant-local accounts without making account records public."""
+    if c is None or not tenant:
+        return []
+    try:
+        from service.account_service import ACCOUNT_FILE
+
+        users = c.storage.read_json(tenant, ACCOUNT_FILE)
+    except (FileNotFoundError, ValueError, OSError, AttributeError, json.JSONDecodeError):
+        return []
+    return [user for user in users if isinstance(user, dict)] if isinstance(users, list) else []
+
+
 def authenticate_user(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
@@ -190,9 +203,11 @@ def authenticate_user(
         }
 
     target_tenant = (tenant or "").strip()
-    for configured in _business_users():
+    for configured in [*_business_users(), *_stored_business_users(c, target_tenant)]:
         configured_email = str(configured.get("email") or "").strip().lower()
         configured_tenant = str(configured.get("tenant") or "").strip()
+        if not configured_tenant:
+            configured_tenant = target_tenant
         password_hash = str(configured.get("password_hash") or "")
         roles = configured.get("roles") or ["business_owner"]
         if not isinstance(roles, list):
@@ -201,6 +216,7 @@ def authenticate_user(
             configured_email
             and configured_tenant
             and password_hash
+            and configured.get("active") is not False
             and hmac.compare_digest(email_norm, configured_email)
             and hmac.compare_digest(target_tenant, configured_tenant)
             and verify_password(password_norm, password_hash)
