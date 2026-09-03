@@ -84,7 +84,7 @@
     email: string;
     phone: string;
     website: string;
-    halal_certified: boolean;
+    legacyHalalCertified: boolean;
     certifications: string[];
     social: Record<string, string>;
   };
@@ -115,7 +115,7 @@
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
   let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
-  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', halal_certified: false, certifications: [], social: {} };
+  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
   let branches: Branch[] = [];
   let agentSettings: AgentSettings = { tone: { style: 'friendly', max_sentences: 2 } };
   let snippet = '';
@@ -231,7 +231,7 @@
     const social = Object.fromEntries(Object.entries(socialSource).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, String(item)]));
     return {
       name: String(source.name || ''), about: String(source.about || ''), email: String(source.email || ''), phone: String(source.phone || ''), website: String(source.website || ''),
-      halal_certified: source.halal_certified === true, certifications: stringList(source.certifications), social
+      legacyHalalCertified: source.halal_certified === true, certifications: stringList(source.certifications), social
     };
   }
 
@@ -587,7 +587,7 @@
     profileError = false;
     const payload = {
       name: profile.name.trim(), about: profile.about.trim(), email: profile.email.trim(), phone: profile.phone.trim(), website: profile.website.trim(),
-      halal_certified: Boolean(profile.halal_certified), certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
+      halal_certified: profile.legacyHalalCertified, certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
       social: Object.fromEntries(Object.entries(profile.social).map(([key, value]) => [key, value.trim()]).filter(([, value]) => Boolean(value)))
     };
     if (!payload.name) {
@@ -849,7 +849,6 @@
             <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
             <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
-            <label class="collection-toggle"><input bind:checked={profile.halal_certified} type="checkbox" /><span>Halal-certified business</span></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
             <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">Save profile</button></div>
           </form>
