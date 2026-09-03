@@ -140,7 +140,9 @@
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
 
   function apiPath(path: string) {
-    return `/api${path}`;
+    // The dev server proxies API requests. In production Flask serves this
+    // console at /console, so direct same-origin requests retain its session.
+    return import.meta.env.DEV ? `/api${path}` : path;
   }
 
   async function readJson(response: Response) {

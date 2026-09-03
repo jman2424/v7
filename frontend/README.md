@@ -18,8 +18,9 @@ configured in `V7_BACKEND_ORIGIN` (default: `http://127.0.0.1:5055`).
 
 ## Production boundary
 
-Serve the compiled SvelteKit app and Flask API behind the same HTTPS origin.
-Route `/api/*` to Flask after removing the `/api` prefix. This keeps the
-session cookie same-origin and avoids enabling permissive admin CORS.
+The production Docker image compiles this app and Flask serves it at
+`/console` on the same HTTPS origin as the API. This keeps the session cookie
+same-origin and avoids enabling permissive admin CORS. The development server
+continues to use its local `/api` proxy.
 
 Do not expose the Flask admin API directly to arbitrary browser origins.

@@ -75,6 +75,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
     from routes.mode_routes import bp as mode_bp
+    from routes.owner_console_routes import bp as owner_console_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -86,6 +87,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
     app.register_blueprint(mode_bp)
+    app.register_blueprint(owner_console_bp)
 
     # Admin API (dashboard)
     try:

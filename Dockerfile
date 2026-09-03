@@ -1,3 +1,15 @@
+# --- Build the owner console ---
+FROM node:20-alpine AS owner-console-build
+
+WORKDIR /console
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+ENV V7_CONSOLE_BASE_PATH=/console
+RUN npm run build
+
 # --- Base image ---
 FROM python:3.11-slim AS base
 
@@ -22,6 +34,7 @@ RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 # --- Copy source ---
 COPY . /app
+COPY --from=owner-console-build /console/build /app/frontend/build
 
 # Ensure runtime dirs exist
 RUN mkdir -p /app/logs /app/backups /app/business && chown -R appuser:appuser /app
