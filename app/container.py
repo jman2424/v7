@@ -94,7 +94,8 @@ class Container:
         self.faq = FAQStore(self.storage)
         self.synonyms = SynonymsStore(self.storage)
         self.overrides = OverridesStore(self.storage)
-        self.business_name = self._load_business_name()
+        self.business_profile = self._load_business_profile()
+        self.business_name = str(self.business_profile.get("name") or "").strip()
 
         # ---------- Services ----------
         self.analytics = AnalyticsService(self.settings)
@@ -148,6 +149,7 @@ class Container:
             synonyms=self.synonyms,
             overrides=self.overrides,
             business_name=self.business_name,
+            business_profile=self.business_profile,
         )
 
         self.handler = MessageHandler(deps)
@@ -178,11 +180,11 @@ class Container:
             return
         self._tenant_containers.pop(tenant_key, None)
 
-    def _load_business_name(self) -> str:
+    def _load_business_profile(self) -> Dict[str, object]:
         try:
             profile = self.storage.read_json(self.settings.BUSINESS_KEY, "store_info.json")
         except (FileNotFoundError, ValueError):
-            return ""
+            return {}
         if not isinstance(profile, dict):
-            return ""
-        return str(profile.get("name") or "").strip()
+            return {}
+        return profile

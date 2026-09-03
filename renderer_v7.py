@@ -351,9 +351,13 @@ class RendererV7:
     ) -> str:
         faq = facts.get("faq") or {}
         answer = (faq.get("answer") or "").strip()
+        store_info = facts.get("store_info") or {}
+        store_answer = (store_info.get("answer") or "").strip()
 
         if answer:
             return self._append_cta(answer)
+        if store_answer:
+            return self._append_cta(store_answer)
 
         delivery = facts.get("delivery") or {}
         postcode = (

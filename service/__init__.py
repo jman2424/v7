@@ -129,6 +129,7 @@ class HandlerDeps:
     synonyms: SynonymsStoreLike
     overrides: OverridesStoreLike
     business_name: str
+    business_profile: Dict[str, Any]
 
 
 def make_message_handler(deps: HandlerDeps):

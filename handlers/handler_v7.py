@@ -121,6 +121,20 @@ class MessageHandlerV7:
     )
     _PHONE_CANDIDATE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
     _EMAIL_CANDIDATE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+    _STORE_INFO_PHRASES = (
+        "how can i contact",
+        "how do i contact",
+        "contact details",
+        "phone number",
+        "telephone number",
+        "email address",
+        "what is your number",
+        "what's your number",
+        "your website",
+        "website address",
+        "tell me about your business",
+        "about the business",
+    )
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
@@ -131,6 +145,8 @@ class MessageHandlerV7:
         self.overrides = getattr(deps, "overrides", None)
         self.logger = getattr(deps, "logger", None)
         self.business_name = str(getattr(deps, "business_name", "") or "").strip()
+        profile = getattr(deps, "business_profile", None)
+        self.business_profile = profile if isinstance(profile, dict) else {}
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         tone_style, max_sentences = self._tone_settings()
@@ -253,6 +269,22 @@ class MessageHandlerV7:
                     intent="human_handoff",
                     plan=plan,
                     facts={},
+                    entities={},
+                    items=[],
+                )
+
+            store_info = self._store_info_answer(user_text)
+            if store_info:
+                plan = self._simple_plan("store_info", "STORE_INFO", session_snapshot)
+                facts = {"store_info": {"answer": store_info}}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="store_info",
+                    plan=plan,
+                    facts=facts,
                     entities={},
                     items=[],
                 )
@@ -596,6 +628,47 @@ class MessageHandlerV7:
     def _requests_handoff(self, user_text: str) -> bool:
         text = self._clean_text(user_text)
         return any(phrase in text for phrase in self._HANDOFF_PHRASES)
+
+    def _store_info_answer(self, user_text: str) -> Optional[str]:
+        text = self._clean_text(user_text)
+        if not text:
+            return None
+
+        is_contact_question = (
+            any(phrase in text for phrase in self._STORE_INFO_PHRASES)
+            or bool(re.search(r"\b(contact|phone|telephone|email|website)\b", text))
+        )
+        is_about_question = "about" in text and any(word in text for word in ("business", "company", "store"))
+        if not is_contact_question and not is_about_question:
+            return None
+
+        name = str(self.business_profile.get("name") or self.business_name or "the business").strip()
+        phone = str(self.business_profile.get("phone") or "").strip()
+        email = str(self.business_profile.get("email") or "").strip()
+        website = str(self.business_profile.get("website") or "").strip()
+        about = str(self.business_profile.get("about") or "").strip()
+
+        if is_about_question and about:
+            return about
+
+        if "website" in text and website:
+            return f"{name}'s website is {website}."
+
+        contact_options: List[str] = []
+        if phone:
+            contact_options.append(f"phone at {phone}")
+        if email:
+            contact_options.append(f"email at {email}")
+        if contact_options:
+            if len(contact_options) == 1:
+                answer = f"You can contact {name} by {contact_options[0]}."
+            else:
+                answer = f"You can contact {name} by {contact_options[0]} or {contact_options[1]}."
+            if website and "website" not in text:
+                answer = f"{answer} You can also visit {website}."
+            return answer
+
+        return "Contact details are not configured for this business yet."
 
     @staticmethod
     def _has_pending_handoff(session: Dict[str, Any]) -> bool:

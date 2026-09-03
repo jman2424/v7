@@ -314,7 +314,9 @@ class Rewriter:
 
         # clean awkward spacing around punctuation
         s = re.sub(r"\s+([,.;:!?])", r"\1", s)
-        s = re.sub(r"([,.;:!?])([A-Za-z])", r"\1 \2", s)
+        # Do not insert spaces after periods: that would corrupt email addresses
+        # and website domains in grounded business contact details.
+        s = re.sub(r"([,;:!?])([A-Za-z])", r"\1 \2", s)
 
         # capitalization
         if s and not s[0].isupper():

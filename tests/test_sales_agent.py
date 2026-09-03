@@ -177,7 +177,7 @@ def test_v7_answers_a_tenant_faq_without_requiring_a_model(app):
     storage.write_json(
         tenant,
         "store_info.json",
-        {"name": "Northstar Travel", "about": "", "email": "", "phone": "", "website": "", "certifications": [], "social": {}},
+        {"name": "Northstar Travel", "about": "Travel bags for frequent flyers.", "email": "hello@northstar.example", "phone": "+1 212 555 0198", "website": "https://northstar.example", "certifications": [], "social": {}},
         schema="store_info.schema.json",
         snapshot=False,
     )
@@ -193,6 +193,17 @@ def test_v7_answers_a_tenant_faq_without_requiring_a_model(app):
     assert response["facts"]["faq"]["answer"] == "Every Northstar Travel bag includes a two-year warranty."
     assert response["reply"] == "Every Northstar Travel bag includes a two-year warranty."
     assert response["agent"]["stage"] == "assist"
+
+    contact = app.container.for_tenant(tenant).handler.handle(
+        "How can I contact you?",
+        tenant=tenant,
+        session_id="travel-contact",
+        channel="web",
+    )
+
+    assert contact["intent"] == "store_info"
+    assert "+1 212 555 0198" in contact["reply"]
+    assert "hello@northstar.example" in contact["reply"]
 
 
 def test_v7_applies_the_saved_tenant_response_length(app):
