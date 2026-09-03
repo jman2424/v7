@@ -127,7 +127,7 @@ def webhook_receive():
         except Exception:
             pass
 
-        logger.info("WA IN: source=twilio tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, body)
+        logger.info("WA IN: source=twilio tenant=%s message_len=%s", tenant, len(body))
 
         # Handle
         if handler is None:
@@ -164,7 +164,7 @@ def webhook_receive():
         intent = (result.get("intent") or "unknown").strip()
         is_fallback = (intent == "system_fallback")
 
-        logger.info("WA OUT: source=twilio tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
+        logger.info("WA OUT: source=twilio tenant=%s intent=%s reply_len=%s", tenant, intent, len(reply))
 
         # ✅ outbound message row (fallback is a flag on msg_out)
         try:
@@ -244,7 +244,7 @@ def webhook_receive():
             except Exception:
                 pass
 
-            logger.info("WA IN: source=cloud tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, text)
+            logger.info("WA IN: source=cloud tenant=%s message_len=%s", tenant, len(text))
 
             # Handle
             if handler is None:
@@ -278,7 +278,7 @@ def webhook_receive():
             intent = (result.get("intent") or "unknown").strip()
             is_fallback = (intent == "system_fallback")
 
-            logger.info("WA OUT: source=cloud tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
+            logger.info("WA OUT: source=cloud tenant=%s intent=%s reply_len=%s", tenant, intent, len(reply))
 
             # ✅ outbound
             try:
@@ -327,5 +327,5 @@ def webhook_receive():
 @bp.route("/status", methods=["POST", "GET"])
 def whatsapp_status():
     form = request.form.to_dict()
-    logger.info("WA STATUS: %s", form)
+    logger.info("WA STATUS: received fields=%s", len(form))
     return Response(status=204)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -71,6 +72,27 @@ def test_chat_api_only_returns_cors_headers_for_tenant_allowlist(client, app):
     assert allowed.headers["Access-Control-Allow-Origin"] == "https://www.example.test"
     assert denied.status_code == 403
     assert denied.get_json()["error"] == "origin_forbidden"
+
+
+def test_chat_api_keeps_customer_content_out_of_operational_logs(client, caplog):
+    caplog.set_level(logging.INFO)
+    caplog.clear()
+    message = "Please call +447123456789 or email customer@example.test"
+    session_id = "web-session-private"
+
+    response = client.post(
+        "/chat_api",
+        data=json.dumps({"tenant": "EXAMPLE", "message": message, "session_id": session_id}),
+        headers={"Content-Type": "application/json"},
+    )
+
+    logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert response.status_code == 200
+    assert message not in logs
+    assert "+447123456789" not in logs
+    assert "customer@example.test" not in logs
+    assert session_id not in logs
+    assert "text_len=" in logs
 
 
 def test_embed_script_and_hosted_chat_are_tenant_scoped(client):

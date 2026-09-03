@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -264,3 +265,24 @@ def test_v7_captures_a_voluntary_handoff_phone_in_the_tenant_lead(app):
     assert captured["entities"]["phone"] == "+447123456789"
     assert captured["agent"]["next_action"] == "team_follow_up"
     assert any(lead["phone"] == "+447123456789" for lead in leads)
+
+
+def test_v7_keeps_customer_content_out_of_operational_logs(app, caplog):
+    caplog.set_level(logging.INFO)
+    caplog.clear()
+    customer_message = "Please call +447123456789 or email customer@example.test"
+    session_id = "customer-session-private"
+
+    app.container.handler.handle(
+        customer_message,
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+
+    logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert customer_message not in logs
+    assert "+447123456789" not in logs
+    assert "customer@example.test" not in logs
+    assert session_id not in logs
+    assert "text_len=" in logs

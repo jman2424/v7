@@ -176,15 +176,21 @@ class MessageHandlerV7:
             "last_category": (sess or {}).get("last_category"),
             "last_sku": (sess or {}).get("last_sku"),
         }
+        session_state = {
+            "has_postcode": bool(session_snapshot["postcode"]),
+            "last_intent": session_snapshot["last_intent"],
+            "has_category": bool(session_snapshot["last_category"]),
+            "has_sku": bool(session_snapshot["last_sku"]),
+        }
 
         self._info(
             request_id,
             "V7.start",
             tenant=tenant,
-            session=session_id,
             channel=channel,
-            text=self._clip(user_text, 240),
-            sess=session_snapshot,
+            session_present=bool(session_id and session_id != "unknown"),
+            text_len=len(user_text),
+            session_state=session_state,
         )
 
         try:

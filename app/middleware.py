@@ -120,7 +120,12 @@ def install_csrf(app: Flask, settings: Settings) -> None:
         got = _read_csrf_from_request()
 
         if not expected or not got or got != expected:
-            app.logger.warning("CSRF blocked: method=%s path=%s got=%r", request.method, path, got)
+            app.logger.warning(
+                "CSRF blocked: method=%s path=%s token_present=%s",
+                request.method,
+                path,
+                bool(got),
+            )
             abort(403, description="csrf_failed")
 
 

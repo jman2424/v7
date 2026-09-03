@@ -288,8 +288,8 @@ class WidgetBridge:
 
         if not ok:
             logger.debug(
-                "is_chat_message: empty/invalid text=%r %s",
-                _safe_str(text),
+                "is_chat_message: empty/invalid text_type=%s %s",
+                type(text).__name__,
                 _log_ctx(req_id),
             )
         return ok
@@ -309,8 +309,8 @@ class WidgetBridge:
             meta = {}
 
         logger.debug(
-            "parse_chat_message: session_id=%r tenant=%r text_len=%d meta_keys=%d %s",
-            sess,
+            "parse_chat_message: session_present=%s tenant=%r text_len=%d meta_keys=%d %s",
+            bool(sess),
             tenant,
             len(text),
             len(meta.keys()),
@@ -378,7 +378,7 @@ def parse_inbound(
         logger.warning(
             "parse_inbound: payload not dict type=%s %s",
             type(payload),
-            _log_ctx(rid, remote_addr=remote_addr),
+            _log_ctx(rid),
         )
         return events
 
@@ -387,7 +387,7 @@ def parse_inbound(
         logger.info(
             "parse_inbound: empty text message_keys=%s %s",
             list(payload.keys()),
-            _log_ctx(rid, remote_addr=remote_addr),
+            _log_ctx(rid),
         )
         return events
 
@@ -404,14 +404,13 @@ def parse_inbound(
     metadata["client_message_id"] = message_id
 
     logger.info(
-        "parse_inbound: ok session_id=%s channel=%s tenant=%s mid=%s text_len=%d meta_keys=%d %s",
-        session_id,
+        "parse_inbound: ok session_present=%s channel=%s tenant=%s text_len=%d meta_keys=%d %s",
+        bool(session_id),
         channel,
         tenant,
-        message_id,
         len(text),
         len(metadata.keys()),
-        _log_ctx(rid, remote_addr=remote_addr),
+        _log_ctx(rid),
     )
 
     # Keep raw payload, but DO NOT log it here (too noisy + may contain PII).
@@ -451,8 +450,8 @@ def send_reply(
     raw_out = raw or {}
 
     logger.info(
-        "send_reply: session_id=%s reply_len=%d raw_keys=%d %s",
-        session_id,
+        "send_reply: session_present=%s reply_len=%d raw_keys=%d %s",
+        bool(session_id),
         len(reply_str),
         len(raw_out.keys()) if isinstance(raw_out, dict) else 0,
         _log_ctx(rid),

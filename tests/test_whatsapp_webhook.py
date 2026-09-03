@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import hmac
 import hashlib
+import logging
 import pytest
 
 
@@ -56,3 +57,22 @@ def test_webhook_inbound_dispatch_ok(client, monkeypatch):
     if r.is_json:
         status = (r.get_json() or {}).get("status", "").lower()
         assert status in ("ok", "accepted", "queued", "")
+
+
+def test_twilio_webhook_keeps_customer_content_out_of_operational_logs(client, caplog):
+    caplog.set_level(logging.INFO)
+    caplog.clear()
+    message = "Please call +447123456789 or email customer@example.test"
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={"Body": message, "From": "whatsapp:+447123456789"},
+        content_type="application/x-www-form-urlencoded",
+    )
+
+    logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert response.status_code == 200
+    assert message not in logs
+    assert "+447123456789" not in logs
+    assert "customer@example.test" not in logs
+    assert "message_len=" in logs

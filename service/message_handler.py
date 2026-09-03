@@ -204,8 +204,8 @@ class MessageHandler:
             guarded = self.sales_agent.guide(guarded, user_text=user_text, session=sess)
             self._save_session(ctx, sess, guarded)
             logger.info(
-                "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s intent=%s text=%r",
-                ctx.tenant, ctx.session_id, ctx.channel, mode, rid, guarded.get("intent"), user_text[:120],
+                "DISPATCH_GUARDED tenant=%s channel=%s mode=%s rid=%s intent=%s session_present=%s text_len=%s",
+                ctx.tenant, ctx.channel, mode, rid, guarded.get("intent"), bool(ctx.session_id), len(user_text),
             )
             self._telemetry(
                 ctx,
@@ -222,8 +222,8 @@ class MessageHandler:
             return guarded
 
         logger.info(
-            "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
-            ctx.tenant, ctx.session_id, ctx.channel, mode, rid, user_text[:120],
+            "DISPATCH tenant=%s channel=%s mode=%s rid=%s session_present=%s text_len=%s",
+            ctx.tenant, ctx.channel, mode, rid, bool(ctx.session_id), len(user_text),
         )
 
         self._telemetry(
@@ -240,8 +240,8 @@ class MessageHandler:
             reply = self.h_v7.handle(user_text, ctx, sess)
 
         logger.info(
-            "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
-            ctx.tenant, ctx.session_id, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
+            "DISPATCH_RESULT tenant=%s mode=%s rid=%s intent=%s keys=%s",
+            ctx.tenant, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
         )
 
         reply = self._validate_reply(reply, user_text, ctx, sess)

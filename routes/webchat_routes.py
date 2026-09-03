@@ -350,12 +350,12 @@ def chat_api():
     message_id = _extract_message_id(ev)
 
     logger.info(
-        "WEB IN: tenant=%s session=%s channel=%s mid=%s text=%r",
+        "WEB IN: tenant=%s channel=%s mid=%s session_present=%s text_len=%s",
         tenant,
-        session_id,
         channel,
         message_id or "-",
-        text,
+        bool(session_id),
+        len(text),
     )
 
     lead_id = _lead_id_from_session(session_id)
@@ -418,9 +418,8 @@ def chat_api():
     is_fallback = _is_fallback_result(result, intent)
 
     logger.info(
-        "WEB OUT: tenant=%s session=%s intent=%s fallback=%s error=%s reply_len=%s",
+        "WEB OUT: tenant=%s intent=%s fallback=%s error=%s reply_len=%s",
         tenant,
-        session_id,
         intent,
         is_fallback,
         is_error,

@@ -87,9 +87,8 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
     disable_flag = (os.getenv(CATALOG_WEBHOOK_DISABLE_HMAC_ENV, "") or "").strip().lower()
     if disable_flag in ("1", "true", "yes", "on"):
         current_app.logger.warning(
-            "Catalog webhook: HMAC verification DISABLED via %s (value=%r); accepting all POSTs",
+            "Catalog webhook: HMAC verification disabled via %s; accepting all POSTs",
             CATALOG_WEBHOOK_DISABLE_HMAC_ENV,
-            disable_flag,
         )
         return True
 
@@ -109,19 +108,13 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
             if "=" in p
         )
     except Exception:
-        current_app.logger.warning(
-            "Catalog webhook: bad X-Catalog-Signature format: %s",
-            header,
-        )
+        current_app.logger.warning("Catalog webhook: bad X-Catalog-Signature format")
         return False
 
     ts = parts.get("t")
     sig_hex = parts.get("s")
     if not ts or not sig_hex:
-        current_app.logger.warning(
-            "Catalog webhook: missing t or s in signature header: %s",
-            header,
-        )
+        current_app.logger.warning("Catalog webhook: missing t or s in signature header")
         return False
 
     # Timestamp check (5 min window)
@@ -155,23 +148,17 @@ def _verify_catalog_signature(raw_body: bytes) -> bool:
         digestmod=hashlib.sha256,
     ).hexdigest()
 
-    body_sha256 = hashlib.sha256(raw_body).hexdigest()
-
-    # Loud debug so you can compare with Apps Script logs
     current_app.logger.warning(
-        "Catalog webhook debug: header=%s ts=%s now=%s delta=%s body_sha256=%s expected_hmac=%s got_hmac=%s",
-        header,
+        "Catalog webhook signature checked: ts=%s now=%s delta=%s body_len=%s",
         ts,
         now,
         delta,
-        body_sha256,
-        expected,
-        sig_hex,
+        len(raw_body),
     )
 
     ok = hmac.compare_digest(expected, sig_hex)
     if not ok:
-        current_app.logger.warning("Catalog webhook: signature mismatch (see debug line above)")
+        current_app.logger.warning("Catalog webhook: signature mismatch")
     return ok
 
 
@@ -198,12 +185,7 @@ def catalog_webhook() -> Response:
 
     try:
         rows_count = len(rows) if isinstance(rows, list) else "n/a"
-        sample = rows[:3] if isinstance(rows, list) else rows
-        current_app.logger.warning(
-            "Catalog webhook: received rows_count=%s sample=%r",
-            rows_count,
-            sample,
-        )
+        current_app.logger.info("Catalog webhook: received rows_count=%s", rows_count)
     except Exception:
         current_app.logger.exception("Catalog webhook: failed to log incoming rows")
 
@@ -293,4 +275,3 @@ def export_catalog_csv() -> Response:
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=catalog.csv"},
     )
-

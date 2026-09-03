@@ -77,8 +77,10 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             )
         else:
             logger.debug(
-                "parse_inbound(Twilio): missing wa_id/body; form=%r",
-                {k: form.get(k) for k in ["From", "WaId", "Body"]},
+                "parse_inbound(Twilio): missing wa_id/body has_from=%s has_wa_id=%s body_len=%s",
+                bool(form.get("From")),
+                bool(form.get("WaId")),
+                len(body),
             )
 
         return events
@@ -150,10 +152,7 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
     base_url = settings.WHATSAPP_API_URL or "https://graph.facebook.com/v21.0"
 
     if not token or not phone_id:
-        logger.warning(
-            "send_reply: missing WA Cloud API config (token/phone_id). Skipping send.",
-            extra={"wa_id": wa_id},
-        )
+        logger.warning("send_reply: missing WA Cloud API config (token/phone_id). Skipping send.")
         return
 
     url = f"{base_url.rstrip('/')}/{phone_id}/messages"
@@ -173,16 +172,6 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=8)
         if resp.status_code >= 400:
-            logger.warning(
-                "send_reply: WA Cloud API returned non-2xx",
-                extra={
-                    "status": resp.status_code,
-                    "body": resp.text[:500],
-                    "wa_id": wa_id,
-                },
-            )
-    except Exception as exc:
-        logger.exception(
-            "send_reply: exception while calling WA Cloud API",
-            extra={"wa_id": wa_id, "error": str(exc)},
-        )
+            logger.warning("send_reply: WA Cloud API returned status=%s", resp.status_code)
+    except Exception:
+        logger.exception("send_reply: exception while calling WA Cloud API")
