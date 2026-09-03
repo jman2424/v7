@@ -136,6 +136,22 @@ def test_faq_best_match(storage):
     assert deliv and "{delivery_summary}" in deliv.get("answer", "")
 
 
+def test_faq_best_match_uses_distinct_answer_terms():
+    fs = make_faq_store(
+        [
+            {
+                "q": "What certification do you have?",
+                "a": "Our products are HMC inspected.",
+                "tags": ["certification"],
+            }
+        ]
+    )
+
+    answer = fs.best_match("Do you have HMC inspection?", min_sim=0.45)
+
+    assert answer and "HMC" in answer.get("answer", "")
+
+
 def test_synonyms_merge_and_lookup(storage):
     syn = storage.load_json("EXAMPLE/synonyms.json")
     ss = make_synonyms_store(syn)

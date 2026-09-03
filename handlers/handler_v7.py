@@ -58,6 +58,13 @@ class MessageHandlerV7:
         "available", "stock", "buy", "purchase", "shop", "looking for", "need", "want",
     )
 
+    _EXPLICIT_SHOPPING_WORDS = (
+        "buy", "purchase", "price", "prices", "cost", "how much", "cheapest",
+        "offer", "deal", "recommend", "list", "catalog", "catalogue", "available",
+        "show", "browse", "view", "products", "items", "in stock", "do you have",
+        "have you got", "do you sell", "looking for", "need", "want",
+    )
+
     _SEARCH_STOP_WORDS = {
         "a", "an", "and", "any", "available", "buy", "catalog", "catalogue", "do",
         "for", "have", "i", "in", "is", "item", "items", "list", "looking", "me",
@@ -279,7 +286,24 @@ class MessageHandlerV7:
 
             # 3) Heuristic plan only if product-ish
             plan: Optional[Dict[str, Any]] = None
-            if self._looks_like_product_query(user_text):
+            product_query = self._looks_like_product_query(user_text)
+            faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
+            if faq and not (product_query and self._is_explicit_shopping_request(user_text)):
+                plan = self._simple_plan("faq", "FAQ_LOOKUP", session_snapshot)
+                facts = {"faq": faq}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="faq",
+                    plan=plan,
+                    facts=facts,
+                    entities={},
+                    items=[],
+                )
+
+            if product_query:
                 plan = self._heuristic_plan(user_text, request_id=request_id)
 
             # 4) Otherwise brain
@@ -493,6 +517,53 @@ class MessageHandlerV7:
                 return False
 
         return False
+
+    def _is_explicit_shopping_request(self, user_text: str) -> bool:
+        text = self._clean_text(user_text)
+        return any(word in text for word in self._EXPLICIT_SHOPPING_WORDS)
+
+    def _find_faq(
+        self,
+        user_text: str,
+        session: Dict[str, Any],
+        *,
+        request_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Find and safely render a tenant FAQ before asking the model to infer it."""
+        if not self.faq:
+            return None
+
+        try:
+            matches = self.faq.best_match(
+                user_text,
+                hint_tags=self._token_tags(user_text),
+                min_sim=0.45,
+            )
+        except Exception as exc:
+            self._exc(request_id, "V7.faq_lookup_failed", err=str(exc))
+            return None
+
+        if not matches or not isinstance(matches[0], dict):
+            return None
+
+        entry = matches[0]
+        placeholders: Dict[str, str] = {}
+        if self.business_name:
+            placeholders["business_name"] = self.business_name
+
+        postcode = self._normalize_postcode(str(session.get("postcode") or ""))
+        if postcode:
+            placeholders["postcode"] = postcode
+            if self.policy:
+                try:
+                    placeholders["delivery_summary"] = self.policy.delivery_summary(postcode) or ""
+                except Exception as exc:
+                    self._exc(request_id, "V7.faq_delivery_summary_failed", err=str(exc))
+
+        answer = self.faq.render_answer(entry, placeholders).strip()
+        if not answer:
+            return None
+        return {"question": str(entry.get("q") or ""), "answer": answer}
 
     # ------------------------------------------------------------------
     # Retry search

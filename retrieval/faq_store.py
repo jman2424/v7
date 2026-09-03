@@ -21,6 +21,16 @@ from retrieval.storage import Storage
 
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 
+# These words help form a sentence but say very little about its subject.  FAQ
+# matching must not choose an answer just because two questions both contain
+# "do you" or "what are".
+_QUESTION_WORDS = {
+    "a", "an", "and", "are", "can", "could", "do", "does", "every", "for",
+    "have", "how", "i", "if", "in", "is", "it", "me", "my", "of", "on",
+    "or", "our", "please", "the", "this", "to", "we", "what", "when", "where",
+    "which", "who", "will", "with", "would", "you", "your",
+}
+
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
@@ -28,6 +38,23 @@ def _norm(s: str) -> str:
 
 def _tokenize(s: str) -> List[str]:
     return [m.group(0).lower() for m in _WORD_RE.finditer(s or "")]
+
+
+def _meaningful_tokens(s: str) -> List[str]:
+    """Return stable topic words for matching tenant-maintained FAQ data."""
+    tokens: List[str] = []
+    for token in _tokenize(s):
+        if len(token) < 2 or token in _QUESTION_WORDS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+        # A lightweight singular form handles catalog/FAQ wording such as
+        # "bags" versus "bag" without requiring a language dependency.
+        if token.endswith("s") and len(token) > 3:
+            singular = token[:-1]
+            if singular not in tokens:
+                tokens.append(singular)
+    return tokens
 
 
 def _jaccard(a: List[str], b: List[str]) -> float:
@@ -71,6 +98,15 @@ class FAQStore:
             f["_q_norm"] = _norm(f.get("q", ""))
             f["_q_tokens"] = _tokenize(f.get("q", ""))
             f["_tags_norm"] = [ _norm(t) for t in (f.get("tags") or []) ]
+            f["_topic_tokens"] = _meaningful_tokens(
+                " ".join(
+                    [
+                        str(f.get("q", "")),
+                        str(f.get("a", "")),
+                        " ".join(str(tag) for tag in (f.get("tags") or [])),
+                    ]
+                )
+            )
 
     # -------- internal --------
 
@@ -104,11 +140,21 @@ class FAQStore:
         - If hint_tags provided, adds a small boost when tag intersects
         """
         q_tokens = _tokenize(user_question)
+        topic_tokens = _meaningful_tokens(user_question)
         tagset = set(_norm(t) for t in (hint_tags or []))
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for f in self._faqs:
-            sim = _jaccard(q_tokens, f["_q_tokens"])
+            candidate_topics = f.get("_topic_tokens") or []
+            # Topic coverage is intentionally based on the customer's terms,
+            # not sentence filler. Answers are included so that a tenant can
+            # support terms such as a certification that appear in the answer.
+            sim = _jaccard(topic_tokens, candidate_topics)
+            if topic_tokens and candidate_topics:
+                overlap = len(set(topic_tokens) & set(candidate_topics))
+                sim = max(sim, overlap / len(set(topic_tokens)))
+            elif not topic_tokens:
+                sim = _jaccard(q_tokens, f["_q_tokens"])
             if tagset and tagset.intersection(f["_tags_norm"]):
                 sim += 0.05
             if sim >= min_sim:

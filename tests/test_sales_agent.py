@@ -66,6 +66,23 @@ def test_sales_agent_moves_delivery_eligibility_to_product_selection():
     assert response["ui"]["suggested_replies"] == ["Nearest branch"]
 
 
+def test_sales_agent_leaves_a_grounded_faq_answer_uninterrupted():
+    policy = SalesAgentPolicy()
+    response = policy.guide(
+        {
+            "reply": "Every Northstar Travel bag includes a two-year warranty.",
+            "intent": "faq",
+            "facts": {"faq": {"answer": "Every Northstar Travel bag includes a two-year warranty."}},
+        },
+        user_text="Does every bag include a warranty?",
+        session={},
+    )
+
+    assert response["agent"]["stage"] == "assist"
+    assert response["agent"]["next_question"] == ""
+    assert response["reply"] == "Every Northstar Travel bag includes a two-year warranty."
+
+
 def test_greeting_reaches_agent_instead_of_the_short_input_guard(app):
     result = app.container.handler.handle(
         "hi",
@@ -137,3 +154,42 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
     assert len(catalog["facts"]["items"]) == 2
     assert "chicken" not in help_reply["reply"].lower()
     assert "lamb" not in help_reply["reply"].lower()
+
+
+def test_v7_answers_a_tenant_faq_without_requiring_a_model(app):
+    business_root = Path(app.container.storage.business_root)
+    tenant = "TRAVEL_FAQ"
+    shutil.copytree(business_root / "EXAMPLE", business_root / tenant)
+    storage = app.container.storage
+    storage.write_json(
+        tenant,
+        "faq.json",
+        [
+            {
+                "q": "What warranty do your bags include?",
+                "a": "Every Northstar Travel bag includes a two-year warranty.",
+                "tags": ["warranty", "bags"],
+            }
+        ],
+        schema="faq.schema.json",
+        snapshot=False,
+    )
+    storage.write_json(
+        tenant,
+        "store_info.json",
+        {"name": "Northstar Travel", "about": "", "email": "", "phone": "", "website": "", "certifications": [], "social": {}},
+        schema="store_info.schema.json",
+        snapshot=False,
+    )
+
+    response = app.container.for_tenant(tenant).handler.handle(
+        "Does every bag include a warranty?",
+        tenant=tenant,
+        session_id="travel-faq",
+        channel="web",
+    )
+
+    assert response["intent"] == "faq"
+    assert response["facts"]["faq"]["answer"] == "Every Northstar Travel bag includes a two-year warranty."
+    assert response["reply"] == "Every Northstar Travel bag includes a two-year warranty."
+    assert response["agent"]["stage"] == "assist"

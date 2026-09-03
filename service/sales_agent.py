@@ -129,6 +129,14 @@ class SalesAgentPolicy:
                 next_question="Would you like to check delivery or compare another option?",
                 suggested_replies=["Check delivery"],
             )
+        elif intent in {"faq", "store_info"}:
+            state.update(
+                stage="assist",
+                objective="Answer a grounded business question without interrupting the customer.",
+                next_action="await_customer_question",
+                next_question="",
+                suggested_replies=["Browse products", "Check delivery", "Nearest branch"],
+            )
         elif intent in {"system_no_results", "system_force_browse", "system_clarify"}:
             state.update(
                 stage="discover",
