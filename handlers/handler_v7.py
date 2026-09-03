@@ -23,7 +23,7 @@ class MessageHandlerV7:
     - Smalltalk/meta-AI handled locally.
     - Out-of-scope detection handled cleanly.
     - Delivery / nearest-branch logic preserved.
-    - Product typo handling restored (e.g. chciken -> chicken).
+    - Product typo handling delegated to the tenant catalog search.
     - Better product-ish detection.
     - One safe retry search for empty product results.
     """
@@ -51,28 +51,25 @@ class MessageHandlerV7:
         "what time is it in",
     )
 
-    _MEATS = ("chicken", "beef", "lamb", "goat")
-
-    _TOPIC_WORDS = (
-        "steak", "chops", "wing", "wings", "mince", "kofta", "breast", "thigh",
-        "drumstick", "drumsticks", "ribs", "rib", "fillet", "fillets", "sirloin",
-        "ribeye", "rump", "leg", "shoulder", "neck", "shank", "burger", "burgers",
-        "patty", "patties", "liver", "kidney", "kidneys", "paya", "feet",
-        "nugget", "nuggets", "kebab", "kebabs",
-    )
-
     _BUY_WORDS = (
         "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
         "recommend", "recommendation", "suggest", "suggestion", "options", "list",
-        "full list", "family pack", "bbq", "barbecue", "grill", "grilling", "curry",
+        "full list", "catalog", "catalogue", "product", "products", "item", "items",
+        "available", "stock", "buy", "purchase", "shop", "looking for", "need", "want",
     )
 
-    _MEAT_ALIASES = {
-        "poultry": "chicken",
-        "hen": "chicken",
-        "mutton": "lamb",
-        "cow": "beef",
+    _SEARCH_STOP_WORDS = {
+        "a", "an", "and", "any", "available", "buy", "catalog", "catalogue", "do",
+        "for", "have", "i", "in", "is", "item", "items", "list", "looking", "me",
+        "need", "of", "product", "products", "recommend", "show", "some", "the",
+        "to", "want", "what", "with", "you", "your",
     }
+
+    _BROWSE_ALL_PAT = re.compile(
+        r"\b(show|browse|list|see|view)?\s*(all|full|entire|whole)?\s*"
+        r"(products?|items?|catalog|catalogue|range)\b",
+        re.I,
+    )
 
     _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
     _POSTCODE_OUTWARD = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", re.I)
@@ -310,7 +307,7 @@ class MessageHandlerV7:
 
             # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
-                reply_text = "Tell me what you want: products (e.g. chicken wings) or delivery (e.g. E7 9QS)."
+                reply_text = "Tell me what you need: a product, price, delivery, or branch information."
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -373,7 +370,7 @@ class MessageHandlerV7:
             )
 
         if "help" in t:
-            return "Sure — tell me what you need. For example: chicken wings, lamb chops, or delivery to E7 9QS."
+            return "Sure — tell me what you need. I can help you browse products, compare prices, check delivery, or find a branch."
 
         if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
             return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
@@ -484,13 +481,9 @@ class MessageHandlerV7:
             except Exception:
                 logger.debug("V7 catalog probe failed", exc_info=True)
 
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
-            return True
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
-            return True
         if any(w in t for w in self._BUY_WORDS):
             return True
-        if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
+        if re.search(r"[$£€]", user_text) or re.search(r"\b(under|below|less than)\b", t):
             return True
 
         toks = t.split()
@@ -498,8 +491,6 @@ class MessageHandlerV7:
             tok = toks[0]
             if tok in {"ai", "bot"}:
                 return False
-            if tok in set(self._TOPIC_WORDS) or tok in set(self._MEATS):
-                return True
 
         return False
 
@@ -525,22 +516,19 @@ class MessageHandlerV7:
         if not tokens or len(tokens) > 3:
             return None
 
-        cut = None
-        for t in tokens:
-            if t in set(self._TOPIC_WORDS) or t in set(self._MEATS):
-                cut = t
-                break
-        if not cut:
-            return None
-
         try:
             limit = int(meta.get("max_items") or 12)
         except Exception:
             limit = 12
 
-        tags = self._token_tags(cut)
-        self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
-        return self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
+        for token in reversed(tokens):
+            if token in self._SEARCH_STOP_WORDS:
+                continue
+            items = self._catalog_search_safe(request_id, query=token, tags=[token], limit=limit)
+            if items:
+                self._info(request_id, "V7.catalog.retry", token=token, limit=limit)
+                return items
+        return None
 
     # ------------------------------------------------------------------
     # Wrappers / request helpers
@@ -640,35 +628,27 @@ class MessageHandlerV7:
             except Exception:
                 max_price = None
 
-        tags: List[str] = []
-        if re.search(r"\b(bbq|barbecue)\b", t):
-            tags.append("bbq")
-        if re.search(r"\b(marinated|marinaded|marinted)\b", t):
-            tags.append("marinated")
-        if re.search(r"\bboneless\b", t):
-            tags.append("boneless")
-
-        return {"sort": sort, "max_price": max_price, "tags": tags}
+        return {"sort": sort, "max_price": max_price, "tags": []}
 
     def _required_terms_from_text(self, text: str) -> List[str]:
         t = self._normalize_text(text)
         if not t:
             return []
-        out: List[str] = []
-        for w in self._TOPIC_WORDS:
-            if re.search(rf"\b{re.escape(w)}\b", t):
-                out.append(w)
-        return out
+        return [
+            token
+            for token in t.split()
+            if token not in self._SEARCH_STOP_WORDS and self._catalog_has_match(token)
+        ]
 
     def _strip_modifier_words(self, text: str) -> str:
         s = self._normalize_text(text)
         s = re.sub(
             r"\b(cheapest|chepest|cheap|lowest|low|most|expensive|highest|premium|best|"
-            r"under|below|less|than|boneless|bbq|barbecue|marinated|marinted)\b",
+            r"under|below|less|than)\b",
             " ",
             s,
         )
-        s = s.replace("£", " ")
+        s = re.sub(r"[$£€]", " ", s)
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
@@ -679,8 +659,9 @@ class MessageHandlerV7:
 
         mods = self._parse_modifiers(t)
         required = self._required_terms_from_text(t)
+        browse_all = bool(self._BROWSE_ALL_PAT.search(t))
 
-        core = self._strip_modifier_words(t) or t
+        core = "" if browse_all else (self._strip_modifier_words(t) or t)
         core = self._normalize_text(core)
 
         tags = self._token_tags(core)
@@ -694,13 +675,17 @@ class MessageHandlerV7:
             "sort": mods.get("sort"),
             "max_price": mods.get("max_price"),
             "required_terms": required,
+            "browse_all": browse_all,
+            "search_scope": "full_store" if browse_all else "top_picks",
+            "item_level": False,
+            "wants_chunking": browse_all,
         }
 
         return {
             "intent": "search_product",
             "action": "SEARCH_PRODUCTS",
             "category": None,
-            "product_name": core,
+            "product_name": core or None,
             "postcode": None,
             "sku": None,
             "handoff_channel": None,
@@ -714,6 +699,8 @@ class MessageHandlerV7:
             hints: Dict[str, Any] = {}
             if self.synonyms:
                 hints["synonyms"] = self.synonyms
+            if self.catalog:
+                hints["categories"] = self.catalog.categories()
 
             plan = self.brain.plan(
                 user_text=user_text,
@@ -809,11 +796,24 @@ class MessageHandlerV7:
             except Exception:
                 limit = 12
 
-            items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
+            if meta.get("browse_all") and self.catalog:
+                try:
+                    items = self.catalog.list_all_items()[:limit]
+                except Exception:
+                    items = []
+            else:
+                items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
             required = meta.get("required_terms") or self._required_terms_from_text(user_text)
             items = self._topic_enforce(items, required=required)
             items = self._post_filter_items(items, meta)
             facts["items"] = items
+            facts["currency"] = self._catalog_currency()
+            facts["search_meta"] = {
+                "scope": meta.get("search_scope") or "top_picks",
+                "item_level": bool(meta.get("item_level")),
+                "max_items": limit,
+                "wants_chunking": bool(meta.get("wants_chunking")),
+            }
 
         return facts
 
@@ -830,6 +830,22 @@ class MessageHandlerV7:
         except Exception as e:
             self._exc(request_id, "V7.catalog.search_failed", err=str(e))
             return []
+
+    def _catalog_has_match(self, token: str) -> bool:
+        if not self.catalog:
+            return False
+        try:
+            return bool(self.catalog.search(text=token, limit=1))
+        except Exception:
+            return False
+
+    def _catalog_currency(self) -> str:
+        if not self.catalog:
+            return "GBP"
+        try:
+            return str(self.catalog.currency() or "GBP").upper()
+        except Exception:
+            return "GBP"
 
     def _topic_enforce(self, items: List[Dict[str, Any]], required: List[str]) -> List[Dict[str, Any]]:
         required = [str(x).strip().lower() for x in (required or []) if str(x).strip()]
@@ -954,7 +970,7 @@ class MessageHandlerV7:
 
     def _clean_text(self, text: str) -> str:
         t = (text or "").lower().strip()
-        t = re.sub(r"[^a-z0-9\s£_-]+", " ", t)
+        t = re.sub(r"[^a-z0-9\s$£€_-]+", " ", t)
         t = re.sub(r"\s+", " ", t).strip()
         return t
 
@@ -963,28 +979,7 @@ class MessageHandlerV7:
         if not t:
             return t
 
-        toks = t.split()
-        out: List[str] = []
-
-        for tok in toks:
-            if tok in self._MEAT_ALIASES:
-                out.append(self._MEAT_ALIASES[tok])
-                continue
-            out.append(self._fuzzy_fix_meat_token(tok))
-
-        return " ".join(out).strip()
-
-    def _fuzzy_fix_meat_token(self, tok: str) -> str:
-        tok = (tok or "").lower().strip()
-        if not tok:
-            return tok
-        if tok in self._MEATS:
-            return tok
-
-        match = difflib.get_close_matches(tok, list(self._MEATS), n=1, cutoff=0.72)
-        if match:
-            return match[0]
-        return tok
+        return t
 
     def _token_tags(self, text: str) -> List[str]:
         t = self._normalize_text(text)

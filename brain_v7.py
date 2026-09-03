@@ -97,25 +97,6 @@ class BrainV7:
     - Better "full <category> list" detection -> full_category + chunking
     """
 
-    # High-signal product cuts
-    CUT_KEYWORDS = {
-        "wings", "wing",
-        "thigh", "thighs",
-        "breast", "breasts",
-        "drumstick", "drumsticks",
-        "mince", "burger", "burgers",
-        "steak", "steaks",
-        "chop", "chops",
-        "rib", "ribs",
-        "brain", "brains",
-        "liver",
-        "kidney", "kidneys",
-        "feet", "paya",
-        "nugget", "nuggets",
-        "kebab", "kebabs",
-        "fillet", "fillets",
-    }
-
     _RE_FULL_POSTCODE = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})\b", re.I)
 
     _RE_META_AI = re.compile(
@@ -276,7 +257,7 @@ class BrainV7:
                 },
             }
 
-        # "full chicken list" / "all lamb catalog" (category-based full list)
+        # Category-based full-list requests.
         m = self._FULL_LIST_PAT.search(low)
         if m:
             maybe_cat = (m.group(2) or "").strip()
@@ -347,24 +328,6 @@ class BrainV7:
         cat = None
         if isinstance(raw_cat, str) and raw_cat.strip():
             cat = self._resolve_category_from_hints(raw_cat, hints) or self._simple_norm_cat(raw_cat)
-
-        # Item-level cut enforcement (wings/breast/mince etc.)
-        low = user_text.lower()
-        detected_cut = None
-        for w in self.CUT_KEYWORDS:
-            if re.search(rf"\b{re.escape(w)}\b", low):
-                detected_cut = w
-                break
-        if detected_cut:
-            intent = "search_product"
-            action = "SEARCH_PRODUCTS"
-            meta["item_level"] = True
-            meta["search_scope"] = "item_list" if meta["search_scope"] == "top_picks" else meta["search_scope"]
-            meta["primary_cut"] = detected_cut
-            if detected_cut not in meta["search_tags"]:
-                meta["search_tags"].append(detected_cut)
-            if not product_name:
-                product_name = user_text
 
         # Delivery intent must have postcode
         if intent == "check_delivery" and not postcode:

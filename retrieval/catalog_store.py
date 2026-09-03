@@ -131,22 +131,24 @@ class CatalogStore:
             if isinstance(raw.get("product_catalog"), list):
                 cat = self._from_legacy_product_catalog(raw["product_catalog"])
                 cat["version"] = _safe_version(raw.get("version", 1))
+                cat["currency"] = str(raw.get("currency") or "GBP").upper()
                 return cat
 
             if isinstance(raw.get("categories"), list):
                 return {
                     "version": _safe_version(raw.get("version", 1)),
+                    "currency": str(raw.get("currency") or "GBP").upper(),
                     "categories": raw.get("categories") or [],
                 }
 
-            return {"version": 1, "categories": []}
+            return {"version": 1, "currency": "GBP", "categories": []}
 
         except FileNotFoundError:
-            return {"version": 1, "categories": []}
+            return {"version": 1, "currency": "GBP", "categories": []}
 
     def _normalize_catalog(self, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if not isinstance(raw, dict):
-            return {"version": 1, "categories": []}
+            return {"version": 1, "currency": "GBP", "categories": []}
 
         def _safe_version(v: Any) -> int:
             try:
@@ -157,15 +159,17 @@ class CatalogStore:
         if isinstance(raw.get("product_catalog"), list):
             cat = self._from_legacy_product_catalog(raw["product_catalog"])
             cat["version"] = _safe_version(raw.get("version", 1))
+            cat["currency"] = str(raw.get("currency") or "GBP").upper()
             return cat
 
         if isinstance(raw.get("categories"), list):
             return {
                 "version": _safe_version(raw.get("version", 1)),
+                "currency": str(raw.get("currency") or "GBP").upper(),
                 "categories": raw.get("categories") or [],
             }
 
-        return {"version": 1, "categories": []}
+        return {"version": 1, "currency": "GBP", "categories": []}
 
     def _from_legacy_product_catalog(self, pc: List[Dict[str, Any]]) -> Dict[str, Any]:
         categories: List[Dict[str, Any]] = []
@@ -299,6 +303,11 @@ class CatalogStore:
     def version(self) -> int:
         self._refresh()
         return int(self._catalog.get("version", 1))
+
+    def currency(self) -> str:
+        self._refresh()
+        value = str(self._catalog.get("currency") or "GBP").upper()
+        return value if len(value) == 3 and value.isalpha() else "GBP"
 
     def categories(self) -> List[Dict[str, Any]]:
         self._refresh()

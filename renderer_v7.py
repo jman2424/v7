@@ -4,6 +4,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+_CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
+
+
 class RendererV7:
     """
     V7 renderer: turns plan + facts into the final user-facing message.
@@ -57,7 +60,7 @@ class RendererV7:
         if action == "DO_NOTHING":
             base = (
                 "Could you tell me what you’d like help with? "
-                "For example: chicken for BBQ, lamb for a family dinner, or delivery to your postcode."
+                "I can help you browse products, compare prices, check delivery, or find a branch."
             )
             return self._polish(base, facts)
 
@@ -87,7 +90,7 @@ class RendererV7:
         # 4) Absolute fallback
         base = (
             "I’m not fully sure what you need yet. "
-            "Are you looking for chicken, lamb, beef, groceries, or delivery info?"
+            "Are you looking for a product, price, delivery, or branch information?"
         )
         return self._polish(base, facts)
 
@@ -168,7 +171,12 @@ class RendererV7:
         return (category or "").replace("_", " ").strip()
 
     @staticmethod
-    def _format_item_line(item: Dict[str, Any]) -> str:
+    def _format_money(value: float, currency: str) -> str:
+        code = (currency or "GBP").upper()
+        symbol = _CURRENCY_SYMBOLS.get(code)
+        return f"{symbol}{value:.2f}" if symbol else f"{code} {value:.2f}"
+
+    def _format_item_line(self, item: Dict[str, Any], currency: str) -> str:
         name = item.get("name") or item.get("_norm_name") or ""
         name = name.strip()
         if not name:
@@ -182,7 +190,7 @@ class RendererV7:
             bits[-1] = f"{name} ({unit})"
 
         if isinstance(price, (int, float)):
-            bits.append(f"£{price:.2f}")
+            bits.append(self._format_money(float(price), currency))
 
         return " – ".join(bits)
 
@@ -197,6 +205,7 @@ class RendererV7:
         raw_category = plan.get("category") or session.get("last_category") or ""
         category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
+        currency = str(facts.get("currency") or "GBP")
 
         user_text_raw = (user_text or "").strip()
         user_text_lower = user_text_raw.lower()
@@ -221,18 +230,18 @@ class RendererV7:
                 if category:
                     return (
                         f"The {category} catalog is quite big. "
-                        "Tell me what you’re after – for example: wings, mince, fillets, or BBQ pieces."
+                        "Tell me the product type, category, or feature you need."
                     )
                 return (
                     "The full catalog is very large. "
-                    "Tell me what you’re after – for example: chicken wings, lamb mince, or a BBQ mix."
+                    "Tell me the product type, category, or feature you need."
                 )
 
             if product_name:
-                return f"I couldn’t find matches for “{product_name}”. Any alternative product or cut?"
+                return f"I couldn’t find matches for “{product_name}”. Could you try a different product name, category, or feature?"
             if category:
-                return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
-            return "I couldn’t find matching items. Any specific product or cut you’re after?"
+                return f"I couldn’t find matches in {category}. Could you try a different product or category?"
+            return "I couldn’t find matching items. What product, category, or feature are you looking for?"
 
         total_items = len(items)
 
@@ -247,7 +256,7 @@ class RendererV7:
 
         lines: List[str] = []
         for idx, item in enumerate(top, start=1):
-            line = self._format_item_line(item)
+            line = self._format_item_line(item, currency)
             if line:
                 lines.append(f"{idx}) {line}")
 
@@ -272,7 +281,7 @@ class RendererV7:
             if scope in {"full_category", "full_store"} or wants_chunking:
                 extra_tail = (
                     f" I’ve shown the first {limit} items to keep things clear. "
-                    "Tell me a specific cut (for example: wings, fillets, mince) or a number from the list."
+                    "Tell me a product type, category, feature, or a number from the list."
                 )
             elif item_level:
                 extra_tail = (
@@ -299,6 +308,7 @@ class RendererV7:
         in_stock = price_block.get("in_stock", None)
         name = (price_block.get("name") or "").strip()
         unit = (price_block.get("unit") or "").strip()
+        currency = str(facts.get("currency") or "GBP")
 
         if price is None:
             return f"I couldn’t find a price for {sku}. It might be missing or not available right now."
@@ -308,7 +318,7 @@ class RendererV7:
         if unit:
             label = f"{label} ({unit})"
 
-        base = f"{label} is £{price:.2f} and {stock_str}."
+        base = f"{label} is {self._format_money(float(price), currency)} and {stock_str}."
         return self._append_cta(base)
 
     # ------------------------------------------------------------------ #
@@ -360,7 +370,7 @@ class RendererV7:
             return "What’s your postcode (for example: E1 6AN)?"
 
         if intent in {"search_product", "browse_category"}:
-            return "Are you after chicken, lamb, beef, groceries, or a mix for BBQ / weekly shop?"
+            return "What product, category, or feature are you looking for?"
 
         if intent == "price_check":
             return "Which product or SKU should I check the price for?"
@@ -368,7 +378,7 @@ class RendererV7:
         if intent == "human_handoff":
             return "What’s your postcode so I can find the nearest branch and number?"
 
-        return "Could you clarify what you need? For example: delivery, chicken for BBQ, or store opening times."
+        return "Could you clarify what you need? For example: a product, delivery, or opening times."
 
     # ------------------------------------------------------------------ #
     # POLISH / CTA                                                       #

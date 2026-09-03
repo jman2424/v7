@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 from service.sales_agent import SalesAgentPolicy
 
 
@@ -75,3 +78,62 @@ def test_greeting_reaches_agent_instead_of_the_short_input_guard(app):
     assert result["agent"]["stage"] == "discover"
     assert "EXAMPLE Halal Butchers sales assistant" in result["reply"]
     assert "Tariq Halal" not in result["reply"]
+
+
+def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
+    business_root = Path(app.container.storage.business_root)
+    tenant = "TRAVEL"
+    shutil.copytree(business_root / "EXAMPLE", business_root / tenant)
+    storage = app.container.storage
+    storage.write_json(
+        tenant,
+        "catalog.json",
+        {
+            "version": 1,
+            "currency": "USD",
+            "categories": [
+                {
+                    "id": "bags",
+                    "name": "Travel bags",
+                    "items": [
+                        {
+                            "sku": "CANVAS_PACK",
+                            "name": "Canvas Backpack",
+                            "price": 149.0,
+                            "unit": "each",
+                            "tags": ["travel", "backpack", "canvas"],
+                            "in_stock": True,
+                        },
+                        {
+                            "sku": "CABIN_CASE",
+                            "name": "Cabin Case",
+                            "price": 219.0,
+                            "unit": "each",
+                            "tags": ["travel", "luggage"],
+                            "in_stock": True,
+                        },
+                    ],
+                }
+            ],
+        },
+        schema="catalog.schema.json",
+        snapshot=False,
+    )
+    storage.write_json(
+        tenant,
+        "store_info.json",
+        {"name": "Northstar Travel", "about": "", "email": "", "phone": "", "website": "", "certifications": [], "social": {}},
+        schema="store_info.schema.json",
+        snapshot=False,
+    )
+
+    handler = app.container.for_tenant(tenant).handler
+    product = handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product", channel="web")
+    catalog = handler.handle("show all products", tenant=tenant, session_id="travel-catalog", channel="web")
+    help_reply = handler.handle("help", tenant=tenant, session_id="travel-help", channel="web")
+
+    assert "Canvas Backpack" in product["reply"]
+    assert "$149.00" in product["reply"]
+    assert len(catalog["facts"]["items"]) == 2
+    assert "chicken" not in help_reply["reply"].lower()
+    assert "lamb" not in help_reply["reply"].lower()

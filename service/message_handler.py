@@ -48,7 +48,7 @@ _POSTCODE_FULL_IN_TEXT = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})
 _POSTCODE_OUTWARD_STANDALONE = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
 
 _FULL_LIST_PAT = re.compile(
-    r"\b(full|all|everything|entire|whole)\b.*\b(chicken|lamb|beef|grocer(?:y|ies)|frozen|marinated)\b",
+    r"\b(full|all|everything|entire|whole)\b.*\b(products?|items?|list|catalog|catalogue|range)\b",
     re.I,
 )
 
@@ -62,13 +62,6 @@ _GREETINGS = {
     "hello", "hi", "hey", "hiya", "yo", "sup", "salam", "salaam",
     "asalam", "assalam", "good morning", "good afternoon", "good evening",
 }
-
-_FOLLOWUP_PAT = re.compile(
-    r"\b(they|them|those|these|that|it|this one|that one|the first one|the second one|the third one)\b",
-    re.I,
-)
-
-_HALAL_PAT = re.compile(r"\b(halal|hala|halaal|is it halal|are they halal)\b", re.I)
 
 
 def _collapse_spaces(s: str) -> str:
@@ -134,39 +127,10 @@ def _looks_like_noise(text: str) -> bool:
     if t in _TEST_NOISE:
         return True
 
-    if len(t) <= 7 and t.isalpha():
-        known = {
-            "chicken", "lamb", "beef", "groceries", "grocery",
-            "frozen", "marinated", "delivery", "postcode",
-            "wings", "breast", "fillets", "fillet", "mince",
-        }
-        if t not in known:
-            return True
+    if len(t) <= 2 and t.isalpha():
+        return True
 
     return False
-
-
-def _category_from_full_list(text: str) -> Optional[str]:
-    if not text:
-        return None
-    m = _FULL_LIST_PAT.search(text)
-    if not m:
-        return None
-
-    s = m.group(0).lower()
-    if "chicken" in s:
-        return "chicken"
-    if "lamb" in s:
-        return "lamb"
-    if "beef" in s:
-        return "beef"
-    if "grocer" in s:
-        return "groceries"
-    if "frozen" in s:
-        return "frozen_meats"
-    if "marinated" in s:
-        return "marinated_meats"
-    return None
 
 
 def _safe_list_strings(values: Any, limit: int = 12) -> List[str]:
@@ -310,7 +274,7 @@ class MessageHandler:
         t = (user_text or "").strip()
         if not t:
             return {
-                "reply": "Send what you want (e.g. chicken wings, lamb chops, delivery to E1 6AN).",
+                "reply": "Send a product, delivery area, or branch question.",
                 "intent": "system_empty",
                 "resolved": False,
                 "facts": {},
@@ -333,7 +297,7 @@ class MessageHandler:
 
         if _RE_ONLY_SYMBOLS.match(t):
             return {
-                "reply": "Type what you’re after (e.g. chicken wings / lamb chops) or a postcode for delivery.",
+                "reply": "Type a product or a postcode for delivery.",
                 "intent": "system_clarify",
                 "resolved": False,
                 "facts": {"reason": "symbols_only"},
@@ -352,7 +316,7 @@ class MessageHandler:
                 "reply": (
                     "I didn’t catch that.\n\n"
                     "Send either:\n"
-                    "• a product (e.g. **chicken wings**, **lamb chops**)\n"
+                    "• a product or category\n"
                     "• or a postcode for delivery (e.g. **E1 6AN**)"
                 ),
                 "intent": "system_clarify",
@@ -385,78 +349,16 @@ class MessageHandler:
         text = (user_text or "").strip()
         lower = text.lower()
 
-        # Follow-up halal recovery using memory
-        if _HALAL_PAT.search(lower) and _FOLLOWUP_PAT.search(lower):
-            last_items = sess.get("last_items") or []
-            last_names = sess.get("last_product_names") or []
-            last_query = sess.get("last_product_query")
-            if last_items or last_names or last_query:
-                target = ", ".join(last_names[:3]) if last_names else (last_query or "those items")
-                return {
-                    "reply": f"Yes — our meat products are halal. If you want, I can also show you more options related to {target}.",
-                    "intent": "faq",
-                    "resolved": True,
-                    "facts": {"reason": "followup_halal_memory"},
-                    "entities": {},
-                }
-
-        cat = _category_from_full_list(text)
-        if cat and not items:
-            pretty = cat.replace("_", " ")
-            return {
-                "reply": (
-                    f"Got it — **full {pretty} list**.\n\n"
-                    "Before I list everything, tell me what you want to see:\n"
-                    "• wings\n"
-                    "• breast\n"
-                    "• thighs\n"
-                    "• drumsticks\n"
-                    "• whole chicken\n\n"
-                    "Or say: **cheap chicken** / **BBQ chicken**."
-                ),
-                "intent": "system_force_browse",
-                "resolved": False,
-                "facts": {"force_category": cat},
-                "entities": {"category": cat},
-            }
-
-        known_category_words = {
-            "chicken", "lamb", "beef",
-            "groceries", "grocery",
-            "frozen", "frozen meats", "frozen_meats",
-            "marinated", "marinated meats", "marinated_meats",
-        }
-        looks_like_bare_category = (len(lower.split()) <= 2) and (lower in known_category_words)
-
-        if looks_like_bare_category and not items:
-            logger.warning(
-                "PIPELINE WARNING: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
-                user_text, intent, ctx.tenant, ctx.session_id,
-            )
-            return {
-                "reply": (
-                    f"Got it — **{lower}**.\n\n"
-                    "Tell me what you want and I’ll pull options:\n"
-                    "• wings / thighs / breast\n"
-                    "• mince / chops / ribs\n"
-                    "• or ask: **cheapest**, **best for BBQ**, **family pack**"
-                ),
-                "intent": "system_force_browse",
-                "resolved": False,
-                "facts": {"force_category": lower},
-                "entities": {"category": lower},
-            }
-
         requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
         if requires_items and not items:
             if _looks_like_noise(text):
                 return {
                     "reply": (
                         "Tell me what you want to do:\n"
-                        "• search products (e.g. **chicken wings**)\n"
+                        "• search products or browse a category\n"
                         "• check delivery (e.g. **E7 9QS**)\n"
                         "• nearest branch (type **nearest branch**)\n"
-                        "• or ask for a category (e.g. **chicken**)"
+                        "• or ask for the product catalog"
                     ),
                     "intent": "system_clarify",
                     "resolved": False,
@@ -472,11 +374,7 @@ class MessageHandler:
             return {
                 "reply": (
                     f"I couldn’t find matches for **{q}**.\n\n"
-                    "Try one of these:\n"
-                    "• **chicken wings**\n"
-                    "• **lamb chops**\n"
-                    "• **beef mince**\n"
-                    "• **cheapest chicken**"
+                    "Try a different product name, category, feature, or ask for the catalog."
                 ),
                 "intent": "system_no_results",
                 "resolved": False,
