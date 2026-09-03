@@ -1,43 +1,59 @@
 from __future__ import annotations
-from flask import Blueprint, request, jsonify, abort
-from routes import get_container, require_auth
+from flask import Blueprint, abort, jsonify, request, session
+
+from retrieval.storage import KNOWN_FILES
+from routes import get_container
+from routes.tenancy import require_admin_role, resolve_admin_tenant
 
 bp = Blueprint("files", __name__, url_prefix="/files")
 
-# Download raw tenant file
-@bp.get("/raw/<path:filename>")
-@require_auth(roles=("Owner","Manager","Staff"))
-def get_file(filename: str):
-    c = get_container()
-    try:
-        data = c.storage.read_json(c.settings.BUSINESS_KEY, filename)
-        return jsonify(data)
-    except FileNotFoundError:
-        abort(404)
 
-# Upload/replace with validation + snapshot
+def _tenant() -> str:
+    container = get_container()
+    return resolve_admin_tenant(
+        request.args.get("tenant") or "",
+        str(container.settings.BUSINESS_KEY or "EXAMPLE"),
+    )
+
+
+def _filename(value: str) -> str:
+    filename = str(value or "").strip()
+    if filename not in KNOWN_FILES:
+        abort(404)
+    return filename
+
+
+@bp.before_request
+def _require_tenant_admin() -> None:
+    if not session.get("user"):
+        abort(401, description="unauthorized")
+    require_admin_role()
+
+
+@bp.get("/raw/<path:filename>")
+def get_file(filename: str):
+    return jsonify(get_container().storage.read_json(_tenant(), _filename(filename)))
+
+
 @bp.put("/raw/<path:filename>")
-@require_auth(roles=("Owner","Manager"))
 def put_file(filename: str):
-    c = get_container()
+    filename = _filename(filename)
     payload = request.get_json(force=True)
-    # Optional schema inference by filename
     schema_map = {
-        "catalog.json": "schemas/catalog.schema.json",
-        "faq.json": "schemas/faq.schema.json",
-        "delivery.json": "schemas/delivery.schema.json",
-        "branches.json": "schemas/branches.schema.json",
+        "catalog.json": "catalog.schema.json",
+        "faq.json": "faq.schema.json",
+        "delivery.json": "delivery.schema.json",
+        "branches.json": "branches.schema.json",
+        "store_info.json": "store_info.schema.json",
     }
-    schema = schema_map.get(filename)
-    snap = c.storage.write_json(c.settings.BUSINESS_KEY, filename, payload, schema=schema)
+    tenant = _tenant()
+    snap = get_container().storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
     from services.audit import append_audit
-    append_audit(actor="admin", action="files.put", target=filename, before=None, after="snapshot:"+snap)
+
+    append_audit(actor="admin", action="files.put", target=f"{tenant}/{filename}", before=None, after="snapshot:" + snap)
     return jsonify({"ok": True, "snapshot_path": snap})
 
-# List snapshots
+
 @bp.get("/versions")
-@require_auth(roles=("Owner","Manager"))
 def list_versions():
-    c = get_container()
-    versions = c.storage.list_versions(c.settings.BUSINESS_KEY)
-    return jsonify({"versions": versions})
+    return jsonify({"versions": get_container().storage.list_versions(_tenant())})
