@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, send_from_directory
+from flask import Blueprint, abort, current_app, redirect, send_from_directory
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +38,10 @@ def _serve_console(asset_path: str = ""):
 
 
 @bp.get("/console")
+def owner_console_redirect():
+    return redirect("/console/", code=308)
+
+
 @bp.get("/console/")
 def owner_console_index():
     return _serve_console()
