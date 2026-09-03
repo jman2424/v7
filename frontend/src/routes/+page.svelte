@@ -98,6 +98,7 @@
 
   type InsightLead = {
     lead_id: string;
+    name: string | null;
     phone: string | null;
     status: string;
     updated_utc: string;
@@ -311,7 +312,7 @@
     return {
       kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
       leads: leads.filter((lead): lead is Record<string, unknown> => Boolean(lead && typeof lead === 'object')).map((lead) => ({
-        lead_id: String(lead.lead_id || ''), phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
+        lead_id: String(lead.lead_id || ''), name: typeof lead.name === 'string' && lead.name ? lead.name : null, phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
         status: String(lead.status || 'Open'), updated_utc: String(lead.updated_utc || '')
       })),
       top_intents: intents.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
@@ -841,7 +842,7 @@
           <div class="activity-list">
             <h3>Recent leads</h3>
             {#each insights.leads as lead}
-              <div class="lead-row"><div><strong>{lead.phone || 'Contact details not supplied'}</strong><span>Conversation {lead.lead_id.slice(-8) || 'pending'}</span></div><div><span>{lead.status}</span><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><span>{lead.status}</span><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}

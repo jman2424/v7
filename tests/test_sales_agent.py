@@ -267,6 +267,30 @@ def test_v7_captures_a_voluntary_handoff_phone_in_the_tenant_lead(app):
     assert any(lead["phone"] == "+447123456789" for lead in leads)
 
 
+def test_v7_captures_a_voluntary_handoff_name_in_the_tenant_lead(app):
+    handler = app.container.handler
+    session_id = "handoff-named-contact"
+
+    handler.handle(
+        "I need to speak to someone",
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+    captured = handler.handle(
+        "My name is Alex Morgan and you can reach me at alex@example.test",
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+    leads = app.container.crm.list_leads(tenant="EXAMPLE")
+
+    assert captured["intent"] == "handoff_contact_captured"
+    assert captured["entities"]["name"] == "Alex Morgan"
+    assert captured["entities"]["email"] == "alex@example.test"
+    assert any(lead["name"] == "Alex Morgan" and lead["email"] == "alex@example.test" for lead in leads)
+
+
 def test_v7_keeps_customer_content_out_of_operational_logs(app, caplog):
     caplog.set_level(logging.INFO)
     caplog.clear()

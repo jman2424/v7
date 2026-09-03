@@ -121,6 +121,10 @@ class MessageHandlerV7:
     )
     _PHONE_CANDIDATE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
     _EMAIL_CANDIDATE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+    _HANDOFF_NAME_CANDIDATE = re.compile(
+        r"\b(?i:my name is|this is|i am|i['’]m)\s+"
+        r"([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){0,3})"
+    )
     _STORE_INFO_PHRASES = (
         "how can i contact",
         "how do i contact",
@@ -699,6 +703,10 @@ class MessageHandlerV7:
         email_match = cls._EMAIL_CANDIDATE.search(user_text or "")
         if email_match:
             contact["email"] = email_match.group(0).lower()
+
+        name_match = cls._HANDOFF_NAME_CANDIDATE.search(user_text or "")
+        if name_match:
+            contact["name"] = " ".join(name_match.group(1).split())
         return contact
 
     def _find_faq(

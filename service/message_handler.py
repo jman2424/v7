@@ -470,11 +470,12 @@ class MessageHandler:
     # CRM
     # ---------------------------------------------------------
     def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> None:
+        entities = reply.get("entities") or {}
         lead = self.crm.upsert_lead(
             ctx.tenant,
-            name=None,
-            phone=(reply.get("entities") or {}).get("phone"),
-            email=(reply.get("entities") or {}).get("email"),
+            name=entities.get("name"),
+            phone=entities.get("phone"),
+            email=entities.get("email"),
             channel=ctx.channel,
             session_id=ctx.session_id,
             tags=[reply.get("intent")] if reply.get("intent") else None,
@@ -489,8 +490,8 @@ class MessageHandler:
                 self.analytics.upsert_lead(
                     tenant=ctx.tenant,
                     lead_id=str(lead_id),
-                    phone=(reply.get("entities") or {}).get("phone"),
-                    name=None,
+                    phone=entities.get("phone"),
+                    name=entities.get("name"),
                 )
             if hasattr(self.analytics, "set_lead_session"):
                 self.analytics.set_lead_session(tenant=ctx.tenant, lead_id=str(lead_id), session_id=ctx.session_id)
