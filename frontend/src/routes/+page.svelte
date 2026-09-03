@@ -89,6 +89,31 @@
     social: Record<string, string>;
   };
 
+  type InsightKpis = {
+    inbound: number;
+    sessions: number;
+    leads: number;
+    fallbacks: number;
+  };
+
+  type InsightLead = {
+    lead_id: string;
+    phone: string | null;
+    status: string;
+    updated_utc: string;
+  };
+
+  type InsightItem = {
+    label: string;
+    count: number;
+  };
+
+  type Insights = {
+    kpis: InsightKpis;
+    leads: InsightLead[];
+    top_intents: InsightItem[];
+  };
+
   type BranchHours = Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', string>;
 
   type Branch = {
@@ -151,6 +176,8 @@
   let branchesError = false;
   let agentStatus = '';
   let agentError = false;
+  let insights: Insights = { kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 }, leads: [], top_intents: [] };
+  let activityStatus = '';
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
@@ -271,6 +298,33 @@
     return { tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 } };
   }
 
+  function safeCount(value: unknown) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
+  }
+
+  function normalizeInsights(value: unknown): Insights {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const kpis = source.kpis && typeof source.kpis === 'object' ? source.kpis as Record<string, unknown> : {};
+    const leads = Array.isArray(source.leads) ? source.leads : [];
+    const intents = Array.isArray(source.top_intents) ? source.top_intents : [];
+    return {
+      kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
+      leads: leads.filter((lead): lead is Record<string, unknown> => Boolean(lead && typeof lead === 'object')).map((lead) => ({
+        lead_id: String(lead.lead_id || ''), phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
+        status: String(lead.status || 'Open'), updated_utc: String(lead.updated_utc || '')
+      })),
+      top_intents: intents.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+        label: String(item.label || 'Unknown'), count: safeCount(item.count)
+      }))
+    };
+  }
+
+  function formatActivityDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  }
+
   async function loadTenantWorkspace(selectedTenant = tenant) {
     const encodedTenant = encodeURIComponent(selectedTenant);
     const responses = await Promise.all([
@@ -299,6 +353,7 @@
     agentSettings = normalizeAgentSettings(agentData);
     if (hasAccountManagementAccess()) await loadAccounts(selectedTenant);
     else accounts = [];
+    await loadInsights(selectedTenant);
   }
 
   async function loadTenants() {
@@ -316,6 +371,18 @@
     const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
     const data = await readJson(response);
     accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
+  }
+
+  async function loadInsights(selectedTenant = tenant) {
+    activityStatus = 'Loading activity...';
+    const response = await fetch(apiPath(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`), { credentials: 'same-origin' });
+    const data = await readJson(response);
+    if (!response.ok) {
+      activityStatus = 'Sales activity is currently unavailable.';
+      return;
+    }
+    insights = normalizeInsights(data);
+    activityStatus = '';
   }
 
   async function restoreSession() {
@@ -685,6 +752,7 @@
       <div class="side-brand"><span>V7</span><strong>{tenant}</strong></div>
       <nav aria-label="Owner console navigation">
         <a class="active" href="#widget">Widget setup</a>
+        <a href="#activity">Sales activity</a>
         <a href="#install">Install script</a>
         <a href="#catalog">Catalog</a>
         <a href="#faqs">FAQs</a>
@@ -760,6 +828,35 @@
           <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
         </section>
       </div>
+
+      <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
+        <div class="surface-head"><div><p class="eyebrow">Last 7 days</p><h2 id="activity-heading">Sales activity</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>Refresh</button></div>
+        <div class="metric-grid" aria-label="Sales activity summary">
+          <div><span>Customer messages</span><strong>{insights.kpis.inbound}</strong></div>
+          <div><span>Conversations</span><strong>{insights.kpis.sessions}</strong></div>
+          <div><span>Leads</span><strong>{insights.kpis.leads}</strong></div>
+          <div><span>Needs review</span><strong>{insights.kpis.fallbacks}</strong></div>
+        </div>
+        <div class="activity-details">
+          <div class="activity-list">
+            <h3>Recent leads</h3>
+            {#each insights.leads as lead}
+              <div class="lead-row"><div><strong>{lead.phone || 'Contact details not supplied'}</strong><span>Conversation {lead.lead_id.slice(-8) || 'pending'}</span></div><div><span>{lead.status}</span><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+            {:else}
+              <p class="empty-state">New customer conversations will appear here.</p>
+            {/each}
+          </div>
+          <div class="activity-list">
+            <h3>What customers ask about</h3>
+            {#each insights.top_intents as item}
+              <div class="intent-row"><span>{item.label.replaceAll('_', ' ')}</span><strong>{item.count}</strong></div>
+            {:else}
+              <p class="empty-state">Topics will appear after customer conversations.</p>
+            {/each}
+          </div>
+        </div>
+        {#if activityStatus}<p class="activity-status">{activityStatus}</p>{/if}
+      </section>
 
       <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
         <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Product catalog</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
@@ -948,6 +1045,22 @@
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
   .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
   .workspace-section { margin-top: 20px; scroll-margin-top: 18px; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e2e7ee; }
+  .metric-grid > div { display: grid; gap: 6px; min-height: 102px; align-content: center; padding: 18px 20px; }
+  .metric-grid > div + div { border-left: 1px solid #e2e7ee; }
+  .metric-grid span, .lead-row span, .lead-row time { color: #667085; font-size: 12px; }
+  .metric-grid strong { color: #172033; font-size: 28px; line-height: 1; }
+  .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
+  .activity-list { min-width: 0; padding: 20px; }
+  .activity-list + .activity-list { border-left: 1px solid #e2e7ee; }
+  .activity-list h3 { margin-bottom: 12px; color: #344054; font-size: 14px; }
+  .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid #edf0f4; }
+  .lead-row > div { display: grid; gap: 4px; min-width: 0; }
+  .lead-row > div:last-child { text-align: right; }
+  .lead-row strong { color: #172033; font-size: 13px; overflow-wrap: anywhere; }
+  .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #edf0f4; color: #526172; font-size: 13px; text-transform: capitalize; }
+  .intent-row strong { color: #172033; }
+  .activity-status { margin: 0; padding: 0 20px 20px; color: #667085; font-size: 13px; }
   .count-label { padding: 5px 8px; color: #526172; background: #f2f4f7; border: 1px solid #d8dee8; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
   .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ee; }
   .catalog-toolbar label { max-width: 112px; }
@@ -999,6 +1112,6 @@
   .hours-grid input { font-size: 12px; text-transform: none; }
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
-  @media (max-width: 900px) { .content-grid, .operator-panel { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .account-row { grid-template-columns: 1fr; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
+  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e2e7ee; border-left: 0; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e2e7ee; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e2e7ee; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
 </style>
