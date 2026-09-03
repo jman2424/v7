@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from brain_v7 import BrainV7
 from renderer_v7 import RendererV7
+from service.validators import normalize_phone
 
 logger = logging.getLogger("handler_v7")
 
@@ -107,6 +108,20 @@ class MessageHandlerV7:
         "delivery to",
     )
 
+    _HANDOFF_PHRASES = (
+        "speak to someone",
+        "speak with someone",
+        "talk to someone",
+        "talk to a person",
+        "human agent",
+        "real person",
+        "call me back",
+        "contact me",
+        "customer service",
+    )
+    _PHONE_CANDIDATE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
+    _EMAIL_CANDIDATE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
         self.policy = getattr(deps, "policy", None)
@@ -203,6 +218,42 @@ class MessageHandlerV7:
                     plan=safe_plan,
                     facts={},
                     entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
+
+            # 0.9) Explicit human handoff and voluntary contact details.
+            contact = self._handoff_contact(user_text, session_snapshot)
+            if contact and self._has_pending_handoff(session_snapshot):
+                plan = self._simple_plan("handoff_contact_captured", "HUMAN_HANDOFF", session_snapshot)
+                reply_text = (
+                    "Thanks, I’ve recorded those contact details for the team. "
+                    "You can add any product or delivery details that would help them."
+                )
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="handoff_contact_captured",
+                    plan=plan,
+                    facts={"handoff": {"contact_captured": True}},
+                    entities=contact,
+                    items=[],
+                )
+
+            if self._requests_handoff(user_text):
+                plan = self._simple_plan("human_handoff", "HUMAN_HANDOFF", session_snapshot)
+                reply_text = (
+                    "I can have the team follow up. Please send a phone number or email, "
+                    "plus a short note about what you need."
+                )
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="human_handoff",
+                    plan=plan,
+                    facts={},
+                    entities={},
                     items=[],
                 )
 
@@ -541,6 +592,35 @@ class MessageHandlerV7:
     def _is_explicit_shopping_request(self, user_text: str) -> bool:
         text = self._clean_text(user_text)
         return any(word in text for word in self._EXPLICIT_SHOPPING_WORDS)
+
+    def _requests_handoff(self, user_text: str) -> bool:
+        text = self._clean_text(user_text)
+        return any(phrase in text for phrase in self._HANDOFF_PHRASES)
+
+    @staticmethod
+    def _has_pending_handoff(session: Dict[str, Any]) -> bool:
+        if str(session.get("last_intent") or "").strip().lower() in {
+            "human_handoff",
+            "handoff_contact_captured",
+        }:
+            return True
+        agent = session.get("sales_agent")
+        return isinstance(agent, dict) and agent.get("stage") == "handoff"
+
+    @classmethod
+    def _handoff_contact(cls, user_text: str, session: Dict[str, Any]) -> Dict[str, str]:
+        del session
+        contact: Dict[str, str] = {}
+        phone_match = cls._PHONE_CANDIDATE.search(user_text or "")
+        if phone_match:
+            phone = normalize_phone(phone_match.group(0))
+            if phone:
+                contact["phone"] = phone
+
+        email_match = cls._EMAIL_CANDIDATE.search(user_text or "")
+        if email_match:
+            contact["email"] = email_match.group(0).lower()
+        return contact
 
     def _find_faq(
         self,

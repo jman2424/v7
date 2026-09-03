@@ -227,3 +227,29 @@ def test_v7_applies_the_saved_tenant_response_length(app):
 
     assert response["intent"] == "faq"
     assert response["reply"] == "Returns are accepted within 30 days."
+
+
+def test_v7_captures_a_voluntary_handoff_phone_in_the_tenant_lead(app):
+    handler = app.container.handler
+    session_id = "handoff-contact"
+
+    handoff = handler.handle(
+        "I need to speak to someone",
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+    captured = handler.handle(
+        "Please call me on 07123456789 about delivery",
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+    leads = app.container.crm.list_leads(tenant="EXAMPLE")
+
+    assert handoff["intent"] == "human_handoff"
+    assert "phone number or email" in handoff["reply"]
+    assert captured["intent"] == "handoff_contact_captured"
+    assert captured["entities"]["phone"] == "+447123456789"
+    assert captured["agent"]["next_action"] == "team_follow_up"
+    assert any(lead["phone"] == "+447123456789" for lead in leads)

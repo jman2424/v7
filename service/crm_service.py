@@ -139,6 +139,9 @@ class CRMService:
             # update mutable fields
             if name and not lead.name:
                 lead.name = name
+            if phone and not lead.phone:
+                lead.phone = phone
+                self._phone_index[self._phone_key(tenant, phone)] = lead.id
             if tags:
                 lead.tags = sorted(set(lead.tags + tags))
             if email and not lead.email:

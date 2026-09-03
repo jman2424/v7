@@ -90,9 +90,17 @@ class SalesAgentPolicy:
         elif intent in {"human_handoff", "handoff"}:
             state.update(
                 stage="handoff",
-                objective="Collect enough detail for a business follow-up.",
-                next_action="collect_contact_preference",
-                next_question="What is the best way for the team to contact you?",
+                objective="Collect the contact details the customer chooses to share.",
+                next_action="collect_contact_details",
+                next_question="",
+                suggested_replies=[],
+            )
+        elif intent == "handoff_contact_captured":
+            state.update(
+                stage="handoff",
+                objective="Keep the customer's contact details with the tenant's lead record.",
+                next_action="team_follow_up",
+                next_question="",
                 suggested_replies=[],
             )
         elif delivery:

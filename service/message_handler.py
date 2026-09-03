@@ -474,6 +474,7 @@ class MessageHandler:
             ctx.tenant,
             name=None,
             phone=(reply.get("entities") or {}).get("phone"),
+            email=(reply.get("entities") or {}).get("email"),
             channel=ctx.channel,
             session_id=ctx.session_id,
             tags=[reply.get("intent")] if reply.get("intent") else None,
