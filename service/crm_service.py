@@ -26,6 +26,14 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _default_snapshot_path() -> str:
+    configured = (os.getenv("CRM_SNAPSHOT_PATH") or "").strip()
+    if configured:
+        return configured
+    data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+    return os.path.join(data_root, "logs", "crm_snapshot.json") if data_root else "logs/crm_snapshot.json"
+
+
 @dataclass
 class Lead:
     id: str
@@ -50,7 +58,7 @@ class CRMService:
         snapshot_path: where leads snapshot is stored.
     """
 
-    snapshot_path: Optional[str] = "logs/crm_snapshot.json"
+    snapshot_path: Optional[str] = field(default_factory=_default_snapshot_path)
 
     # id -> Lead
     _leads: Dict[str, Lead] = field(default_factory=dict)

@@ -51,9 +51,16 @@ gunicorn -c gunicorn.conf.py 'app:create_app()'
 
 `render.yaml` deploys the Flask web service with the existing `EXAMPLE` tenant,
 binds Gunicorn to Render's `PORT`, and performs liveness checks at `/health`.
-Render generates `SECRET_KEY` when it first creates the service. Add the
-WhatsApp and billing secrets marked `sync: false` in the Render dashboard;
-Blueprint updates intentionally do not overwrite existing secret values.
+It also declares a persistent `/var/data` disk for tenant configuration,
+accounts, leads, analytics, and audit data. Render generates `SECRET_KEY` when
+it first creates the service. Add the WhatsApp, OpenAI, and billing secrets
+marked `sync: false` in the Render dashboard; Blueprint updates intentionally
+do not overwrite existing secret values.
+
+Do not run a customer-facing deployment on Render's Free plan: it has no
+persistent disk, so owner edits and lead data are not durable across restarts.
+The first start with `V7_DATA_DIR` seeds the bundled starter tenant once and
+never overwrites subsequent tenant data.
 
 ## Website Widget
 
@@ -67,13 +74,16 @@ tenant's own catalog, policies, FAQs, and analytics.
 
 The SvelteKit owner console lives in [frontend](frontend/README.md). During
 local development it runs on port `5173` and proxies `/api/*` to Flask on port
-`5055`. In production, keep both behind the same HTTPS origin so the admin
-session remains same-origin and no administrative CORS policy is needed.
+`5055`. The production image serves it at `/console/` under the same HTTPS
+origin, so the admin session remains same-origin and no administrative CORS
+policy is needed.
 
-Tenant owners can be configured with `BUSINESS_USERS_JSON`. Each entry has an
-email, tenant key, bcrypt `password_hash`, optional TOTP secret, and a role such
-as `business_owner`. The value is server-only configuration; never put it in a
-client bundle or commit a real password/hash.
+The first platform-admin account remains server-only configuration through
+`ADMIN_USERNAME` and `ADMIN_PASSWORD`. That operator can create tenant owner
+and staff accounts in the Team section of `/console/`; hashes stay server-side
+in the tenant's protected account data. `BUSINESS_USERS_JSON` remains available
+for migration from existing deployments. Never put a real password or hash in a
+client bundle or commit one to the repository.
 
 The console currently gives each owner structured controls for their business
 profile, branches and opening hours, website widget, product catalog, FAQs,

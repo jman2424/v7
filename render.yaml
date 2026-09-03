@@ -3,6 +3,10 @@ services:
     name: ai-sales-assistant
     env: python
     plan: starter
+    disk:
+      name: v7-data
+      mountPath: /var/data
+      sizeGB: 1
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn -c gunicorn.conf.py 'app:create_app()'"
     envVars:
@@ -14,6 +18,12 @@ services:
         value: production
       - key: WEB_CONCURRENCY
         value: "1"
+      - key: V7_DATA_DIR
+        value: /var/data
+      - key: ANALYTICS_DB_PATH
+        value: /var/data/logs/analytics.db
+      - key: CRM_SNAPSHOT_PATH
+        value: /var/data/logs/crm_snapshot.json
       - key: SECRET_KEY
         generateValue: true
       - key: WHATSAPP_VERIFY_TOKEN

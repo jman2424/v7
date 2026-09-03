@@ -95,7 +95,12 @@ class Storage:
         schemas_root: Optional[Path | str] = None,
     ) -> None:
         runtime_root = Path(os.getcwd()).resolve()
-        root = Path(base_dir).resolve() if base_dir is not None else runtime_root / "business"
+        data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+        root = (
+            Path(base_dir).resolve()
+            if base_dir is not None
+            else (Path(data_root).expanduser().resolve() / "business" if data_root else runtime_root / "business")
+        )
         if business_root is not None:
             root = Path(business_root).resolve()
 

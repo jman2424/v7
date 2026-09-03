@@ -14,13 +14,18 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+
+
+def _default_audit_path() -> str:
+    data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+    return os.path.join(data_root, "logs", "selfrepair.log") if data_root else "logs/selfrepair.log"
 
 
 @dataclass
 class AuditService:
-    log_path: str = "logs/selfrepair.log"  # reuse existing rotated file
+    log_path: str = field(default_factory=_default_audit_path)
 
     def _ensure_dir(self) -> None:
         d = os.path.dirname(self.log_path)
