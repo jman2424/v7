@@ -148,11 +148,22 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
     handler = app.container.for_tenant(tenant).handler
     product = handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product", channel="web")
     catalog = handler.handle("show all products", tenant=tenant, session_id="travel-catalog", channel="web")
+    comparison = handler.handle(
+        "Compare Canvas Backpack and Cabin Case",
+        tenant=tenant,
+        session_id="travel-comparison",
+        channel="web",
+    )
     help_reply = handler.handle("help", tenant=tenant, session_id="travel-help", channel="web")
 
     assert "Canvas Backpack" in product["reply"]
     assert "$149.00" in product["reply"]
     assert len(catalog["facts"]["items"]) == 2
+    assert comparison["intent"] == "compare_products"
+    assert comparison["entities"]["comparison_skus"] == ["CANVAS_PACK", "CABIN_CASE"]
+    assert "Canvas Backpack: $149.00, in stock." in comparison["reply"]
+    assert "Cabin Case: $219.00, in stock." in comparison["reply"]
+    assert comparison["agent"]["next_action"] == "select_compared_product"
     assert "chicken" not in help_reply["reply"].lower()
     assert "lamb" not in help_reply["reply"].lower()
 

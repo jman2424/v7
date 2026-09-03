@@ -88,6 +88,10 @@ class RendererV7:
             return self._polish(base, facts)
 
         # 3) Data-backed actions
+        if action == "COMPARE_PRODUCTS" or intent == "compare_products":
+            msg = self._comparison_reply(facts)
+            return self._polish(msg, facts)
+
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             msg = self._delivery_reply(plan, facts, session)
             return self._polish(msg, facts)
@@ -313,6 +317,28 @@ class RendererV7:
     # ------------------------------------------------------------------ #
     # PRICE                                                              #
     # ------------------------------------------------------------------ #
+
+    def _comparison_reply(self, facts: Dict[str, Any]) -> str:
+        comparison = facts.get("comparison") or {}
+        items = comparison.get("items") if isinstance(comparison, dict) else []
+        if not isinstance(items, list) or len(items) != 2:
+            return "Tell me the two product names you’d like to compare."
+
+        currency = str(facts.get("currency") or "GBP")
+        lines: List[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("_norm_name") or "").strip()
+            price = item.get("price")
+            stock = "in stock" if item.get("in_stock", True) else "out of stock"
+            if not name or not isinstance(price, (int, float)):
+                continue
+            lines.append(f"{name}: {self._format_money(float(price), currency)}, {stock}.")
+
+        if len(lines) != 2:
+            return "I found the products, but I could not confirm both prices."
+        return " ".join(lines)
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}

@@ -103,6 +103,24 @@ class SalesAgentPolicy:
                 next_question="",
                 suggested_replies=[],
             )
+        elif intent == "compare_products":
+            suggestions = self._item_names(items)
+            if len(items) == 2:
+                state.update(
+                    stage="recommend",
+                    objective="Help the customer choose between grounded product options.",
+                    next_action="select_compared_product",
+                    next_question="Which option would you like to take forward?",
+                    suggested_replies=suggestions,
+                )
+            else:
+                state.update(
+                    stage="discover",
+                    objective="Identify the two products the customer wants to compare.",
+                    next_action="collect_comparison_products",
+                    next_question="",
+                    suggested_replies=[],
+                )
         elif delivery:
             if delivery.get("rule"):
                 state.update(

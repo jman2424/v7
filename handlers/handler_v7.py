@@ -125,6 +125,11 @@ class MessageHandlerV7:
         r"\b(?i:my name is|this is|i am|i['’]m)\s+"
         r"([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){0,3})"
     )
+    _COMPARISON_REQUEST = re.compile(
+        r"\b(?:compare|comparison|difference between|versus)\b|\bvs\.?(?=\s|$)",
+        re.I,
+    )
+    _COMPARISON_SEPARATOR = re.compile(r"\s+(?:and|with|versus|vs\.?)\s+", re.I)
     _STORE_INFO_PHRASES = (
         "how can i contact",
         "how do i contact",
@@ -281,6 +286,26 @@ class MessageHandlerV7:
                     facts={},
                     entities={},
                     items=[],
+                )
+
+            comparison_items = self._comparison_items(user_text, request_id=request_id)
+            if comparison_items is not None:
+                plan = self._simple_plan("compare_products", "COMPARE_PRODUCTS", session_snapshot)
+                facts = {
+                    "comparison": {"items": comparison_items},
+                    "items": comparison_items,
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="compare_products",
+                    plan=plan,
+                    facts=facts,
+                    entities={"comparison_skus": [item.get("sku") for item in comparison_items]},
+                    items=comparison_items,
                 )
 
             store_info = self._store_info_answer(user_text)
@@ -679,6 +704,38 @@ class MessageHandlerV7:
             return answer
 
         return "Contact details are not configured for this business yet."
+
+    def _comparison_items(self, user_text: str, *, request_id: str) -> Optional[List[Dict[str, Any]]]:
+        if not self._COMPARISON_REQUEST.search(user_text or ""):
+            return None
+
+        if not self.catalog:
+            return []
+
+        request_match = re.search(r"\b(?:compare|comparison|difference between)\b", user_text, re.I)
+        candidates_text = user_text[request_match.end() :] if request_match else user_text
+        product_queries = [
+            re.sub(r"^(?:the|a|an)\s+", "", value.strip(" ?!.,"), flags=re.I)
+            for value in self._COMPARISON_SEPARATOR.split(candidates_text)
+            if value.strip(" ?!.,")
+        ]
+        if len(product_queries) < 2:
+            return []
+
+        items: List[Dict[str, Any]] = []
+        seen_skus = set()
+        for query in product_queries[:2]:
+            matches = self._catalog_search_safe(request_id, query=query, tags=[], limit=3)
+            if not matches:
+                return []
+            item = matches[0]
+            sku = str(item.get("sku") or "")
+            if not sku or sku in seen_skus:
+                return []
+            seen_skus.add(sku)
+            items.append(item)
+
+        return items
 
     @staticmethod
     def _has_pending_handoff(session: Dict[str, Any]) -> bool:
