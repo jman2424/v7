@@ -160,13 +160,22 @@ class SalesAgentPolicy:
                 )
         elif delivery:
             if delivery.get("rule"):
-                state.update(
-                    stage="convert",
-                    objective="Move from delivery eligibility to a suitable order.",
-                    next_action="recommend_products",
-                    next_question="What would you like help choosing for your order?",
-                    suggested_replies=["Nearest branch"],
-                )
+                if session.get("last_sku"):
+                    state.update(
+                        stage="convert",
+                        objective="Move from a selected product and delivery eligibility to an owner handoff.",
+                        next_action="arrange_order_handoff",
+                        next_question="Would you like the team to help arrange this for delivery?",
+                        suggested_replies=["Speak to someone", "Browse more products"],
+                    )
+                else:
+                    state.update(
+                        stage="convert",
+                        objective="Move from delivery eligibility to a suitable order.",
+                        next_action="recommend_products",
+                        next_question="What would you like help choosing for your order?",
+                        suggested_replies=["Nearest branch"],
+                    )
             else:
                 state.update(
                     stage="qualify",

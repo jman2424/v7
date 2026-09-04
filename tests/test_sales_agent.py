@@ -67,6 +67,25 @@ def test_sales_agent_moves_delivery_eligibility_to_product_selection():
     assert response["ui"]["suggested_replies"] == ["Nearest branch"]
 
 
+def test_sales_agent_moves_selected_product_to_handoff_after_delivery():
+    policy = SalesAgentPolicy()
+    response = policy.guide(
+        {
+            "reply": "Yes, we deliver to E1 6AN.",
+            "intent": "check_delivery",
+            "facts": {"delivery": {"postcode": "E1 6AN", "rule": {"fee": 3.5}}},
+            "entities": {"postcode": "E1 6AN"},
+        },
+        user_text="Do you deliver to E1 6AN?",
+        session={"last_sku": "CANVAS_PACK", "sales_agent": {"stage": "convert"}},
+    )
+
+    assert response["agent"]["stage"] == "convert"
+    assert response["agent"]["next_action"] == "arrange_order_handoff"
+    assert response["ui"]["suggested_replies"] == ["Speak to someone", "Browse more products"]
+    assert "team to help arrange this for delivery" in response["reply"]
+
+
 def test_sales_agent_leaves_a_grounded_faq_answer_uninterrupted():
     policy = SalesAgentPolicy()
     response = policy.guide(
@@ -164,6 +183,12 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
     handler = app.container.for_tenant(tenant).handler
     product = handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product", channel="web")
     selected_by_number = handler.handle("1", tenant=tenant, session_id="travel-product", channel="web")
+    delivery_after_selection = handler.handle(
+        "Do you deliver to E1 6AN?",
+        tenant=tenant,
+        session_id="travel-product",
+        channel="web",
+    )
     handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product-name", channel="web")
     selected_by_name = handler.handle(
         "Canvas Backpack",
@@ -192,6 +217,9 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
     assert selected_by_number["facts"]["price"]["sku"] == "CANVAS_PACK"
     assert "$149.00" in selected_by_number["reply"]
     assert selected_by_number["agent"]["next_action"] == "confirm_fulfilment"
+    assert delivery_after_selection["intent"] == "check_delivery"
+    assert delivery_after_selection["agent"]["next_action"] == "arrange_order_handoff"
+    assert "Speak to someone" in delivery_after_selection["ui"]["suggested_replies"]
     assert selected_by_name["intent"] == "price_check"
     assert selected_by_name["facts"]["price"]["sku"] == "CANVAS_PACK"
     assert "$149.00" in selected_by_name["reply"]
