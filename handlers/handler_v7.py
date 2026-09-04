@@ -148,6 +148,13 @@ class MessageHandlerV7:
         r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?)\b",
         re.I,
     )
+    _PRICE_REQUEST = re.compile(r"\b(?:price|prices|cost|how much)\b", re.I)
+    _SELECTION_NUMBER = re.compile(r"^\s*(?:option\s*)?([1-9]|1[0-2])\s*[.)]?\s*$", re.I)
+    _SELECTION_ACTIONS = {
+        "compare_or_price_selection",
+        "select_available_alternative",
+        "select_compared_product",
+    }
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
@@ -329,7 +336,38 @@ class MessageHandlerV7:
                     items=comparison_items,
                 )
 
-            unavailable_product = self._unavailable_product_in_text(user_text)
+            selected_product = self._selected_product_from_session(user_text, sess)
+            price_product = selected_product or self._price_product_in_text(user_text)
+            if price_product and price_product.get("in_stock", True):
+                sku = str(price_product.get("sku") or "").strip()
+                plan = self._simple_plan("price_check", "PRICE_CHECK", session_snapshot)
+                plan["sku"] = sku
+                facts = {
+                    "price": {
+                        "sku": sku,
+                        "name": str(price_product.get("name") or "").strip(),
+                        "price": price_product.get("price"),
+                        "unit": str(price_product.get("unit") or "").strip(),
+                        "in_stock": True,
+                    },
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="price_check",
+                    plan=plan,
+                    facts=facts,
+                    entities={"sku": sku, "product_name": facts["price"]["name"]},
+                    items=[],
+                )
+
+            unavailable_product = (
+                price_product if price_product and not price_product.get("in_stock", True)
+                else self._unavailable_product_in_text(user_text)
+            )
             if unavailable_product:
                 alternatives = self._in_stock_alternatives(unavailable_product)
                 plan = self._simple_plan("unavailable_product", "SHOW_ALTERNATIVES", session_snapshot)
@@ -797,8 +835,8 @@ class MessageHandlerV7:
                 matches.append((len(name), item))
         return max(matches, key=lambda pair: pair[0])[1] if matches else None
 
-    def _unavailable_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
-        """Find an explicitly named out-of-stock product without fuzzy guessing."""
+    def _exact_catalog_item_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """Match an explicitly named catalog product or SKU without fuzzy guessing."""
         if not self.catalog:
             return None
 
@@ -813,7 +851,7 @@ class MessageHandlerV7:
 
         matches: List[Tuple[int, Dict[str, Any]]] = []
         for item in candidates:
-            if not isinstance(item, dict) or item.get("in_stock", True):
+            if not isinstance(item, dict):
                 continue
             name = self._normalize_text(str(item.get("name") or ""))
             sku = self._normalize_text(str(item.get("sku") or ""))
@@ -825,6 +863,50 @@ class MessageHandlerV7:
                     break
 
         return max(matches, key=lambda pair: pair[0])[1] if matches else None
+
+    def _price_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        if not self._PRICE_REQUEST.search(user_text or ""):
+            return None
+        return self._exact_catalog_item_in_text(user_text)
+
+    def _selected_product_from_session(self, user_text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Resolve a click or numbered choice only within the current session's last results."""
+        if not self.catalog:
+            return None
+        agent = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
+        if agent.get("next_action") not in self._SELECTION_ACTIONS:
+            return None
+
+        last_items = session.get("last_items")
+        if not isinstance(last_items, list) or not last_items:
+            return None
+        skus = [str(sku).strip() for sku in last_items[:12] if str(sku).strip()]
+        if not skus:
+            return None
+
+        number_match = self._SELECTION_NUMBER.match(user_text or "")
+        if number_match:
+            index = int(number_match.group(1)) - 1
+            if 0 <= index < len(skus):
+                return self.catalog.get_item_by_sku(skus[index])
+            return None
+
+        selected_text = self._normalize_text(user_text)
+        if not selected_text:
+            return None
+        for sku in skus:
+            item = self.catalog.get_item_by_sku(sku)
+            if not isinstance(item, dict):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            item_sku = self._normalize_text(str(item.get("sku") or ""))
+            if selected_text in {name, item_sku}:
+                return item
+        return None
+
+    def _unavailable_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        item = self._exact_catalog_item_in_text(user_text)
+        return item if item and not item.get("in_stock", True) else None
 
     def _in_stock_alternatives(self, unavailable_item: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
         """Return related, tenant-catalog alternatives only when they are in stock."""

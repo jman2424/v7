@@ -175,6 +175,14 @@ class SalesAgentPolicy:
                     next_question="Would you like me to help find the nearest branch instead?",
                     suggested_replies=["Nearest branch"],
                 )
+        elif intent == "price_check":
+            state.update(
+                stage="convert",
+                objective="Help the customer complete a suitable order.",
+                next_action="confirm_fulfilment",
+                next_question="Would you like to check delivery or compare another option?",
+                suggested_replies=["Check delivery"],
+            )
         elif items:
             suggestions = self._item_names(items)
             state.update(
@@ -183,14 +191,6 @@ class SalesAgentPolicy:
                 next_action="compare_or_price_selection",
                 next_question="Which option would you like me to compare or price up?",
                 suggested_replies=suggestions or ["Show more options", "Check delivery"],
-            )
-        elif intent == "price_check":
-            state.update(
-                stage="convert",
-                objective="Help the customer complete a suitable order.",
-                next_action="confirm_fulfilment",
-                next_question="Would you like to check delivery or compare another option?",
-                suggested_replies=["Check delivery"],
             )
         elif intent in {"faq", "store_info"}:
             state.update(

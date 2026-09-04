@@ -163,6 +163,14 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
 
     handler = app.container.for_tenant(tenant).handler
     product = handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product", channel="web")
+    selected_by_number = handler.handle("1", tenant=tenant, session_id="travel-product", channel="web")
+    handler.handle("I need a canvas backpack", tenant=tenant, session_id="travel-product-name", channel="web")
+    selected_by_name = handler.handle(
+        "Canvas Backpack",
+        tenant=tenant,
+        session_id="travel-product-name",
+        channel="web",
+    )
     catalog = handler.handle("show all products", tenant=tenant, session_id="travel-catalog", channel="web")
     comparison = handler.handle(
         "Compare Canvas Backpack and Cabin Case",
@@ -180,6 +188,13 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
 
     assert "Canvas Backpack" in product["reply"]
     assert "$149.00" in product["reply"]
+    assert selected_by_number["intent"] == "price_check"
+    assert selected_by_number["facts"]["price"]["sku"] == "CANVAS_PACK"
+    assert "$149.00" in selected_by_number["reply"]
+    assert selected_by_number["agent"]["next_action"] == "confirm_fulfilment"
+    assert selected_by_name["intent"] == "price_check"
+    assert selected_by_name["facts"]["price"]["sku"] == "CANVAS_PACK"
+    assert "$149.00" in selected_by_name["reply"]
     assert len(catalog["facts"]["items"]) == 4
     assert comparison["intent"] == "compare_products"
     assert comparison["entities"]["comparison_skus"] == ["CANVAS_PACK", "CABIN_CASE"]

@@ -349,7 +349,7 @@ class MessageHandler:
         text = (user_text or "").strip()
         lower = text.lower()
 
-        requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
+        requires_items = intent in {"browse_category", "search_product", "related_products"}
         if requires_items and not items:
             if _looks_like_noise(text):
                 return {
