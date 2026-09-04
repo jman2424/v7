@@ -355,7 +355,7 @@ class RendererV7:
         currency = str(facts.get("currency") or "GBP")
 
         if not isinstance(alternatives, list) or not alternatives:
-            return f"{name} is currently out of stock. I do not have a similar in-stock option recorded right now."
+            return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
 
         lines: List[str] = []
         for item in alternatives[:3]:
@@ -366,8 +366,8 @@ class RendererV7:
                 lines.append(line)
 
         if not lines:
-            return f"{name} is currently out of stock. I do not have a similar in-stock option recorded right now."
-        return f"{name} is currently out of stock. Available alternatives: " + " | ".join(lines) + "."
+            return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+        return f"{name} is currently out of stock; available alternatives: " + " | ".join(lines) + "."
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}

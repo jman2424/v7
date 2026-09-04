@@ -204,7 +204,7 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
     assert unavailable["intent"] == "unavailable_product"
     assert unavailable["facts"]["unavailable_product"]["sku"] == "WEEKENDER_DUFFEL"
     assert unavailable["entities"]["alternative_skus"][0] == "CARRY_ON_DUFFEL"
-    assert "Weekender Duffel is currently out of stock." in unavailable["reply"]
+    assert "Weekender Duffel is currently out of stock" in unavailable["reply"]
     assert "Carry-on Duffel" in unavailable["reply"]
     assert "$179.00" in unavailable["reply"]
     assert unavailable["agent"]["next_action"] == "select_available_alternative"

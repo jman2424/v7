@@ -125,3 +125,22 @@ def test_renderer_applies_professional_style_without_changing_facts():
     )
 
     assert reply == "I am happy to help. Returns are accepted within 30 days."
+
+
+def test_renderer_keeps_grounded_alternatives_with_a_one_sentence_limit():
+    renderer = RendererV7(None, max_sentences=1)
+
+    reply = renderer.render(
+        user_text="Do you have the Weekender Duffel?",
+        plan={"intent": "unavailable_product", "action": "SHOW_ALTERNATIVES", "needs_clarification": False},
+        facts={
+            "unavailable_product": {"name": "Weekender Duffel"},
+            "items": [{"name": "Carry-on Duffel", "price": 179.0, "unit": "each", "in_stock": True}],
+            "currency": "USD",
+        },
+        session={},
+    )
+
+    assert "Weekender Duffel is currently out of stock" in reply
+    assert "Carry-on Duffel" in reply
+    assert "$179.00" in reply
