@@ -329,6 +329,30 @@ class MessageHandlerV7:
                     items=comparison_items,
                 )
 
+            unavailable_product = self._unavailable_product_in_text(user_text)
+            if unavailable_product:
+                alternatives = self._in_stock_alternatives(unavailable_product)
+                plan = self._simple_plan("unavailable_product", "SHOW_ALTERNATIVES", session_snapshot)
+                facts = {
+                    "unavailable_product": unavailable_product,
+                    "items": alternatives,
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="unavailable_product",
+                    plan=plan,
+                    facts=facts,
+                    entities={
+                        "product_sku": unavailable_product.get("sku"),
+                        "alternative_skus": [item.get("sku") for item in alternatives],
+                    },
+                    items=alternatives,
+                )
+
             store_info = self._store_info_answer(user_text)
             if store_info:
                 plan = self._simple_plan("store_info", "STORE_INFO", session_snapshot)
@@ -772,6 +796,94 @@ class MessageHandlerV7:
             if name and name in text:
                 matches.append((len(name), item))
         return max(matches, key=lambda pair: pair[0])[1] if matches else None
+
+    def _unavailable_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """Find an explicitly named out-of-stock product without fuzzy guessing."""
+        if not self.catalog:
+            return None
+
+        text = self._normalize_text(user_text)
+        if not text:
+            return None
+
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return None
+
+        matches: List[Tuple[int, Dict[str, Any]]] = []
+        for item in candidates:
+            if not isinstance(item, dict) or item.get("in_stock", True):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            sku = self._normalize_text(str(item.get("sku") or ""))
+            for identifier in (name, sku):
+                if not identifier or len(identifier) < 3:
+                    continue
+                if re.search(rf"(?<!\w){re.escape(identifier)}(?!\w)", text):
+                    matches.append((len(identifier), item))
+                    break
+
+        return max(matches, key=lambda pair: pair[0])[1] if matches else None
+
+    def _in_stock_alternatives(self, unavailable_item: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
+        """Return related, tenant-catalog alternatives only when they are in stock."""
+        if not self.catalog:
+            return []
+
+        unavailable_sku = str(unavailable_item.get("sku") or "").strip()
+        category_id = str(unavailable_item.get("_category_id") or "").strip()
+        unavailable_tags = {
+            str(tag).strip().lower()
+            for tag in (unavailable_item.get("_norm_tags") or unavailable_item.get("tags") or [])
+            if str(tag).strip()
+        }
+        try:
+            unavailable_price = float(unavailable_item.get("price"))
+        except (TypeError, ValueError):
+            unavailable_price = None
+
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return []
+
+        same_category: List[Dict[str, Any]] = []
+        shared_tag_matches: List[Dict[str, Any]] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("sku") or "").strip() == unavailable_sku or not item.get("in_stock", True):
+                continue
+
+            item_category = str(item.get("_category_id") or "").strip()
+            item_tags = {
+                str(tag).strip().lower()
+                for tag in (item.get("_norm_tags") or item.get("tags") or [])
+                if str(tag).strip()
+            }
+            if category_id and item_category == category_id:
+                same_category.append(item)
+            elif unavailable_tags.intersection(item_tags):
+                shared_tag_matches.append(item)
+
+        related = same_category or shared_tag_matches
+
+        def rank(item: Dict[str, Any]) -> Tuple[int, float, str]:
+            item_tags = {
+                str(tag).strip().lower()
+                for tag in (item.get("_norm_tags") or item.get("tags") or [])
+                if str(tag).strip()
+            }
+            shared_tags = len(unavailable_tags.intersection(item_tags))
+            try:
+                item_price = float(item.get("price"))
+            except (TypeError, ValueError):
+                item_price = unavailable_price if unavailable_price is not None else 0.0
+            price_gap = abs(item_price - unavailable_price) if unavailable_price is not None else 0.0
+            return (-shared_tags, price_gap, str(item.get("name") or "").casefold())
+
+        return sorted(related, key=rank)[:limit]
 
     def _comparison_items(self, user_text: str, *, request_id: str) -> Optional[List[Dict[str, Any]]]:
         if not self._COMPARISON_REQUEST.search(user_text or ""):

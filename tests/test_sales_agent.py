@@ -130,6 +130,22 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
                             "tags": ["travel", "luggage"],
                             "in_stock": True,
                         },
+                        {
+                            "sku": "WEEKENDER_DUFFEL",
+                            "name": "Weekender Duffel",
+                            "price": 189.0,
+                            "unit": "each",
+                            "tags": ["travel", "luggage", "duffel"],
+                            "in_stock": False,
+                        },
+                        {
+                            "sku": "CARRY_ON_DUFFEL",
+                            "name": "Carry-on Duffel",
+                            "price": 179.0,
+                            "unit": "each",
+                            "tags": ["travel", "luggage", "duffel"],
+                            "in_stock": True,
+                        },
                     ],
                 }
             ],
@@ -154,16 +170,31 @@ def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):
         session_id="travel-comparison",
         channel="web",
     )
+    unavailable = handler.handle(
+        "Do you have the Weekender Duffel?",
+        tenant=tenant,
+        session_id="travel-unavailable",
+        channel="web",
+    )
     help_reply = handler.handle("help", tenant=tenant, session_id="travel-help", channel="web")
 
     assert "Canvas Backpack" in product["reply"]
     assert "$149.00" in product["reply"]
-    assert len(catalog["facts"]["items"]) == 2
+    assert len(catalog["facts"]["items"]) == 4
     assert comparison["intent"] == "compare_products"
     assert comparison["entities"]["comparison_skus"] == ["CANVAS_PACK", "CABIN_CASE"]
     assert "Canvas Backpack: $149.00, in stock." in comparison["reply"]
     assert "Cabin Case: $219.00, in stock." in comparison["reply"]
     assert comparison["agent"]["next_action"] == "select_compared_product"
+    assert unavailable["intent"] == "unavailable_product"
+    assert unavailable["facts"]["unavailable_product"]["sku"] == "WEEKENDER_DUFFEL"
+    assert unavailable["entities"]["alternative_skus"][0] == "CARRY_ON_DUFFEL"
+    assert "Weekender Duffel is currently out of stock." in unavailable["reply"]
+    assert "Carry-on Duffel" in unavailable["reply"]
+    assert "$179.00" in unavailable["reply"]
+    assert unavailable["agent"]["next_action"] == "select_available_alternative"
+    assert unavailable["ui"]["catalog_items"][0]["sku"] == "CARRY_ON_DUFFEL"
+    assert all(item["sku"] != "WEEKENDER_DUFFEL" for item in unavailable["ui"]["catalog_items"])
     assert "chicken" not in help_reply["reply"].lower()
     assert "lamb" not in help_reply["reply"].lower()
 

@@ -123,6 +123,24 @@ class SalesAgentPolicy:
                     next_question="",
                     suggested_replies=[],
                 )
+        elif intent == "unavailable_product":
+            suggestions = self._item_names(items)
+            if suggestions:
+                state.update(
+                    stage="recommend",
+                    objective="Guide the customer to an available, tenant-catalog alternative.",
+                    next_action="select_available_alternative",
+                    next_question="Which available alternative would you like to look at?",
+                    suggested_replies=suggestions,
+                )
+            else:
+                state.update(
+                    stage="assist",
+                    objective="Give an accurate stock update without inventing an alternative.",
+                    next_action="browse_other_products",
+                    next_question="",
+                    suggested_replies=["Browse products", "Check delivery"],
+                )
         elif intent == "offers":
             if offer_items:
                 state.update(

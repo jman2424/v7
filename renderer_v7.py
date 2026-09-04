@@ -96,6 +96,10 @@ class RendererV7:
             msg = self._comparison_reply(facts)
             return self._polish(msg, facts)
 
+        if action == "SHOW_ALTERNATIVES" or intent == "unavailable_product":
+            msg = self._alternatives_reply(facts)
+            return self._polish(msg, facts)
+
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             msg = self._delivery_reply(plan, facts, session)
             return self._polish(msg, facts)
@@ -343,6 +347,27 @@ class RendererV7:
         if len(lines) != 2:
             return "I found the products, but I could not confirm both prices."
         return " ".join(lines)
+
+    def _alternatives_reply(self, facts: Dict[str, Any]) -> str:
+        unavailable = facts.get("unavailable_product") or {}
+        name = str(unavailable.get("name") or unavailable.get("_norm_name") or "That product").strip()
+        alternatives = facts.get("items") or []
+        currency = str(facts.get("currency") or "GBP")
+
+        if not isinstance(alternatives, list) or not alternatives:
+            return f"{name} is currently out of stock. I do not have a similar in-stock option recorded right now."
+
+        lines: List[str] = []
+        for item in alternatives[:3]:
+            if not isinstance(item, dict):
+                continue
+            line = self._format_item_line(item, currency)
+            if line:
+                lines.append(line)
+
+        if not lines:
+            return f"{name} is currently out of stock. I do not have a similar in-stock option recorded right now."
+        return f"{name} is currently out of stock. Available alternatives: " + " | ".join(lines) + "."
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}
