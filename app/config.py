@@ -39,6 +39,10 @@ class Settings:
     # Rate limiting
     RATE_LIMIT_PER_MIN: int
     RATE_LIMIT_BURST: int
+    AUTH_LOGIN_MAX_ATTEMPTS: int
+    AUTH_LOGIN_WINDOW_SECONDS: int
+    SESSION_MAX_AGE_SECONDS: int
+    TRUST_PROXY_COUNT: int
 
     # Feature flags (global defaults; per-tenant overrides via business/overrides.json)
     FF_REWRITER_ENABLED: bool
@@ -104,6 +108,10 @@ def load_settings(override: dict | None = None) -> Settings:
 
         RATE_LIMIT_PER_MIN=int(o.get("RATE_LIMIT_PER_MIN", os.environ.get("RATE_LIMIT_PER_MIN", 120))),
         RATE_LIMIT_BURST=int(o.get("RATE_LIMIT_BURST", os.environ.get("RATE_LIMIT_BURST", 60))),
+        AUTH_LOGIN_MAX_ATTEMPTS=int(o.get("AUTH_LOGIN_MAX_ATTEMPTS", os.environ.get("AUTH_LOGIN_MAX_ATTEMPTS", 8))),
+        AUTH_LOGIN_WINDOW_SECONDS=int(o.get("AUTH_LOGIN_WINDOW_SECONDS", os.environ.get("AUTH_LOGIN_WINDOW_SECONDS", 900))),
+        SESSION_MAX_AGE_SECONDS=int(o.get("SESSION_MAX_AGE_SECONDS", os.environ.get("SESSION_MAX_AGE_SECONDS", 43200))),
+        TRUST_PROXY_COUNT=int(o.get("TRUST_PROXY_COUNT", os.environ.get("TRUST_PROXY_COUNT", 1 if os.environ.get("RENDER") == "true" else 0))),
 
         FF_REWRITER_ENABLED=_to_bool(o.get("FF_REWRITER_ENABLED", os.environ.get("FF_REWRITER_ENABLED")), True),
         FF_TOOL_USE_ENABLED=_to_bool(o.get("FF_TOOL_USE_ENABLED", os.environ.get("FF_TOOL_USE_ENABLED")), False),

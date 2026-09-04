@@ -256,22 +256,4 @@ def verify_totp(secret: str, code: str) -> bool:
     if len(code) != 6 or not code.isdigit():
         return False
 
-    try:
-        # Decode base32 secret
-        key = base64.b32decode(secret.upper() + "====", casefold=True)
-
-        # Time step = 30 seconds
-        import time
-        import struct
-
-        timestep = int(time.time()) // 30
-        msg = struct.pack(">Q", timestep)
-
-        h = hmac.new(key, msg, hashlib.sha1).digest()
-        offset = h[-1] & 0x0F
-        dbc = struct.unpack(">I", h[offset : offset + 4])[0] & 0x7FFFFFFF
-        otp = str(dbc % 1000000).zfill(6)
-
-        return hmac.compare_digest(code, otp)
-    except Exception:
-        return False
+    return verify_totp_token(secret, code)

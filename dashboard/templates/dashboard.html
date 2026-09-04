@@ -317,7 +317,10 @@
         <button id="refresh" class="btn" type="button">Refresh</button>
         <button id="export" class="btn" type="button">Export CSV</button>
         <a class="logout" href="{{ url_for('admin_ui.widget_settings', tenant=tenant) }}">Widget setup</a>
-        <a class="logout" href="{{ url_for('admin_ui.logout', tenant=tenant) }}">Logout</a>
+        <form action="{{ url_for('admin_ui.logout', tenant=tenant) }}" method="post" class="logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="logout" type="submit">Logout</button>
+        </form>
       </div>
     </header>
 

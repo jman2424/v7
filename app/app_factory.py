@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import Settings, load_settings
 from app.logging_setup import configure_logging
@@ -169,10 +171,25 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Render terminates HTTPS before proxying to Gunicorn. Its public service
     # still needs Secure cookies even when no explicit BASE_URL is configured.
     app.config["SESSION_COOKIE_SECURE"] = settings.BASE_URL.startswith("https://") or os.getenv("RENDER") == "true"
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(seconds=max(300, settings.SESSION_MAX_AGE_SECONDS))
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+
+    if settings.TRUST_PROXY_COUNT > 0:
+        app.wsgi_app = ProxyFix(  # type: ignore[assignment]
+            app.wsgi_app,
+            x_for=settings.TRUST_PROXY_COUNT,
+            x_proto=settings.TRUST_PROXY_COUNT,
+        )
 
     # Container
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
+    from service.login_limiter import LoginAttemptLimiter
+
+    app.extensions["auth_login_limiter"] = LoginAttemptLimiter(
+        max_attempts=settings.AUTH_LOGIN_MAX_ATTEMPTS,
+        window_seconds=settings.AUTH_LOGIN_WINDOW_SECONDS,
+    )
 
     # Middleware
     middleware.install_request_id(app)
@@ -183,6 +200,15 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Routes + errors
     _register_blueprints(app)
     _install_error_handlers(app)
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+        if app.config["SESSION_COOKIE_SECURE"]:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
 
     # Root
     @app.get("/")

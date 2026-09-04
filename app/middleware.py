@@ -52,7 +52,10 @@ def install_rate_limit(app: Flask, settings: Settings) -> None:
 
     @app.before_request
     def _rl():
-        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+        # ProxyFix only accepts forwarded headers from explicitly configured
+        # trusted proxies. Reading X-Forwarded-For directly lets clients evade
+        # rate limiting by inventing an address.
+        ip = (request.remote_addr or "unknown").strip()
         if not allow(ip):
             abort(429)
 

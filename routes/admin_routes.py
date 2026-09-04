@@ -1,8 +1,9 @@
 # routes/admin_routes.py
 from __future__ import annotations
 
-from flask import Blueprint, abort, render_template, request, redirect, url_for, session
+from flask import Blueprint, abort, current_app, render_template, request, redirect, url_for, session
 from routes import get_container
+from routes.session_auth import clear_authenticated_session, establish_authenticated_session
 from routes.tenancy import resolve_admin_tenant
 from retrieval.storage import Storage
 
@@ -14,14 +15,7 @@ def _is_logged_in() -> bool:
 
 
 def _csrf_token() -> str:
-    try:
-        from flask import g  # type: ignore
-        tok = getattr(g, "csrf_token", None)
-        if tok:
-            return tok
-    except Exception:
-        pass
-    return session.get("csrf_token", "") or ""
+    return session.get("_csrf", "") or ""
 
 
 def _tenant() -> str:
@@ -112,6 +106,19 @@ def login_submit():
             400,
         )
 
+    limiter = current_app.extensions["auth_login_limiter"]
+    attempt_key = limiter.key(client_address=request.remote_addr or "unknown", tenant=tenant, identifier=identifier)
+    if limiter.retry_after(attempt_key):
+        return (
+            render_template(
+                "login.html",
+                tenant=tenant,
+                error="Too many sign-in attempts. Please try again later.",
+                csrf_token=_csrf_token(),
+            ),
+            429,
+        )
+
     from service.security import authenticate_user, verify_totp
 
     c = get_container()
@@ -119,6 +126,7 @@ def login_submit():
     # ✅ IMPORTANT: your authenticate_user signature is (c, *, email=, password=)
     user = authenticate_user(c, email=identifier, password=password, tenant=tenant)
     if not user:
+        limiter.record_failure(attempt_key)
         return (
             render_template(
                 "login.html",
@@ -131,26 +139,25 @@ def login_submit():
 
     secret = user.get("totp_secret") or ""
     if not verify_totp(secret, totp_code):
+        limiter.record_failure(attempt_key)
         return (
             render_template(
                 "login.html",
                 tenant=tenant,
-                error="Invalid TOTP code",
+                error="Invalid credentials",
                 csrf_token=_csrf_token(),
             ),
             401,
         )
 
-    # ✅ store tenant in session so admin_api defaults correctly
-    user["tenant"] = str(user.get("tenant") or tenant)
-    session["user"] = user
-    session["admin_session_id"] = user.get("id") or "admin"
+    limiter.reset(attempt_key)
+    identity = establish_authenticated_session(user, tenant)
+    session["admin_session_id"] = identity["id"]
 
     return _redirect("admin_ui.dashboard")
 
 
-@bp.get("/logout")
+@bp.post("/logout")
 def logout():
-    session.pop("user", None)
-    session.pop("admin_session_id", None)
+    clear_authenticated_session()
     return _redirect("admin_ui.login_page")
