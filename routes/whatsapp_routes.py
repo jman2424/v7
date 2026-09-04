@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict
 
 from flask import Blueprint, Response, abort, current_app, jsonify, request
 from twilio.twiml.messaging_response import MessagingResponse
 
-from routes import get_container
+from routes import get_container, get_tenant_container
 from connectors.whatsapp import parse_inbound, send_reply
 from service.security import verify_webhook_signature
 
@@ -43,6 +44,32 @@ def _lead_id_from_sender(sender_digits: str) -> str:
     return f"wa:{sender_digits}"
 
 
+def _mapped_tenant(container: Any, recipient: str) -> str | None:
+    """Resolve an inbound business number to its isolated tenant runtime."""
+    default_tenant = str(getattr(container.settings, "BUSINESS_KEY", "DEFAULT") or "DEFAULT")
+    mapping = getattr(container.settings, "WHATSAPP_TENANT_MAP", {}) or {}
+    if not isinstance(mapping, dict) or not mapping:
+        return default_tenant
+
+    tenant = mapping.get(_norm_wa_id(recipient))
+    return str(tenant).strip() if tenant else None
+
+
+def _cloud_signature_required(container: Any) -> bool:
+    environment = str(
+        getattr(container.settings, "ENVIRONMENT", os.getenv("ENVIRONMENT", "development"))
+    ).strip().lower()
+    return environment in {"production", "prod"}
+
+
+def _public_request_url() -> str:
+    """Use the public proxy URL when validating a Twilio signature."""
+    scheme = (request.headers.get("X-Forwarded-Proto") or request.scheme).split(",", 1)[0].strip()
+    host = (request.headers.get("X-Forwarded-Host") or request.host).split(",", 1)[0].strip()
+    query = request.query_string.decode("utf-8", errors="ignore")
+    return f"{scheme}://{host}{request.path}" + (f"?{query}" if query else "")
+
+
 @bp.get("/webhook")
 def webhook_verify():
     c = get_container()
@@ -71,18 +98,32 @@ def webhook_receive():
     # Meta signature verification (Cloud API only)
     app_secret = getattr(c.settings, "WHATSAPP_APP_SECRET", "") or ""
     sig_header = request.headers.get("X-Hub-Signature-256")
-    if (
-        (not is_twilio)
-        and app_secret
-        and sig_header
-        and not (current_app.config.get("TESTING") or current_app.config.get("DEBUG"))
+    if not is_twilio and _cloud_signature_required(c) and not (
+        current_app.config.get("TESTING") or current_app.config.get("DEBUG")
     ):
-        if not verify_webhook_signature(request, app_secret):
-            logger.warning("WA WEBHOOK: invalid X-Hub-Signature, aborting 403.")
+        if app_secret in {"", "dev"}:
+            logger.error("WA WEBHOOK: Cloud signing secret is not configured.")
+            abort(503, description="whatsapp_signing_not_configured")
+        if not sig_header or not verify_webhook_signature(request, app_secret):
+            logger.warning("WA WEBHOOK: invalid or missing X-Hub-Signature, aborting 403.")
             abort(403)
 
-    handler = _get_handler(c)
-    tenant_default = getattr(c.settings, "BUSINESS_KEY", "DEFAULT") or "DEFAULT"
+    if is_twilio and _cloud_signature_required(c) and not (
+        current_app.config.get("TESTING") or current_app.config.get("DEBUG")
+    ):
+        twilio_token = str(getattr(c.settings, "TWILIO_AUTH_TOKEN", "") or "")
+        twilio_signature = request.headers.get("X-Twilio-Signature") or ""
+        if not twilio_token:
+            logger.error("WA WEBHOOK: Twilio signing token is not configured.")
+            abort(503, description="twilio_signing_not_configured")
+        if not twilio_signature or not verify_webhook_signature(
+            twilio_token,
+            twilio_signature,
+            _public_request_url(),
+            request.form.to_dict(),
+        ):
+            logger.warning("WA WEBHOOK: invalid or missing X-Twilio-Signature, aborting 403.")
+            abort(403)
 
     # ------------------------------------------------------------------
     # TWILIO (FORM)
@@ -98,7 +139,16 @@ def webhook_receive():
             resp.message("Sorry—I didn’t receive any text.")
             return Response(str(resp), status=200, mimetype="application/xml")
 
-        tenant = tenant_default
+        tenant = _mapped_tenant(c, form.get("To") or "")
+        if not tenant:
+            logger.warning("WA: ignored Twilio message for an unmapped business number")
+            return Response(str(MessagingResponse()), status=200, mimetype="application/xml")
+        try:
+            tenant_container = get_tenant_container(tenant)
+        except ValueError:
+            logger.warning("WA: ignored Twilio message with an unknown tenant mapping")
+            return Response(str(MessagingResponse()), status=200, mimetype="application/xml")
+        handler = _get_handler(tenant_container)
         session_id = sender_digits or "wa_unknown"
         lead_id = _lead_id_from_sender(sender_digits)
         phone = f"+{sender_digits}" if sender_digits else None
@@ -216,7 +266,17 @@ def webhook_receive():
             from_raw = (ev.get("from") or "unknown").strip()
             sender_digits = _norm_wa_id(from_raw)
             session_id = (ev.get("session_id") or sender_digits or "wa_unknown").strip()
-            tenant = (ev.get("tenant") or tenant_default).strip() or tenant_default
+            metadata = ev.get("metadata") if isinstance(ev.get("metadata"), dict) else {}
+            tenant = _mapped_tenant(c, str(metadata.get("phone_number_id") or ""))
+            if not tenant:
+                logger.warning("WA: ignored Cloud message for an unmapped business number")
+                continue
+            try:
+                tenant_container = get_tenant_container(tenant)
+            except ValueError:
+                logger.warning("WA: ignored Cloud message with an unknown tenant mapping")
+                continue
+            handler = _get_handler(tenant_container)
 
             lead_id = _lead_id_from_sender(sender_digits)
             phone = f"+{sender_digits}" if sender_digits and sender_digits.isdigit() else None
@@ -256,7 +316,7 @@ def webhook_receive():
                         tenant=tenant,
                         session_id=session_id,
                         channel="whatsapp",
-                        metadata={"wa_id": sender_digits, "source": "cloud"},
+                        metadata={"wa_id": sender_digits, "source": "cloud", "phone_number_id": metadata.get("phone_number_id")},
                     ) or {}
                 except Exception as exc:
                     logger.exception("WA: handler.handle crashed: %s", exc)
@@ -300,7 +360,7 @@ def webhook_receive():
             # Send reply
             if reply:
                 try:
-                    send_reply(ev, reply, settings=c.settings)
+                    send_reply(ev, reply, settings=tenant_container.settings)
                 except Exception as send_exc:
                     logger.exception("WA WEBHOOK: send_reply failed: %s", send_exc)
                     try:

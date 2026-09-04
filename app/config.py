@@ -7,9 +7,10 @@ Configuration loader.
 """
 
 from __future__ import annotations
+import json
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 
 def _get(name: str, default: Optional[str] = None) -> str:
@@ -31,6 +32,8 @@ class Settings:
     WHATSAPP_TOKEN: str
     WHATSAPP_PHONE_ID: str
     WHATSAPP_API_URL: str
+    WHATSAPP_TENANT_MAP: Dict[str, str]
+    TWILIO_AUTH_TOKEN: str
     SHEETS_SERVICE_JSON: str | None  # path or JSON string
 
     # Rate limiting
@@ -43,6 +46,7 @@ class Settings:
     FF_ANALYTICS_TO_SHEETS: bool
 
     # Server
+    ENVIRONMENT: str
     BASE_URL: str
     HEALTH_PATH: str
 
@@ -51,6 +55,28 @@ def _to_bool(s: str | None, default: bool = False) -> bool:
     if s is None:
         return default
     return s.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _whatsapp_tenant_map(value: object) -> Dict[str, str]:
+    """Parse the server-only inbound business number to tenant mapping."""
+    raw = str(value or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("WHATSAPP_TENANT_MAP_JSON must be a JSON object") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("WHATSAPP_TENANT_MAP_JSON must be a JSON object")
+
+    mapping: Dict[str, str] = {}
+    for raw_number, raw_tenant in data.items():
+        number = str(raw_number or "").strip().removeprefix("whatsapp:").lstrip("+")
+        tenant = str(raw_tenant or "").strip()
+        if not number or not tenant:
+            raise RuntimeError("WHATSAPP_TENANT_MAP_JSON contains an empty mapping")
+        mapping[number] = tenant
+    return mapping
 
 
 def load_settings(override: dict | None = None) -> Settings:
@@ -70,6 +96,10 @@ def load_settings(override: dict | None = None) -> Settings:
         WHATSAPP_TOKEN=o.get("WHATSAPP_TOKEN", _get("WHATSAPP_TOKEN", "")),
         WHATSAPP_PHONE_ID=o.get("WHATSAPP_PHONE_ID", _get("WHATSAPP_PHONE_ID", "")),
         WHATSAPP_API_URL=o.get("WHATSAPP_API_URL", _get("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0")),
+        WHATSAPP_TENANT_MAP=_whatsapp_tenant_map(
+            o.get("WHATSAPP_TENANT_MAP_JSON", _get("WHATSAPP_TENANT_MAP_JSON", ""))
+        ),
+        TWILIO_AUTH_TOKEN=o.get("TWILIO_AUTH_TOKEN", _get("TWILIO_AUTH_TOKEN", "")),
         SHEETS_SERVICE_JSON=o.get("SHEETS_SERVICE_JSON", os.environ.get("SHEETS_SERVICE_JSON")),
 
         RATE_LIMIT_PER_MIN=int(o.get("RATE_LIMIT_PER_MIN", os.environ.get("RATE_LIMIT_PER_MIN", 120))),
@@ -79,6 +109,7 @@ def load_settings(override: dict | None = None) -> Settings:
         FF_TOOL_USE_ENABLED=_to_bool(o.get("FF_TOOL_USE_ENABLED", os.environ.get("FF_TOOL_USE_ENABLED")), False),
         FF_ANALYTICS_TO_SHEETS=_to_bool(o.get("FF_ANALYTICS_TO_SHEETS", os.environ.get("FF_ANALYTICS_TO_SHEETS")), False),
 
+        ENVIRONMENT=environment,
         BASE_URL=o.get("BASE_URL", os.environ.get("BASE_URL", "http://localhost:10000")),
         HEALTH_PATH=o.get("HEALTH_PATH", os.environ.get("HEALTH_PATH", "/health")),
     )

@@ -15,6 +15,12 @@ def test_production_rejects_default_secret_key():
         load_settings({"ENVIRONMENT": "production", "SECRET_KEY": "change-me"})
 
 
+def test_environment_is_available_to_runtime_routes():
+    settings = load_settings({"ENVIRONMENT": "production", "SECRET_KEY": "test-secret"})
+
+    assert settings.ENVIRONMENT == "production"
+
+
 def test_https_base_url_enables_secure_session_cookie():
     from app import create_app
 
@@ -39,11 +45,13 @@ def test_whatsapp_cloud_settings_are_loaded():
             "WHATSAPP_TOKEN": "token",
             "WHATSAPP_PHONE_ID": "phone-id",
             "WHATSAPP_API_URL": "https://api.example.test",
+            "WHATSAPP_TENANT_MAP_JSON": '{"phone-id":"EXAMPLE"}',
         }
     )
     assert settings.WHATSAPP_TOKEN == "token"
     assert settings.WHATSAPP_PHONE_ID == "phone-id"
     assert settings.WHATSAPP_API_URL == "https://api.example.test"
+    assert settings.WHATSAPP_TENANT_MAP == {"phone-id": "EXAMPLE"}
 
 
 def test_gunicorn_configuration_uses_render_port(monkeypatch):

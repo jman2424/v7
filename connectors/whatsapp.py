@@ -148,7 +148,8 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         return
 
     token = settings.WHATSAPP_TOKEN
-    phone_id = settings.WHATSAPP_PHONE_ID
+    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    phone_id = str(metadata.get("phone_number_id") or settings.WHATSAPP_PHONE_ID).strip()
     base_url = settings.WHATSAPP_API_URL or "https://graph.facebook.com/v21.0"
 
     if not token or not phone_id:

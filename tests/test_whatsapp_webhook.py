@@ -9,7 +9,27 @@ import json
 import hmac
 import hashlib
 import logging
+import shutil
+from pathlib import Path
+from types import SimpleNamespace
 import pytest
+
+
+def _cloud_payload(phone_number_id: str = "phone-id"):
+    return {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "metadata": {"phone_number_id": phone_number_id},
+                            "messages": [{"type": "text", "from": "447700900123", "text": {"body": "hello there"}}],
+                        }
+                    }
+                ]
+            }
+        ]
+    }
 
 
 def test_webhook_verify_challenge(client, app, monkeypatch):
@@ -76,3 +96,84 @@ def test_twilio_webhook_keeps_customer_content_out_of_operational_logs(client, c
     assert "+447123456789" not in logs
     assert "customer@example.test" not in logs
     assert "message_len=" in logs
+
+
+def test_cloud_webhook_uses_mapped_tenant_runtime(client, app):
+    business_root = Path(app.container.storage.business_root)
+    shutil.copytree(business_root / "EXAMPLE", business_root / "ALT")
+    object.__setattr__(app.container.settings, "WHATSAPP_TENANT_MAP", {"alternate-phone-id": "ALT"})
+
+    calls = []
+    app.container.for_tenant("ALT").handler.handle = lambda *_args, **kwargs: calls.append(kwargs) or {
+        "reply": "Alternate tenant reply",
+        "intent": "faq",
+    }
+
+    response = client.post("/whatsapp/webhook", json=_cloud_payload("alternate-phone-id"))
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "events": 1}
+    assert calls == [
+        {
+            "tenant": "ALT",
+            "session_id": "447700900123",
+            "channel": "whatsapp",
+            "metadata": {"wa_id": "447700900123", "source": "cloud", "phone_number_id": "alternate-phone-id"},
+        }
+    ]
+
+
+def test_cloud_webhook_rejects_unsigned_requests_in_production(client, app, monkeypatch):
+    object.__setattr__(app.container.settings, "ENVIRONMENT", "production")
+    object.__setattr__(app.container.settings, "WHATSAPP_APP_SECRET", "configured-secret")
+    app.config["TESTING"] = False
+    app.config["DEBUG"] = False
+
+    response = client.post("/whatsapp/webhook", json=_cloud_payload())
+
+    assert response.status_code == 403
+
+
+def test_twilio_webhook_rejects_unsigned_requests_in_production(client, app):
+    object.__setattr__(app.container.settings, "ENVIRONMENT", "production")
+    object.__setattr__(app.container.settings, "TWILIO_AUTH_TOKEN", "configured-token")
+    app.config["TESTING"] = False
+    app.config["DEBUG"] = False
+
+    response = client.post(
+        "/whatsapp/webhook",
+        data={"Body": "hello", "From": "whatsapp:+447700900123"},
+        content_type="application/x-www-form-urlencoded",
+    )
+
+    assert response.status_code == 403
+
+
+def test_cloud_reply_uses_the_inbound_business_phone_id(monkeypatch):
+    from connectors.whatsapp import send_reply
+
+    sent = {}
+
+    class Response:
+        status_code = 200
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        sent["payload"] = kwargs["json"]
+        return Response()
+
+    monkeypatch.setattr("connectors.whatsapp.requests.post", fake_post)
+    settings = SimpleNamespace(
+        WHATSAPP_TOKEN="token",
+        WHATSAPP_PHONE_ID="default-phone-id",
+        WHATSAPP_API_URL="https://api.example.test",
+    )
+
+    send_reply(
+        {"from": "447700900123", "metadata": {"phone_number_id": "alternate-phone-id"}, "source": "cloud"},
+        "Hello",
+        settings=settings,
+    )
+
+    assert sent["url"] == "https://api.example.test/alternate-phone-id/messages"
+    assert sent["payload"]["to"] == "447700900123"

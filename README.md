@@ -70,6 +70,16 @@ website origins in `/admin/widget`. The page provides a tenant-specific script
 tag; the chat runs in an isolated iframe and each chat request resolves that
 tenant's own catalog, policies, FAQs, and analytics.
 
+## WhatsApp Routing
+
+One Meta WhatsApp Cloud app can serve multiple tenants. Set the server-only
+`WHATSAPP_TENANT_MAP_JSON` environment variable to map each inbound Cloud phone
+number ID to a tenant key. When a map is present, unrecognised inbound business
+numbers are ignored rather than falling back to another tenant. Cloud webhooks
+also require a valid `X-Hub-Signature-256` in production.
+Twilio WhatsApp webhooks require `TWILIO_AUTH_TOKEN` and a valid
+`X-Twilio-Signature` in production.
+
 ## Owner Console
 
 The SvelteKit owner console lives in [frontend](frontend/README.md). During
