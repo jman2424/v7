@@ -122,8 +122,22 @@
     count: number;
   };
 
+  type SalesFunnel = {
+    total: number;
+    active: number;
+    open: number;
+    contacted: number;
+    qualified: number;
+    won: number;
+    lost: number;
+    other: number;
+    handoffs: number;
+    contacts_captured: number;
+  };
+
   type Insights = {
     kpis: InsightKpis;
+    sales_funnel: SalesFunnel;
     leads: InsightLead[];
     top_intents: InsightItem[];
   };
@@ -193,7 +207,12 @@
   let branchesError = false;
   let agentStatus = '';
   let agentError = false;
-  let insights: Insights = { kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 }, leads: [], top_intents: [] };
+  let insights: Insights = {
+    kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 },
+    sales_funnel: { total: 0, active: 0, open: 0, contacted: 0, qualified: 0, won: 0, lost: 0, other: 0, handoffs: 0, contacts_captured: 0 },
+    leads: [],
+    top_intents: []
+  };
   let activityStatus = '';
   const leadStatuses: LeadStatus[] = ['Open', 'Contacted', 'Qualified', 'Won', 'Lost'];
 
@@ -332,10 +351,16 @@
   function normalizeInsights(value: unknown): Insights {
     const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
     const kpis = source.kpis && typeof source.kpis === 'object' ? source.kpis as Record<string, unknown> : {};
+    const funnel = source.sales_funnel && typeof source.sales_funnel === 'object' ? source.sales_funnel as Record<string, unknown> : {};
     const leads = Array.isArray(source.leads) ? source.leads : [];
     const intents = Array.isArray(source.top_intents) ? source.top_intents : [];
     return {
       kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
+      sales_funnel: {
+        total: safeCount(funnel.total), active: safeCount(funnel.active), open: safeCount(funnel.open), contacted: safeCount(funnel.contacted),
+        qualified: safeCount(funnel.qualified), won: safeCount(funnel.won), lost: safeCount(funnel.lost), other: safeCount(funnel.other),
+        handoffs: safeCount(funnel.handoffs), contacts_captured: safeCount(funnel.contacts_captured)
+      },
       leads: leads.filter((lead): lead is Record<string, unknown> => Boolean(lead && typeof lead === 'object')).map((lead) => ({
         lead_id: String(lead.lead_id || ''), name: typeof lead.name === 'string' && lead.name ? lead.name : null, phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
         status: leadStatuses.includes(String(lead.status) as LeadStatus) ? String(lead.status) : 'Open', updated_utc: String(lead.updated_utc || '')
@@ -456,6 +481,23 @@
     tenant = user?.tenant || tenant;
     await loadTenantWorkspace(tenant);
     await loadTenants();
+  }
+
+  async function logout() {
+    const response = await fetch(apiPath('/auth/logout'), {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      credentials: 'same-origin'
+    });
+    if (!response.ok) {
+      formStatus = 'Could not sign out. Please refresh and try again.';
+      formError = true;
+      return;
+    }
+    user = null;
+    csrf = '';
+    password = '';
+    totp = '';
   }
 
   async function saveWidget() {
@@ -815,7 +857,7 @@
     <form class="login" on:submit|preventDefault={login}>
       <div class="product-mark">V7</div>
       <h1>Owner console</h1>
-      <p>Manage the customer-facing sales agent for your business.</p>
+      <p>Sales agent control for your business.</p>
       <label>Tenant key<input bind:value={tenant} autocomplete="organization" required /></label>
       <label>Email<input bind:value={email} type="email" autocomplete="username" required /></label>
       <label>Password<input bind:value={password} type="password" autocomplete="current-password" required /></label>
@@ -827,12 +869,12 @@
 {:else}
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="side-brand"><span>V7</span><strong>{tenant}</strong></div>
+      <div class="side-brand"><span>V7</span><strong>{tenant}</strong><small>Sales agent workspace</small></div>
       <nav aria-label="Owner console navigation">
-        <a class="active" href="#widget">Widget setup</a>
-        <a href="#activity">Sales activity</a>
-        <a href="#install">Install script</a>
-        <a href="#catalog">Catalog</a>
+        <a class="active" href="#activity">Pipeline</a>
+        <a href="#widget">Website</a>
+        <a href="#install">Install</a>
+        <a href="#catalog">Catalogue</a>
         <a href="#offers">Offers</a>
         <a href="#faqs">FAQs</a>
         <a href="#delivery">Delivery</a>
@@ -846,10 +888,13 @@
 
     <main class="workspace">
       <header class="workspace-head">
-        <div><p class="eyebrow">Customer channel</p><h1>Website widget</h1></div>
+        <div><p class="eyebrow">Owner workspace</p><h1>Sales control room</h1></div>
+        <div class="workspace-actions">
         {#if isPlatform && tenants.length > 0}
           <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
         {/if}
+          <button class="secondary sign-out" type="button" on:click={logout}>Sign out</button>
+        </div>
       </header>
 
       {#if showCreateTenant && isPlatform}
@@ -863,6 +908,42 @@
           {#if createStatus}<p class="form-status">{createStatus}</p>{/if}
         </section>
       {/if}
+
+      <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
+        <div class="surface-head pipeline-head"><div><p class="eyebrow">Sales pipeline</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>Refresh</button></div>
+        <div class="metric-grid" aria-label="Sales pipeline summary">
+          <div><span>Active leads</span><strong>{insights.sales_funnel.active}</strong><small>Current pipeline</small></div>
+          <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong><small>Ready for follow-up</small></div>
+          <div><span>Won</span><strong>{insights.sales_funnel.won}</strong><small>Recorded outcomes</small></div>
+          <div><span>Requested a person</span><strong>{insights.sales_funnel.handoffs}</strong><small>Last 7 days</small></div>
+        </div>
+        <div class="funnel-strip" aria-label="Current lead stages">
+          <div><span>Open</span><strong>{insights.sales_funnel.open}</strong></div>
+          <div><span>Contacted</span><strong>{insights.sales_funnel.contacted}</strong></div>
+          <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong></div>
+          <div><span>Won</span><strong>{insights.sales_funnel.won}</strong></div>
+          <div><span>Lost</span><strong>{insights.sales_funnel.lost}</strong></div>
+        </div>
+        <div class="activity-details">
+          <div class="activity-list">
+            <div class="list-heading"><h3>Recent leads</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
+            {#each insights.leads as lead}
+              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+            {:else}
+              <p class="empty-state">New customer conversations will appear here.</p>
+            {/each}
+          </div>
+          <div class="activity-list">
+            <div class="list-heading"><h3>Conversation topics</h3><span>Last 7 days</span></div>
+            {#each insights.top_intents as item}
+              <div class="intent-row"><span>{item.label.replaceAll('_', ' ')}</span><strong>{item.count}</strong></div>
+            {:else}
+              <p class="empty-state">Topics will appear after customer conversations.</p>
+            {/each}
+          </div>
+        </div>
+        {#if activityStatus}<p class="activity-status">{activityStatus}</p>{/if}
+      </section>
 
       {#if canManageAccounts}
         <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
@@ -907,35 +988,6 @@
           <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
         </section>
       </div>
-
-      <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
-        <div class="surface-head"><div><p class="eyebrow">Last 7 days</p><h2 id="activity-heading">Sales activity</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>Refresh</button></div>
-        <div class="metric-grid" aria-label="Sales activity summary">
-          <div><span>Customer messages</span><strong>{insights.kpis.inbound}</strong></div>
-          <div><span>Conversations</span><strong>{insights.kpis.sessions}</strong></div>
-          <div><span>Leads</span><strong>{insights.kpis.leads}</strong></div>
-          <div><span>Needs review</span><strong>{insights.kpis.fallbacks}</strong></div>
-        </div>
-        <div class="activity-details">
-          <div class="activity-list">
-            <h3>Recent leads</h3>
-            {#each insights.leads as lead}
-              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
-            {:else}
-              <p class="empty-state">New customer conversations will appear here.</p>
-            {/each}
-          </div>
-          <div class="activity-list">
-            <h3>What customers ask about</h3>
-            {#each insights.top_intents as item}
-              <div class="intent-row"><span>{item.label.replaceAll('_', ' ')}</span><strong>{item.count}</strong></div>
-            {:else}
-              <p class="empty-state">Topics will appear after customer conversations.</p>
-            {/each}
-          </div>
-        </div>
-        {#if activityStatus}<p class="activity-status">{activityStatus}</p>{/if}
-      </section>
 
       <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
         <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Product catalog</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
@@ -1076,40 +1128,43 @@
 {/if}
 
 <style>
-  :global(body) { background: #f4f7fa; }
-  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #5f6d80; }
+  :global(body) { background: #f7f7f2; }
+  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #67706b; }
   .login-shell { padding: 24px; }
-  .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid #d8dee8; border-radius: 8px; box-shadow: 0 14px 32px rgba(15, 23, 42, .08); }
-  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #0b9a5f; color: #fff; border-radius: 8px; font-weight: 800; }
+  .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; box-shadow: 0 16px 40px rgba(31, 42, 35, .09); }
+  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #007d70; color: #fff; border-radius: 8px; font-weight: 800; }
   h1, h2, h3, p { margin-top: 0; }
   .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
-  .login p { color: #667085; line-height: 1.5; }
-  label { display: grid; gap: 7px; color: #344054; font-size: 13px; font-weight: 700; }
-  label span { color: #8b98aa; font-weight: 500; }
-  input, textarea, select { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #b9c3d2; border-radius: 6px; color: #172033; background: #fff; }
+  .login p { color: #67706b; line-height: 1.5; }
+  label { display: grid; gap: 7px; color: #2f3833; font-size: 13px; font-weight: 700; }
+  label span { color: #79837c; font-weight: 500; }
+  input, textarea, select { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; }
   textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
-  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(11,154,95,.16); border-color: #0b9a5f; }
+  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #007d70; }
   .primary, .secondary { min-height: 38px; border-radius: 6px; padding: 0 14px; font-weight: 700; font-size: 14px; }
-  .primary { border: 1px solid #0b9a5f; background: #0b9a5f; color: #fff; }
-  .primary:hover { background: #087b4c; }
-  .secondary { border: 1px solid #b9c3d2; background: #fff; color: #344054; }
-  .secondary:hover { background: #f8fafc; }
+  .primary { border: 1px solid #007d70; background: #007d70; color: #fff; }
+  .primary:hover { background: #00695e; }
+  .secondary { border: 1px solid #bbc4bc; background: #fff; color: #2f3833; }
+  .secondary:hover { background: #f1f4ef; }
   .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
   .error { color: #b42318; background: #fff2f0; }
-  .app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
-  .sidebar { display: flex; flex-direction: column; gap: 28px; padding: 24px 16px; background: #101c27; color: #f6f8fb; }
-  .side-brand { display: grid; gap: 6px; padding: 0 10px; }
-  .side-brand span { color: #6be1aa; font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+  .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+  .sidebar { display: flex; flex-direction: column; gap: 28px; padding: 24px 16px; background: #252c27; color: #f8faf7; }
+  .side-brand { display: grid; gap: 6px; padding: 0 10px 18px; border-bottom: 1px solid #3d4940; }
+  .side-brand span { color: #7ee0c6; font-size: 13px; font-weight: 800; letter-spacing: .08em; }
   .side-brand strong { font-size: 17px; overflow-wrap: anywhere; }
+  .side-brand small { color: #acb8ae; font-size: 12px; font-weight: 500; }
   nav { display: grid; gap: 4px; }
-  nav a, .nav-button { width: 100%; border: 0; border-radius: 6px; padding: 10px; color: #c6d2e1; background: transparent; text-align: left; text-decoration: none; font-size: 14px; }
-  nav a:hover, nav a.active, .nav-button:hover { color: #fff; background: #203143; }
-  .account { display: grid; gap: 4px; margin-top: auto; padding: 12px 10px; border-top: 1px solid #2c3d50; font-size: 12px; overflow-wrap: anywhere; }
-  .account span { color: #a7b6c8; }
-  .workspace { padding: 34px clamp(20px, 5vw, 70px) 56px; }
-  .workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
-  .workspace-head h1 { margin-bottom: 0; font-size: 29px; letter-spacing: 0; }
-  .eyebrow { margin-bottom: 7px; color: #0b8d57; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  nav a, .nav-button { width: 100%; border: 0; border-radius: 6px; padding: 10px; color: #c9d2cb; background: transparent; text-align: left; text-decoration: none; font-size: 14px; }
+  nav a:hover, nav a.active, .nav-button:hover { color: #fff; background: #3b4940; }
+  .account { display: grid; gap: 4px; margin-top: auto; padding: 14px 10px 0; border-top: 1px solid #3d4940; font-size: 12px; overflow-wrap: anywhere; }
+  .account span { color: #acb8ae; }
+  .workspace { padding: 38px clamp(20px, 5vw, 76px) 64px; max-width: 1720px; }
+  .workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+  .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
+  .workspace-actions { display: flex; align-items: end; gap: 10px; }
+  .sign-out { white-space: nowrap; }
+  .eyebrow { margin-bottom: 7px; color: #007d70; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
   .tenant-picker { min-width: 220px; }
   .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: #eefbf5; border: 1px solid #b9e9d0; border-radius: 8px; }
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
@@ -1122,10 +1177,10 @@
   .account-inactive { color: #b42318; }
   .team-status { display: block; margin: 14px 20px 20px; }
   .content-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: 20px; align-items: start; }
-  .surface { background: #fff; border: 1px solid #d8dee8; border-radius: 8px; }
-  .surface-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .surface { background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; }
+  .surface-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
   .surface-head h2 { margin-bottom: 0; font-size: 17px; }
-  .status-dot { padding: 5px 8px; color: #087b4c; background: #ecfdf3; border: 1px solid #abefc6; border-radius: 99px; font-size: 12px; font-weight: 700; }
+  .status-dot { padding: 5px 8px; color: #00695e; background: #e7f5ef; border: 1px solid #b8dfd2; border-radius: 99px; font-size: 12px; font-weight: 700; }
   .settings-form { display: grid; gap: 18px; padding: 20px; }
   small { color: #667085; font-size: 12px; font-weight: 500; line-height: 1.4; }
   .origins { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
@@ -1138,24 +1193,33 @@
   .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
   .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
-  .workspace-section { margin-top: 20px; scroll-margin-top: 18px; }
-  .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e2e7ee; }
-  .metric-grid > div { display: grid; gap: 6px; min-height: 102px; align-content: center; padding: 18px 20px; }
-  .metric-grid > div + div { border-left: 1px solid #e2e7ee; }
-  .metric-grid span, .lead-row span, .lead-row time { color: #667085; font-size: 12px; }
-  .metric-grid strong { color: #172033; font-size: 28px; line-height: 1; }
+  .workspace-section { margin-top: 22px; scroll-margin-top: 18px; }
+  .pipeline-head { background: #fcfdfb; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e4e8e1; }
+  .metric-grid > div { display: grid; gap: 6px; min-height: 116px; align-content: center; padding: 20px; }
+  .metric-grid > div + div { border-left: 1px solid #e4e8e1; }
+  .metric-grid span, .lead-row span, .lead-row time { color: #67706b; font-size: 12px; }
+  .metric-grid strong { color: #1f2923; font-size: 31px; line-height: 1; }
+  .metric-grid small { color: #8a938d; font-size: 11px; font-weight: 600; }
+  .funnel-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 14px 20px; background: #f1f5f0; border-bottom: 1px solid #e4e8e1; }
+  .funnel-strip > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 12px; }
+  .funnel-strip > div + div { border-left: 1px solid #d8dfd8; }
+  .funnel-strip span { color: #67706b; font-size: 12px; }
+  .funnel-strip strong { color: #2f3833; font-size: 17px; }
   .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
   .activity-list { min-width: 0; padding: 20px; }
-  .activity-list + .activity-list { border-left: 1px solid #e2e7ee; }
-  .activity-list h3 { margin-bottom: 12px; color: #344054; font-size: 14px; }
-  .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid #edf0f4; }
+  .activity-list + .activity-list { border-left: 1px solid #e4e8e1; }
+  .list-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .list-heading h3 { margin: 0; color: #2f3833; font-size: 14px; }
+  .list-heading span { color: #8a938d; font-size: 11px; font-weight: 700; }
+  .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #edf0eb; }
   .lead-row > div { display: grid; gap: 4px; min-width: 0; }
   .lead-row > div:last-child { text-align: right; }
   .lead-row select { min-width: 116px; min-height: 32px; font-size: 12px; }
-  .lead-row strong { color: #172033; font-size: 13px; overflow-wrap: anywhere; }
-  .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #edf0f4; color: #526172; font-size: 13px; text-transform: capitalize; }
-  .intent-row strong { color: #172033; }
-  .activity-status { margin: 0; padding: 0 20px 20px; color: #667085; font-size: 13px; }
+  .lead-row strong { color: #1f2923; font-size: 13px; overflow-wrap: anywhere; }
+  .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #edf0eb; color: #4e5b52; font-size: 13px; text-transform: capitalize; }
+  .intent-row strong { color: #1f2923; }
+  .activity-status { margin: 0; padding: 0 20px 20px; color: #67706b; font-size: 13px; }
   .count-label { padding: 5px 8px; color: #526172; background: #f2f4f7; border: 1px solid #d8dee8; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
   .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ee; }
   .catalog-toolbar label { max-width: 112px; }
@@ -1215,6 +1279,6 @@
   .hours-grid input { font-size: 12px; text-transform: none; }
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
-  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e2e7ee; border-left: 0; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e2e7ee; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e2e7ee; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button { width: fit-content; } }
+  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button { width: fit-content; } }
 </style>

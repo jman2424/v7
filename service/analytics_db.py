@@ -550,6 +550,70 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     }
 
 
+def get_sales_funnel(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
+    """Return tenant-owned lead stages plus recent human-handoff demand.
+
+    Pipeline stages are current records and therefore intentionally not limited
+    to the activity window. Handoff counts are event-based and use the supplied
+    window, which makes them useful for prioritising today's follow-up work.
+    """
+    _ensure_ready()
+    tenant_n = _norm_tenant(tenant)
+    since = _since(minutes)
+    stages = {"Open": 0, "Contacted": 0, "Qualified": 0, "Won": 0, "Lost": 0}
+
+    with _conn() as con:
+        lead_rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(status, ''), 'Open') AS status, COUNT(*) AS n
+            FROM leads
+            WHERE tenant=?
+            GROUP BY COALESCE(NULLIF(status, ''), 'Open');
+            """,
+            (tenant_n,),
+        ).fetchall()
+        handoff_row = con.execute(
+            """
+            SELECT COUNT(DISTINCT session_id) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
+              AND intent='human_handoff';
+            """,
+            (tenant_n, since),
+        ).fetchone()
+        contact_row = con.execute(
+            """
+            SELECT COUNT(DISTINCT lead_id) AS n
+            FROM events
+            WHERE tenant=? AND ts_utc>=? AND event_type='msg_out'
+              AND intent='handoff_contact_captured' AND COALESCE(lead_id, '') != '';
+            """,
+            (tenant_n, since),
+        ).fetchone()
+
+    other = 0
+    for row in lead_rows:
+        status = str(row["status"] or "Open")
+        count = int(row["n"] or 0)
+        if status in stages:
+            stages[status] = count
+        else:
+            other += count
+
+    return {
+        "total": sum(stages.values()) + other,
+        "active": stages["Open"] + stages["Contacted"] + stages["Qualified"],
+        "open": stages["Open"],
+        "contacted": stages["Contacted"],
+        "qualified": stages["Qualified"],
+        "won": stages["Won"],
+        "lost": stages["Lost"],
+        "other": other,
+        "handoffs": int(handoff_row["n"] or 0),
+        "contacts_captured": int(contact_row["n"] or 0),
+    }
+
+
 def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)

@@ -53,6 +53,7 @@ def _fb_bool(*args: Any, **kwargs: Any) -> bool:
 
 # Canonical analytics functions (pulled from service/analytics_db.py)
 get_kpis = _safe_import("get_kpis", _fb_dict)
+get_sales_funnel = _safe_import("get_sales_funnel", _fb_dict)
 get_timeseries = _safe_import("get_timeseries", _fb_list)
 get_sessions_timeseries = _safe_import("get_sessions_timeseries", _fb_list)
 get_channels_split = _safe_import("get_channels_split", _fb_dict)
@@ -515,6 +516,7 @@ def api_insights():
 
     # KPIs
     kpis = get_kpis(tenant=tenant, minutes=minutes)
+    sales_funnel = get_sales_funnel(tenant=tenant, minutes=minutes)
 
     # Timeseries
     msg_series = get_timeseries(tenant=tenant, minutes=minutes, bucket_minutes=bucket)
@@ -542,6 +544,7 @@ def api_insights():
         "window_minutes": minutes,
         "bucket_minutes": bucket,
         "kpis": kpis,
+        "sales_funnel": sales_funnel,
         "message_volume": msg_series,
         "sessions_per_bucket": sess_series,
         "channels": channels,
