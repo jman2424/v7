@@ -42,6 +42,7 @@ endpoints are:
 | `GET/PUT /admin/api/profile` | Business identity, contact paths, and certifications |
 | `GET/PUT /admin/api/branches` | Branch addresses, coordinates, and daily opening hours |
 | `GET/PUT /admin/api/agent-settings` | Grounded V7 reply tone and response length |
+| `PUT /admin/api/leads/<lead_id>` | Move a tenant lead through its sales status |
 
 `catalog.json`, `faq.json`, and `delivery.json` remain useful for an audited
 bulk import or controlled deployment change. The schemas accept both the

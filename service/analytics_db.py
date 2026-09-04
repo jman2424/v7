@@ -243,6 +243,27 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
                 )
 
 
+def update_lead_status(*, tenant: str, lead_id: str, status: str) -> bool:
+    """Update one tenant-owned lead without exposing cross-tenant records."""
+    _ensure_ready()
+    tenant_n = _norm_tenant(tenant)
+    lead_id_n = (lead_id or "").strip()
+    status_n = (status or "").strip()
+    if not lead_id_n or not status_n:
+        return False
+
+    with _conn() as con:
+        result = con.execute(
+            """
+            UPDATE leads
+            SET status=?, updated_utc=?
+            WHERE tenant=? AND lead_id=?;
+            """,
+            (status_n, _utc_now(), tenant_n, lead_id_n),
+        )
+    return result.rowcount == 1
+
+
 # ---------------------------------------------------------------------
 # Core writer (single truth)
 # ---------------------------------------------------------------------

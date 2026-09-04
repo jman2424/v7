@@ -115,6 +115,8 @@
     updated_utc: string;
   };
 
+  type LeadStatus = 'Open' | 'Contacted' | 'Qualified' | 'Won' | 'Lost';
+
   type InsightItem = {
     label: string;
     count: number;
@@ -193,6 +195,7 @@
   let agentError = false;
   let insights: Insights = { kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 }, leads: [], top_intents: [] };
   let activityStatus = '';
+  const leadStatuses: LeadStatus[] = ['Open', 'Contacted', 'Qualified', 'Won', 'Lost'];
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
@@ -335,7 +338,7 @@
       kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
       leads: leads.filter((lead): lead is Record<string, unknown> => Boolean(lead && typeof lead === 'object')).map((lead) => ({
         lead_id: String(lead.lead_id || ''), name: typeof lead.name === 'string' && lead.name ? lead.name : null, phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
-        status: String(lead.status || 'Open'), updated_utc: String(lead.updated_utc || '')
+        status: leadStatuses.includes(String(lead.status) as LeadStatus) ? String(lead.status) : 'Open', updated_utc: String(lead.updated_utc || '')
       })),
       top_intents: intents.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
         label: String(item.label || 'Unknown'), count: safeCount(item.count)
@@ -408,6 +411,20 @@
     }
     insights = normalizeInsights(data);
     activityStatus = '';
+  }
+
+  async function updateLeadStatus(leadId: string, status: LeadStatus) {
+    activityStatus = 'Updating lead...';
+    const response = await fetch(apiPath(`/admin/api/leads/${encodeURIComponent(leadId)}?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify({ status })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      activityStatus = data.error || 'Could not update this lead.';
+      return;
+    }
+    insights = { ...insights, leads: insights.leads.map((lead) => lead.lead_id === leadId ? { ...lead, status } : lead) };
+    activityStatus = 'Lead updated.';
   }
 
   async function restoreSession() {
@@ -903,7 +920,7 @@
           <div class="activity-list">
             <h3>Recent leads</h3>
             {#each insights.leads as lead}
-              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><span>{lead.status}</span><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}
@@ -1134,6 +1151,7 @@
   .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-top: 1px solid #edf0f4; }
   .lead-row > div { display: grid; gap: 4px; min-width: 0; }
   .lead-row > div:last-child { text-align: right; }
+  .lead-row select { min-width: 116px; min-height: 32px; font-size: 12px; }
   .lead-row strong { color: #172033; font-size: 13px; overflow-wrap: anywhere; }
   .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid #edf0f4; color: #526172; font-size: 13px; text-transform: capitalize; }
   .intent-row strong { color: #172033; }

@@ -47,6 +47,10 @@ def _fb_list(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
     return []
 
 
+def _fb_bool(*args: Any, **kwargs: Any) -> bool:
+    return False
+
+
 # Canonical analytics functions (pulled from service/analytics_db.py)
 get_kpis = _safe_import("get_kpis", _fb_dict)
 get_timeseries = _safe_import("get_timeseries", _fb_list)
@@ -57,6 +61,7 @@ get_fallbacks = _safe_import("get_fallbacks", _fb_list)
 get_errors = _safe_import("get_errors", _fb_list)
 get_common_questions = _safe_import("get_common_questions", _fb_list)
 get_leads = _safe_import("get_leads", _fb_list)
+update_lead_status = _safe_import("update_lead_status", _fb_bool)
 
 # NEW: per-day overview used by charts.js (overview chart)
 get_overview_daily = _safe_import("get_overview_daily", _fb_list)
@@ -611,3 +616,22 @@ def api_questions():
 def api_leads():
     limit = _int_arg("limit", 50)
     return jsonify(get_leads(tenant=_tenant(), limit=limit))
+
+
+_LEAD_STATUSES = {"Open", "Contacted", "Qualified", "Won", "Lost"}
+
+
+@bp.put("/leads/<string:lead_id>")
+def api_lead_status_put(lead_id: str):
+    data = request.get_json(silent=True) or {}
+    status = str(data.get("status") or "").strip() if isinstance(data, dict) else ""
+    if status not in _LEAD_STATUSES:
+        return jsonify({"error": "invalid_lead_status"}), 400
+    if not lead_id or len(lead_id) > 256:
+        return jsonify({"error": "invalid_lead_id"}), 400
+
+    tenant = _tenant()
+    if not update_lead_status(tenant=tenant, lead_id=lead_id, status=status):
+        return jsonify({"error": "lead_not_found"}), 404
+    _audit("lead.status", f"{tenant}/lead-status", after={"status": status})
+    return jsonify({"ok": True, "status": status})

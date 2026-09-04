@@ -172,3 +172,20 @@ def test_leads_list_ok(client):
     # each lead should be a dict with minimal keys (best-effort)
     if data:
         assert "status" in data[0] or "phone" in data[0]
+
+
+def test_owner_can_update_only_their_tenant_lead_status(client):
+    from service.analytics_db import get_leads, upsert_lead
+
+    upsert_lead(tenant="EXAMPLE", lead_id="web:lead-status-test", name="Taylor", phone="+447700900123")
+    with client.session_transaction() as sess:
+        sess["user"] = {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"}
+
+    updated = client.put("/admin/api/leads/web:lead-status-test", json={"status": "Contacted"})
+    other_tenant = client.put("/admin/api/leads/web:lead-status-test?tenant=TARIQ", json={"status": "Won"})
+
+    lead = next(lead for lead in get_leads(tenant="EXAMPLE") if lead["lead_id"] == "web:lead-status-test")
+    assert updated.status_code == 200
+    assert updated.get_json()["status"] == "Contacted"
+    assert other_tenant.status_code == 403
+    assert lead["status"] == "Contacted"
