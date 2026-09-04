@@ -40,6 +40,29 @@ def test_chat_api_uses_the_requested_tenant_runtime(client, app):
     assert response.get_json()["reply"] == "alternate reply for ALT"
 
 
+def test_tenant_runtimes_do_not_share_session_memory(app):
+    _add_tenant(app)
+    session_id = "same-session-id"
+
+    primary = app.container.for_tenant("EXAMPLE").handler
+    alternate = app.container.for_tenant("ALT").handler
+    primary.handle(
+        "Do you deliver to E1 6AN?",
+        tenant="EXAMPLE",
+        session_id=session_id,
+        channel="web",
+    )
+    response = alternate.handle(
+        "Do you deliver?",
+        tenant="ALT",
+        session_id=session_id,
+        channel="web",
+    )
+
+    assert response["intent"] == "check_delivery_needs_postcode"
+    assert "E1 6AN" not in response["reply"]
+
+
 def test_chat_api_rejects_path_like_tenant_values(client):
     response = client.post(
         "/chat_api",
