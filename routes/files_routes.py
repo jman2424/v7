@@ -42,6 +42,7 @@ def put_file(filename: str):
     schema_map = {
         "catalog.json": "catalog.schema.json",
         "faq.json": "faq.schema.json",
+        "offers.json": "offers.schema.json",
         "delivery.json": "delivery.schema.json",
         "branches.json": "branches.schema.json",
         "store_info.json": "store_info.schema.json",

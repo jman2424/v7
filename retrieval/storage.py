@@ -50,6 +50,7 @@ KNOWN_FILES: Dict[str, Optional[str]] = {
     "delivery.json": "delivery.schema.json",
     "branches.json": "branches.schema.json",
     "faq.json": "faq.schema.json",
+    "offers.json": "offers.schema.json",
     "synonyms.json": None,
     "overrides.json": None,
     "branding.json": None,

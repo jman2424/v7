@@ -88,6 +88,10 @@ class RendererV7:
             return self._polish(base, facts)
 
         # 3) Data-backed actions
+        if action == "SHOW_OFFERS" or intent == "offers":
+            msg = self._offers_reply(facts)
+            return self._polish(msg, facts)
+
         if action == "COMPARE_PRODUCTS" or intent == "compare_products":
             msg = self._comparison_reply(facts)
             return self._polish(msg, facts)
@@ -363,6 +367,45 @@ class RendererV7:
 
         base = f"{label} is {self._format_money(float(price), currency)} and {stock_str}."
         return self._append_cta(base)
+
+    # ------------------------------------------------------------------ #
+    # OFFERS                                                             #
+    # ------------------------------------------------------------------ #
+
+    def _offers_reply(self, facts: Dict[str, Any]) -> str:
+        offer_data = facts.get("offers") or {}
+        offers = offer_data.get("items") if isinstance(offer_data, dict) else []
+        product_name = str(offer_data.get("matched_product_name") or "").strip() if isinstance(offer_data, dict) else ""
+
+        if not isinstance(offers, list) or not offers:
+            if product_name:
+                return f"I do not have a current offer recorded for {product_name}."
+            return "There are no current offers configured at the moment."
+
+        lines: List[str] = []
+        for offer in offers[:3]:
+            if not isinstance(offer, dict):
+                continue
+            title = str(offer.get("title") or "").strip()
+            description = str(offer.get("description") or "").strip()
+            if not title or not description:
+                continue
+            # Keep terms, code, and expiry in one sentence so a tenant's
+            # configured reply-length setting cannot hide a material condition.
+            description = re.sub(r"[.!?]+", ",", description).strip(" ,")
+            detail = f"{title}: {description}"
+            code = str(offer.get("code") or "").strip()
+            ends_on = str(offer.get("ends_on") or "").strip()
+            if code:
+                detail = f"{detail} (code: {code})"
+            if ends_on:
+                detail = f"{detail} (ends {ends_on})"
+            lines.append(detail)
+
+        if not lines:
+            return "There are no current offers configured at the moment."
+        lead = f"For {product_name}, the current offer is" if product_name else "Current offers"
+        return f"{lead}: " + " | ".join(lines) + "."
 
     # ------------------------------------------------------------------ #
     # FAQ / STORE INFO                                                   #

@@ -61,6 +61,8 @@ class SalesAgentPolicy:
         entities = response.get("entities") if isinstance(response.get("entities"), dict) else {}
         items = facts.get("items") if isinstance(facts.get("items"), list) else []
         delivery = facts.get("delivery") if isinstance(facts.get("delivery"), dict) else {}
+        offers = facts.get("offers") if isinstance(facts.get("offers"), dict) else {}
+        offer_items = offers.get("items") if isinstance(offers.get("items"), list) else []
         previous = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
 
         state: Dict[str, Any] = {
@@ -120,6 +122,23 @@ class SalesAgentPolicy:
                     next_action="collect_comparison_products",
                     next_question="",
                     suggested_replies=[],
+                )
+        elif intent == "offers":
+            if offer_items:
+                state.update(
+                    stage="convert",
+                    objective="Help the customer use a current, tenant-configured offer.",
+                    next_action="offer_product_guidance",
+                    next_question="Tell me which product you are interested in and I will check the current offer details.",
+                    suggested_replies=["Browse products", "Check delivery"],
+                )
+            else:
+                state.update(
+                    stage="assist",
+                    objective="Give an accurate update when no active offer is configured.",
+                    next_action="await_customer_question",
+                    next_question="",
+                    suggested_replies=["Browse products", "Check delivery"],
                 )
         elif delivery:
             if delivery.get("rule"):

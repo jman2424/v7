@@ -24,6 +24,7 @@ from retrieval.catalog_store import CatalogStore
 from retrieval.policy_store import PolicyStore
 from retrieval.geo_store import GeoStore
 from retrieval.faq_store import FAQStore
+from retrieval.offer_store import OfferStore
 from retrieval.synonyms_store import SynonymsStore
 from retrieval.overrides_store import OverridesStore
 
@@ -92,6 +93,7 @@ class Container:
         self.policy = PolicyStore(self.storage)
         self.geo = GeoStore(self.storage)
         self.faq = FAQStore(self.storage)
+        self.offers = OfferStore(self.storage)
         self.synonyms = SynonymsStore(self.storage)
         self.overrides = OverridesStore(self.storage)
         self.business_profile = self._load_business_profile()
@@ -146,6 +148,7 @@ class Container:
             policy=self.policy,
             geo=self.geo,
             faq=self.faq,
+            offers=self.offers,
             synonyms=self.synonyms,
             overrides=self.overrides,
             business_name=self.business_name,

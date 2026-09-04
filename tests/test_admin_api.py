@@ -74,6 +74,33 @@ def test_put_faq_updates_and_audits(client, monkeypatch):
     assert len(calls) >= 0  # not hard-failing if audit is no-op in implementation
 
 
+def test_offers_api_persists_valid_data_and_rejects_invalid_dates(client):
+    as_admin(client)
+    offers = [
+        {
+            "id": "welcome_10",
+            "title": "Welcome saving",
+            "description": "Save 10% on your first order.",
+            "code": "WELCOME10",
+            "active": True,
+            "starts_on": "2026-01-01",
+            "ends_on": "2099-12-31",
+            "product_skus": [],
+        }
+    ]
+
+    saved = client.put("/admin/api/offers", json=offers)
+    invalid = client.put(
+        "/admin/api/offers",
+        json=[{**offers[0], "id": "invalid", "starts_on": "2026-12-31", "ends_on": "2026-01-01"}],
+    )
+
+    assert saved.status_code == 200
+    assert client.get("/admin/api/offers").get_json() == offers
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "offer_end_before_start"
+
+
 def test_delivery_api_accepts_zone_rules_and_rejects_bad_shapes(client):
     as_admin(client)
     delivery = {

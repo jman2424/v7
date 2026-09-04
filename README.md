@@ -86,7 +86,9 @@ for migration from existing deployments. Never put a real password or hash in a
 client bundle or commit one to the repository.
 
 The console currently gives each owner structured controls for their business
-profile, branches and opening hours, website widget, product catalog, FAQs,
-delivery areas, fees, minimum orders, collection availability, service
-exceptions, and V7 sales tone. Changes are tenant-scoped, validated, audited,
-snapshotted, and applied to new conversations immediately.
+profile, branches and opening hours, website widget, product catalog, current
+offers, FAQs, delivery areas, fees, minimum orders, collection availability,
+service exceptions, and V7 sales tone. Offers can be scoped to product SKUs and
+given start/end dates; only active, in-date offers are shown to customers.
+Changes are tenant-scoped, validated, audited, snapshotted, and applied to new
+conversations immediately.

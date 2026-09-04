@@ -57,6 +57,17 @@
     tags: string[];
   };
 
+  type Offer = {
+    id: string;
+    title: string;
+    description: string;
+    code: string;
+    active: boolean;
+    starts_on: string;
+    ends_on: string;
+    product_skus: string[];
+  };
+
   type DeliveryRule = {
     area: string;
     fee: number;
@@ -140,6 +151,7 @@
   let widget: Widget = { chat_title: '', greeting: '', avatar: '', allowed_origins: [] };
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
+  let offers: Offer[] = [];
   let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
   let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
   let branches: Branch[] = [];
@@ -169,6 +181,8 @@
   let catalogError = false;
   let faqStatus = '';
   let faqError = false;
+  let offersStatus = '';
+  let offersError = false;
   let deliveryStatus = '';
   let deliveryError = false;
   let profileStatus = '';
@@ -226,6 +240,14 @@
       q: String(item.q || ''),
       a: String(item.a || ''),
       tags: stringList(item.tags)
+    }));
+  }
+
+  function normalizeOffers(value: unknown): Offer[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+      id: String(item.id || ''), title: String(item.title || ''), description: String(item.description || ''), code: String(item.code || ''),
+      active: item.active === true, starts_on: String(item.starts_on || ''), ends_on: String(item.ends_on || ''), product_skus: stringList(item.product_skus)
     }));
   }
 
@@ -332,14 +354,15 @@
       fetch(apiPath(`/admin/api/widget?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/catalog?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/faq?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/offers?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/delivery?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/profile?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/branches?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
       fetch(apiPath(`/admin/api/agent-settings?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
     ]);
-    const [widgetData, catalogData, faqData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(readJson));
+    const [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(readJson));
     if (responses.some((response) => !response.ok)) {
-      const failed = [widgetData, catalogData, faqData, deliveryData, profileData, branchesData, agentData].find((data, index) => !responses[index].ok);
+      const failed = [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData].find((data, index) => !responses[index].ok);
       throw new Error(failed?.error || 'Could not load this tenant workspace.');
     }
     tenant = widgetData.tenant;
@@ -348,6 +371,7 @@
     snippet = widgetData.embed?.snippet || '';
     catalog = normalizeCatalog(catalogData);
     faqs = normalizeFaqs(faqData);
+    offers = normalizeOffers(offersData);
     delivery = normalizeDelivery(deliveryData);
     profile = normalizeProfile(profileData);
     branches = normalizeBranches(branchesData);
@@ -495,6 +519,7 @@
     formStatus = '';
     catalogStatus = '';
     faqStatus = '';
+    offersStatus = '';
     deliveryStatus = '';
     profileStatus = '';
     branchesStatus = '';
@@ -537,6 +562,15 @@
 
   function removeFaq(index: number) {
     faqs = faqs.filter((_, current) => current !== index);
+  }
+
+  function addOffer() {
+    const number = offers.length + 1;
+    offers = [...offers, { id: `offer_${number}`, title: 'New offer', description: 'Describe the customer benefit and any conditions.', code: '', active: true, starts_on: '', ends_on: '', product_skus: [] }];
+  }
+
+  function removeOffer(index: number) {
+    offers = offers.filter((_, current) => current !== index);
   }
 
   function addDeliveryRule() {
@@ -608,6 +642,32 @@
     }
     faqs = payload;
     faqStatus = 'FAQs saved. The assistant can use the new answers now.';
+  }
+
+  async function saveOffers() {
+    offersStatus = 'Saving...';
+    offersError = false;
+    const payload = offers.map((offer) => ({
+      id: (offer.id.trim() || slug(offer.title)), title: offer.title.trim(), description: offer.description.trim(), code: offer.code.trim(), active: Boolean(offer.active),
+      starts_on: offer.starts_on, ends_on: offer.ends_on, product_skus: offer.product_skus.map((sku) => sku.trim()).filter(Boolean)
+    }));
+    const ids = payload.map((offer) => offer.id);
+    if (payload.some((offer) => !offer.title || !offer.description || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(offer.id) || (offer.starts_on && offer.ends_on && offer.starts_on > offer.ends_on)) || new Set(ids).size !== ids.length) {
+      offersStatus = 'Each offer needs a unique key, title, description, and valid date range.';
+      offersError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/offers?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      offersStatus = data.detail || data.error || 'Could not save offers.';
+      offersError = true;
+      return;
+    }
+    offers = normalizeOffers(payload);
+    offersStatus = 'Offers saved. The assistant now uses the active offers only.';
   }
 
   async function saveDelivery() {
@@ -756,6 +816,7 @@
         <a href="#activity">Sales activity</a>
         <a href="#install">Install script</a>
         <a href="#catalog">Catalog</a>
+        <a href="#offers">Offers</a>
         <a href="#faqs">FAQs</a>
         <a href="#delivery">Delivery</a>
         <a href="#profile">Business profile</a>
@@ -889,6 +950,21 @@
           </section>
         {/each}
         <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>Save catalog</button></div>
+      </section>
+
+      <section id="offers" class="surface workspace-section" aria-labelledby="offers-heading">
+        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Current offers</h2></div><button class="secondary" type="button" on:click={addOffer}>Add offer</button></div>
+        <div class="offers-list">
+          {#each offers as offer, index}
+            <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
+              <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Remove offer" aria-label={`Remove ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Remove</button></div>
+              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label class="wide-field">Eligible product SKUs<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all products" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
+            </section>
+          {:else}
+            <p class="empty-state offers-empty">No offers have been added. The assistant will accurately say that there are no current offers.</p>
+          {/each}
+        </div>
+        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>Save offers</button></div>
       </section>
 
       <div class="management-grid">
@@ -1090,6 +1166,14 @@
   .faq-list { display: grid; gap: 16px; }
   .faq-editor { display: grid; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e2e7ee; }
   .faq-editor:last-child { padding-bottom: 0; border-bottom: 0; }
+  .offers-list { display: grid; }
+  .offer-editor { padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .offer-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .offer-heading h3 { margin: 0; font-size: 16px; }
+  .offer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .offer-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
+  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
+  .offers-empty { padding: 20px; }
   .row-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
   .empty-state { margin: 0; padding: 14px 0; color: #667085; font-size: 14px; line-height: 1.5; }
   .delivery-content { display: grid; gap: 16px; }
@@ -1114,5 +1198,5 @@
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
   @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e2e7ee; border-left: 0; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e2e7ee; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e2e7ee; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button { width: fit-content; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .tenant-picker { width: 100%; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e2e7ee; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e2e7ee; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button { width: fit-content; } }
 </style>

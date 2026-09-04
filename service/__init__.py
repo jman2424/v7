@@ -90,6 +90,10 @@ class FAQStoreLike(Protocol):
     ) -> str: ...
 
 
+class OfferStoreLike(Protocol):
+    def active(self) -> list[Dict[str, Any]]: ...
+
+
 class SynonymsStoreLike(Protocol):
     def canonical(self, term: str) -> str: ...
     def apply(self, tags: list[str]) -> list[str]: ...
@@ -126,6 +130,7 @@ class HandlerDeps:
     policy: PolicyStoreLike
     geo: GeoStoreLike
     faq: FAQStoreLike
+    offers: OfferStoreLike
     synonyms: SynonymsStoreLike
     overrides: OverridesStoreLike
     business_name: str

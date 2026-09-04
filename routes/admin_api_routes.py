@@ -229,6 +229,44 @@ def api_faq_put():
     return jsonify({"ok": True, "snapshot": snap})
 
 
+@bp.get("/offers")
+def api_offers_get():
+    try:
+        offers = _storage().read_json(_tenant(), "offers.json")
+    except FileNotFoundError:
+        # Existing tenants created before offers support get a clean empty list.
+        offers = []
+    return jsonify(offers if isinstance(offers, list) else [])
+
+
+@bp.put("/offers")
+def api_offers_put():
+    data = request.get_json(silent=True)
+    if not isinstance(data, list):
+        return jsonify({"error": "offers_must_be_array"}), 400
+
+    from retrieval.offer_store import OfferStore
+
+    try:
+        OfferStore.validate(data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    tenant = _tenant()
+    storage = _storage()
+    try:
+        before = storage.read_json(tenant, "offers.json")
+    except FileNotFoundError:
+        before = []
+    try:
+        snap = storage.write_json(tenant, "offers.json", data, schema="offers.schema.json")
+    except ValidationError as exc:
+        return jsonify({"error": "invalid_offers", "detail": exc.message}), 400
+    _invalidate_tenant(tenant)
+    _audit("offers.update", f"{tenant}/offers.json", before={"items": before}, after={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot": snap})
+
+
 @bp.get("/delivery")
 def api_delivery_get():
     return jsonify(_storage().read_json(_tenant(), "delivery.json"))

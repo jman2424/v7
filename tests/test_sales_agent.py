@@ -218,6 +218,68 @@ def test_v7_answers_a_tenant_faq_without_requiring_a_model(app):
     assert "hello@northstar.example" in contact["reply"]
 
 
+def test_v7_shows_only_active_tenant_offers_without_a_model(app):
+    storage = app.container.storage
+    storage.write_json(
+        "EXAMPLE",
+        "offers.json",
+        [
+            {
+                "id": "wings_weekend",
+                "title": "Weekend wings saving",
+                "description": "Save 10% on Chicken Wings.",
+                "code": "WINGS10",
+                "active": True,
+                "starts_on": "2026-01-01",
+                "ends_on": "2099-12-31",
+                "product_skus": ["CHICK_WINGS_1KG"],
+            },
+            {
+                "id": "expired_offer",
+                "title": "Expired saving",
+                "description": "This must not be shown.",
+                "active": True,
+                "ends_on": "2000-01-01",
+                "product_skus": [],
+            },
+            {
+                "id": "future_offer",
+                "title": "Future saving",
+                "description": "This must not be shown yet.",
+                "active": True,
+                "starts_on": "2099-01-01",
+                "product_skus": [],
+            },
+        ],
+        schema="offers.schema.json",
+        snapshot=False,
+    )
+    app.container.invalidate_tenant("EXAMPLE")
+
+    offer = app.container.handler.handle(
+        "Is Chicken Wings (1kg) on offer?",
+        tenant="EXAMPLE",
+        session_id="wings-offer",
+        channel="web",
+    )
+    no_offer = app.container.handler.handle(
+        "Is Chicken Thigh (Bone-in, 1kg) on offer?",
+        tenant="EXAMPLE",
+        session_id="thigh-offer",
+        channel="web",
+    )
+
+    assert offer["intent"] == "offers"
+    assert [item["id"] for item in offer["facts"]["offers"]["items"]] == ["wings_weekend"]
+    assert "Save 10% on Chicken Wings" in offer["reply"]
+    assert "code: WINGS10" in offer["reply"]
+    assert "ends 2099-12-31" in offer["reply"]
+    assert "Expired saving" not in offer["reply"]
+    assert offer["agent"]["next_action"] == "offer_product_guidance"
+    assert no_offer["facts"]["offers"]["items"] == []
+    assert "do not have a current offer recorded for Chicken Thigh" in no_offer["reply"]
+
+
 def test_v7_applies_the_saved_tenant_response_length(app):
     storage = app.container.storage
     storage.write_json(

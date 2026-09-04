@@ -21,8 +21,10 @@ before sharing the embed code.
 
 The normal setup path is the SvelteKit owner console in `frontend/`. A business
 owner can sign in to manage their own tenant's website widget, business profile,
-branches and opening hours, product catalog, FAQs, delivery coverage, fees,
-minimum orders, collection setting, delivery exceptions, and the V7 sales tone.
+branches and opening hours, product catalog, current offers, FAQs, delivery
+coverage, fees, minimum orders, collection setting, delivery exceptions, and the
+V7 sales tone. An offer can be limited to specific catalog SKUs and given a
+start/end date; the agent only presents active offers within that date range.
 The console saves atomically, validates the tenant data, records an audit event,
 and reloads the tenant runtime so new conversations use the updated knowledge.
 
@@ -35,6 +37,7 @@ endpoints are:
 | `GET/PUT /admin/api/widget` | Widget branding and approved website origins |
 | `GET/PUT /admin/api/catalog` | Products, categories, prices, tags, and stock status |
 | `GET/PUT /admin/api/faq` | Sales FAQs and topic tags |
+| `GET/PUT /admin/api/offers` | Current offers, customer-facing terms, codes, dates, and eligible product SKUs |
 | `GET/PUT /admin/api/delivery` | Delivery zones or postcode prefixes, fees, and exceptions |
 | `GET/PUT /admin/api/profile` | Business identity, contact paths, and certifications |
 | `GET/PUT /admin/api/branches` | Branch addresses, coordinates, and daily opening hours |

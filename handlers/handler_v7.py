@@ -144,12 +144,17 @@ class MessageHandlerV7:
         "tell me about your business",
         "about the business",
     )
+    _OFFER_REQUEST = re.compile(
+        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?)\b",
+        re.I,
+    )
 
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
         self.policy = getattr(deps, "policy", None)
         self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
+        self.offers = getattr(deps, "offers", None)
         self.synonyms = getattr(deps, "synonyms", None)
         self.overrides = getattr(deps, "overrides", None)
         self.logger = getattr(deps, "logger", None)
@@ -285,6 +290,22 @@ class MessageHandlerV7:
                     plan=plan,
                     facts={},
                     entities={},
+                    items=[],
+                )
+
+            offers = self._current_offers(user_text)
+            if offers is not None:
+                plan = self._simple_plan("offers", "SHOW_OFFERS", session_snapshot)
+                facts = {"offers": offers}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="offers",
+                    plan=plan,
+                    facts=facts,
+                    entities={"product_sku": offers.get("matched_product_sku")} if offers.get("matched_product_sku") else {},
                     items=[],
                 )
 
@@ -704,6 +725,53 @@ class MessageHandlerV7:
             return answer
 
         return "Contact details are not configured for this business yet."
+
+    def _current_offers(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """Return only current tenant offers, optionally scoped to a named product."""
+        if not self._OFFER_REQUEST.search(user_text or ""):
+            return None
+
+        active: List[Dict[str, Any]] = []
+        if self.offers:
+            try:
+                active = [offer for offer in self.offers.active() if isinstance(offer, dict)]
+            except Exception:
+                logger.exception("V7 offer lookup failed")
+
+        product = self._offer_product_in_text(user_text)
+        if product:
+            sku = str(product.get("sku") or "").strip()
+            active = [
+                offer
+                for offer in active
+                if not offer.get("product_skus") or sku in offer.get("product_skus", [])
+            ]
+            return {
+                "items": active,
+                "matched_product_name": str(product.get("name") or "").strip(),
+                "matched_product_sku": sku,
+            }
+        return {"items": active}
+
+    def _offer_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        if not self.catalog:
+            return None
+        text = self._normalize_text(user_text)
+        if not text:
+            return None
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return None
+
+        matches: List[Tuple[int, Dict[str, Any]]] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            if name and name in text:
+                matches.append((len(name), item))
+        return max(matches, key=lambda pair: pair[0])[1] if matches else None
 
     def _comparison_items(self, user_text: str, *, request_id: str) -> Optional[List[Dict[str, Any]]]:
         if not self._COMPARISON_REQUEST.search(user_text or ""):

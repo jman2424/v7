@@ -119,6 +119,7 @@ class TenantService:
         self._write_json(target / "delivery.json", {"areas": [], "click_and_collect": False, "notes": "Delivery has not been configured."})
         self._write_json(target / "branches.json", [])
         self._write_json(target / "faq.json", [])
+        self._write_json(target / "offers.json", [])
         self._write_json(target / "synonyms.json", {})
         self._write_json(target / "overrides.json", {})
         self._write_json(
