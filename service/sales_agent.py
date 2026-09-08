@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from service.sales_playbook import load_sales_playbook, offering_terms
+
 
 _GENERIC_CTA = re.compile(
     r"\s+(?:anything else you(?:'|\u2019)d like to check\?|want to look at anything else\?|"
@@ -20,6 +22,9 @@ _GENERIC_CTA = re.compile(
 
 class SalesAgentPolicy:
     """Turn a grounded answer into the next useful sales conversation step."""
+
+    def __init__(self, *, overrides: Any = None) -> None:
+        self.overrides = overrides
 
     def guide(
         self,
@@ -55,7 +60,8 @@ class SalesAgentPolicy:
         user_text: str,
         session: Dict[str, Any],
     ) -> Dict[str, Any]:
-        del user_text
+        playbook = load_sales_playbook(self.overrides)
+        singular, plural = offering_terms(playbook)
         intent = str(response.get("intent") or "unknown").strip().lower()
         facts = response.get("facts") if isinstance(response.get("facts"), dict) else {}
         entities = response.get("entities") if isinstance(response.get("entities"), dict) else {}
@@ -65,13 +71,7 @@ class SalesAgentPolicy:
         offer_items = offers.get("items") if isinstance(offers.get("items"), list) else []
         previous = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
 
-        state: Dict[str, Any] = {
-            "stage": "discover",
-            "objective": "Understand what the customer wants to buy or arrange.",
-            "next_action": "discover_need",
-            "next_question": "What are you shopping for today?",
-            "suggested_replies": ["Check delivery", "Nearest branch"],
-        }
+        state = self._default_state(playbook, singular, plural)
 
         if intent in {"system_error", "out_of_scope"}:
             state.update(
@@ -218,11 +218,223 @@ class SalesAgentPolicy:
                 suggested_replies=["Check delivery", "Nearest branch"],
             )
 
+        self._adapt_state_for_playbook(
+            state,
+            intent=intent,
+            playbook=playbook,
+            singular=singular,
+            plural=plural,
+        )
+        self._apply_qualification_question(
+            state,
+            intent=intent,
+            user_text=user_text,
+            previous=previous,
+            playbook=playbook,
+            singular=singular,
+            plural=plural,
+            has_items=bool(items),
+        )
+
         if previous.get("stage") and previous.get("stage") != state["stage"]:
             state["previous_stage"] = previous["stage"]
         if entities.get("postcode"):
             state["postcode_confirmed"] = True
         return state
+
+    @staticmethod
+    def _default_state(playbook: Dict[str, Any], singular: str, plural: str) -> Dict[str, Any]:
+        goal = playbook["primary_goal"]
+        if goal == "book_consultation":
+            return {
+                "stage": "discover",
+                "objective": "Understand what the customer wants to discuss with the team.",
+                "next_action": "discover_consultation_need",
+                "next_question": "What would you like to discuss with the team?",
+                "suggested_replies": ["Book a consultation", "Ask a question"],
+            }
+        if goal == "capture_leads":
+            return {
+                "stage": "discover",
+                "objective": "Understand the customer's need before offering a team follow-up.",
+                "next_action": "discover_need",
+                "next_question": "What can the team help you with today?",
+                "suggested_replies": ["Speak to someone", "Ask a question"],
+            }
+        if goal == "answer_questions":
+            return {
+                "stage": "discover",
+                "objective": "Understand the business question the customer wants answered.",
+                "next_action": "discover_question",
+                "next_question": "What would you like to know?",
+                "suggested_replies": [f"Browse {plural}", "Ask a question"],
+            }
+        if singular != "product":
+            return {
+                "stage": "discover",
+                "objective": f"Understand which {singular} or outcome the customer needs.",
+                "next_action": "discover_need",
+                "next_question": f"What {singular} or outcome are you looking for today?",
+                "suggested_replies": [f"Browse {plural}", "Speak to someone"],
+            }
+        return {
+            "stage": "discover",
+            "objective": "Understand what the customer wants to buy or arrange.",
+            "next_action": "discover_need",
+            "next_question": "What are you shopping for today?",
+            "suggested_replies": ["Check delivery", "Nearest branch"],
+        }
+
+    def _adapt_state_for_playbook(
+        self,
+        state: Dict[str, Any],
+        *,
+        intent: str,
+        playbook: Dict[str, Any],
+        singular: str,
+        plural: str,
+    ) -> None:
+        if singular != "product":
+            state["objective"] = self._replace_customer_terms(str(state["objective"]), singular, plural)
+            state["next_question"] = self._replace_customer_terms(str(state["next_question"]), singular, plural)
+            state["suggested_replies"] = [
+                self._replace_customer_terms(str(reply), singular, plural)
+                for reply in state["suggested_replies"]
+            ]
+
+        if intent != "price_check":
+            return
+
+        goal = playbook["primary_goal"]
+        if goal == "book_consultation":
+            state.update(
+                objective="Move from a selected option to a consultation with the team.",
+                next_action="book_consultation",
+                next_question="Would you like the team to arrange a consultation?",
+                suggested_replies=["Book a consultation", "Ask another question"],
+            )
+        elif goal == "capture_leads":
+            state.update(
+                objective="Offer a follow-up after the customer has explored an option.",
+                next_action="request_follow_up",
+                next_question="Would you like the team to follow up?",
+                suggested_replies=["Speak to someone", "Ask another question"],
+            )
+        elif goal == "answer_questions":
+            state.update(
+                stage="assist",
+                objective="Keep helping with grounded business questions.",
+                next_action="await_customer_question",
+                next_question="",
+                suggested_replies=[f"Browse {plural}", "Ask a question"],
+            )
+        elif singular != "product":
+            state.update(
+                objective=f"Help the customer take the next step for this {singular}.",
+                next_action="arrange_team_handoff",
+                next_question="Would you like the team to help you get started?",
+                suggested_replies=["Speak to someone", f"Browse more {plural}"],
+            )
+
+    @staticmethod
+    def _replace_customer_terms(text: str, singular: str, plural: str) -> str:
+        replaced = re.sub(r"\bproducts\b", plural, text, flags=re.IGNORECASE)
+        replaced = re.sub(r"\bproduct\b", singular, replaced, flags=re.IGNORECASE)
+        replaced = re.sub(r"\borders?\b", "next step", replaced, flags=re.IGNORECASE)
+        replaced = re.sub(r"\bstock\b", "availability", replaced, flags=re.IGNORECASE)
+        return replaced
+
+    def _apply_qualification_question(
+        self,
+        state: Dict[str, Any],
+        *,
+        intent: str,
+        user_text: str,
+        previous: Dict[str, Any],
+        playbook: Dict[str, Any],
+        singular: str,
+        plural: str,
+        has_items: bool,
+    ) -> None:
+        questions = playbook["qualification_questions"]
+        if not questions or intent in {"human_handoff", "handoff", "handoff_contact_captured", "out_of_scope", "system_error"}:
+            return
+
+        previous_action = str(previous.get("next_action") or "")
+        continuing = previous_action == "ask_qualification_question"
+        starting = has_items or intent in {"price_check", "compare_products", "offers"}
+        if not continuing and not starting:
+            return
+
+        if continuing and (not user_text.strip() or intent in {"system_empty", "system_clarify"}):
+            index = self._qualification_index(previous)
+        elif continuing:
+            index = self._qualification_index(previous) + 1
+        else:
+            index = 0
+
+        if index < len(questions):
+            state.update(
+                stage="qualify",
+                objective=f"Learn the detail needed to guide the customer to the right {singular}.",
+                next_action="ask_qualification_question",
+                next_question=questions[index],
+                suggested_replies=[],
+                qualification_index=index,
+            )
+            return
+
+        if continuing:
+            self._complete_qualification(state, playbook, singular, plural)
+            state["qualification_complete"] = True
+
+    @staticmethod
+    def _qualification_index(previous: Dict[str, Any]) -> int:
+        try:
+            return max(int(previous.get("qualification_index") or 0), 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _complete_qualification(
+        state: Dict[str, Any],
+        playbook: Dict[str, Any],
+        singular: str,
+        plural: str,
+    ) -> None:
+        goal = playbook["primary_goal"]
+        if goal == "book_consultation":
+            state.update(
+                stage="convert",
+                objective="Move a qualified customer to a consultation with the team.",
+                next_action="book_consultation",
+                next_question="Would you like the team to arrange a consultation?",
+                suggested_replies=["Book a consultation", "Ask another question"],
+            )
+        elif goal == "capture_leads":
+            state.update(
+                stage="convert",
+                objective="Offer a follow-up after the customer's need is qualified.",
+                next_action="request_follow_up",
+                next_question="Would you like the team to follow up?",
+                suggested_replies=["Speak to someone", "Ask another question"],
+            )
+        elif goal == "answer_questions":
+            state.update(
+                stage="assist",
+                objective="Continue answering grounded business questions.",
+                next_action="await_customer_question",
+                next_question="",
+                suggested_replies=[f"Browse {plural}", "Ask a question"],
+            )
+        elif singular != "product":
+            state.update(
+                stage="convert",
+                objective=f"Help the customer take the next step for this {singular}.",
+                next_action="arrange_team_handoff",
+                next_question="Would you like the team to help you get started?",
+                suggested_replies=["Speak to someone", f"Browse more {plural}"],
+            )
 
     @staticmethod
     def _item_names(items: List[Any]) -> List[str]:

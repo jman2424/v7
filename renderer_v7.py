@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from service.sales_playbook import offering_terms
+
 
 _CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
 _SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+")
@@ -28,6 +30,7 @@ class RendererV7:
         *,
         tone_style: str = "friendly",
         max_sentences: int = 2,
+        offering_type: str = "products",
     ) -> None:
         # `rewriter` is expected to provide:
         #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
@@ -40,6 +43,7 @@ class RendererV7:
         except (TypeError, ValueError):
             configured_max_sentences = 2
         self.max_sentences = min(max(configured_max_sentences, 1), 4)
+        self.offering_singular, self.offering_plural = offering_terms({"offering_type": offering_type})
 
     # ------------------------------------------------------------------ #
     # PUBLIC ENTRYPOINT                                                  #
@@ -66,24 +70,24 @@ class RendererV7:
 
         # 2) Simple / cheap actions that don't depend much on facts
         if action == "GREET" or intent == "greeting":
-            base = "Wa alaikum salam! How can I help you today – products, prices, or delivery?"
+            base = f"How can I help you today with {self.offering_plural} or business information?"
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
             label = self.business_name or "this business"
-            base = f"I’m an AI sales assistant for {label}. I can help with products, prices, delivery, and business details."
+            base = f"I'm an AI sales assistant for {label}. I can help with {self.offering_plural}, pricing, and business details."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
             base = (
                 "Could you tell me what you’d like help with? "
-                "I can help you browse products, compare prices, check delivery, or find a branch."
+                f"I can help you explore {self.offering_plural}, compare options, or answer business questions."
             )
             return self._polish(base, facts)
 
         if action == "HUMAN_HANDOFF" or intent == "human_handoff":
             base = (
-                "No problem. What’s your postcode so I can find the nearest branch and phone number?"
+                "No problem. Please share a phone number or email and a short note about what you need."
             )
             return self._polish(base, facts)
 
@@ -119,7 +123,7 @@ class RendererV7:
         # 4) Absolute fallback
         base = (
             "I’m not fully sure what you need yet. "
-            "Are you looking for a product, price, delivery, or branch information?"
+            f"Are you looking for a {self.offering_singular}, pricing, or business information?"
         )
         return self._polish(base, facts)
 
@@ -259,18 +263,18 @@ class RendererV7:
                 if category:
                     return (
                         f"The {category} catalog is quite big. "
-                        "Tell me the product type, category, or feature you need."
+                        f"Tell me the {self.offering_singular} type, category, or feature you need."
                     )
                 return (
                     "The full catalog is very large. "
-                    "Tell me the product type, category, or feature you need."
+                    f"Tell me the {self.offering_singular} type, category, or feature you need."
                 )
 
             if product_name:
-                return f"I couldn’t find matches for “{product_name}”. Could you try a different product name, category, or feature?"
+                return f"I couldn’t find matches for “{product_name}”. Could you try a different {self.offering_singular} name, category, or feature?"
             if category:
-                return f"I couldn’t find matches in {category}. Could you try a different product or category?"
-            return "I couldn’t find matching items. What product, category, or feature are you looking for?"
+                return f"I couldn’t find matches in {category}. Could you try a different {self.offering_singular} or category?"
+            return f"I couldn’t find matching items. What {self.offering_singular}, category, or feature are you looking for?"
 
         total_items = len(items)
 
@@ -290,14 +294,14 @@ class RendererV7:
                 lines.append(f"{idx}) {line}")
 
         if not lines:
-            return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
+            return f"I found some items, but I couldn’t read their names. Could you try describing the {self.offering_singular} again?"
 
         if item_level and primary_cut:
             intro = f"Here are our {primary_cut} options" + (f" in {category}:" if category else ":")
         elif scope == "full_category" and category:
             intro = f"Here’s a wider selection from our {category} range:"
         elif scope == "full_store":
-            intro = "Here’s a wider selection from across the store:"
+            intro = "Here’s a wider selection from across the store:" if self.offering_singular == "product" else "Here’s a wider selection from across the catalogue:"
         elif category:
             intro = f"For {category}, here are some good options:"
         else:
@@ -310,7 +314,7 @@ class RendererV7:
             if scope in {"full_category", "full_store"} or wants_chunking:
                 extra_tail = (
                     f" I’ve shown the first {limit} items to keep things clear. "
-                    "Tell me a product type, category, feature, or a number from the list."
+                    f"Tell me a {self.offering_singular} type, category, feature, or a number from the list."
                 )
             elif item_level:
                 extra_tail = (
@@ -330,7 +334,7 @@ class RendererV7:
         comparison = facts.get("comparison") or {}
         items = comparison.get("items") if isinstance(comparison, dict) else []
         if not isinstance(items, list) or len(items) != 2:
-            return "Tell me the two product names you’d like to compare."
+            return f"Tell me the two {self.offering_singular} names you’d like to compare."
 
         currency = str(facts.get("currency") or "GBP")
         lines: List[str] = []
@@ -339,23 +343,30 @@ class RendererV7:
                 continue
             name = str(item.get("name") or item.get("_norm_name") or "").strip()
             price = item.get("price")
-            stock = "in stock" if item.get("in_stock", True) else "out of stock"
+            stock = self._availability_label(bool(item.get("in_stock", True)))
             if not name or not isinstance(price, (int, float)):
                 continue
             lines.append(f"{name}: {self._format_money(float(price), currency)}, {stock}.")
 
         if len(lines) != 2:
-            return "I found the products, but I could not confirm both prices."
+            return f"I found the {self.offering_plural}, but I could not confirm both prices."
         return " ".join(lines)
+
+    def _availability_label(self, is_available: bool) -> str:
+        if self.offering_singular == "product":
+            return "in stock" if is_available else "out of stock"
+        return "available" if is_available else "unavailable"
 
     def _alternatives_reply(self, facts: Dict[str, Any]) -> str:
         unavailable = facts.get("unavailable_product") or {}
-        name = str(unavailable.get("name") or unavailable.get("_norm_name") or "That product").strip()
+        name = str(unavailable.get("name") or unavailable.get("_norm_name") or f"That {self.offering_singular}").strip()
         alternatives = facts.get("items") or []
         currency = str(facts.get("currency") or "GBP")
 
         if not isinstance(alternatives, list) or not alternatives:
-            return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+            if self.offering_singular == "product":
+                return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+            return f"{name} is currently unavailable; I do not have a similar available option recorded right now."
 
         lines: List[str] = []
         for item in alternatives[:3]:
@@ -366,15 +377,19 @@ class RendererV7:
                 lines.append(line)
 
         if not lines:
-            return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
-        return f"{name} is currently out of stock; available alternatives: " + " | ".join(lines) + "."
+            if self.offering_singular == "product":
+                return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+            return f"{name} is currently unavailable; I do not have a similar available option recorded right now."
+        if self.offering_singular == "product":
+            return f"{name} is currently out of stock; available alternatives: " + " | ".join(lines) + "."
+        return f"{name} is currently unavailable; available alternatives: " + " | ".join(lines) + "."
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}
         sku = price_block.get("sku") or plan.get("sku")
 
         if not sku:
-            return "Tell me the SKU or exact product name and I’ll confirm the price for you."
+            return f"Tell me the SKU or exact {self.offering_singular} name and I’ll confirm the price for you."
 
         price = price_block.get("price", None)
         in_stock = price_block.get("in_stock", None)
@@ -385,7 +400,7 @@ class RendererV7:
         if price is None:
             return f"I couldn’t find a price for {sku}. It might be missing or not available right now."
 
-        stock_str = "in stock" if in_stock else "out of stock"
+        stock_str = self._availability_label(bool(in_stock))
         label = name or sku
         if unit:
             label = f"{label} ({unit})"
@@ -466,7 +481,7 @@ class RendererV7:
 
         return (
             "I’m not fully sure about that from my data. "
-            "You can ask about products, prices, delivery, or store branches."
+            f"You can ask about {self.offering_plural}, pricing, or business details."
         )
 
     # ------------------------------------------------------------------ #
@@ -485,15 +500,15 @@ class RendererV7:
             return "What’s your postcode (for example: E1 6AN)?"
 
         if intent in {"search_product", "browse_category"}:
-            return "What product, category, or feature are you looking for?"
+            return f"What {self.offering_singular}, category, or feature are you looking for?"
 
         if intent == "price_check":
-            return "Which product or SKU should I check the price for?"
+            return f"Which {self.offering_singular} or SKU should I check the price for?"
 
         if intent == "human_handoff":
-            return "What’s your postcode so I can find the nearest branch and number?"
+            return "Please share a phone number or email and a short note about what you need."
 
-        return "Could you clarify what you need? For example: a product, delivery, or opening times."
+        return f"Could you clarify what you need? For example: a {self.offering_singular}, pricing, or business information."
 
     # ------------------------------------------------------------------ #
     # POLISH / CTA                                                       #

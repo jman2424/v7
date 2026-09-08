@@ -164,7 +164,7 @@ class MessageHandler:
         self.crm = deps.crm
         self.memory = deps.memory
         self.overrides = deps.overrides
-        self.sales_agent = SalesAgentPolicy()
+        self.sales_agent = SalesAgentPolicy(overrides=deps.overrides)
 
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT
@@ -274,7 +274,7 @@ class MessageHandler:
         t = (user_text or "").strip()
         if not t:
             return {
-                "reply": "Send a product, delivery area, or branch question.",
+                "reply": "Send a question about the business or tell me what you need help with.",
                 "intent": "system_empty",
                 "resolved": False,
                 "facts": {},
@@ -297,7 +297,7 @@ class MessageHandler:
 
         if _RE_ONLY_SYMBOLS.match(t):
             return {
-                "reply": "Type a product or a postcode for delivery.",
+                "reply": "Type a question about the business or tell me what you need help with.",
                 "intent": "system_clarify",
                 "resolved": False,
                 "facts": {"reason": "symbols_only"},
@@ -314,10 +314,9 @@ class MessageHandler:
         if looks_like_short_code or looks_like_gibberish:
             return {
                 "reply": (
-                    "I didn’t catch that.\n\n"
-                    "Send either:\n"
-                    "• a product or category\n"
-                    "• or a postcode for delivery (e.g. **E1 6AN**)"
+                    "I didn't catch that.\n\n"
+                    "Tell me what you need help with, ask about the business, "
+                    "or share a postcode if you want to check delivery."
                 ),
                 "intent": "system_clarify",
                 "resolved": False,
@@ -354,11 +353,8 @@ class MessageHandler:
             if _looks_like_noise(text):
                 return {
                     "reply": (
-                        "Tell me what you want to do:\n"
-                        "• search products or browse a category\n"
-                        "• check delivery (e.g. **E7 9QS**)\n"
-                        "• nearest branch (type **nearest branch**)\n"
-                        "• or ask for the product catalog"
+                        "Tell me what you need help with. You can ask about the business, "
+                        "browse its catalogue, or check delivery where it is offered."
                     ),
                     "intent": "system_clarify",
                     "resolved": False,
@@ -374,7 +370,7 @@ class MessageHandler:
             return {
                 "reply": (
                     f"I couldn’t find matches for **{q}**.\n\n"
-                    "Try a different product name, category, feature, or ask for the catalog."
+                    "Try a different name, category, feature, or ask for the catalogue."
                 ),
                 "intent": "system_no_results",
                 "resolved": False,
@@ -431,6 +427,7 @@ class MessageHandler:
                     "stage": agent.get("stage"),
                     "objective": agent.get("objective"),
                     "next_action": agent.get("next_action"),
+                    "qualification_index": agent.get("qualification_index"),
                 },
                 ttl,
             )

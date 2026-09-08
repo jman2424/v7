@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from brain_v7 import BrainV7
 from renderer_v7 import RendererV7
+from service.sales_playbook import load_sales_playbook, offering_terms
 from service.validators import normalize_phone
 
 logger = logging.getLogger("handler_v7")
@@ -57,6 +58,8 @@ class MessageHandlerV7:
         "recommend", "recommendation", "suggest", "suggestion", "options", "list",
         "full list", "catalog", "catalogue", "product", "products", "item", "items",
         "available", "stock", "buy", "purchase", "shop", "looking for", "need", "want",
+        "service", "services", "consultation", "appointment", "quote", "estimate", "booking",
+        "book", "hire", "install", "repair",
     )
 
     _EXPLICIT_SHOPPING_WORDS = (
@@ -64,6 +67,8 @@ class MessageHandlerV7:
         "offer", "deal", "recommend", "list", "catalog", "catalogue", "available",
         "show", "browse", "view", "products", "items", "in stock", "do you have",
         "have you got", "do you sell", "looking for", "need", "want",
+        "service", "services", "consultation", "appointment", "quote", "estimate", "booking",
+        "book", "hire", "install", "repair",
     )
 
     _SEARCH_STOP_WORDS = {
@@ -75,7 +80,7 @@ class MessageHandlerV7:
 
     _BROWSE_ALL_PAT = re.compile(
         r"\b(show|browse|list|see|view)?\s*(all|full|entire|whole)?\s*"
-        r"(products?|items?|catalog|catalogue|range)\b",
+        r"(products?|items?|services?|offerings?|catalog|catalogue|range)\b",
         re.I,
     )
 
@@ -118,6 +123,15 @@ class MessageHandlerV7:
         "call me back",
         "contact me",
         "customer service",
+        "book a consultation",
+        "arrange a consultation",
+        "book a call",
+        "schedule a call",
+        "book an appointment",
+        "schedule an appointment",
+        "get a quote",
+        "request a quote",
+        "request a callback",
     )
     _PHONE_CANDIDATE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
     _EMAIL_CANDIDATE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
@@ -168,6 +182,8 @@ class MessageHandlerV7:
         self.business_name = str(getattr(deps, "business_name", "") or "").strip()
         profile = getattr(deps, "business_profile", None)
         self.business_profile = profile if isinstance(profile, dict) else {}
+        self.sales_playbook = load_sales_playbook(self.overrides)
+        self.offering_singular, self.offering_plural = offering_terms(self.sales_playbook)
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         tone_style, max_sentences = self._tone_settings()
@@ -176,6 +192,7 @@ class MessageHandlerV7:
             self.business_name,
             tone_style=tone_style,
             max_sentences=max_sentences,
+            offering_type=self.sales_playbook["offering_type"],
         )
 
     # ------------------------------------------------------------------
@@ -217,10 +234,7 @@ class MessageHandlerV7:
         try:
             # 0) Greeting only
             if self._is_greeting(user_text):
-                reply_text = (
-                    f"Hi, I’m the {self._assistant_label()}. Tell me what you’re looking for and I’ll pull the right options.\n"
-                    "You can ask about products, prices, delivery, or the nearest branch."
-                )
+                reply_text = self._greeting_reply()
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -249,9 +263,7 @@ class MessageHandlerV7:
 
             # 0.75) Out of scope
             if self._looks_out_of_scope(user_text):
-                reply_text = (
-                    f"I can only help with {self._business_label()} products, prices, delivery, and branch details."
-                )
+                reply_text = f"I can help with questions about {self._business_scope()}."
                 safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -285,10 +297,7 @@ class MessageHandlerV7:
 
             if self._requests_handoff(user_text):
                 plan = self._simple_plan("human_handoff", "HUMAN_HANDOFF", session_snapshot)
-                reply_text = (
-                    "I can have the team follow up. Please send a phone number or email, "
-                    "plus a short note about what you need."
-                )
+                reply_text = self._handoff_reply()
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -539,7 +548,7 @@ class MessageHandlerV7:
 
             # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
-                reply_text = "Tell me what you need: a product, price, delivery, or branch information."
+                reply_text = f"Tell me what you need help with. I can help with {self._business_scope()}."
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -596,18 +605,15 @@ class MessageHandlerV7:
         t = self._clean_text(user_text)
 
         if any(x in t for x in ("ai", "bot", "real", "who are you", "where is the ai", "were is the ai")):
-            return (
-                f"Yes — I’m an AI-powered {self._assistant_label()}. "
-                "I can help with products, prices, delivery, and nearest branch details."
-            )
+            return f"Yes - I'm an AI-powered {self._assistant_label()}. I can help with {self._business_scope()}."
 
         if "help" in t:
-            return "Sure — tell me what you need. I can help you browse products, compare prices, check delivery, or find a branch."
+            return f"Sure - tell me what you need. I can help with {self._business_scope()}."
 
         if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
-            return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
+            return f"I'm ready to help with {self._business_scope()}."
 
-        return f"I’m the {self._assistant_label()}. Ask me about products, prices, delivery, or the nearest branch."
+        return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
 
     def _business_label(self) -> str:
         return self.business_name or "this business"
@@ -616,6 +622,37 @@ class MessageHandlerV7:
         if self.business_name:
             return f"{self.business_name} sales assistant"
         return "sales assistant for this business"
+
+    def _business_scope(self) -> str:
+        focus = str(self.sales_playbook.get("business_focus") or "").strip()
+        if focus:
+            return focus
+        if self.offering_singular == "product":
+            return "products, pricing, delivery, and branch details"
+        if self.offering_singular == "service":
+            return "services, availability, and business details"
+        return "offerings, availability, and business details"
+
+    def _opening_question(self) -> str:
+        goal = str(self.sales_playbook.get("primary_goal") or "drive_sales")
+        if goal == "book_consultation":
+            return "What would you like to discuss with the team?"
+        if goal == "capture_leads":
+            return "What can the team help you with today?"
+        if goal == "answer_questions":
+            return "What would you like to know?"
+        return f"What {self.offering_singular} or option are you looking for today?"
+
+    def _greeting_reply(self) -> str:
+        return f"Hi, I'm the {self._assistant_label()}. I can help with {self._business_scope()}. {self._opening_question()}"
+
+    def _handoff_reply(self) -> str:
+        configured = str(self.sales_playbook.get("handoff_message") or "").strip()
+        if not configured:
+            configured = "I can have the team follow up."
+        elif configured[-1:] not in {".", "!", "?"}:
+            configured = f"{configured}."
+        return f"{configured} Please send a phone number or email, plus a short note about what you need."
 
     def _tone_settings(self) -> Tuple[str, int]:
         style = "friendly"

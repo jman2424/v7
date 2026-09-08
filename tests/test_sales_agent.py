@@ -48,6 +48,75 @@ def test_sales_agent_does_not_repeat_an_existing_product_selection_prompt():
     assert response["reply"].count("Which option would you like") == 0
 
 
+def test_sales_agent_uses_playbook_questions_before_booking_a_consultation():
+    class Overrides:
+        def get(self, key):
+            if key != "sales_playbook":
+                return None
+            return {
+                "business_focus": "Bespoke kitchen design and installation",
+                "offering_type": "services",
+                "primary_goal": "book_consultation",
+                "qualification_questions": [
+                    "Which room are you planning?",
+                    "When would you like the project completed?",
+                ],
+                "handoff_message": "",
+            }
+
+    policy = SalesAgentPolicy(overrides=Overrides())
+    first = policy.guide(
+        {
+            "reply": "Here are two suitable options.",
+            "intent": "search_product",
+            "facts": {"items": [{"name": "Kitchen design consultation"}]},
+        },
+        user_text="I need a new kitchen",
+        session={},
+    )
+    second = policy.guide(
+        {"reply": "Thanks.", "intent": "unknown", "facts": {}},
+        user_text="A family kitchen",
+        session={"sales_agent": first["agent"]},
+    )
+    completed = policy.guide(
+        {"reply": "Thanks.", "intent": "unknown", "facts": {}},
+        user_text="Within three months",
+        session={"sales_agent": second["agent"]},
+    )
+
+    assert first["agent"]["next_action"] == "ask_qualification_question"
+    assert first["agent"]["qualification_index"] == 0
+    assert "Which room are you planning?" in first["reply"]
+    assert second["agent"]["next_question"] == "When would you like the project completed?"
+    assert completed["agent"]["next_action"] == "book_consultation"
+    assert "arrange a consultation" in completed["reply"]
+
+
+def test_sales_agent_uses_service_handoff_instead_of_delivery_after_price_check():
+    class Overrides:
+        def get(self, key):
+            if key != "sales_playbook":
+                return None
+            return {
+                "business_focus": "Website design services",
+                "offering_type": "services",
+                "primary_goal": "drive_sales",
+                "qualification_questions": [],
+                "handoff_message": "",
+            }
+
+    response = SalesAgentPolicy(overrides=Overrides()).guide(
+        {"reply": "A website audit is $450.00 and available.", "intent": "price_check", "facts": {}},
+        user_text="How much is a website audit?",
+        session={},
+    )
+
+    assert response["agent"]["next_action"] == "arrange_team_handoff"
+    assert "help you get started" in response["reply"]
+    assert "check delivery" not in response["reply"].lower()
+
+
 def test_sales_agent_moves_delivery_eligibility_to_product_selection():
     policy = SalesAgentPolicy()
     response = policy.guide(
@@ -115,6 +184,38 @@ def test_greeting_reaches_agent_instead_of_the_short_input_guard(app):
     assert result["agent"]["stage"] == "discover"
     assert "EXAMPLE Halal Butchers sales assistant" in result["reply"]
     assert "Tariq Halal" not in result["reply"]
+
+
+def test_v7_uses_saved_playbook_focus_and_handoff_message(app):
+    storage = app.container.storage
+    overrides = storage.read_json("EXAMPLE", "overrides.json")
+    overrides["sales_playbook"] = {
+        "business_focus": "Bespoke kitchen design and installation",
+        "offering_type": "services",
+        "primary_goal": "book_consultation",
+        "qualification_questions": [],
+        "handoff_message": "Our design team can arrange a consultation.",
+    }
+    storage.write_json("EXAMPLE", "overrides.json", overrides, snapshot=False)
+    app.container.invalidate_tenant("EXAMPLE")
+
+    greeting = app.container.handler.handle(
+        "hello",
+        tenant="EXAMPLE",
+        session_id="playbook-greeting",
+        channel="web",
+    )
+    handoff = app.container.handler.handle(
+        "I want to book a consultation",
+        tenant="EXAMPLE",
+        session_id="playbook-handoff",
+        channel="web",
+    )
+
+    assert "Bespoke kitchen design and installation" in greeting["reply"]
+    assert greeting["agent"]["next_action"] == "discover_consultation_need"
+    assert "Our design team can arrange a consultation." in handoff["reply"]
+    assert "phone number or email" in handoff["reply"]
 
 
 def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):

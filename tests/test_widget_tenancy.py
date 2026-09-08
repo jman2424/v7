@@ -187,7 +187,7 @@ def test_widget_settings_are_saved_by_an_authorized_owner(client):
     assert "widget.js?tenant=EXAMPLE" in body["embed"]["snippet"]
 
 
-def test_platform_operator_can_create_a_clean_starter_tenant(client):
+def test_platform_operator_can_create_a_clean_starter_tenant(client, app):
     _as_platform_admin(client)
     response = client.post("/admin/api/tenants", json={"key": "NORTHSTAR", "name": "Northstar Homewares"})
 
@@ -198,8 +198,10 @@ def test_platform_operator_can_create_a_clean_starter_tenant(client):
 
     tenants = client.get("/admin/api/tenants").get_json()["tenants"]
     northstar = next(tenant for tenant in tenants if tenant["key"] == "NORTHSTAR")
+    overrides = app.container.storage.read_json("NORTHSTAR", "overrides.json")
     assert northstar["name"] == "Northstar Homewares"
     assert northstar["widget_configured"] is False
+    assert overrides["sales_playbook"]["offering_type"] == "mixed"
 
 
 def test_business_owner_cannot_onboard_tenants(client):

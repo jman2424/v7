@@ -95,11 +95,15 @@ in the tenant's protected account data. `BUSINESS_USERS_JSON` remains available
 for migration from existing deployments. Never put a real password or hash in a
 client bundle or commit one to the repository.
 
-The console currently gives each owner structured controls for their business
-profile, branches and opening hours, website widget, product catalog, current
-offers, FAQs, delivery areas, fees, minimum orders, collection availability,
-service exceptions, and V7 sales tone. Offers can be scoped to product SKUs and
-given start/end dates; only active, in-date offers are shown to customers.
+The console gives each owner structured controls for their business profile,
+branches and opening hours, website widget, catalogue, current offers, FAQs,
+delivery areas, fees, minimum orders, collection availability, service
+exceptions, and V7 sales playbook. A catalogue can represent products,
+services, or both. The playbook sets the business focus, catalogue type,
+primary conversion goal, optional qualification questions, handoff wording,
+and reply tone without exposing a free-form system prompt. Offers can be scoped
+to catalogue references and given start/end dates; only active, in-date offers
+are shown to customers.
 Owners can also move a captured lead through Open, Contacted, Qualified, Won,
 or Lost directly from the Sales activity view.
 Platform operators can manage owner and staff access, while business owners can

@@ -148,6 +148,51 @@ def test_profile_branches_and_agent_settings_round_trip(client):
     assert invalid_tone.status_code == 400
 
 
+def test_agent_playbook_round_trip_and_validation(client):
+    as_admin(client)
+    payload = {
+        "tone": {"style": "friendly", "max_sentences": 3},
+        "playbook": {
+            "business_focus": "Bespoke kitchen design and installation",
+            "offering_type": "services",
+            "primary_goal": "book_consultation",
+            "qualification_questions": [
+                "Which room are you planning?",
+                "When would you like the project completed?",
+            ],
+            "handoff_message": "Our design team can arrange a consultation.",
+        },
+    }
+
+    saved = client.put("/admin/api/agent-settings", json=payload)
+    loaded = client.get("/admin/api/agent-settings")
+    invalid = client.put(
+        "/admin/api/agent-settings",
+        json={
+            "tone": {"style": "friendly", "max_sentences": 2},
+            "playbook": {"offering_type": "unsupported"},
+        },
+    )
+
+    assert saved.status_code == 200
+    assert saved.get_json()["playbook"] == payload["playbook"]
+    assert loaded.get_json()["playbook"] == payload["playbook"]
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "invalid_offering_type"
+
+
+def test_business_owner_cannot_update_another_tenant_playbook(client):
+    with client.session_transaction() as sess:
+        sess["user"] = {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"}
+
+    response = client.put(
+        "/admin/api/agent-settings?tenant=OTHER",
+        json={"tone": {"style": "friendly", "max_sentences": 2}, "playbook": {}},
+    )
+
+    assert response.status_code == 403
+
+
 def test_mode_switch_and_reflects(client):
     as_admin(client)
     r = client.post(

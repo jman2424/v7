@@ -155,11 +155,20 @@
     hours: BranchHours;
   };
 
+  type AgentPlaybook = {
+    business_focus: string;
+    offering_type: 'products' | 'services' | 'mixed';
+    primary_goal: 'drive_sales' | 'book_consultation' | 'capture_leads' | 'answer_questions';
+    qualification_questions: string[];
+    handoff_message: string;
+  };
+
   type AgentSettings = {
     tone: {
       style: 'friendly' | 'professional' | 'concise';
       max_sentences: number;
     };
+    playbook: AgentPlaybook;
   };
 
   let user: User | null = null;
@@ -171,7 +180,10 @@
   let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
   let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
   let branches: Branch[] = [];
-  let agentSettings: AgentSettings = { tone: { style: 'friendly', max_sentences: 2 } };
+  let agentSettings: AgentSettings = {
+    tone: { style: 'friendly', max_sentences: 2 },
+    playbook: { business_focus: '', offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
+  };
   let snippet = '';
   let tenant = 'EXAMPLE';
   let originText = '';
@@ -341,9 +353,33 @@
   function normalizeAgentSettings(value: unknown): AgentSettings {
     const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
     const tone = source.tone && typeof source.tone === 'object' ? source.tone as Record<string, unknown> : {};
+    const playbook = source.playbook && typeof source.playbook === 'object' ? source.playbook as Record<string, unknown> : {};
     const style = ['friendly', 'professional', 'concise'].includes(String(tone.style)) ? String(tone.style) as AgentSettings['tone']['style'] : 'friendly';
     const max = Number(tone.max_sentences || 2);
-    return { tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 } };
+    const offeringType = ['products', 'services', 'mixed'].includes(String(playbook.offering_type)) ? String(playbook.offering_type) as AgentPlaybook['offering_type'] : 'products';
+    const primaryGoal = ['drive_sales', 'book_consultation', 'capture_leads', 'answer_questions'].includes(String(playbook.primary_goal)) ? String(playbook.primary_goal) as AgentPlaybook['primary_goal'] : 'drive_sales';
+    const qualificationQuestions = Array.isArray(playbook.qualification_questions)
+      ? playbook.qualification_questions.map((question) => String(question).trim()).filter(Boolean).slice(0, 4)
+      : [];
+    return {
+      tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 },
+      playbook: {
+        business_focus: String(playbook.business_focus || ''),
+        offering_type: offeringType,
+        primary_goal: primaryGoal,
+        qualification_questions: qualificationQuestions,
+        handoff_message: String(playbook.handoff_message || '')
+      }
+    };
+  }
+
+  function addQualificationQuestion() {
+    if (agentSettings.playbook.qualification_questions.length >= 4) return;
+    agentSettings.playbook.qualification_questions = [...agentSettings.playbook.qualification_questions, ''];
+  }
+
+  function removeQualificationQuestion(index: number) {
+    agentSettings.playbook.qualification_questions = agentSettings.playbook.qualification_questions.filter((_, questionIndex) => questionIndex !== index);
   }
 
   function safeCount(value: unknown) {
@@ -640,7 +676,7 @@
   function addProduct(categoryIndex: number) {
     const categories = catalog.categories.map((category, index) => index === categoryIndex ? {
       ...category,
-      items: [...category.items, { sku: 'NEW_PRODUCT', name: 'New product', price: 0, unit: 'each', tags: [], in_stock: true }]
+      items: [...category.items, { sku: 'NEW_OFFERING', name: 'New offering', price: 0, unit: 'each', tags: [], in_stock: true }]
     } : category);
     catalog = { ...catalog, categories };
   }
@@ -701,7 +737,7 @@
       }))
     }));
     if (!categories.length || categories.some((category) => !category.name || !category.items.length || category.items.some((item) => !item.sku || !item.name || !Number.isFinite(item.price) || item.price < 0))) {
-      catalogStatus = 'Each category needs a name and at least one complete product.';
+      catalogStatus = 'Each category needs a name and at least one complete offering.';
       catalogError = true;
       return;
     }
@@ -716,7 +752,7 @@
       return;
     }
     catalog = { ...catalog, categories };
-    catalogStatus = 'Catalog saved. New conversations use these products.';
+    catalogStatus = 'Catalogue saved. New conversations use these offerings.';
   }
 
   async function saveFaqs() {
@@ -870,8 +906,8 @@
       agentError = true;
       return;
     }
-    agentSettings = normalizeAgentSettings({ tone: data.tone });
-    agentStatus = 'Agent tone saved. New replies use this style.';
+    agentSettings = normalizeAgentSettings(data);
+    agentStatus = 'Agent playbook saved. New conversations use these settings.';
   }
 
   onMount(async () => {
@@ -910,6 +946,7 @@
       <div class="side-brand"><span>V7</span><strong>{tenant}</strong><small>Sales agent workspace</small></div>
       <nav aria-label="Owner console navigation">
         <a class="active" href="#activity">Pipeline</a>
+        <a href="#agent">Agent playbook</a>
         <a href="#widget">Website</a>
         <a href="#install">Install</a>
         <a href="#catalog">Catalogue</a>
@@ -1036,7 +1073,7 @@
       </div>
 
       <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
-        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Product catalog</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
+        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Catalogue</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
         <div class="catalog-toolbar">
           <label>Currency<input class="currency" bind:value={catalog.currency} maxlength="3" aria-label="Catalog currency" /></label>
           <button class="secondary" type="button" on:click={addCategory}>Add category</button>
@@ -1047,21 +1084,21 @@
               <div class="category-fields"><label>Category name<input bind:value={category.name} required /></label><label>Category key<input bind:value={category.id} required /></label></div>
               <button class="icon-button danger" type="button" title="Remove category" aria-label={`Remove ${category.name || 'category'}`} on:click={() => removeCategory(categoryIndex)}>Remove</button>
             </div>
-            <div class="product-table" role="region" aria-label={`${category.name || 'Category'} products`}>
-              <div class="product-table-head" aria-hidden="true"><span>Product</span><span>SKU</span><span>Price</span><span>Unit</span><span>Tags</span><span>Stock</span><span></span></div>
+            <div class="product-table" role="region" aria-label={`${category.name || 'Category'} offerings`}>
+              <div class="product-table-head" aria-hidden="true"><span>Offering</span><span>Reference</span><span>Price</span><span>Unit</span><span>Tags</span><span>Availability</span><span></span></div>
               {#each category.items as item, itemIndex}
                 <div class="product-row">
-                  <input bind:value={item.name} aria-label="Product name" required />
-                  <input bind:value={item.sku} aria-label="Product SKU" required />
-                  <input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Product price" required />
-                  <input bind:value={item.unit} aria-label="Product unit" required />
-                  <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Product tags" placeholder="gift, summer" />
-                  <label class="stock-toggle"><input bind:checked={item.in_stock} type="checkbox" /><span>{item.in_stock ? 'In stock' : 'Out'}</span></label>
-                  <button class="icon-button danger" type="button" title="Remove product" aria-label={`Remove ${item.name || 'product'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>Remove</button>
+                  <input bind:value={item.name} aria-label="Offering name" required />
+                  <input bind:value={item.sku} aria-label="Offering reference" required />
+                  <input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required />
+                  <input bind:value={item.unit} aria-label="Offering unit" required />
+                  <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Offering tags" placeholder="gift, summer" />
+                  <label class="stock-toggle"><input bind:checked={item.in_stock} type="checkbox" /><span>{item.in_stock ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
+                  <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>Remove</button>
                 </div>
               {/each}
             </div>
-            <button class="add-row" type="button" on:click={() => addProduct(categoryIndex)}>Add product</button>
+            <button class="add-row" type="button" on:click={() => addProduct(categoryIndex)}>Add offering</button>
           </section>
         {/each}
         <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>Save catalog</button></div>
@@ -1073,7 +1110,7 @@
           {#each offers as offer, index}
             <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
               <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Remove offer" aria-label={`Remove ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Remove</button></div>
-              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label class="wide-field">Eligible product SKUs<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all products" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
+              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
             </section>
           {:else}
             <p class="empty-state offers-empty">No offers have been added. The assistant will accurately say that there are no current offers.</p>
@@ -1143,13 +1180,26 @@
           </form>
         </section>
 
-        <section class="surface workspace-section" aria-labelledby="tone-heading">
-          <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="tone-heading">Sales tone</h2></div></div>
-          <form class="tone-form" on:submit|preventDefault={saveAgentSettings}>
-            <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
-            <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
-            <p class="field-note">The V7 reply formatter applies this tone and length after grounding the answer in your catalog, FAQ, and delivery data.</p>
-            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save agent tone</button></div>
+        <section id="agent" class="surface workspace-section" aria-labelledby="agent-heading">
+          <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="agent-heading">Sales playbook</h2></div></div>
+          <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>
+            <div class="agent-settings-grid">
+              <label class="agent-wide">Business focus<textarea bind:value={agentSettings.playbook.business_focus} maxlength="240" placeholder="What do you help customers buy, book, or achieve?"></textarea></label>
+              <label>Catalogue type<select bind:value={agentSettings.playbook.offering_type}><option value="products">Products</option><option value="services">Services</option><option value="mixed">Products and services</option></select></label>
+              <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Book a consultation</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
+              <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
+              <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
+            </div>
+            <div class="qualification-editor">
+              <div class="qualification-heading"><h3>Qualification questions</h3><button class="secondary" type="button" on:click={addQualificationQuestion} disabled={agentSettings.playbook.qualification_questions.length >= 4}>Add question</button></div>
+              {#each agentSettings.playbook.qualification_questions as question, questionIndex}
+                <div class="qualification-row"><label>{`Question ${questionIndex + 1}`}<input bind:value={agentSettings.playbook.qualification_questions[questionIndex]} maxlength="180" placeholder="What should the assistant learn next?" /></label><button class="icon-button danger" type="button" title="Remove question" aria-label={`Remove question ${questionIndex + 1}`} on:click={() => removeQualificationQuestion(questionIndex)}>Remove</button></div>
+              {:else}
+                <p class="empty-state">No qualification questions added.</p>
+              {/each}
+            </div>
+            <label>Handoff message<textarea bind:value={agentSettings.playbook.handoff_message} maxlength="360" placeholder="What should the assistant say before it asks for contact details?"></textarea></label>
+            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save playbook</button></div>
           </form>
         </section>
       </div>
@@ -1313,7 +1363,13 @@
   .exception-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid #e2e7ee; }
   .exception-heading h3 { margin: 12px 0 0; font-size: 14px; }
   .exception-row { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr) auto; align-items: end; gap: 10px; }
-  .profile-form, .tone-form { display: grid; gap: 16px; padding: 20px; }
+  .profile-form, .agent-form { display: grid; gap: 16px; padding: 20px; }
+  .agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .agent-wide { grid-column: 1 / -1; }
+  .qualification-editor { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #e2e7ee; }
+  .qualification-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .qualification-heading h3 { margin: 0; color: #344054; font-size: 14px; }
+  .qualification-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
   .two-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .profile-footer { padding: 2px 0 0; }
   .branches-list { display: grid; }
@@ -1329,5 +1385,5 @@
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
   @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form, .account-control-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button { width: fit-content; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading, .qualification-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row, .agent-settings-grid, .qualification-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button, .qualification-row .icon-button { width: fit-content; } }
 </style>

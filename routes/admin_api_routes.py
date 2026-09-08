@@ -11,6 +11,7 @@ from jsonschema.exceptions import ValidationError
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
 from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
+from service.sales_playbook import SalesPlaybookValidationError, load_sales_playbook, validate_sales_playbook
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
@@ -381,25 +382,35 @@ def api_branches_put():
 _TONE_STYLES = {"friendly", "professional", "concise"}
 
 
+def _agent_settings_payload(overrides: Any) -> Dict[str, Any]:
+    data = overrides if isinstance(overrides, dict) else {}
+    tone = data.get("tone") if isinstance(data.get("tone"), dict) else {}
+    style = str(tone.get("style") or "friendly").strip().lower()
+    if style not in _TONE_STYLES:
+        style = "friendly"
+    try:
+        max_sentences = int(tone.get("max_sentences") or 2)
+    except (TypeError, ValueError):
+        max_sentences = 2
+    max_sentences = min(max(max_sentences, 1), 4)
+    return {
+        "tone": {"style": style, "max_sentences": max_sentences},
+        "playbook": load_sales_playbook(data),
+    }
+
+
 @bp.get("/agent-settings")
 def api_agent_settings_get():
     overrides = _storage().read_json(_tenant(), "overrides.json")
-    overrides = overrides if isinstance(overrides, dict) else {}
-    tone = overrides.get("tone") or {}
-    tone = tone if isinstance(tone, dict) else {}
-    return jsonify(
-        {
-            "tone": {
-                "style": str(tone.get("style") or "friendly"),
-                "max_sentences": int(tone.get("max_sentences") or 2),
-            }
-        }
-    )
+    return jsonify(_agent_settings_payload(overrides))
 
 
 @bp.put("/agent-settings")
 def api_agent_settings_put():
     data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "agent_settings_must_be_object"}), 400
+
     tone = data.get("tone") if isinstance(data, dict) else None
     if not isinstance(tone, dict):
         return jsonify({"error": "tone_must_be_object"}), 400
@@ -418,11 +429,33 @@ def api_agent_settings_put():
     storage = _storage()
     before = storage.read_json(tenant, "overrides.json")
     overrides = dict(before) if isinstance(before, dict) else {}
+    if "playbook" in data:
+        try:
+            playbook = validate_sales_playbook(data.get("playbook"))
+        except SalesPlaybookValidationError as exc:
+            return jsonify({"error": str(exc)}), 400
+    else:
+        playbook = load_sales_playbook(overrides)
+
     overrides["tone"] = {"style": style, "max_sentences": max_sentences}
+    overrides["sales_playbook"] = playbook
     snapshot = storage.write_json(tenant, "overrides.json", overrides)
     _invalidate_tenant(tenant)
-    _audit("agent_settings.update", f"{tenant}/overrides.json", before=before, after={"snapshot": snapshot, "tone": overrides["tone"]})
-    return jsonify({"ok": True, "snapshot": snapshot, "tone": overrides["tone"]})
+    _audit(
+        "agent_settings.update",
+        f"{tenant}/overrides.json",
+        before=before,
+        after={
+            "snapshot": snapshot,
+            "tone": overrides["tone"],
+            "playbook": {
+                "offering_type": playbook["offering_type"],
+                "primary_goal": playbook["primary_goal"],
+                "qualification_questions": len(playbook["qualification_questions"]),
+            },
+        },
+    )
+    return jsonify({"ok": True, "snapshot": snapshot, **_agent_settings_payload(overrides)})
 
 
 def _clean_widget_text(value: Any, field: str, maximum: int) -> str:

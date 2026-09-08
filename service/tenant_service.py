@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from retrieval.storage import Storage
+from service.sales_playbook import default_sales_playbook
 
 
 class TenantService:
@@ -121,7 +122,15 @@ class TenantService:
         self._write_json(target / "faq.json", [])
         self._write_json(target / "offers.json", [])
         self._write_json(target / "synonyms.json", {})
-        self._write_json(target / "overrides.json", {})
+        playbook = default_sales_playbook()
+        playbook["offering_type"] = "mixed"
+        self._write_json(
+            target / "overrides.json",
+            {
+                "tone": {"style": "friendly", "max_sentences": 2},
+                "sales_playbook": playbook,
+            },
+        )
         self._write_json(
             target / "branding.json",
             {
