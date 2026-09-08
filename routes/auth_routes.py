@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from routes import get_container
-from routes.session_auth import clear_authenticated_session, establish_authenticated_session
+from routes.session_auth import clear_authenticated_session, establish_authenticated_session, is_authenticated_account_active
 from retrieval.storage import Storage
 
 # Unique blueprint name to avoid: "auth already registered"
@@ -57,6 +57,9 @@ def login_post():
 def session_get():
     user = session.get("user")
     if not isinstance(user, dict):
+        abort(401, description="unauthorized")
+    if not is_authenticated_account_active(get_container().storage):
+        clear_authenticated_session()
         abort(401, description="unauthorized")
     return jsonify({"ok": True, "user": user, "csrf_token": session.get("_csrf", "")})
 

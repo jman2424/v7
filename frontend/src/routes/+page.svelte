@@ -191,6 +191,9 @@
   let accountEmail = '';
   let accountPassword = '';
   let accountRole: ManagedRole = 'business_owner';
+  let selectedAccountId = '';
+  let selectedAccountPassword = '';
+  let selectedAccountActive = true;
   let accountStatus = '';
   let accountError = false;
   let catalogStatus = '';
@@ -424,6 +427,18 @@
     const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
     const data = await readJson(response);
     accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
+    const selected = accounts.find((account) => account.id === selectedAccountId);
+    const next = selected || accounts.find((account) => isPlatform || account.roles.includes('business_staff'));
+    selectedAccountId = next?.id || '';
+    selectedAccountActive = next?.active ?? true;
+    selectedAccountPassword = '';
+  }
+
+  function selectManagedAccount(accountId: string) {
+    selectedAccountId = accountId;
+    const selected = accounts.find((account) => account.id === accountId);
+    selectedAccountActive = selected?.active ?? true;
+    selectedAccountPassword = '';
   }
 
   async function loadInsights(selectedTenant = tenant) {
@@ -571,6 +586,29 @@
     accountStatus = `${data.account.email} can now sign in.`;
     accountEmail = '';
     accountPassword = '';
+    await loadAccounts(tenant);
+  }
+
+  async function updateAccount() {
+    if (!selectedAccountId) return;
+    accountStatus = 'Updating access...';
+    accountError = false;
+    const payload: { active: boolean; password?: string } = { active: selectedAccountActive };
+    if (selectedAccountPassword) payload.password = selectedAccountPassword;
+    const response = await fetch(apiPath(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      accountStatus = data.error || 'Could not update access.';
+      accountError = true;
+      return;
+    }
+    accountStatus = `${data.account.email} access updated.`;
+    selectedAccountPassword = '';
     await loadAccounts(tenant);
   }
 
@@ -958,6 +996,14 @@
             <label>Temporary password<input bind:value={accountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
             <button class="primary" type="submit">Add access</button>
           </form>
+          {#if accounts.some((account) => isPlatform || account.roles.includes('business_staff'))}
+            <form class="account-control-form" on:submit|preventDefault={updateAccount}>
+              <label>Account<select value={selectedAccountId} on:change={(event) => selectManagedAccount(event.currentTarget.value)}>{#each accounts.filter((account) => isPlatform || account.roles.includes('business_staff')) as account}<option value={account.id}>{account.email}</option>{/each}</select></label>
+              <label>New password <span>Optional</span><input bind:value={selectedAccountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" /></label>
+              <label class="account-active"><input bind:checked={selectedAccountActive} type="checkbox" /><span>Account active</span></label>
+              <button class="secondary" type="submit">Update access</button>
+            </form>
+          {/if}
           <div class="account-list" aria-live="polite">
             {#each accounts as account}
               <div class="account-row"><strong>{account.email}</strong><span>{account.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span><span class:account-inactive={!account.active}>{account.active ? 'Active' : 'Inactive'}</span></div>
@@ -1170,7 +1216,10 @@
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
   .operator-panel p:not(.eyebrow) { margin-bottom: 0; color: #526172; line-height: 1.45; }
   .tenant-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; }
-  .team-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .team-form, .account-control-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .account-control-form { grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(130px, .6fr) auto; background: #fbfcfa; }
+  .account-active { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 8px; white-space: nowrap; }
+  .account-active input { width: 16px; min-height: 16px; accent-color: #007d70; }
   .account-list { display: grid; }
   .account-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px 90px; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #edf0f4; color: #526172; font-size: 13px; }
   .account-row strong { color: #172033; overflow-wrap: anywhere; }
@@ -1279,6 +1328,6 @@
   .hours-grid input { font-size: 12px; text-transform: none; }
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
-  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
+  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form, .account-control-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
   @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button { width: fit-content; } }
 </style>

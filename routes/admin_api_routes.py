@@ -9,6 +9,7 @@ from flask import Blueprint, abort, jsonify, request, session
 from jsonschema.exceptions import ValidationError
 
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
+from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
 
 logger = logging.getLogger("ADMIN.API")
@@ -18,6 +19,9 @@ bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 @bp.before_request
 def _require_admin_session() -> None:
     if not session.get("user"):
+        abort(401, description="unauthorized")
+    if not is_authenticated_account_active(_storage()):
+        clear_authenticated_session()
         abort(401, description="unauthorized")
     require_admin_role()
 
@@ -189,6 +193,41 @@ def api_accounts_post():
 
     _audit("account.create", f"{tenant}/{account['id']}", after=account)
     return jsonify({"ok": True, "account": account}), 201
+
+
+@bp.put("/accounts/<string:account_id>")
+def api_accounts_put(account_id: str):
+    if not _may_manage_accounts():
+        abort(403, description="account_management_forbidden")
+    if not account_id or len(account_id) > 256:
+        return jsonify({"error": "invalid_account_id"}), 400
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "account_payload_must_be_object"}), 400
+
+    tenant = _tenant()
+    from service.account_service import AccountService
+
+    accounts = AccountService(_storage())
+    existing = accounts.get_account(tenant, account_id)
+    if existing is None:
+        return jsonify({"error": "account_not_found"}), 404
+    if not is_platform_operator() and set(existing.get("roles") or []) != {"business_staff"}:
+        abort(403, description="owner_can_only_manage_staff")
+
+    try:
+        account = accounts.update_account(tenant, account_id, data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    _audit(
+        "account.update",
+        f"{tenant}/{account_id}",
+        before={"active": existing.get("active") is not False},
+        after={"active": account["active"], "password_reset": bool(str(data.get("password") or ""))},
+    )
+    return jsonify({"ok": True, "account": account})
 
 
 @bp.get("/catalog")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, render_template, request, redirect, url_for, session
 from routes import get_container
-from routes.session_auth import clear_authenticated_session, establish_authenticated_session
+from routes.session_auth import clear_authenticated_session, establish_authenticated_session, is_authenticated_account_active
 from routes.tenancy import resolve_admin_tenant
 from retrieval.storage import Storage
 
@@ -11,7 +11,12 @@ bp = Blueprint("admin_ui", __name__, url_prefix="/admin")
 
 
 def _is_logged_in() -> bool:
-    return bool(session.get("user"))
+    if not session.get("user"):
+        return False
+    if is_authenticated_account_active(get_container().storage):
+        return True
+    clear_authenticated_session()
+    return False
 
 
 def _csrf_token() -> str:

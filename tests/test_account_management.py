@@ -71,3 +71,55 @@ def test_account_listing_never_returns_password_material(client):
             "active": True,
         }
     ]
+
+
+def test_owner_can_disable_and_reset_a_staff_account(client):
+    _as_owner(client)
+    created = client.post(
+        "/admin/api/accounts",
+        json={"email": "staff@example.test", "password": "correct-horse-battery-staple", "roles": ["business_staff"]},
+    ).get_json()["account"]
+
+    updated = client.put(
+        f"/admin/api/accounts/{created['id']}",
+        json={"active": False, "password": "a-new-long-staff-password"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.get_json()["account"] == {
+        "id": created["id"],
+        "email": "staff@example.test",
+        "roles": ["business_staff"],
+        "active": False,
+    }
+
+
+def test_owner_cannot_disable_another_owner(client):
+    _as_platform_admin(client)
+    created = client.post(
+        "/admin/api/accounts",
+        json={"email": "other-owner@example.test", "password": "correct-horse-battery-staple", "roles": ["business_owner"]},
+    ).get_json()["account"]
+    _as_owner(client)
+
+    blocked = client.put(f"/admin/api/accounts/{created['id']}", json={"active": False})
+
+    assert blocked.status_code == 403
+
+
+def test_disabled_account_loses_management_access_on_its_next_request(client):
+    _as_platform_admin(client)
+    created = client.post(
+        "/admin/api/accounts",
+        json={"email": "staff@example.test", "password": "correct-horse-battery-staple", "roles": ["business_staff"]},
+    ).get_json()["account"]
+    client.put(f"/admin/api/accounts/{created['id']}", json={"active": False})
+
+    with client.session_transaction() as sess:
+        sess["user"] = {"id": created["id"], "roles": ["business_staff"], "tenant": "EXAMPLE"}
+
+    denied = client.get("/admin/api/catalog")
+
+    assert denied.status_code == 401
+    with client.session_transaction() as sess:
+        assert "user" not in sess

@@ -102,5 +102,9 @@ service exceptions, and V7 sales tone. Offers can be scoped to product SKUs and
 given start/end dates; only active, in-date offers are shown to customers.
 Owners can also move a captured lead through Open, Contacted, Qualified, Won,
 or Lost directly from the Sales activity view.
+Platform operators can manage owner and staff access, while business owners can
+create, reset, and disable staff accounts for their own tenant. Disabling a
+tenant-managed account rejects its next protected request and clears its
+browser session.
 Changes are tenant-scoped, validated, audited, snapshotted, and applied to new
 conversations immediately.

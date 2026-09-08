@@ -48,6 +48,49 @@ class AccountService:
         self.storage.write_json(tenant, ACCOUNT_FILE, [*accounts, account])
         return self._public_account(account)
 
+    def get_account(self, tenant: str, account_id: str) -> Dict[str, Any] | None:
+        wanted = str(account_id or "").strip()
+        if not wanted:
+            return None
+        for account in self._accounts(tenant):
+            if secrets.compare_digest(str(account.get("id") or ""), wanted):
+                return account
+        return None
+
+    def update_account(self, tenant: str, account_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a tenant account without returning credential material."""
+        wanted = str(account_id or "").strip()
+        if not wanted or len(wanted) > 256:
+            raise ValueError("invalid_account_id")
+        if not isinstance(payload, dict):
+            raise ValueError("account_payload_must_be_object")
+
+        has_active = "active" in payload
+        password = str(payload.get("password") or "")
+        if not has_active and not password:
+            raise ValueError("account_update_required")
+        if has_active and not isinstance(payload.get("active"), bool):
+            raise ValueError("invalid_account_active")
+        if password and (len(password) < 12 or len(password) > 256):
+            raise ValueError("password_must_be_at_least_12_characters")
+
+        accounts = self._accounts(tenant)
+        for index, stored in enumerate(accounts):
+            if not secrets.compare_digest(str(stored.get("id") or ""), wanted):
+                continue
+            updated = dict(stored)
+            if has_active:
+                updated["active"] = payload["active"]
+            if password:
+                from service.security import hash_password
+
+                updated["password_hash"] = hash_password(password)
+            accounts[index] = updated
+            self.storage.write_json(tenant, ACCOUNT_FILE, accounts)
+            return self._public_account(updated)
+
+        raise ValueError("account_not_found")
+
     def _accounts(self, tenant: str) -> List[Dict[str, Any]]:
         try:
             raw = self.storage.read_json(tenant, ACCOUNT_FILE)
