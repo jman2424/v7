@@ -3,6 +3,7 @@ from flask import Blueprint, abort, jsonify, request, session
 
 from retrieval.storage import KNOWN_FILES
 from routes import get_container
+from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import require_admin_role, resolve_admin_tenant
 
 bp = Blueprint("files", __name__, url_prefix="/files")
@@ -27,6 +28,9 @@ def _filename(value: str) -> str:
 def _require_tenant_admin() -> None:
     if not session.get("user"):
         abort(401, description="unauthorized")
+    if not is_authenticated_account_active(get_container().storage):
+        clear_authenticated_session()
+        abort(401, description="unauthorized")
     require_admin_role()
 
 
@@ -48,10 +52,14 @@ def put_file(filename: str):
         "store_info.json": "store_info.schema.json",
     }
     tenant = _tenant()
-    snap = get_container().storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
+    container = get_container()
+    snap = container.storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
+    container.invalidate_tenant(tenant)
     from services.audit import append_audit
 
-    append_audit(actor="admin", action="files.put", target=f"{tenant}/{filename}", before=None, after="snapshot:" + snap)
+    identity = session.get("user") or {}
+    actor = str(identity.get("email") or identity.get("id") or "admin")
+    append_audit(actor=actor, action="files.put", target=f"{tenant}/{filename}", before=None, after="snapshot:" + snap)
     return jsonify({"ok": True, "snapshot_path": snap})
 
 

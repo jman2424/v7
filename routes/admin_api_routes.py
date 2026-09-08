@@ -90,11 +90,12 @@ def _tenant() -> str:
         raise
 
 
-def _int_arg(name: str, default: int) -> int:
+def _int_arg(name: str, default: int, *, minimum: int = 1, maximum: int = 1000) -> int:
     try:
-        return int(request.args.get(name) or default)
-    except Exception:
-        return default
+        value = int(request.args.get(name) or default)
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
 
 
 def _storage():
@@ -558,12 +559,19 @@ def api_mode_set():
     if mode not in {"V5", "V6", "V7", "AIV7", "AIV7_FLAGSHIP"}:
         return jsonify({"error": "invalid_mode"}), 400
 
-    from routes import get_container
-
-    c = get_container()
-    object.__setattr__(c.settings, "MODE", "V7" if mode.startswith("AIV7") else mode)
-    c.invalidate_tenant(c.settings.BUSINESS_KEY)
-    return jsonify({"ok": True, "mode": c.settings.MODE})
+    tenant = _tenant()
+    storage = _storage()
+    before = storage.read_json(tenant, "overrides.json")
+    overrides = dict(before) if isinstance(before, dict) else {}
+    ai = overrides.get("ai")
+    ai = dict(ai) if isinstance(ai, dict) else {}
+    normalized_mode = "v7" if mode.startswith("AIV7") else mode.lower()
+    ai["mode"] = normalized_mode
+    overrides["ai"] = ai
+    snapshot = storage.write_json(tenant, "overrides.json", overrides)
+    _invalidate_tenant(tenant)
+    _audit("agent.mode.update", f"{tenant}/overrides.json", before=before, after={"snapshot": snapshot, "mode": normalized_mode})
+    return jsonify({"ok": True, "mode": normalized_mode})
 
 
 @bp.get("/insights")
@@ -581,10 +589,10 @@ def api_insights():
       - overview_daily
     """
     tenant = _tenant()
-    minutes = _int_arg("minutes", 1440)
-    bucket = _int_arg("bucket", 60)
-    top = _int_arg("top", 10)
-    limit = _int_arg("limit", 50)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    bucket = _int_arg("bucket", 60, maximum=1440)
+    top = _int_arg("top", 10, maximum=100)
+    limit = _int_arg("limit", 50, maximum=200)
 
     # KPIs
     kpis = get_kpis(tenant=tenant, minutes=minutes)
@@ -635,61 +643,61 @@ def api_insights():
 
 @bp.get("/kpis")
 def api_kpis():
-    minutes = _int_arg("minutes", 1440)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
     return jsonify(get_kpis(tenant=_tenant(), minutes=minutes))
 
 
 @bp.get("/timeseries")
 def api_timeseries():
-    minutes = _int_arg("minutes", 1440)
-    bucket = _int_arg("bucket", 60)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    bucket = _int_arg("bucket", 60, maximum=1440)
     return jsonify(get_timeseries(tenant=_tenant(), minutes=minutes, bucket_minutes=bucket))
 
 
 @bp.get("/sessions_timeseries")
 def api_sessions_timeseries():
-    minutes = _int_arg("minutes", 1440)
-    bucket = _int_arg("bucket", 60)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    bucket = _int_arg("bucket", 60, maximum=1440)
     return jsonify(get_sessions_timeseries(tenant=_tenant(), minutes=minutes, bucket_minutes=bucket))
 
 
 @bp.get("/channels")
 def api_channels():
-    minutes = _int_arg("minutes", 1440)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
     return jsonify(get_channels_split(tenant=_tenant(), minutes=minutes))
 
 
 @bp.get("/intents")
 def api_intents():
-    minutes = _int_arg("minutes", 1440)
-    top = _int_arg("top", 10)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    top = _int_arg("top", 10, maximum=100)
     return jsonify(get_top_intents(tenant=_tenant(), minutes=minutes, top=top))
 
 
 @bp.get("/fallbacks")
 def api_fallbacks():
-    minutes = _int_arg("minutes", 1440)
-    top = _int_arg("top", 10)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    top = _int_arg("top", 10, maximum=100)
     return jsonify(get_fallbacks(tenant=_tenant(), minutes=minutes, top=top))
 
 
 @bp.get("/errors")
 def api_errors():
-    minutes = _int_arg("minutes", 1440)
-    top = _int_arg("top", 10)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    top = _int_arg("top", 10, maximum=100)
     return jsonify(get_errors(tenant=_tenant(), minutes=minutes, top=top))
 
 
 @bp.get("/questions")
 def api_questions():
-    minutes = _int_arg("minutes", 1440)
-    top = _int_arg("top", 10)
+    minutes = _int_arg("minutes", 1440, maximum=525600)
+    top = _int_arg("top", 10, maximum=100)
     return jsonify(get_common_questions(tenant=_tenant(), minutes=minutes, top=top))
 
 
 @bp.get("/leads")
 def api_leads():
-    limit = _int_arg("limit", 50)
+    limit = _int_arg("limit", 50, maximum=200)
     return jsonify(get_leads(tenant=_tenant(), limit=limit))
 
 

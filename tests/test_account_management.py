@@ -123,3 +123,21 @@ def test_disabled_account_loses_management_access_on_its_next_request(client):
     assert denied.status_code == 401
     with client.session_transaction() as sess:
         assert "user" not in sess
+
+
+def test_disabled_account_loses_legacy_file_access_on_its_next_request(client):
+    _as_platform_admin(client)
+    created = client.post(
+        "/admin/api/accounts",
+        json={"email": "staff@example.test", "password": "correct-horse-battery-staple", "roles": ["business_staff"]},
+    ).get_json()["account"]
+    client.put(f"/admin/api/accounts/{created['id']}", json={"active": False})
+
+    with client.session_transaction() as sess:
+        sess["user"] = {"id": created["id"], "roles": ["business_staff"], "tenant": "EXAMPLE"}
+
+    denied = client.get("/files/raw/catalog.json")
+
+    assert denied.status_code == 401
+    with client.session_transaction() as sess:
+        assert "user" not in sess

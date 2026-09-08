@@ -169,6 +169,36 @@ def test_business_owner_cannot_request_another_tenant_admin_data(client, app):
     response = client.get("/admin/api/catalog?tenant=ALT")
     assert response.status_code == 403
 
+    insights = client.get("/admin/api/insights?tenant=ALT")
+    files = client.get("/files/raw/catalog.json?tenant=ALT")
+    assert insights.status_code == 403
+    assert files.status_code == 403
+
+
+def test_owner_agent_mode_is_saved_only_for_their_tenant(client, app):
+    _add_tenant(app)
+    with client.session_transaction() as sess:
+        sess["user"] = {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"}
+
+    denied = client.post("/admin/api/mode?tenant=ALT", json={"mode": "V6"})
+    updated = client.post("/admin/api/mode", json={"mode": "V6"})
+
+    assert denied.status_code == 403
+    assert updated.status_code == 200
+    assert updated.get_json()["mode"] == "v6"
+    assert app.container.storage.read_json("EXAMPLE", "overrides.json")["ai"]["mode"] == "v6"
+    assert "mode" not in app.container.storage.read_json("ALT", "overrides.json").get("ai", {})
+
+
+def test_chat_api_generates_distinct_sessions_when_clients_omit_them(client):
+    first = client.post("/chat_api", json={"tenant": "EXAMPLE", "message": "hello"})
+    second = client.post("/chat_api", json={"tenant": "EXAMPLE", "message": "hello again"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.get_json()["session_id"].startswith("web_")
+    assert first.get_json()["session_id"] != second.get_json()["session_id"]
+
 
 def test_widget_settings_are_saved_by_an_authorized_owner(client):
     _as_platform_admin(client)

@@ -147,7 +147,9 @@ def _extract_text(payload: Dict[str, Any]) -> str:
 
 def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
     """
-    Use explicit session_id if provided, otherwise fall back to old behaviour: "asa_<remote_addr>".
+    Use an explicit session id when provided. Anonymous requests receive a
+    cryptographically random id so unrelated visitors never share a chat
+    memory or lead record through an IP-address fallback.
     """
     try:
         sess = payload.get("session_id") or payload.get("sessionId") or ""
@@ -157,10 +159,7 @@ def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> 
     except Exception:
         sess = ""
 
-    if not sess and remote_addr:
-        sess = f"asa_{remote_addr}"
-
-    return sess or "asa_anon"
+    return sess or f"web_{secrets.token_urlsafe(24)}"
 
 
 def _extract_channel(payload: Dict[str, Any], default_channel: str) -> str:

@@ -342,8 +342,14 @@ def chat_api():
 
     ev = events[0]
     text = (ev.get("text") or "").strip()
-    session_id = (ev.get("session_id") or "").strip() or "web_unknown"
-    tenant = (ev.get("tenant") or "").strip() or c.settings.BUSINESS_KEY
+    session_id = (ev.get("session_id") or "").strip()
+    selected_tenant = str(c.settings.BUSINESS_KEY or "").strip()
+    event_tenant = str(ev.get("tenant") or "").strip() or selected_tenant
+    if event_tenant != selected_tenant:
+        return _cors(jsonify({"error": "tenant_mismatch"}), container=c, tenant=selected_tenant), 400
+    if not session_id or len(session_id) > 256:
+        return _cors(jsonify({"error": "invalid_session_id"}), container=c, tenant=selected_tenant), 400
+    tenant = selected_tenant
     channel = (ev.get("channel") or "web").strip().lower() or "web"
     metadata = ev.get("metadata") or {}
 
