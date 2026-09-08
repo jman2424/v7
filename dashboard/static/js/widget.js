@@ -93,7 +93,7 @@
       const data = await res.json();
       const reply = data.reply || "(no reply)";
       addMsg(reply, "bot");
-      addSuggestions(data.agent?.suggested_replies || data.raw?.agent?.suggested_replies);
+      addSuggestions(data.agent?.suggested_replies);
       // keep session stable if backend sends an id
       if (data.session_id && data.session_id !== sessionId) {
         sessionId = data.session_id;

@@ -134,6 +134,24 @@ def _lead_id_from_session(session_id: str) -> str:
     return f"web:{sid}"
 
 
+def _public_agent_payload(result: Dict[str, Any]) -> Dict[str, list[str]]:
+    """Expose only bounded UI suggestions, never handler facts or customer data."""
+    agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
+    ui = result.get("ui") if isinstance(result.get("ui"), dict) else {}
+    candidates = agent.get("suggested_replies") or ui.get("suggested_replies") or []
+    if not isinstance(candidates, list):
+        return {}
+
+    suggestions: list[str] = []
+    for item in candidates:
+        value = str(item or "").strip()
+        if value and len(value) <= 120 and value not in suggestions:
+            suggestions.append(value)
+        if len(suggestions) == 3:
+            break
+    return {"suggested_replies": suggestions} if suggestions else {}
+
+
 def _extract_store_from_result(result: dict) -> Optional[str]:
     if not isinstance(result, dict):
         return None
@@ -465,9 +483,15 @@ def chat_api():
             message_id=f"{message_id}:error" if message_id else "",
         )
 
-    resp_payload = send_reply(ev, reply, raw=result)
+    resp_payload = send_reply(ev, reply)
     return _cors(
-        jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"], "session_id": resp_payload["session_id"]}),
+        jsonify(
+            {
+                "reply": resp_payload["reply"],
+                "agent": _public_agent_payload(result),
+                "session_id": resp_payload["session_id"],
+            }
+        ),
         container=c,
         tenant=tenant,
     ), 200

@@ -200,6 +200,30 @@ def test_chat_api_generates_distinct_sessions_when_clients_omit_them(client):
     assert first.get_json()["session_id"] != second.get_json()["session_id"]
 
 
+def test_chat_api_never_returns_handler_facts_or_customer_entities(client, app):
+    app.container.handler.handle = lambda *_args, **_kwargs: {
+        "reply": "We will be in touch.",
+        "entities": {"name": "Alex Morgan", "email": "alex@example.test"},
+        "facts": {"private_note": "owner-only"},
+        "meta": {"request_id": "internal-request-id"},
+        "agent": {"suggested_replies": ["Browse options", "Speak to someone", "Browse options", "x" * 121]},
+    }
+
+    response = client.post(
+        "/chat_api",
+        json={"tenant": "EXAMPLE", "message": "Please contact me", "session_id": "public-contract-test"},
+    )
+
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["reply"] == "We will be in touch."
+    assert body["agent"] == {"suggested_replies": ["Browse options", "Speak to someone"]}
+    assert "raw" not in body
+    assert "entities" not in body
+    assert "facts" not in body
+    assert "meta" not in body
+
+
 def test_widget_settings_are_saved_by_an_authorized_owner(client):
     _as_platform_admin(client)
     payload = {
