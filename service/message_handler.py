@@ -164,7 +164,11 @@ class MessageHandler:
         self.crm = deps.crm
         self.memory = deps.memory
         self.overrides = deps.overrides
-        self.sales_agent = SalesAgentPolicy(overrides=deps.overrides)
+        self.sales_agent = SalesAgentPolicy(
+            overrides=deps.overrides,
+            catalog=deps.catalog,
+            business_profile=deps.business_profile,
+        )
 
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT

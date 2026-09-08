@@ -157,6 +157,8 @@
 
   type AgentPlaybook = {
     business_focus: string;
+    ideal_customer: string;
+    value_propositions: string[];
     offering_type: 'products' | 'services' | 'mixed';
     primary_goal: 'drive_sales' | 'book_consultation' | 'capture_leads' | 'answer_questions';
     qualification_questions: string[];
@@ -182,7 +184,7 @@
   let branches: Branch[] = [];
   let agentSettings: AgentSettings = {
     tone: { style: 'friendly', max_sentences: 2 },
-    playbook: { business_focus: '', offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
+    playbook: { business_focus: '', ideal_customer: '', value_propositions: [], offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
   };
   let snippet = '';
   let tenant = 'EXAMPLE';
@@ -361,10 +363,15 @@
     const qualificationQuestions = Array.isArray(playbook.qualification_questions)
       ? playbook.qualification_questions.map((question) => String(question).trim()).filter(Boolean).slice(0, 4)
       : [];
+    const valuePropositions = Array.isArray(playbook.value_propositions)
+      ? playbook.value_propositions.map((item) => String(item).trim()).filter(Boolean).slice(0, 5)
+      : [];
     return {
       tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 },
       playbook: {
         business_focus: String(playbook.business_focus || ''),
+        ideal_customer: String(playbook.ideal_customer || ''),
+        value_propositions: valuePropositions,
         offering_type: offeringType,
         primary_goal: primaryGoal,
         qualification_questions: qualificationQuestions,
@@ -380,6 +387,15 @@
 
   function removeQualificationQuestion(index: number) {
     agentSettings.playbook.qualification_questions = agentSettings.playbook.qualification_questions.filter((_, questionIndex) => questionIndex !== index);
+  }
+
+  function addValueProposition() {
+    if (agentSettings.playbook.value_propositions.length >= 5) return;
+    agentSettings.playbook.value_propositions = [...agentSettings.playbook.value_propositions, ''];
+  }
+
+  function removeValueProposition(index: number) {
+    agentSettings.playbook.value_propositions = agentSettings.playbook.value_propositions.filter((_, propositionIndex) => propositionIndex !== index);
   }
 
   function safeCount(value: unknown) {
@@ -1185,10 +1201,19 @@
           <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>
             <div class="agent-settings-grid">
               <label class="agent-wide">Business focus<textarea bind:value={agentSettings.playbook.business_focus} maxlength="240" placeholder="What do you help customers buy, book, or achieve?"></textarea></label>
+              <label class="agent-wide">Ideal customer<textarea bind:value={agentSettings.playbook.ideal_customer} maxlength="240" placeholder="Who do you most want the assistant to help?"></textarea></label>
               <label>Catalogue type<select bind:value={agentSettings.playbook.offering_type}><option value="products">Products</option><option value="services">Services</option><option value="mixed">Products and services</option></select></label>
               <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Book a consultation</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
               <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
               <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
+            </div>
+            <div class="qualification-editor">
+              <div class="qualification-heading"><h3>Why customers choose you</h3><button class="secondary" type="button" on:click={addValueProposition} disabled={agentSettings.playbook.value_propositions.length >= 5}>Add point</button></div>
+              {#each agentSettings.playbook.value_propositions as proposition, propositionIndex}
+                <div class="qualification-row"><label>{`Point ${propositionIndex + 1}`}<input bind:value={agentSettings.playbook.value_propositions[propositionIndex]} maxlength="160" placeholder="A real customer benefit or differentiator" /></label><button class="icon-button danger" type="button" title="Remove point" aria-label={`Remove point ${propositionIndex + 1}`} on:click={() => removeValueProposition(propositionIndex)}>Remove</button></div>
+              {:else}
+                <p class="empty-state">No differentiators added.</p>
+              {/each}
             </div>
             <div class="qualification-editor">
               <div class="qualification-heading"><h3>Qualification questions</h3><button class="secondary" type="button" on:click={addQualificationQuestion} disabled={agentSettings.playbook.qualification_questions.length >= 4}>Add question</button></div>

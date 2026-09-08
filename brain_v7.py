@@ -31,44 +31,56 @@ DEFAULT_TIMEOUT = _env_int("OPENAI_TIMEOUT", 30)
 
 
 SYSTEM_PROMPT = """
-You are StoreBrainV7 — the PLANNING BRAIN for a configured business sales assistant.
+You are StoreBrainV7, the private planning brain for one business's sales agent.
+You never speak to the customer. Return one strict JSON plan only.
 
-You NEVER talk to the user directly.
-You ONLY output a JSON PLAN that tells the assistant WHAT TO DO NEXT.
+Tenant-specific profile, catalogue, and policy data remain in the application and
+are resolved after your plan. Never assume a fact that is not in the customer
+message or session.
 
-You must:
-- classify user intent correctly
-- choose the right ACTION
-- fill slots: category, product_name, postcode, sku, handoff_channel
-- only ask clarification when truly necessary
-- treat all catalog, policy, branch, and delivery information as tenant-specific
+The runtime, not you, retrieves products, prices, stock, offers, delivery rules,
+branches, FAQs, and contact details. Never invent any of those facts. For a named
+or described offering, use SEARCH_PRODUCTS and put the useful customer wording in
+product_name. For an open-ended need, prefer one focused discovery/search step over
+a generic response. Ask one clarification only when no useful search or next step
+can be selected.
 
-INTENTS:
-"greeting"
-"search_product"
-"browse_category"
-"price_check"
-"check_delivery"
-"store_info"
-"faq"
-"human_handoff"
-"smalltalk"
-"unknown"
+Supported intents: greeting, search_product, browse_category, price_check,
+check_delivery, store_info, faq, human_handoff, smalltalk, unknown.
+Supported actions: GREET, ASK_SLOT, SEARCH_PRODUCTS, CHECK_DELIVERY, PRICE_CHECK,
+STORE_INFO, FAQ_LOOKUP, HUMAN_HANDOFF, SMALLTALK_REPLY, DO_NOTHING.
 
-ACTIONS:
-"GREET"
-"ASK_SLOT"
-"SEARCH_PRODUCTS"
-"CHECK_DELIVERY"
-"PRICE_CHECK"
-"STORE_INFO"
-"FAQ_LOOKUP"
-"HUMAN_HANDOFF"
-"SMALLTALK_REPLY"
-"DO_NOTHING"
-
-OUTPUT MUST BE STRICT JSON OBJECT with the required fields as previously defined.
+Return JSON with intent, action, category, product_name, postcode, sku,
+handoff_channel, needs_clarification, clarification_question, and meta. meta may
+contain search_scope, item_level, search_tags, max_items, wants_chunking, and
+primary_cut. Keep strings short. Do not include an answer, explanation, markdown,
+or extra keys.
 """
+
+_VALID_INTENTS = {
+    "greeting",
+    "search_product",
+    "browse_category",
+    "price_check",
+    "check_delivery",
+    "store_info",
+    "faq",
+    "human_handoff",
+    "smalltalk",
+    "unknown",
+}
+_VALID_ACTIONS = {
+    "GREET",
+    "ASK_SLOT",
+    "SEARCH_PRODUCTS",
+    "CHECK_DELIVERY",
+    "PRICE_CHECK",
+    "STORE_INFO",
+    "FAQ_LOOKUP",
+    "HUMAN_HANDOFF",
+    "SMALLTALK_REPLY",
+    "DO_NOTHING",
+}
 
 
 # -------------------------------------------------------------------
@@ -152,7 +164,6 @@ class BrainV7:
                 "last_category": session.get("last_category"),
                 "last_sku": session.get("last_sku"),
             },
-            "hints": hints,
         }
 
         messages: List[Dict[str, str]] = [
@@ -162,20 +173,20 @@ class BrainV7:
         ]
 
         if self.client is None:
-            plan = self._blank_plan(session)
-            plan["needs_clarification"] = True
-            plan["clarification_question"] = "Tell me what product, delivery area, or store info you need."
-            return plan
+            return self._fallback_plan(user_text, session, hints)
 
-        completion = self.client.chat.completions.create(
-            model=self.config.model,
-            temperature=self.config.temperature,
-            timeout=self.config.timeout,
-            response_format={"type": "json_object"},
-            messages=messages,
-        )
-        raw = completion.choices[0].message.content or ""
-        return self._post_process(raw, user_text, session, hints)
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.config.model,
+                temperature=min(max(self.config.temperature, 0.0), 0.5),
+                timeout=self.config.timeout,
+                response_format={"type": "json_object"},
+                messages=messages,
+            )
+            raw = completion.choices[0].message.content or ""
+            return self._post_process(raw, user_text, session, hints)
+        except Exception:
+            return self._fallback_plan(user_text, session, hints)
 
     # --------------------------------------------------------------- #
     # FAST PATH
@@ -297,21 +308,35 @@ class BrainV7:
         except Exception:
             return self._blank_plan(session)
 
-        intent = (data.get("intent") or "unknown").strip()
-        action = (data.get("action") or "DO_NOTHING").strip()
+        intent = str(data.get("intent") or "unknown").strip().lower()
+        action = str(data.get("action") or "DO_NOTHING").strip().upper()
+        if intent not in _VALID_INTENTS or action not in _VALID_ACTIONS:
+            return self._fallback_plan(user_text, session, hints)
 
         raw_cat = data.get("category")
         product_name = data.get("product_name")
+        if not isinstance(product_name, str):
+            product_name = None
+        elif len(product_name) > 240:
+            product_name = product_name[:240].strip()
         postcode = data.get("postcode") or session.get("postcode") or self._extract_postcode(user_text)
         sku = data.get("sku") or session.get("last_sku")
         handoff_channel = data.get("handoff_channel")
+        if not isinstance(handoff_channel, str):
+            handoff_channel = None
+        elif len(handoff_channel) > 80:
+            handoff_channel = handoff_channel[:80].strip()
 
         needs_clarification = bool(data.get("needs_clarification", False))
-        clarification_question = data.get("clarification_question") or ""
+        clarification_question = str(data.get("clarification_question") or "").strip()[:240]
 
         meta_in = data.get("meta") or {}
         if not isinstance(meta_in, dict):
             meta_in = {}
+        try:
+            max_items = int(meta_in.get("max_items", 8) or 8)
+        except (TypeError, ValueError):
+            max_items = 8
 
         meta = {
             "is_greeting": bool(meta_in.get("is_greeting", False)),
@@ -319,7 +344,7 @@ class BrainV7:
             "search_scope": meta_in.get("search_scope") or "top_picks",
             "item_level": bool(meta_in.get("item_level", False)),
             "search_tags": meta_in.get("search_tags") if isinstance(meta_in.get("search_tags"), list) else [],
-            "max_items": int(meta_in.get("max_items", 8) or 8),
+            "max_items": min(max(max_items, 1), 20),
             "wants_chunking": bool(meta_in.get("wants_chunking", False)),
             "primary_cut": meta_in.get("primary_cut"),
         }
@@ -347,6 +372,82 @@ class BrainV7:
             "clarification_question": clarification_question,
             "meta": meta,
         }
+
+    def _fallback_plan(self, user_text: str, session: Dict[str, Any], hints: Dict[str, Any]) -> Dict[str, Any]:
+        """A useful local plan when no model is configured or a call fails."""
+        text = (user_text or "").strip()
+        low = text.casefold()
+        context = hints.get("business") if isinstance(hints.get("business"), dict) else {}
+        categories = hints.get("categories") if isinstance(hints.get("categories"), list) else []
+        category = self._matching_category(low, categories)
+
+        if any(term in low for term in ("quote", "consultation", "appointment", "call back", "speak to")):
+            plan = self._blank_plan(session)
+            plan.update({"intent": "human_handoff", "action": "HUMAN_HANDOFF"})
+            return plan
+        if any(term in low for term in ("delivery", "deliver", "shipping", "postcode")):
+            plan = self._blank_plan(session)
+            plan.update({"intent": "check_delivery", "action": "CHECK_DELIVERY"})
+            if not plan.get("postcode"):
+                plan["needs_clarification"] = True
+                plan["clarification_question"] = "What is your postcode so I can check the available options?"
+            return plan
+        if any(term in low for term in ("price", "cost", "how much")):
+            plan = self._blank_plan(session)
+            plan.update({"intent": "price_check", "action": "PRICE_CHECK", "product_name": text[:240]})
+            return plan
+        if category or any(term in low for term in ("need", "looking", "want", "recommend", "help me", "interested", "options", "browse", "show")):
+            plan = self._blank_plan(session)
+            plan.update(
+                {
+                    "intent": "browse_category" if category else "search_product",
+                    "action": "SEARCH_PRODUCTS",
+                    "category": category,
+                    "product_name": text[:240],
+                    "meta": {
+                        **plan["meta"],
+                        "search_scope": "top_picks",
+                        "max_items": 8,
+                    },
+                }
+            )
+            return plan
+
+        plan = self._blank_plan(session)
+        plan["needs_clarification"] = True
+        plan["clarification_question"] = self._discovery_question(context)
+        return plan
+
+    @staticmethod
+    def _matching_category(text: str, categories: List[Any]) -> Optional[str]:
+        for raw in categories:
+            if isinstance(raw, str):
+                name = raw.strip()
+                if name and name.casefold() in text:
+                    return BrainV7._simple_norm_cat(name)
+                continue
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "").strip()
+            category_id = str(raw.get("id") or "").strip()
+            if name and name.casefold() in text:
+                return category_id or BrainV7._simple_norm_cat(name)
+        return None
+
+    @staticmethod
+    def _discovery_question(context: Dict[str, Any]) -> str:
+        categories = context.get("categories") if isinstance(context.get("categories"), list) else []
+        names = [
+            str(item.get("name") or "").strip()
+            if isinstance(item, dict)
+            else str(item).strip()
+            for item in categories
+        ]
+        names = [name for name in names if name][:3]
+        if names:
+            return f"What are you looking for - {', '.join(names)}, or something else?"
+        return "What would you like help with today?"
+
 
     # --------------------------------------------------------------- #
     # BASELINE PLAN

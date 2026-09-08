@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List
 
 from service.sales_playbook import load_sales_playbook, offering_terms
+from service.tenant_sales_context import build_tenant_sales_context, catalogue_suggestions
 
 
 _GENERIC_CTA = re.compile(
@@ -23,8 +24,16 @@ _GENERIC_CTA = re.compile(
 class SalesAgentPolicy:
     """Turn a grounded answer into the next useful sales conversation step."""
 
-    def __init__(self, *, overrides: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        overrides: Any = None,
+        catalog: Any = None,
+        business_profile: Any = None,
+    ) -> None:
         self.overrides = overrides
+        self.catalog = catalog
+        self.business_profile = business_profile if isinstance(business_profile, dict) else {}
 
     def guide(
         self,
@@ -242,8 +251,7 @@ class SalesAgentPolicy:
             state["postcode_confirmed"] = True
         return state
 
-    @staticmethod
-    def _default_state(playbook: Dict[str, Any], singular: str, plural: str) -> Dict[str, Any]:
+    def _default_state(self, playbook: Dict[str, Any], singular: str, plural: str) -> Dict[str, Any]:
         goal = playbook["primary_goal"]
         if goal == "book_consultation":
             return {
@@ -278,12 +286,26 @@ class SalesAgentPolicy:
                 "suggested_replies": [f"Browse {plural}", "Speak to someone"],
             }
         return {
-            "stage": "discover",
-            "objective": "Understand what the customer wants to buy or arrange.",
-            "next_action": "discover_need",
-            "next_question": "What are you shopping for today?",
-            "suggested_replies": ["Check delivery", "Nearest branch"],
-        }
+                "stage": "discover",
+                "objective": "Understand what the customer wants to buy or arrange.",
+                "next_action": "discover_need",
+                "next_question": "What are you shopping for today?",
+                "suggested_replies": self._browse_suggestions(["Check delivery", "Nearest branch"]),
+            }
+
+    def _browse_suggestions(self, fallback: List[str]) -> List[str]:
+        categories: List[Dict[str, Any]] = []
+        if self.catalog:
+            try:
+                categories = [item for item in self.catalog.categories() if isinstance(item, dict)]
+            except Exception:
+                categories = []
+        context = build_tenant_sales_context(
+            self.business_profile,
+            load_sales_playbook(self.overrides),
+            categories,
+        )
+        return catalogue_suggestions(context, fallback)
 
     def _adapt_state_for_playbook(
         self,

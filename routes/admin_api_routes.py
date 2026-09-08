@@ -452,6 +452,8 @@ def api_agent_settings_put():
             "playbook": {
                 "offering_type": playbook["offering_type"],
                 "primary_goal": playbook["primary_goal"],
+                "ideal_customer_configured": bool(playbook["ideal_customer"]),
+                "value_propositions": len(playbook["value_propositions"]),
                 "qualification_questions": len(playbook["qualification_questions"]),
             },
         },

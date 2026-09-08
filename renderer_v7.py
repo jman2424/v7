@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from service.sales_playbook import offering_terms
+from service.tenant_sales_context import discovery_question
 
 
 _CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
@@ -31,6 +32,7 @@ class RendererV7:
         tone_style: str = "friendly",
         max_sentences: int = 2,
         offering_type: str = "products",
+        business_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         # `rewriter` is expected to provide:
         #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
@@ -44,6 +46,7 @@ class RendererV7:
             configured_max_sentences = 2
         self.max_sentences = min(max(configured_max_sentences, 1), 4)
         self.offering_singular, self.offering_plural = offering_terms({"offering_type": offering_type})
+        self.business_context = business_context if isinstance(business_context, dict) else {}
 
     # ------------------------------------------------------------------ #
     # PUBLIC ENTRYPOINT                                                  #
@@ -70,19 +73,16 @@ class RendererV7:
 
         # 2) Simple / cheap actions that don't depend much on facts
         if action == "GREET" or intent == "greeting":
-            base = f"How can I help you today with {self.offering_plural} or business information?"
+            base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
             label = self.business_name or "this business"
-            base = f"I'm an AI sales assistant for {label}. I can help with {self.offering_plural}, pricing, and business details."
+            base = f"I'm an AI sales assistant for {label}. I can help with {self._business_scope()}."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
-            base = (
-                "Could you tell me what you’d like help with? "
-                f"I can help you explore {self.offering_plural}, compare options, or answer business questions."
-            )
+            base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
             return self._polish(base, facts)
 
         if action == "HUMAN_HANDOFF" or intent == "human_handoff":
@@ -121,11 +121,22 @@ class RendererV7:
             return self._polish(msg, facts)
 
         # 4) Absolute fallback
-        base = (
-            "I’m not fully sure what you need yet. "
-            f"Are you looking for a {self.offering_singular}, pricing, or business information?"
-        )
+        base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
         return self._polish(base, facts)
+
+    def _business_scope(self) -> str:
+        focus = str(self.business_context.get("business_focus") or "").strip()
+        if focus:
+            return focus
+        categories = self.business_context.get("categories") or []
+        if isinstance(categories, list):
+            labels = [str(category).strip() for category in categories[:3] if str(category).strip()]
+            if labels:
+                return ", ".join(labels)
+        return self.offering_plural
+
+    def _discovery_question(self) -> str:
+        return discovery_question(self.business_context, self.offering_singular, self.offering_plural)
 
     # ------------------------------------------------------------------ #
     # DELIVERY                                                           #

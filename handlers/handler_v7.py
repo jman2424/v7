@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from brain_v7 import BrainV7
 from renderer_v7 import RendererV7
 from service.sales_playbook import load_sales_playbook, offering_terms
+from service.tenant_sales_context import build_tenant_sales_context, discovery_question
 from service.validators import normalize_phone
 
 logger = logging.getLogger("handler_v7")
@@ -184,6 +185,11 @@ class MessageHandlerV7:
         self.business_profile = profile if isinstance(profile, dict) else {}
         self.sales_playbook = load_sales_playbook(self.overrides)
         self.offering_singular, self.offering_plural = offering_terms(self.sales_playbook)
+        self.sales_context = build_tenant_sales_context(
+            self.business_profile,
+            self.sales_playbook,
+            self._catalog_categories(),
+        )
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         tone_style, max_sentences = self._tone_settings()
@@ -193,6 +199,7 @@ class MessageHandlerV7:
             tone_style=tone_style,
             max_sentences=max_sentences,
             offering_type=self.sales_playbook["offering_type"],
+            business_context=self.sales_context,
         )
 
     # ------------------------------------------------------------------
@@ -548,7 +555,7 @@ class MessageHandlerV7:
 
             # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
-                reply_text = f"Tell me what you need help with. I can help with {self._business_scope()}."
+                reply_text = self._discovery_reply()
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -624,9 +631,14 @@ class MessageHandlerV7:
         return "sales assistant for this business"
 
     def _business_scope(self) -> str:
-        focus = str(self.sales_playbook.get("business_focus") or "").strip()
+        focus = str(self.sales_context.get("business_focus") or "").strip()
         if focus:
             return focus
+        categories = self.sales_context.get("categories") or []
+        if isinstance(categories, list):
+            labels = [str(category).strip() for category in categories[:3] if str(category).strip()]
+            if labels:
+                return ", ".join(labels)
         if self.offering_singular == "product":
             return "products, pricing, delivery, and branch details"
         if self.offering_singular == "service":
@@ -641,10 +653,31 @@ class MessageHandlerV7:
             return "What can the team help you with today?"
         if goal == "answer_questions":
             return "What would you like to know?"
-        return f"What {self.offering_singular} or option are you looking for today?"
+        return discovery_question(self.sales_context, self.offering_singular, self.offering_plural)
 
     def _greeting_reply(self) -> str:
+        focus = str(self.sales_context.get("business_focus") or "").strip()
+        proposition = self._primary_value_proposition()
+        if focus:
+            benefit = f" {proposition}" if proposition else ""
+            return f"Hi, I'm the {self._assistant_label()}. I can help with {focus}.{benefit} {self._opening_question()}"
+        description = str(self.sales_context.get("about") or "").strip()
+        if description:
+            return f"Hi, I'm the {self._assistant_label()}. {description} {self._opening_question()}"
         return f"Hi, I'm the {self._assistant_label()}. I can help with {self._business_scope()}. {self._opening_question()}"
+
+    def _discovery_reply(self) -> str:
+        value = self._primary_value_proposition()
+        lead = f"I can help you explore {self._business_scope()}."
+        if value:
+            lead = f"{lead} {value}"
+        return f"{lead} {self._opening_question()}"
+
+    def _primary_value_proposition(self) -> str:
+        propositions = self.sales_context.get("value_propositions") or []
+        if not isinstance(propositions, list) or not propositions:
+            return ""
+        return str(propositions[0] or "").strip()
 
     def _handoff_reply(self) -> str:
         configured = str(self.sales_playbook.get("handoff_message") or "").strip()
@@ -1161,6 +1194,14 @@ class MessageHandlerV7:
         items: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         dt_ms = int((time.perf_counter() - t0) * 1000)
+        safe_facts = dict(facts or {})
+        safe_facts.setdefault(
+            "sales_context",
+            {
+                "categories": list(self.sales_context.get("categories") or []),
+                "offering_type": self.sales_playbook["offering_type"],
+            },
+        )
         ui = {
             "has_catalog": bool(items),
             "catalog_items": self._format_items_for_ui(items or []),
@@ -1170,10 +1211,19 @@ class MessageHandlerV7:
             "mode": "v7",
             "intent": intent or "unknown",
             "entities": entities or {},
-            "facts": facts or {},
+            "facts": safe_facts,
             "ui": ui,
             "meta": {"request_id": request_id, "latency_ms": dt_ms},
         }
+
+    def _catalog_categories(self) -> List[Dict[str, Any]]:
+        if not self.catalog:
+            return []
+        try:
+            categories = self.catalog.categories()
+        except Exception:
+            return []
+        return [category for category in categories if isinstance(category, dict)]
 
     def _get_request_id(self, ctx: Any) -> Optional[str]:
         try:
@@ -1310,11 +1360,12 @@ class MessageHandlerV7:
 
     def _safe_plan(self, user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         try:
-            hints: Dict[str, Any] = {}
-            if self.synonyms:
-                hints["synonyms"] = self.synonyms
-            if self.catalog:
-                hints["categories"] = self.catalog.categories()
+            # Hints are consumed only by the local fallback planner. They are
+            # intentionally not included in the external model request.
+            hints: Dict[str, Any] = {
+                "business": self.sales_context,
+                "categories": self._catalog_categories(),
+            }
 
             plan = self.brain.plan(
                 user_text=user_text,

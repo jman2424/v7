@@ -99,9 +99,13 @@ The console gives each owner structured controls for their business profile,
 branches and opening hours, website widget, catalogue, current offers, FAQs,
 delivery areas, fees, minimum orders, collection availability, service
 exceptions, and V7 sales playbook. A catalogue can represent products,
-services, or both. The playbook sets the business focus, catalogue type,
-primary conversion goal, optional qualification questions, handoff wording,
-and reply tone without exposing a free-form system prompt. Offers can be scoped
+services, or both. The playbook sets the business focus, ideal customer,
+verified customer benefits, catalogue type, primary conversion goal, optional
+qualification questions, handoff wording, and reply tone without exposing a
+free-form system prompt. V7 uses those structured fields locally to choose
+grounded discovery questions and catalogue suggestions; tenant profile,
+catalogue, policy, and playbook data are not sent to an external model by the
+planner. Offers can be scoped
 to catalogue references and given start/end dates; only active, in-date offers
 are shown to customers.
 Owners can also move a captured lead through Open, Contacted, Qualified, Won,

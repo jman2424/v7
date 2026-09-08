@@ -4,6 +4,7 @@ import logging
 import shutil
 from pathlib import Path
 
+from brain_v7 import BrainV7
 from service.sales_agent import SalesAgentPolicy
 
 
@@ -191,6 +192,8 @@ def test_v7_uses_saved_playbook_focus_and_handoff_message(app):
     overrides = storage.read_json("EXAMPLE", "overrides.json")
     overrides["sales_playbook"] = {
         "business_focus": "Bespoke kitchen design and installation",
+        "ideal_customer": "Homeowners planning a fitted kitchen",
+        "value_propositions": ["Made-to-measure design with one installation team"],
         "offering_type": "services",
         "primary_goal": "book_consultation",
         "qualification_questions": [],
@@ -213,9 +216,103 @@ def test_v7_uses_saved_playbook_focus_and_handoff_message(app):
     )
 
     assert "Bespoke kitchen design and installation" in greeting["reply"]
+    assert "Made-to-measure design with one installation team" in greeting["reply"]
     assert greeting["agent"]["next_action"] == "discover_consultation_need"
     assert "Our design team can arrange a consultation." in handoff["reply"]
     assert "phone number or email" in handoff["reply"]
+
+
+def test_v7_uses_tenant_profile_and_catalogue_for_discovery(app):
+    storage = app.container.storage
+    profile = storage.read_json("EXAMPLE", "store_info.json")
+    profile.update(
+        {
+            "name": "Northstar Outdoors",
+            "about": "Northstar Outdoors helps families choose durable equipment for weekends away.",
+        }
+    )
+    storage.write_json("EXAMPLE", "store_info.json", profile, snapshot=False)
+    catalog = storage.read_json("EXAMPLE", "catalog.json")
+    catalog["categories"] = [
+        {
+            "id": "camping",
+            "name": "Camping gear",
+            "items": [
+                {"sku": "TENT", "name": "Family Tent", "price": 299, "unit": "each", "tags": ["camping"], "in_stock": True}
+            ],
+        },
+        {
+            "id": "hiking",
+            "name": "Hiking packs",
+            "items": [
+                {"sku": "PACK", "name": "Trail Pack", "price": 129, "unit": "each", "tags": ["hiking"], "in_stock": True}
+            ],
+        },
+    ]
+    storage.write_json("EXAMPLE", "catalog.json", catalog, snapshot=False)
+    overrides = storage.read_json("EXAMPLE", "overrides.json")
+    overrides["sales_playbook"] = {
+        "business_focus": "",
+        "ideal_customer": "Families planning weekend trips",
+        "value_propositions": ["Durable equipment selected for real trips"],
+        "offering_type": "products",
+        "primary_goal": "drive_sales",
+        "qualification_questions": [],
+        "handoff_message": "",
+    }
+    storage.write_json("EXAMPLE", "overrides.json", overrides, snapshot=False)
+    app.container.invalidate_tenant("EXAMPLE")
+
+    greeting = app.container.handler.handle("hello", tenant="EXAMPLE", session_id="context-greeting", channel="web")
+
+    assert "Northstar Outdoors helps families choose durable equipment" in greeting["reply"]
+    assert "Camping gear" in greeting["reply"]
+    assert greeting["agent"]["suggested_replies"] == ["Camping gear", "Hiking packs"]
+
+
+def test_brain_uses_local_fallback_and_does_not_export_tenant_hints():
+    class Completion:
+        class choices:
+            pass
+
+    class FakeCompletions:
+        def __init__(self):
+            self.messages = []
+
+        def create(self, **kwargs):
+            self.messages = kwargs["messages"]
+            response = type("Response", (), {})()
+            choice = type("Choice", (), {})()
+            message = type("Message", (), {})()
+            message.content = '{"intent":"unknown","action":"DO_NOTHING"}'
+            choice.message = message
+            response.choices = [choice]
+            return response
+
+    completions = FakeCompletions()
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    brain = BrainV7(client=client)
+    plan = brain.plan(
+        "Can you help me choose something?",
+        hints={
+            "business": {"about": "Private tenant business profile", "categories": ["Camping gear"]},
+            "categories": [{"id": "camping", "name": "Camping gear"}],
+        },
+    )
+
+    outbound_payload = completions.messages[-1]["content"]
+    assert "Private tenant business profile" not in outbound_payload
+    assert "Camping gear" not in outbound_payload
+    assert plan["intent"] == "unknown"
+
+    local_brain = BrainV7()
+    local_brain.client = None
+    local_plan = local_brain.plan(
+        "I need camping gear for a weekend away",
+        hints={"business": {"categories": ["Camping gear"]}, "categories": [{"id": "camping", "name": "Camping gear"}]},
+    )
+    assert local_plan["action"] == "SEARCH_PRODUCTS"
+    assert local_plan["category"] == "camping"
 
 
 def test_v7_uses_each_tenant_catalog_and_currency_without_butcher_copy(app):

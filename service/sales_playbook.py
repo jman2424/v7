@@ -10,7 +10,10 @@ PRIMARY_GOALS = frozenset(
     {"drive_sales", "book_consultation", "capture_leads", "answer_questions"}
 )
 MAX_BUSINESS_FOCUS_LENGTH = 240
+MAX_IDEAL_CUSTOMER_LENGTH = 240
 MAX_HANDOFF_MESSAGE_LENGTH = 360
+MAX_VALUE_PROPOSITIONS = 5
+MAX_VALUE_PROPOSITION_LENGTH = 160
 MAX_QUALIFICATION_QUESTIONS = 4
 MAX_QUALIFICATION_QUESTION_LENGTH = 180
 
@@ -23,6 +26,8 @@ def default_sales_playbook() -> Dict[str, Any]:
     """Return a new, backwards-compatible playbook for an existing tenant."""
     return {
         "business_focus": "",
+        "ideal_customer": "",
+        "value_propositions": [],
         "offering_type": "products",
         "primary_goal": "drive_sales",
         "qualification_questions": [],
@@ -80,12 +85,41 @@ def validate_sales_playbook(value: Any) -> Dict[str, Any]:
     if len(questions) > MAX_QUALIFICATION_QUESTIONS:
         raise SalesPlaybookValidationError("too_many_qualification_questions")
 
+    propositions_value = value.get("value_propositions", [])
+    if not isinstance(propositions_value, list):
+        raise SalesPlaybookValidationError("value_propositions_must_be_list")
+
+    propositions = []
+    seen_propositions = set()
+    for proposition_value in propositions_value:
+        proposition = _clean_text(
+            proposition_value,
+            field="value_proposition",
+            maximum=MAX_VALUE_PROPOSITION_LENGTH,
+        )
+        if not proposition:
+            continue
+        key = proposition.casefold()
+        if key in seen_propositions:
+            continue
+        seen_propositions.add(key)
+        propositions.append(proposition)
+
+    if len(propositions) > MAX_VALUE_PROPOSITIONS:
+        raise SalesPlaybookValidationError("too_many_value_propositions")
+
     return {
         "business_focus": _clean_text(
             value.get("business_focus"),
             field="business_focus",
             maximum=MAX_BUSINESS_FOCUS_LENGTH,
         ),
+        "ideal_customer": _clean_text(
+            value.get("ideal_customer"),
+            field="ideal_customer",
+            maximum=MAX_IDEAL_CUSTOMER_LENGTH,
+        ),
+        "value_propositions": propositions,
         "offering_type": _enum(
             value.get("offering_type"),
             field="offering_type",

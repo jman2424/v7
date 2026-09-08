@@ -154,6 +154,8 @@ def test_agent_playbook_round_trip_and_validation(client):
         "tone": {"style": "friendly", "max_sentences": 3},
         "playbook": {
             "business_focus": "Bespoke kitchen design and installation",
+            "ideal_customer": "Homeowners planning a fitted kitchen",
+            "value_propositions": ["Made-to-measure design", "Installation managed by one team"],
             "offering_type": "services",
             "primary_goal": "book_consultation",
             "qualification_questions": [
@@ -179,6 +181,20 @@ def test_agent_playbook_round_trip_and_validation(client):
     assert loaded.get_json()["playbook"] == payload["playbook"]
     assert invalid.status_code == 400
     assert invalid.get_json()["error"] == "invalid_offering_type"
+
+
+def test_agent_playbook_rejects_too_many_value_propositions(client):
+    as_admin(client)
+    response = client.put(
+        "/admin/api/agent-settings",
+        json={
+            "tone": {"style": "friendly", "max_sentences": 2},
+            "playbook": {"value_propositions": [f"Reason {index}" for index in range(6)]},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "too_many_value_propositions"
 
 
 def test_business_owner_cannot_update_another_tenant_playbook(client):
