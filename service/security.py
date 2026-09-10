@@ -407,7 +407,7 @@ def start_management_session(user: dict[str, Any], tenant: str = "") -> dict[str
     identity = {key: user[key] for key in ("id", "email", "roles")}
     c = getattr(current_app, "container", None)
     if is_platform_admin(identity) and (c.settings.BASE_URL.startswith("https://") or current_app.config.get("SESSION_COOKIE_SECURE") or c.settings.ENVIRONMENT in {"production", "prod"}) and not user.get("totp_secret"):
-        abort(403, description="Platform administrators must configure two-factor authentication for HTTPS deployments")
+        abort(403, description="mfa_setup_required")
     identity["tenant"] = user.get("tenant") or tenant
     revision = _revision(identity)
     if not revision:

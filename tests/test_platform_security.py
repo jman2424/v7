@@ -229,16 +229,78 @@ def test_response_security_headers(platform):
     assert "HttpOnly" in response.headers["Set-Cookie"]
 
 
-def test_https_platform_login_requires_mfa(platform):
+@pytest.mark.parametrize("setting", ["https", "production", "secure_cookie"])
+def test_production_platform_login_explains_mfa_without_granting_access(platform, setting):
     from dataclasses import replace
     app = platform[0]
-    app.container.settings = replace(app.container.settings, BASE_URL="https://sales.example.test")
+    if setting == "https":
+        app.container.settings = replace(app.container.settings, BASE_URL="https://sales.example.test")
+    elif setting == "production":
+        app.container.settings = replace(app.container.settings, ENVIRONMENT="production")
+    else:
+        app.config["SESSION_COOKIE_SECURE"] = True
     client = app.test_client()
     csrf = client.get("/auth/session").json["csrf_token"]
     response = client.post("/auth/login", json={"email": "admin@example.test", "password": platform[2]},
                            headers={"X-CSRF-Token": csrf})
     assert response.status_code == 403
+    assert response.json["error"] == "mfa_setup_required"
+    assert "password was accepted" in response.json["message"]
     assert client.get("/admin/api/platform").status_code == 401
+
+
+def test_mfa_setup_message_is_only_shown_after_correct_password(platform):
+    from dataclasses import replace
+    app = platform[0]
+    app.container.settings = replace(app.container.settings, ENVIRONMENT="production")
+    client = app.test_client()
+    csrf = client.get("/auth/session").json["csrf_token"]
+    response = client.post("/auth/login", json={"email": "admin@example.test", "password": "wrong"},
+                           headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 401
+    assert response.json["error"] == "invalid_credentials"
+    response = client.post("/admin/login", data={"email": "admin@example.test", "password": platform[2],
+                                                "csrf_token": csrf})
+    assert response.status_code == 403
+    assert "password was accepted" in response.text
+    assert 'name="csrf_token"' in response.text
+    assert platform[2] not in response.text
+    assert client.get("/admin/api/platform").status_code == 401
+
+
+def test_production_admin_keeps_password_after_authenticator_configuration(platform):
+    from dataclasses import replace
+    from service.security import generate_totp_secret, generate_totp_token
+    app, registry, password = platform
+    app.container.settings = replace(app.container.settings, ENVIRONMENT="production")
+    secret = generate_totp_secret()
+    records = json.loads(registry.read_text())
+    records["users"][0]["totp_secret"] = secret
+    registry.write_text(json.dumps(records))
+    client = app.test_client()
+    csrf = client.get("/auth/session").json["csrf_token"]
+    credentials = {"email": "admin@example.test", "password": password}
+    headers = {"X-CSRF-Token": csrf}
+    assert client.post("/auth/login", json=credentials, headers=headers).status_code == 401
+    response = client.post("/auth/login", json={**credentials, "totp": generate_totp_token(secret)}, headers=headers)
+    assert response.status_code == 200
+    assert client.get("/admin/api/platform").status_code == 200
+    assert secret not in response.text
+    with client.session_transaction() as state:
+        assert secret not in str(dict(state))
+
+
+def test_login_csrf_failure_has_recovery_message_and_fresh_form(platform):
+    client = platform[0].test_client()
+    response = client.post("/auth/login", json={"email": "owner@example.test", "password": platform[2]})
+    assert response.status_code == 403
+    assert response.json["error"] == "csrf_failed"
+    assert "Reload the page" in response.json["message"]
+    assert client.get("/admin/api/insights").status_code == 401
+    form = client.post("/admin/login", data={"email": "owner@example.test", "password": platform[2]})
+    assert form.status_code == 403
+    assert 'name="csrf_token"' in form.text
+    assert "Reload the page" in form.text
 
 
 def test_widget_frame_allowlist_is_tenant_scoped(platform):

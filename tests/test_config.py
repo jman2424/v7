@@ -21,7 +21,7 @@ def test_environment_is_available_to_runtime_routes():
     assert settings.ENVIRONMENT == "production"
 
 
-def test_https_base_url_enables_secure_session_cookie():
+def test_https_base_url_enables_secure_session_cookie(app):
     from app import create_app
 
     app = create_app({"BASE_URL": "https://platform.example.test", "SECRET_KEY": "test-secret-" * 4})
@@ -30,7 +30,7 @@ def test_https_base_url_enables_secure_session_cookie():
     assert app.config["SESSION_COOKIE_SECURE"] is True
 
 
-def test_render_runtime_enables_secure_session_cookie(monkeypatch):
+def test_render_runtime_enables_secure_session_cookie(app, monkeypatch):
     from app import create_app
 
     monkeypatch.setenv("RENDER", "true")

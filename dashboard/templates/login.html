@@ -47,7 +47,7 @@
         />
       </label>
 
-      <label>TOTP (if enabled)
+      <label>Authenticator code (if configured)
         <input
           name="totp"
           maxlength="6"
@@ -59,6 +59,7 @@
         />
       </label>
 
+      <p class="muted">Platform admins need an authenticator configured before signing in to production.</p>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
       <button class="btn btn--primary" type="submit">Login</button>

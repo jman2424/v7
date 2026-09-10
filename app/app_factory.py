@@ -7,7 +7,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request, session
+from markupsafe import escape
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -101,15 +102,27 @@ def _register_blueprints(app: Flask) -> None:
 def _install_error_handlers(app: Flask) -> None:
     @app.errorhandler(HTTPException)
     def handle_http(err: HTTPException):
-        app.logger.warning("HTTP %s %s %s", err.code, request.method, request.path)
+        # Only expose known, safe login reasons. Other internal descriptions
+        # must not appear in API errors or operational logs.
+        login_messages = {
+            "mfa_setup_required": "Your password was accepted, but this platform admin account needs two-factor authentication before it can sign in. Configure its authenticator on the server, then enter the six-digit code.",
+            "csrf_failed": "Your sign-in page expired or its cookie was blocked. Reload the page, allow cookies for this site, and try again.",
+        }
+        reason = err.description if request.path in {"/auth/login", "/admin/login"} and err.code == 403 and err.description in login_messages else None
+        app.logger.warning("HTTP %s %s %s reason=%s", err.code, request.method, request.path, reason or "request_rejected")
 
         if _wants_json_response():
             key = (err.name or "error").lower().replace(" ", "_")
+            if reason:
+                return jsonify({"error": reason, "message": login_messages[reason], "status": err.code}), err.code
             return jsonify({"error": key, "status": err.code}), err.code
 
+        if reason:
+            return render_template("login.html", tenant="", error=login_messages[reason],
+                                   csrf_token=session.get("_csrf", "")), err.code
         return (
-            f"<h1>{err.code} {err.name}</h1>"
-            f"<p>{err.description}</p>",
+            f"<h1>{err.code} {escape(err.name)}</h1>"
+            f"<p>{escape(err.description)}</p>",
             err.code,
         )
 

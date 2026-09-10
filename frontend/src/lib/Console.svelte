@@ -548,9 +548,18 @@
 
   async function login() {
     loginError = '';
-    const sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+    let sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+    // A revoked cookie is cleared by the first request. Get a fresh anonymous
+    // CSRF token before submitting credentials, without retrying the login.
+    if (sessionResponse.status === 401) {
+      sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+    }
     const sessionData = await readJson(sessionResponse);
     csrf = sessionData.csrf_token || '';
+    if (!sessionResponse.ok || !csrf) {
+      loginError = 'Could not start a secure sign-in session. Reload the page and allow cookies for this site.';
+      return;
+    }
     const response = await fetch(apiPath('/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
@@ -559,7 +568,7 @@
     });
     const data = await readJson(response);
     if (!response.ok) {
-      loginError = data.error || 'Sign-in failed.';
+      loginError = data.message || data.error || 'Sign-in failed.';
       return;
     }
     user = data.user;
@@ -970,7 +979,7 @@
       <label>Tenant key<input bind:value={tenant} autocomplete="organization" required /></label>
       <label>Email<input bind:value={email} type="email" autocomplete="username" required /></label>
       <label>Password<input bind:value={password} type="password" autocomplete="current-password" required /></label>
-      <label>TOTP code <span>Optional</span><input bind:value={totp} inputmode="numeric" autocomplete="one-time-code" /></label>
+      <label>Authenticator code <span>If configured; required for platform admins in production</span><input bind:value={totp} inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label>
       {#if loginError}<div class="notice error">{loginError}</div>{/if}
       <button class="primary" type="submit">Sign in</button>
     </form>

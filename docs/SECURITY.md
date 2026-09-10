@@ -34,6 +34,24 @@ code is not currently single-use within that window. Owners may configure TOTP.
 There is no self-service account recovery or authenticator enrollment screen.
 The environment admin fallback remains for compatibility; prefer the registry.
 
+### A correct password is followed by Forbidden
+
+On production/HTTPS deployments a platform admin without a configured
+authenticator is denied access. The login response now identifies this as
+`mfa_setup_required` and explains the setup requirement; it does not indicate a
+password change. Invalid passwords still return `invalid_credentials`.
+
+For the environment admin, generate a private Base32 TOTP secret locally,
+add that key to your authenticator as a time-based account, and save the same
+key as `ADMIN_TOTP_SECRET` in the service's environment. Keep the existing
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` / `ADMIN_PASSWORD_HASH` unchanged.
+Redeploy, then use the same password and the authenticator's six-digit code.
+Do not use an online QR-code generator or commit the setup key.
+
+A `csrf_failed` response means the sign-in page expired or its session cookie
+was blocked. Reload the page and allow site cookies. The console refreshes an
+expired authenticated cookie before submitting a new login.
+
 SECRET_KEY must be random and at least 32 characters. Cookies are HttpOnly,
 SameSite=Lax and Secure when BASE_URL uses HTTPS. Management sessions expire
 after eight hours and are revocable in SECURITY_DB_PATH. Logout revokes copied
