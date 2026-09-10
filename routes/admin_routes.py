@@ -1,130 +1,78 @@
-# routes/admin_routes.py
-from __future__ import annotations
+from flask import Blueprint, abort, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import Unauthorized
 
-from flask import Blueprint, render_template, request, redirect, url_for, session
 from routes import get_container
+from service.security import (
+    authenticate_user,
+    authorized_tenant,
+    is_platform_admin,
+    management_user,
+    start_management_session,
+    verify_totp,
+)
 
 bp = Blueprint("admin_ui", __name__, url_prefix="/admin")
 
 
-def _is_logged_in() -> bool:
-    return bool(session.get("user"))
-
-
-def _csrf_token() -> str:
-    try:
-        from flask import g  # type: ignore
-        tok = getattr(g, "csrf_token", None)
-        if tok:
-            return tok
-    except Exception:
-        pass
-    return session.get("csrf_token", "") or ""
-
-
-def _tenant() -> str:
-    t = (request.args.get("tenant") or "").strip()
-    if t:
-        return t
-    c = get_container()
-    return (str(getattr(c.settings, "BUSINESS_KEY", "") or "").strip() or "default")
-
-
-def _redirect(endpoint: str, **kwargs):
-    kwargs.setdefault("tenant", _tenant())
-    return redirect(url_for(endpoint, **kwargs))
-
-
 @bp.get("/")
-def dashboard():
-    if not _is_logged_in():
-        return _redirect("admin_ui.login_page")
-
-    user = session.get("user") or {}
-    role = (user.get("roles") or ["admin"])[0]
-    session_id = session.get("admin_session_id") or user.get("id") or "admin"
-
-    return render_template(
-        "dashboard.html",
-        tenant=_tenant(),
-        role=role,
-        session_id=session_id,
-        branding=None,
-        csrf_token=_csrf_token(),
-        version="7",
-    )
+@bp.get("/<page>")
+def dashboard(page="overview"):
+    pages = {"overview": "Overview", "companies": "Companies", "conversations": "Conversations & leads",
+             "business": "Business information", "settings": "Agent & widget settings",
+             "errors": "Errors & health", "integrations": "Integrations", "products": "Products & prices",
+             "faqs": "Questions & answers", "branches": "Branches & hours", "delivery": "Delivery"}
+    if page not in pages:
+        abort(404)
+    if not session.get("user"):
+        return redirect(url_for("admin_ui.login_page"))
+    try:
+        user = management_user(platform_only=page == "companies")
+    except Unauthorized:
+        session.clear()
+        return redirect(url_for("admin_ui.login_page"))
+    tenant = authorized_tenant(request.args.get("tenant"))
+    resources = {"products": "catalog.json", "faqs": "faq.json", "branches": "branches.json",
+                 "delivery": "delivery.json", "business": "store_info.json"}
+    descriptions = {"overview": "A focused view of your agent's recent activity.",
+                    "companies": "Check activity and investigate issues across your businesses.",
+                    "conversations": "Review customer messages and leads for this company.",
+                    "products": "Keep your catalog, prices and stock up to date.",
+                    "faqs": "Give your agent clear answers to common customer questions.",
+                    "branches": "Manage the places and opening hours customers ask about.",
+                    "delivery": "Set the delivery information your agent can share.",
+                    "business": "Manage this company's contact and business information.",
+                    "settings": "Customize your agent and website chat.",
+                    "errors": "Find recorded failures and check business data.",
+                    "integrations": "Connect your website and prepare WhatsApp for later."}
+    template = "resource" if page in resources or page == "settings" else page
+    return render_template("pages/" + template + ".html", tenant=tenant, role=user["roles"][0],
+                           platform_admin=is_platform_admin(user), session_id="",
+                           csrf_token=session["_csrf"], version="7", page=page, page_title=pages[page],
+                           page_description=descriptions[page], resource_file=resources.get(page),
+                           base_url=get_container().settings.BASE_URL.rstrip("/"))
 
 
 @bp.get("/login")
 def login_page():
-    if _is_logged_in():
-        return _redirect("admin_ui.dashboard")
-
-    return render_template(
-        "login.html",
-        tenant=_tenant(),
-        error=None,
-        csrf_token=_csrf_token(),
-    )
+    if session.get("user"):
+        return redirect(url_for("admin_ui.dashboard"))
+    return render_template("login.html", error=None, csrf_token=session["_csrf"])
 
 
 @bp.post("/login")
 def login_submit():
-    tenant = _tenant()
-    identifier = (request.form.get("email") or request.form.get("username") or "").strip()
-    password = request.form.get("password") or ""
-    totp_code = (request.form.get("totp") or "").strip()
-
-    if not identifier or not password:
-        return (
-            render_template(
-                "login.html",
-                tenant=tenant,
-                error="Missing email/username or password",
-                csrf_token=_csrf_token(),
-            ),
-            400,
-        )
-
-    from service.security import authenticate_user, verify_totp
-
-    c = get_container()
-
-    # ✅ IMPORTANT: your authenticate_user signature is (c, *, email=, password=)
-    user = authenticate_user(c, email=identifier, password=password)
-    if not user:
-        return (
-            render_template(
-                "login.html",
-                tenant=tenant,
-                error="Invalid credentials",
-                csrf_token=_csrf_token(),
-            ),
-            401,
-        )
-
-    secret = user.get("totp_secret") or ""
-    if not verify_totp(secret, totp_code):
-        return (
-            render_template(
-                "login.html",
-                tenant=tenant,
-                error="Invalid TOTP code",
-                csrf_token=_csrf_token(),
-            ),
-            401,
-        )
-
-    # ✅ store tenant in session so admin_api defaults correctly
-    user["tenant"] = tenant
-    session["user"] = user
-    session["admin_session_id"] = user.get("id") or "admin"
-
-    return _redirect("admin_ui.dashboard")
+    user = authenticate_user(get_container(), email=request.form.get("email", ""),
+                             password=request.form.get("password", ""))
+    if not user or not verify_totp(user.get("totp_secret"), request.form.get("totp", "")):
+        return render_template("login.html", error="Invalid credentials or verification code",
+                               csrf_token=session["_csrf"]), 401
+    start_management_session(user)
+    return redirect(url_for("admin_ui.dashboard"))
 
 
-@bp.get("/logout")
+@bp.post("/logout")
 def logout():
-    session.pop("user", None)
-    session.pop("admin_session_id", None)
-    return _redirect("admin_ui.login_page")
+    from service import session_store
+    session_store.revoke(session.get("management_token"))
+    session.clear()
+    return redirect(url_for("admin_ui.login_page"))

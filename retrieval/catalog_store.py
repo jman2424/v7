@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from retrieval.storage import Storage
 
-
 # ---------------------------------------------------
 # Normalisation helpers
 # ---------------------------------------------------
@@ -415,8 +414,8 @@ class CatalogStore:
                 matched_count += 1
         score += matched_count
 
-        # in stock bonus
-        if item.get("in_stock", True):
+        # Availability only breaks ties between actual matches.
+        if score > 0 and item.get("in_stock", True):
             score += 1
 
         return score

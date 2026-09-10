@@ -1,0 +1,14 @@
+{% extends 'dashboard.html' %}
+{% block content %}
+<section class="kpi-grid" aria-label="Activity summary">
+{% for id, label, note in [('in','Received','Customer messages'),('out','Sent','Agent replies'),('sessions','Sessions','Distinct conversations'),('err','Errors','Needs investigation')] %}
+<div class="kpi"><span>{{ label }}</span><strong id="kpi-{{ id }}">—</strong><small>{{ note }}</small></div>
+{% endfor %}
+</section>
+<div class="chart-grid">
+{% for id,label in [('volume','Message activity'),('channels','Channels'),('intents','Popular topics'),('sessions','Sessions by channel')] %}
+<section class="card"><h2>{{ label }}</h2><div id="chart-{{ id }}" class="metric-chart" role="img" aria-label="{{ label }}">Loading…</div></section>
+{% endfor %}
+</div>
+<p id="dbg-status" class="status" role="status">Loading current activity…</p>
+{% endblock %}

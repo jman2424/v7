@@ -24,18 +24,22 @@
 
     <footer class="widget__composer">
       <form id="chat-form" autocomplete="off">
-        <input id="chat-input" name="message" type="text" placeholder="Type your message…" required />
+        <input id="chat-input" name="message" type="text" aria-label="Your message" maxlength="4000" placeholder="Type your message…" required />
         <button id="chat-send" type="submit" class="btn">Send</button>
+        <button id="dictate" type="button" class="btn" hidden>Dictate</button>
       </form>
+      <label><input id="read-aloud" type="checkbox" /> Read replies aloud</label>
+      <p id="voice-status" role="status"></p>
+      <small>Dictation depends on your browser and may use its speech service. Review text before sending.</small>
     </footer>
   </div>
 
-  <script>
+  <script nonce="{{ g.csp_nonce }}">
     window.__WIDGET__ = {
       tenant: document.body.dataset.tenant,
-      endpoint: "{{ url_for('webchat_routes.chat_api') }}",
+      endpoint: {{ url_for('webchat.chat_api', tenant=tenant)|tojson }},
       channel: "web",
-      sessionId: "{{ session_id }}"
+      sessionId: ""
     };
   </script>
   <script src="{{ url_for('static', filename='js/widget.js') }}"></script>

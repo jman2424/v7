@@ -128,7 +128,8 @@
     } catch (err) {
       if (String(err).includes("AbortError")) return;
       console.error("admin.js insights fetch failed:", err);
-      if (dbgStatus) dbgStatus.textContent = "fetch failed";
+      if (dbgStatus) dbgStatus.textContent = "Unable to load current data. Refresh or sign in again.";
+      for (const id of ["kpi-in", "kpi-out", "kpi-total", "kpi-sessions", "kpi-fb", "kpi-err"]) setText(id, "—");
       if (dbg) dbg.textContent = String(err);
       return;
     }
@@ -142,41 +143,12 @@
 
     // Charts are rendered by charts.js
     if (typeof window.DashChartsReload === "function") {
-      window.DashChartsReload();
+      window.DashChartsReload(payload);
     }
   }
 
   async function exportCsv() {
-    // Uses your existing exporter route if you have it (adjust if different).
-    const url =
-      `/admin/api/insights?tenant=${encodeURIComponent(tenant())}` +
-      `&minutes=${encodeURIComponent(minutes())}` +
-      `&bucket=60&top=200&limit=500`;
-
-    try {
-      const res = await fetch(url, { credentials: "include" });
-      const payload = await res.json();
-
-      // Simple CSV: questions + leads snapshot
-      const lines = [];
-      lines.push("SECTION,FIELD1,FIELD2,FIELD3");
-
-      for (const q of (payload?.common_questions || [])) {
-        lines.push(`questions,"${String(q.question ?? "").replaceAll('"', '""')}",${Number(q.count ?? 0) || 0},`);
-      }
-      for (const l of (payload?.leads || [])) {
-        lines.push(`leads,"${String(l.lead_id ?? "").replaceAll('"', '""')}","${String(l.phone ?? "").replaceAll('"', '""')}","${String(l.updated_utc ?? "").replaceAll('"', '""')}"`);
-      }
-
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `analytics_${tenant()}_${minutes()}m.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e) {
-      console.error("export failed", e);
-    }
+    window.location.assign("/analytics/export.csv?tenant=" + encodeURIComponent(tenant()));
   }
 
   document.addEventListener("DOMContentLoaded", () => {

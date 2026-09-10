@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from flask import Blueprint, current_app, jsonify
+
 from app.config import Settings
 
 bp = Blueprint("health", __name__)
@@ -27,4 +29,4 @@ def ready():
         return jsonify({"ready": True}), 200
     except Exception as e:
         current_app.logger.error(f"Readiness check failed: {e}")
-        return jsonify({"ready": False, "error": str(e)}), 503
+        return jsonify({"ready": False}), 503

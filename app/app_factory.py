@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from app.config import Settings, load_settings
-from app.logging_setup import configure_logging
-from app.container import Container
 from app import middleware
+from app.config import Settings, load_settings
+from app.container import Container
+from app.logging_setup import configure_logging
 
 # Analytics DB init (safe)
 try:
@@ -64,16 +65,16 @@ def _register_blueprints(app: Flask) -> None:
     routes/ is TOP-LEVEL in this repo (NOT app/routes).
     All imports must reflect that.
     """
+    from routes.admin_routes import bp as admin_bp
+    from routes.analytics_routes import bp as analytics_bp
+    from routes.auth_routes import bp as auth_bp
+    from routes.catalog_routes import bp as catalog_bp
+    from routes.diag_routes import bp as diag_bp
+    from routes.files_routes import bp as files_bp
     from routes.health_routes import bp as health_bp
+    from routes.mode_routes import bp as mode_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
-    from routes.analytics_routes import bp as analytics_bp
-    from routes.admin_routes import bp as admin_bp
-    from routes.files_routes import bp as files_bp
-    from routes.auth_routes import bp as auth_bp
-    from routes.diag_routes import bp as diag_bp
-    from routes.catalog_routes import bp as catalog_bp
-    from routes.mode_routes import bp as mode_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -87,15 +88,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(mode_bp)
 
     # Admin API (dashboard)
-    try:
-        from routes.admin_api_routes import bp as admin_api_bp
-        app.register_blueprint(admin_api_bp)
-        app.logger.info(
-            "Registered admin API: %s",
-            admin_api_bp.url_prefix,
-        )
-    except Exception:
-        app.logger.exception("FATAL: admin_api_routes failed to register")
+    from routes.admin_api_routes import bp as admin_api_bp
+    app.register_blueprint(admin_api_bp)
 
 
 # ---------------------------------------------------------------------
@@ -161,6 +155,15 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     )
 
     app.config["SECRET_KEY"] = settings.SECRET_KEY
+    app.config.update(
+        TESTING=bool((config_override or {}).get("TESTING", False)),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=settings.BASE_URL.startswith("https://"),
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+        SESSION_REFRESH_EACH_REQUEST=False,
+        MAX_CONTENT_LENGTH=1024 * 1024,
+    )
 
     # Container
     container = Container(settings)

@@ -109,6 +109,19 @@ class MessageHandlerV7:
         self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
         self.synonyms = getattr(deps, "synonyms", None)
+        self.catalog_terms = set()
+        if self.catalog:
+            for item in self.catalog.list_all_items():
+                words = re.findall(r"[a-z0-9]+", str(item.get("name", "")).lower())
+                self.catalog_terms.update(word for word in words if len(word) >= 3 and word not in {"the", "and", "for", "with"})
+            for category in self.catalog.categories():
+                self.catalog_terms.update(re.findall(r"[a-z0-9]{3,}", str(category.get("name", "")).lower()))
+        self.branding = {}
+        if self.catalog:
+            try:
+                self.branding = self.catalog.storage.read_json(None, "branding.json")
+            except (FileNotFoundError, ValueError):
+                pass
         self.logger = getattr(deps, "logger", None)
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
@@ -147,10 +160,8 @@ class MessageHandlerV7:
         try:
             # 0) Greeting only
             if self._is_greeting(user_text):
-                reply_text = (
-                    "Salam! 👋 Tell me what you’re after and I’ll pull options.\n"
-                    "Examples: chicken wings • lamb chops • beef steak • cheapest lamb • delivery to E1 6AN"
-                )
+                widget = self.branding.get("widget", {}) if isinstance(self.branding, dict) else {}
+                reply_text = widget.get("greeting") or "Hello! I can help with products, prices, delivery and business information. What are you looking for?"
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -177,10 +188,19 @@ class MessageHandlerV7:
                     items=[],
                 )
 
+            # Exact curated answers work without a model and remain company-scoped.
+            if self.faq:
+                question = self._clean_text(user_text)
+                for entry in self.faq.all():
+                    answer = entry.get("a", "")
+                    if question == self._clean_text(entry.get("q", "")) and answer and not re.search(r"\{[^{}]+\}", answer):
+                        return self._wrap_reply(request_id=request_id, t0=t0, reply=answer,
+                                                intent="faq", plan=None, facts={"faq": entry}, entities={}, items=[])
+
             # 0.75) Out of scope
             if self._looks_out_of_scope(user_text):
                 reply_text = (
-                    "I can’t help with that — I’m the Tariq Halal assistant.\n"
+                    "I’m this business’s sales assistant.\n"
                     "Ask me about products, prices, delivery, or your nearest branch."
                 )
                 safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
@@ -310,7 +330,7 @@ class MessageHandlerV7:
 
             # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
-                reply_text = "Tell me what you want: products (e.g. chicken wings) or delivery (e.g. E7 9QS)."
+                reply_text = "Ask me about this business's products, prices, delivery or opening hours. What would you like to know?"
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -368,7 +388,7 @@ class MessageHandlerV7:
 
         if any(x in t for x in ("ai", "bot", "real", "who are you", "where is the ai", "were is the ai")):
             return (
-                "Yes — I’m an AI-powered Tariq Halal assistant.\n"
+                "Yes — I’m this business’s AI sales assistant.\n"
                 "I can help with products, prices, delivery, and nearest branch details."
             )
 
@@ -378,7 +398,7 @@ class MessageHandlerV7:
         if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
             return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
 
-        return "I’m your Tariq Halal assistant. Ask me about products, prices, delivery, or nearest branch."
+        return "I’m your sales assistant. Ask me about products, prices, delivery, or the nearest branch."
 
     def _simple_plan(self, intent: str, action: str, session: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -468,6 +488,9 @@ class MessageHandlerV7:
 
         if self._is_smalltalk(t):
             return False
+
+        if self.catalog_terms.intersection(re.findall(r"[a-z0-9]+", t)):
+            return True
 
         if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
             return True
@@ -698,7 +721,9 @@ class MessageHandlerV7:
         try:
             hints: Dict[str, Any] = {}
             if self.synonyms:
-                hints["synonyms"] = self.synonyms
+                hints["synonyms"] = self.synonyms.forward()
+            if self.catalog:
+                hints["categories"] = [cat.get("name") for cat in self.catalog.categories()]
 
             plan = self.brain.plan(
                 user_text=user_text,
@@ -1016,6 +1041,8 @@ class MessageHandlerV7:
     def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for k, v in (d or {}).items():
+            if k in {"text", "session", "sess", "err", "reply", "history", "prompt"}:
+                continue
             if v is None:
                 continue
             if isinstance(v, str):

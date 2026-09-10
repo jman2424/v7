@@ -10,7 +10,6 @@ Key upgrades in this remake:
     * last_items
     * last_product_names
 - Preserves existing category / sku / postcode memory
-- Makes follow-up questions like "are they halal" more likely to work downstream
 """
 
 from __future__ import annotations
@@ -25,6 +24,7 @@ from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
 from service.validators import normalize_postcode
+
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
@@ -56,13 +56,6 @@ _TEST_NOISE = {
     "test1", "test2", "test3",
     "hello", "hi", "hey", "yo", "there", "sup",
 }
-
-_FOLLOWUP_PAT = re.compile(
-    r"\b(they|them|those|these|that|it|this one|that one|the first one|the second one|the third one)\b",
-    re.I,
-)
-
-_HALAL_PAT = re.compile(r"\b(halal|hala|halaal|is it halal|are they halal)\b", re.I)
 
 
 def _collapse_spaces(s: str) -> str:
@@ -231,8 +224,8 @@ class MessageHandler:
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
             logger.info(
-                "DISPATCH_GUARDED tenant=%s session=%s channel=%s mode=%s rid=%s intent=%s text=%r",
-                ctx.tenant, ctx.session_id, ctx.channel, mode, rid, guarded.get("intent"), user_text[:120],
+                "DISPATCH_GUARDED tenant=%s channel=%s mode=%s intent=%s",
+                ctx.tenant, ctx.channel, mode, guarded.get("intent"),
             )
             self._telemetry(
                 ctx,
@@ -249,8 +242,8 @@ class MessageHandler:
             return guarded
 
         logger.info(
-            "DISPATCH tenant=%s session=%s channel=%s mode=%s rid=%s text=%r",
-            ctx.tenant, ctx.session_id, ctx.channel, mode, rid, user_text[:120],
+            "DISPATCH tenant=%s channel=%s mode=%s",
+            ctx.tenant, ctx.channel, mode,
         )
 
         self._telemetry(
@@ -267,8 +260,8 @@ class MessageHandler:
             reply = self.h_v7.handle(user_text, ctx, sess)
 
         logger.info(
-            "DISPATCH_RESULT tenant=%s session=%s mode=%s rid=%s intent=%s keys=%s",
-            ctx.tenant, ctx.session_id, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
+            "DISPATCH_RESULT tenant=%s mode=%s intent=%s",
+            ctx.tenant, mode, reply.get("intent"),
         )
 
         reply = self._validate_reply(reply, user_text, ctx, sess)
@@ -316,7 +309,6 @@ class MessageHandler:
         if _FULL_LIST_PAT.search(t):
             return None
 
-        tl = _collapse_spaces(t).lower()
 
         if _RE_ONLY_SYMBOLS.match(t):
             return {
@@ -354,7 +346,8 @@ class MessageHandler:
     # MODE
     # ---------------------------------------------------------
     def _decide_mode(self, ctx: MessageContext) -> str:
-        return (self.overrides.get("ai.mode") or "v7").lower()
+        mode = str(self.overrides.get("ai.mode") or self.deps.mode.name()).lower().replace("ai", "")
+        return mode if mode in {"v5", "v6", "v7"} else "v7"
 
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
@@ -371,21 +364,6 @@ class MessageHandler:
         items = facts.get("items") or []
         text = (user_text or "").strip()
         lower = text.lower()
-
-        # Follow-up halal recovery using memory
-        if _HALAL_PAT.search(lower) and _FOLLOWUP_PAT.search(lower):
-            last_items = sess.get("last_items") or []
-            last_names = sess.get("last_product_names") or []
-            last_query = sess.get("last_product_query")
-            if last_items or last_names or last_query:
-                target = ", ".join(last_names[:3]) if last_names else (last_query or "those items")
-                return {
-                    "reply": f"Yes — our meat products are halal. If you want, I can also show you more options related to {target}.",
-                    "intent": "faq",
-                    "resolved": True,
-                    "facts": {"reason": "followup_halal_memory"},
-                    "entities": {},
-                }
 
         cat = _category_from_full_list(text)
         if cat and not items:
@@ -417,8 +395,8 @@ class MessageHandler:
 
         if looks_like_bare_category and not items:
             logger.warning(
-                "PIPELINE WARNING: bare-category but no items | text=%r intent=%s tenant=%s session=%s",
-                user_text, intent, ctx.tenant, ctx.session_id,
+                "PIPELINE WARNING: bare-category but no items | intent=%s tenant=%s",
+                intent, ctx.tenant,
             )
             return {
                 "reply": (
@@ -558,18 +536,8 @@ class MessageHandler:
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
 
-        try:
-            if hasattr(self.analytics, "upsert_lead"):
-                self.analytics.upsert_lead(
-                    tenant=ctx.tenant,
-                    lead_id=str(lead_id),
-                    phone=(reply.get("entities") or {}).get("phone"),
-                    name=None,
-                )
-            if hasattr(self.analytics, "set_lead_session"):
-                self.analytics.set_lead_session(tenant=ctx.tenant, lead_id=str(lead_id), session_id=ctx.session_id)
-        except Exception:
-            logger.exception("analytics lead upsert failed")
+        # Transport routes own analytics lead identity. Do not create a second
+        # UUID lead here for the same web/WhatsApp conversation.
 
     # ---------------------------------------------------------
     # TELEMETRY (safe)

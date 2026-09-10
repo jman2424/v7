@@ -1,43 +1,71 @@
-from __future__ import annotations
-from flask import Blueprint, request, jsonify, abort
-from routes import get_container, require_auth
+"""Tenant-scoped, allowlisted business data management."""
+from flask import Blueprint, abort, jsonify, request
+from jsonschema import ValidationError
+
+from routes import get_container
+from service.audit import AuditService
+from service.security import authorized_tenant, management_user
 
 bp = Blueprint("files", __name__, url_prefix="/files")
+FILES = {"catalog.json", "faq.json", "delivery.json", "branches.json",
+         "branding.json", "store_info.json", "overrides.json", "synonyms.json"}
+SCHEMAS = {name: name.replace(".json", ".schema.json") for name in
+           ("catalog.json", "faq.json", "delivery.json", "branches.json")}
 
-# Download raw tenant file
-@bp.get("/raw/<path:filename>")
-@require_auth(roles=("Owner","Manager","Staff"))
-def get_file(filename: str):
+
+@bp.before_request
+def protect_files():
+    management_user()
+
+
+def target(filename=None):
     c = get_container()
+    tenant = authorized_tenant(request.args.get("tenant"))
+    if filename is not None and filename not in FILES:
+        abort(404)
+    if not c.storage.tenant_dir(tenant).is_dir():
+        abort(404)
+    return c, tenant
+
+
+@bp.get("/raw/<path:filename>")
+def get_file(filename):
+    c, tenant = target(filename)
     try:
-        data = c.storage.read_json(c.settings.BUSINESS_KEY, filename)
-        return jsonify(data)
+        return jsonify(c.storage.read_json(tenant, filename))
     except FileNotFoundError:
         abort(404)
+    except ValueError:
+        abort(422, description="Invalid stored JSON")
 
-# Upload/replace with validation + snapshot
+
 @bp.put("/raw/<path:filename>")
-@require_auth(roles=("Owner","Manager"))
-def put_file(filename: str):
-    c = get_container()
-    payload = request.get_json(force=True)
-    # Optional schema inference by filename
-    schema_map = {
-        "catalog.json": "schemas/catalog.schema.json",
-        "faq.json": "schemas/faq.schema.json",
-        "delivery.json": "schemas/delivery.schema.json",
-        "branches.json": "schemas/branches.schema.json",
-    }
-    schema = schema_map.get(filename)
-    snap = c.storage.write_json(c.settings.BUSINESS_KEY, filename, payload, schema=schema)
-    from services.audit import append_audit
-    append_audit(actor="admin", action="files.put", target=filename, before=None, after="snapshot:"+snap)
-    return jsonify({"ok": True, "snapshot_path": snap})
+def put_file(filename):
+    c, tenant = target(filename)
+    payload = request.get_json()
+    if not isinstance(payload, (dict, list)):
+        abort(400, description="Structured JSON required")
+    schema = SCHEMAS.get(filename)
+    # Existing sheet catalogs use product_catalog; validate that supported format.
+    if filename == "catalog.json" and isinstance(payload, dict) and "product_catalog" in payload:
+        schema = "catalog-sheet.schema.json"
+    if filename in {"branding.json", "store_info.json", "overrides.json", "synonyms.json"} and not isinstance(payload, dict):
+        abort(400, description="JSON object required")
+    if filename in {"branding.json", "store_info.json", "overrides.json", "synonyms.json"}:
+        from service.business_validation import validate_settings
+        validate_settings(filename, payload)
+    try:
+        snapshot = c.storage.write_json(tenant, filename, payload, schema=schema)
+    except ValidationError:
+        abort(400, description="Business data does not match the schema")
+    user = management_user()
+    AuditService().record(user=user["id"], role=user["roles"][0], ip=request.remote_addr or "",
+                          action="business.update", target=f"{tenant}/{filename}",
+                          extra={"snapshot": snapshot})
+    return jsonify(ok=True, snapshot=snapshot)
 
-# List snapshots
+
 @bp.get("/versions")
-@require_auth(roles=("Owner","Manager"))
 def list_versions():
-    c = get_container()
-    versions = c.storage.list_versions(c.settings.BUSINESS_KEY)
-    return jsonify({"versions": versions})
+    c, tenant = target()
+    return jsonify(versions=c.storage.list_versions(tenant))

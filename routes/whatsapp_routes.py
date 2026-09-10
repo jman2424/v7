@@ -1,321 +1,146 @@
-# routes/whatsapp_routes.py
+"""Optional WhatsApp endpoints. Unconfigured integrations fail closed."""
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict
+import hashlib
+import hmac
+import os
 
 from flask import Blueprint, Response, abort, jsonify, request
+from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
-from routes import get_container
 from connectors.whatsapp import parse_inbound, send_reply
-from service.security import verify_webhook_signature
+from routes import get_container
+from service import webhook_inbox
+from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
 
-# ✅ DB analytics
-from service.analytics_db import (
-    log_message,
-    log_error,          # ✅ NEW
-    upsert_lead,
-    set_lead_session,
-)
-
-logger = logging.getLogger("WA.Webhook")
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
 
-def _get_handler(container):
-    h = getattr(container, "handler", None) or getattr(container, "message_handler", None)
-    if h is None:
-        logger.error("WA: No MessageHandler instance found on container.")
-    return h
-
-
-def _norm_wa_id(raw: str) -> str:
-    s = (raw or "").strip()
-    s = s.replace("whatsapp:", "").strip()
-    if s.startswith("+"):
-        s = s[1:]
-    return s
-
-
-def _lead_id_from_sender(sender_digits: str) -> str:
-    sender_digits = (sender_digits or "unknown").strip() or "unknown"
-    return f"wa:{sender_digits}"
+def _verify():
+    settings = get_container().settings
+    if request.mimetype == "application/x-www-form-urlencoded":
+        token = os.getenv("TWILIO_AUTH_TOKEN", "")
+        if not token or not os.getenv("TWILIO_WHATSAPP_NUMBER"):
+            abort(503, description="whatsapp_not_configured")
+        url = settings.BASE_URL.rstrip("/") + request.full_path.rstrip("?")
+        if not RequestValidator(token).validate(url, request.form, request.headers.get("X-Twilio-Signature", "")):
+            abort(403)
+        return "twilio"
+    if not settings.WHATSAPP_APP_SECRET:
+        abort(503, description="whatsapp_not_configured")
+    expected = "sha256=" + hmac.new(settings.WHATSAPP_APP_SECRET.encode(), request.get_data(), hashlib.sha256).hexdigest()
+    supplied = request.headers.get("X-Hub-Signature-256", "")
+    if not hmac.compare_digest(expected.encode(), supplied.encode()):
+        abort(403)
+    return "cloud"
 
 
 @bp.get("/webhook")
 def webhook_verify():
-    c = get_container()
-    verify = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge", "")
-
-    if verify != getattr(c.settings, "WHATSAPP_VERIFY_TOKEN", ""):
+    expected = get_container().settings.WHATSAPP_VERIFY_TOKEN
+    if not expected:
+        abort(503, description="whatsapp_not_configured")
+    supplied = request.args.get("hub.verify_token", "")
+    if request.args.get("hub.mode") != "subscribe" or not hmac.compare_digest(expected.encode(), supplied.encode()):
         abort(403)
+    return request.args.get("hub.challenge", ""), 200, {"Content-Type": "text/plain"}
 
-    return challenge, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+def _reply(c, event, source):
+    text = event.get("text")
+    sender = event.get("from", "")
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000 or not isinstance(sender, str):
+        abort(400)
+    sender = sender.removeprefix("whatsapp:").lstrip("+")
+    if not sender.isdigit() or len(sender) > 20:
+        abort(400)
+    tenant = c.settings.BUSINESS_KEY
+    sid = "wa:" + sender
+    raw = event.get("raw", {})
+    mid = raw.get("id") or raw.get("MessageSid") or ""
+    upsert_lead(tenant=tenant, lead_id=sid, phone="+" + sender)
+    set_lead_session(tenant=tenant, lead_id=sid, session_id=sid)
+    log_message(tenant=tenant, channel="whatsapp", direction="inbound", session_id=sid,
+                text=text, lead_id=sid, message_id=mid)
+    try:
+        result = c.handler.handle(text, tenant=tenant, session_id=sid, channel="whatsapp",
+                                  metadata={"source": source, "wa_id": sender})
+        reply = result.get("reply") if isinstance(result, dict) else None
+        if not isinstance(reply, str) or not reply.strip() or result.get("intent") == "system_error":
+            raise ValueError("Invalid agent response")
+    except Exception as error:
+        log_error(tenant=tenant, channel="whatsapp", session_id=sid,
+                  error_code="wa_handler_failure", error_type=type(error).__name__)
+        abort(503, description="agent_unavailable")
+    log_message(tenant=tenant, channel="whatsapp", direction="outbound", session_id=sid,
+                text=reply, intent=str(result.get("intent", "unknown")), lead_id=sid,
+                message_id=mid + ":out" if mid else "")
+    return reply
+
+
+def _process(c, event, source):
+    raw = event.get("raw", {})
+    message_id = raw.get("id") if source == "cloud" else raw.get("MessageSid")
+    if not isinstance(message_id, str) or not message_id or len(message_id) > 200:
+        abort(400, description="message_id_required")
+    key = (c.settings.BUSINESS_KEY, source, message_id)
+    state, cached_reply = webhook_inbox.claim(*key)
+    if state == "done":
+        return cached_reply
+    if state == "busy":
+        abort(503, description="message_processing")
+    try:
+        reply = _reply(c, event, source)
+        if source == "cloud":
+            send_reply(event, reply, settings=c.settings)
+        webhook_inbox.finish(*key, reply)
+        return reply
+    except Exception as error:
+        webhook_inbox.finish(*key, None, failed=True)
+        log_error(tenant=c.settings.BUSINESS_KEY, channel="whatsapp", session_id="provider",
+                  error_code="wa_processing_failure", error_type=type(error).__name__)
+        abort(503, description="whatsapp_processing_failed")
 
 
 @bp.post("/webhook")
 def webhook_receive():
-    c = get_container()
-
-    ua = request.headers.get("User-Agent") or ""
-    content_type = request.headers.get("Content-Type") or ""
-    is_twilio = ("TwilioProxy" in ua) or content_type.startswith("application/x-www-form-urlencoded")
-
-    # Meta signature verification (Cloud API only)
-    app_secret = getattr(c.settings, "WHATSAPP_APP_SECRET", "") or ""
-    sig_header = request.headers.get("X-Hub-Signature-256")
-    if (not is_twilio) and app_secret and sig_header:
-        if not verify_webhook_signature(request, app_secret):
-            logger.warning("WA WEBHOOK: invalid X-Hub-Signature, aborting 403.")
-            abort(403)
-
-    handler = _get_handler(c)
-    tenant_default = getattr(c.settings, "BUSINESS_KEY", "DEFAULT") or "DEFAULT"
-
-    # ------------------------------------------------------------------
-    # TWILIO (FORM)
-    # ------------------------------------------------------------------
-    if is_twilio:
-        form = request.form.to_dict()
-        body = (form.get("Body") or "").strip()
-        from_raw = (form.get("From") or "").strip()
-        sender_digits = _norm_wa_id(from_raw)
-
-        if not body:
-            resp = MessagingResponse()
-            resp.message("Sorry—I didn’t receive any text.")
-            return Response(str(resp), status=200, mimetype="application/xml")
-
-        tenant = tenant_default
-        session_id = sender_digits or "wa_unknown"
-        lead_id = _lead_id_from_sender(sender_digits)
-        phone = f"+{sender_digits}" if sender_digits else None
-
-        # Lead + session
-        try:
-            upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
-            set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
-        except Exception:
-            pass
-
-        # ✅ inbound message (Common Questions)
-        try:
-            log_message(
-                tenant=tenant,
-                channel="whatsapp",
-                direction="inbound",
-                session_id=session_id,
-                intent="unknown",
-                text=body,
-                lead_id=lead_id,
-                store=None,
-                fallback=False,
-                error=False,
-            )
-        except Exception:
-            pass
-
-        logger.info("WA IN: source=twilio tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, body)
-
-        # Handle
-        if handler is None:
-            result: Dict[str, Any] = {"reply": "Sorry—bot not configured yet.", "intent": "system_error", "entities": {}}
-        else:
-            try:
-                result = handler.handle(
-                    body,
-                    tenant=tenant,
-                    session_id=session_id,
-                    channel="whatsapp",
-                    metadata={"wa_id": sender_digits, "source": "twilio"},
-                ) or {}
-            except Exception as exc:
-                logger.exception("WA: handler.handle crashed: %s", exc)
-
-                # ✅ ERROR as its own event_type=error (does NOT inflate outbound)
-                try:
-                    log_error(
-                        tenant=tenant,
-                        channel="whatsapp",
-                        session_id=session_id,
-                        lead_id=lead_id,
-                        error_code="wa_handler_crash",
-                        error_type=type(exc).__name__,
-                        meta={"source": "twilio"},
-                    )
-                except Exception:
-                    pass
-
-                result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
-
-        reply = (result.get("reply") or "").strip() or "Sorry—I didn’t catch that."
-        intent = (result.get("intent") or "unknown").strip()
-        is_fallback = (intent == "system_fallback")
-
-        logger.info("WA OUT: source=twilio tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
-
-        # ✅ outbound message row (fallback is a flag on msg_out)
-        try:
-            log_message(
-                tenant=tenant,
-                channel="whatsapp",
-                direction="outbound",
-                session_id=session_id,
-                intent=intent,
-                text=reply,
-                lead_id=lead_id,
-                store=None,
-                fallback=is_fallback,
-                error=False,
-            )
-        except Exception:
-            pass
-
-        resp = MessagingResponse()
-        resp.message(reply)
-        return Response(str(resp), status=200, mimetype="application/xml")
-
-    # ------------------------------------------------------------------
-    # CLOUD (JSON)
-    # ------------------------------------------------------------------
+    source = _verify()
+    root = get_container()
     try:
-        payload = request.get_json(force=True, silent=True) or {}
-    except Exception as exc:
-        logger.exception("WA WEBHOOK: invalid JSON payload: %s", exc)
-        return jsonify({"error": "invalid_payload"}), 400
+        c = root.for_tenant(root.settings.BUSINESS_KEY)
+    except (FileNotFoundError, ValueError):
+        abort(503, description="whatsapp_tenant_not_configured")
+    if source == "twilio":
+        if request.form.get("To") != os.getenv("TWILIO_WHATSAPP_NUMBER"):
+            abort(403)
+        events = parse_inbound({"raw_form": request.form.to_dict()})
+        response = MessagingResponse()
+        if events:
+            response.message(_process(c, events[0], source))
+        return Response(str(response), mimetype="application/xml")
 
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400)
     try:
         events = parse_inbound(payload)
-    except Exception as exc:
-        logger.exception("WA WEBHOOK: parse_inbound failed: %s", exc)
-        return jsonify({"ok": True, "events": 0}), 200
-
-    if not events:
-        return jsonify({"ok": True, "events": 0}), 200
-
-    handled = 0
-
-    for ev in events:
-        try:
-            text = (ev.get("text") or "").strip()
-            if not text:
-                continue
-
-            from_raw = (ev.get("from") or "unknown").strip()
-            sender_digits = _norm_wa_id(from_raw)
-            session_id = (ev.get("session_id") or sender_digits or "wa_unknown").strip()
-            tenant = (ev.get("tenant") or tenant_default).strip() or tenant_default
-
-            lead_id = _lead_id_from_sender(sender_digits)
-            phone = f"+{sender_digits}" if sender_digits and sender_digits.isdigit() else None
-
-            try:
-                upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone)
-                set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
-            except Exception:
-                pass
-
-            # ✅ inbound (Common Questions)
-            try:
-                log_message(
-                    tenant=tenant,
-                    channel="whatsapp",
-                    direction="inbound",
-                    session_id=session_id,
-                    intent="unknown",
-                    text=text,
-                    lead_id=lead_id,
-                    store=None,
-                    fallback=False,
-                    error=False,
-                )
-            except Exception:
-                pass
-
-            logger.info("WA IN: source=cloud tenant=%s session=%s from=%s text=%r", tenant, session_id, sender_digits, text)
-
-            # Handle
-            if handler is None:
-                result: Dict[str, Any] = {"reply": "Sorry—bot not configured yet.", "intent": "system_error", "entities": {}}
-            else:
-                try:
-                    result = handler.handle(
-                        text,
-                        tenant=tenant,
-                        session_id=session_id,
-                        channel="whatsapp",
-                        metadata={"wa_id": sender_digits, "source": "cloud"},
-                    ) or {}
-                except Exception as exc:
-                    logger.exception("WA: handler.handle crashed: %s", exc)
-                    try:
-                        log_error(
-                            tenant=tenant,
-                            channel="whatsapp",
-                            session_id=session_id,
-                            lead_id=lead_id,
-                            error_code="wa_handler_crash",
-                            error_type=type(exc).__name__,
-                            meta={"source": "cloud"},
-                        )
-                    except Exception:
-                        pass
-                    result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
-
-            reply = (result.get("reply") or "").strip()
-            intent = (result.get("intent") or "unknown").strip()
-            is_fallback = (intent == "system_fallback")
-
-            logger.info("WA OUT: source=cloud tenant=%s session=%s intent=%s reply_len=%s", tenant, session_id, intent, len(reply))
-
-            # ✅ outbound
-            try:
-                log_message(
-                    tenant=tenant,
-                    channel="whatsapp",
-                    direction="outbound",
-                    session_id=session_id,
-                    intent=intent,
-                    text=reply,
-                    lead_id=lead_id,
-                    store=None,
-                    fallback=is_fallback,
-                    error=False,
-                )
-            except Exception:
-                pass
-
-            # Send reply
-            if reply:
-                try:
-                    send_reply(ev, reply, settings=c.settings)
-                except Exception as send_exc:
-                    logger.exception("WA WEBHOOK: send_reply failed: %s", send_exc)
-                    try:
-                        log_error(
-                            tenant=tenant,
-                            channel="whatsapp",
-                            session_id=session_id,
-                            lead_id=lead_id,
-                            error_code="wa_send_reply_failed",
-                            error_type=type(send_exc).__name__,
-                            meta={"source": "cloud"},
-                        )
-                    except Exception:
-                        pass
-
-            handled += 1
-
-        except Exception:
-            logger.exception("Error processing WA event")
-
-    return jsonify({"ok": True, "events": handled}), 200
+    except (TypeError, AttributeError, KeyError):
+        abort(400, description="invalid_webhook_payload")
+    if events and (not c.settings.WHATSAPP_TOKEN or not c.settings.WHATSAPP_PHONE_ID):
+        abort(503, description="whatsapp_not_configured")
+    for event in events:
+        if event.get("metadata", {}).get("phone_number_id") != c.settings.WHATSAPP_PHONE_ID:
+            abort(403)
+        _process(c, event, source)
+    return jsonify(ok=True, events=len(events))
 
 
-@bp.route("/status", methods=["POST", "GET"])
+@bp.route("/status", methods=["GET", "POST"])
 def whatsapp_status():
-    form = request.form.to_dict()
-    logger.info("WA STATUS: %s", form)
+    # Preserve callback URL while denying unsigned status submissions.
+    if request.method == "GET":
+        return jsonify(ok=True, integration="whatsapp", configured=bool(
+            get_container().settings.WHATSAPP_APP_SECRET or os.getenv("TWILIO_AUTH_TOKEN")))
+    _verify()
     return Response(status=204)

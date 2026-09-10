@@ -50,7 +50,7 @@ class RendererV7:
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
-            base = "I’m your Tariq Halal assistant. I can help with meats, groceries, prices, and delivery details."
+            base = "I’m your sales assistant. I can help with products, prices and delivery details."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":

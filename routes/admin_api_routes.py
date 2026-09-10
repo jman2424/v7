@@ -2,68 +2,81 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List
+import sqlite3
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
+from werkzeug.exceptions import HTTPException
+
+from routes import get_container
+from service.analytics_db import (
+    get_channel_breakdown,
+    get_channels_split,
+    get_common_questions,
+    get_errors,
+    get_fallbacks,
+    get_kpis,
+    get_leads,
+    get_overview_daily,
+    get_sessions_by_channel,
+    get_sessions_timeseries,
+    get_timeseries,
+    get_top_intents,
+    get_whatsapp_store_share,
+)
+from service.security import authorized_tenant, management_user
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 
 
-def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Always import analytics_db lazily so app boots even if analytics module is missing.
-    """
-    try:
-        from service import analytics_db  # type: ignore
-
-        fn = getattr(analytics_db, name, None)
-        if callable(fn):
-            return fn  # type: ignore[return-value]
-        logger.warning("analytics_db.%s missing; using fallback", name)
-        return fallback
-    except Exception as e:
-        logger.exception("Failed importing analytics_db.%s (%s); using fallback", name, e)
-        return fallback
+@bp.before_request
+def protect_dashboard_api():
+    management_user()
 
 
-def _fb_dict(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-    return {}
+@bp.after_request
+def private_response(response):
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
-def _fb_list(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
-    return []
+@bp.errorhandler(HTTPException)
+def api_http_error(error):
+    return jsonify({"ok": False, "error": error.name}), error.code
 
 
-# Canonical analytics functions (pulled from service/analytics_db.py)
-get_kpis = _safe_import("get_kpis", _fb_dict)
-get_timeseries = _safe_import("get_timeseries", _fb_list)
-get_sessions_timeseries = _safe_import("get_sessions_timeseries", _fb_list)
-get_channels_split = _safe_import("get_channels_split", _fb_dict)
-get_top_intents = _safe_import("get_top_intents", _fb_list)
-get_fallbacks = _safe_import("get_fallbacks", _fb_list)
-get_errors = _safe_import("get_errors", _fb_list)
-get_common_questions = _safe_import("get_common_questions", _fb_list)
-get_leads = _safe_import("get_leads", _fb_list)
-
-# NEW: per-day overview used by charts.js (overview chart)
-get_overview_daily = _safe_import("get_overview_daily", _fb_list)
-
-# Optional extras
-get_channel_breakdown = _safe_import("get_channel_breakdown", _fb_dict)
-get_whatsapp_store_share = _safe_import("get_whatsapp_store_share", _fb_list)
+@bp.errorhandler(sqlite3.Error)
+@bp.errorhandler(OSError)
+def analytics_unavailable(error):
+    logger.error("Dashboard analytics unavailable (%s)", type(error).__name__)
+    return jsonify({"ok": False, "error": "Analytics temporarily unavailable"}), 503
 
 
 def _tenant() -> str:
-    # IMPORTANT: do NOT force case here; analytics_db normalizes internally
-    return (request.args.get("tenant") or "default").strip() or "default"
+    c = get_container()
+    return authorized_tenant(request.args.get("tenant"), default=c.settings.BUSINESS_KEY)
 
 
 def _int_arg(name: str, default: int) -> int:
     try:
-        return int(request.args.get(name) or default)
-    except Exception:
-        return default
+        value = int(request.args.get(name, default))
+    except (ValueError, TypeError):
+        abort(400, description="Invalid query parameter")
+    maximum = {"minutes": 43200, "bucket": 1440, "top": 50, "limit": 500,
+               "page": 100000}.get(name, 500)
+    if not 1 <= value <= maximum:
+        abort(400, description="Query parameter out of range")
+    return value
+
+
+@bp.get("/platform")
+def api_platform():
+    management_user(platform_only=True)
+    from service.platform_overview import get_platform_overview
+
+    return jsonify(get_platform_overview(
+        get_container(), minutes=_int_arg("minutes", 1440), page=_int_arg("page", 1)
+    ))
 
 
 @bp.get("/insights")
@@ -117,6 +130,7 @@ def api_insights():
         "kpis": kpis,
         "message_volume": msg_series,
         "sessions_per_bucket": sess_series,
+        "sessions_by_channel": get_sessions_by_channel(tenant=tenant, minutes=minutes),
         "channels": channels,
         "channels_total": channels_total,
         "channel_breakdown": ch_breakdown,
@@ -189,3 +203,39 @@ def api_questions():
 def api_leads():
     limit = _int_arg("limit", 50)
     return jsonify(get_leads(tenant=_tenant(), limit=limit))
+
+
+@bp.get("/conversations")
+def api_conversations():
+    from service.analytics_db import _conn, _ensure_ready, _since
+    tenant = _tenant().upper()
+    since = _since(_int_arg("minutes", 1440))
+    try:
+        before = int(request.args.get("before", "9223372036854775807"))
+    except ValueError:
+        abort(400)
+    if not 1 <= before <= 9223372036854775807:
+        abort(400)
+    _ensure_ready()
+    with _conn() as db:
+        rows = db.execute(
+            "SELECT id, ts_utc, channel, event_type, text FROM events "
+            "WHERE tenant=? AND id<? AND ts_utc>=? AND event_type IN ('msg_in','msg_out') "
+            "ORDER BY id DESC LIMIT 51", (tenant, before, since)
+        ).fetchall()
+    return jsonify(messages=[dict(row) for row in rows[:50]], has_more=len(rows) > 50,
+                   next_before=rows[49]["id"] if len(rows) > 50 else None)
+
+
+@bp.get("/integrations")
+def api_integrations():
+    import os
+    tenant = _tenant()
+    c = get_container()
+    assigned = tenant == c.settings.BUSINESS_KEY
+    return jsonify(
+        tenant=tenant, whatsapp_assigned=assigned,
+        meta_configured=assigned and bool(c.settings.WHATSAPP_APP_SECRET and c.settings.WHATSAPP_TOKEN and c.settings.WHATSAPP_PHONE_ID),
+        twilio_configured=assigned and bool(os.getenv("TWILIO_AUTH_TOKEN") and os.getenv("TWILIO_WHATSAPP_NUMBER")),
+        ai_configured=bool(os.getenv("OPENAI_API_KEY")),
+    )

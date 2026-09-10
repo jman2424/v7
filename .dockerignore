@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.codex-test-deps
+.pytest-v7
+logs
+backups
+business/versions
+__pycache__
+*.pyc
+management-users.json

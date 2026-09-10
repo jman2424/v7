@@ -3,11 +3,12 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime
-from typing import Iterable, Dict, Any, Optional
+from typing import Any, Dict, Iterable, Optional
 
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, Response, jsonify, request
 
-from routes import get_container, require_auth
+from routes import get_container
+from service.security import authorized_tenant, require_management
 
 bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 
@@ -16,8 +17,7 @@ ALLOWED_ROLLUPS = {"hour", "day", "week", "month"}
 
 
 def _get_tenant(c) -> str:
-    tenant = (request.args.get("tenant") or "").strip()
-    return tenant or c.settings.BUSINESS_KEY
+    return authorized_tenant(request.args.get("tenant"))
 
 
 def _get_int(name: str, default: int, min_value: int = 1, max_value: int = 10_000_000) -> int:
@@ -41,7 +41,7 @@ def _get_rollup_by(default: str = "day") -> str:
 
 
 @bp.get("/kpis.json")
-@require_auth(roles=("Owner", "Manager", "Staff"))
+@require_management()
 def kpis_json():
     """
     Returns dashboard KPI summary payload for a tenant.
@@ -52,12 +52,12 @@ def kpis_json():
     # Optional time window (minutes). Your service can ignore if unsupported.
     minutes = _get_int("minutes", default=1440, min_value=1, max_value=60 * 24 * 365)
 
-    res = c.analytics.summary(tenant, minutes=minutes)
+    res = c.analytics.get_kpis(tenant=tenant, minutes=minutes)
     return jsonify(res)
 
 
 @bp.get("/rollups.json")
-@require_auth(roles=("Owner", "Manager", "Staff"))
+@require_management()
 def rollups_json():
     """
     Returns time-series rollups for charts (message volume, sessions, etc).
@@ -65,11 +65,15 @@ def rollups_json():
     c = get_container()
     tenant = _get_tenant(c)
 
-    by = _get_rollup_by(default="day")
     minutes = _get_int("minutes", default=1440, min_value=1, max_value=60 * 24 * 365)
 
-    res = c.analytics.rollups(tenant, by=by, minutes=minutes)
+    res = c.analytics.get_overview_daily(tenant=tenant, minutes=minutes)
     return jsonify(res)
+
+
+def _csv_safe(value):
+    text = str(value if value is not None else "")
+    return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
 
 
 def _iter_csv(rows: Iterable[Dict[str, Any]], fieldnames: list[str]) -> Iterable[str]:
@@ -84,31 +88,29 @@ def _iter_csv(rows: Iterable[Dict[str, Any]], fieldnames: list[str]) -> Iterable
     output.truncate(0)
 
     for r in rows:
-        writer.writerow({k: r.get(k, "") for k in fieldnames})
+        writer.writerow({k: _csv_safe(r.get(k, "")) for k in fieldnames})
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
 
 
 @bp.get("/export.csv")
-@require_auth(roles=("Owner", "Manager"))
+@require_management()
 def export_csv_route():
     """
-    Streams raw analytics events as CSV.
+    Export up to 500 recent leads for the authorized company.
     """
     c = get_container()
     tenant = _get_tenant(c)
 
-    # Optional time window (minutes)
-    minutes = _get_int("minutes", default=1440, min_value=1, max_value=60 * 24 * 365)
-
-    rows = c.analytics.fetch_raw(tenant, minutes=minutes) or []
+    from service.analytics_db import get_leads
+    rows = get_leads(tenant=tenant, limit=500)
 
     # Compute stable header even if empty
     if rows:
         header = sorted({k for r in rows for k in r.keys()})
     else:
-        header = ["timestamp", "tenant", "direction", "channel", "intent", "session_id", "message"]
+        header = ["last_session_id", "lead_id", "name", "phone", "status", "tags", "updated_utc"]
 
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     filename = f"analytics-{tenant}-{ts}.csv"

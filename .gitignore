@@ -17,7 +17,11 @@ __pycache__/
 # Test / tooling caches
 .mypy_cache/
 .pytest_cache/
+.pytest-v7/
 .ruff_cache/
+.codex-test-deps/
+.push-worktree/
+management-users.json
 coverage.xml
 htmlcov/
 

@@ -1,135 +1,98 @@
-"""
-Middleware installers for Flask.
-
-- Request ID injection
-- Simple IP rate limiting
-- CSRF protection (supports: header, query, form, JSON)
-- Timing metrics -> AnalyticsService
-"""
-
+"""Request identity, bounded rate limits, CSRF and response protections."""
 from __future__ import annotations
 
+import hmac
+import secrets
 import time
-import uuid
-from collections import defaultdict
-from typing import Dict, Optional
+from threading import Lock
 
-from flask import Flask, g, request, abort, session
-
-from app.config import Settings
+from flask import abort, g, request, session
 
 
-def install_request_id(app: Flask) -> None:
+def install_request_id(app):
     @app.before_request
-    def _req_id():
-        g.request_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:12]}"
+    def request_id():
+        g.request_id = secrets.token_hex(12)
+        g.csp_nonce = secrets.token_urlsafe(24)
 
     @app.after_request
-    def _stamp(response):
+    def protect_response(response):
         response.headers["X-Request-ID"] = g.get("request_id", "-")
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'nonce-" + g.csp_nonce + "'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
+            "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        )
+        if request.path.startswith(("/admin", "/auth", "/files", "/analytics", "/__diag")):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Content-Security-Policy"] += "; frame-ancestors 'none'"
+        elif request.path == "/chat_ui":
+            origins = g.get("chat_origins", [])
+            response.headers["Content-Security-Policy"] += "; frame-ancestors 'self' " + " ".join(origins)
+        if app.config["SESSION_COOKIE_SECURE"]:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
 
 
-def install_rate_limit(app: Flask, settings: Settings) -> None:
-    buckets: Dict[str, Dict[str, float]] = defaultdict(
-        lambda: {"tokens": settings.RATE_LIMIT_PER_MIN, "ts": time.time()}
-    )
-
-    def allow(ip: str) -> bool:
-        now = time.time()
-        b = buckets[ip]
-        refill = (now - b["ts"]) * (settings.RATE_LIMIT_PER_MIN / 60.0)
-        b["tokens"] = min(
-            settings.RATE_LIMIT_PER_MIN + settings.RATE_LIMIT_BURST,
-            b["tokens"] + refill,
-        )
-        b["ts"] = now
-        if b["tokens"] >= 1.0:
-            b["tokens"] -= 1.0
-            return True
-        return False
+def install_rate_limit(app, settings):
+    buckets = {}
+    lock = Lock()
 
     @app.before_request
-    def _rl():
-        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
-        if not allow(ip):
-            abort(429)
+    def limit():
+        # Do not trust caller-supplied forwarded IP headers.
+        ip = request.remote_addr or "unknown"
+        login = request.method == "POST" and request.path in {"/auth/login", "/admin/login"}
+        if login:
+            from service.session_store import allow_login
+            if not allow_login(ip):
+                abort(429)
+        key = (ip, "login" if login else "request")
+        rate = 5 if login else max(1, settings.RATE_LIMIT_PER_MIN)
+        capacity = 5 if login else rate + max(0, settings.RATE_LIMIT_BURST)
+        now = time.monotonic()
+        with lock:
+            if len(buckets) > 10000:
+                for stale in [k for k, (_, timestamp) in buckets.items() if now - timestamp > 600]:
+                    buckets.pop(stale, None)
+                if key not in buckets and len(buckets) > 10000:
+                    abort(429)
+            tokens, previous = buckets.get(key, (capacity, now))
+            tokens = min(capacity, tokens + (now - previous) * rate / 60)
+            if tokens < 1:
+                buckets[key] = (tokens, now)
+                abort(429)
+            buckets[key] = (tokens - 1, now)
 
 
-def _read_csrf_from_request() -> Optional[str]:
-    # 1) Header
-    token = request.headers.get("X-CSRF-Token")
-    if token:
-        return token
-
-    # 2) Query
-    token = request.args.get("_csrf")
-    if token:
-        return token
-
-    # 3) Form
-    token = request.form.get("csrf_token")
-    if token:
-        return token
-
-    # 4) JSON
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-        token = data.get("csrf_token")
-        if token:
-            return token
-
-    return None
-
-
-def install_csrf(app: Flask, settings: Settings) -> None:
-    SAFE = {"GET", "HEAD", "OPTIONS"}
-
+def install_csrf(app, settings):
     @app.before_request
-    def _csrf():
-        # Always ensure session has a token (needed for first POST)
+    def csrf():
+        # Webhooks and chat have separate authentication.
+        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook"}:
+            return
         if "_csrf" not in session:
-            session["_csrf"] = f"csrf_{uuid.uuid4().hex}"
-
-        if request.method in SAFE:
+            session["_csrf"] = secrets.token_urlsafe(32)
+        if request.method in {"GET", "HEAD", "OPTIONS"}:
             return
-
-        path = (request.path or "").lower()
-
-        # ✅ Allow public endpoints / webhooks
-        if (
-            path.startswith("/chat_api")
-            or path.startswith("/whatsapp")
-            or path.startswith("/catalog_webhook")
-            or path.startswith("/export_catalog_csv")
-            or path.startswith("/health")
-        ):
-            return
-
-        # ✅ Allow login endpoints (otherwise you lock yourself out)
-        if path.startswith("/auth/login") or path.startswith("/admin/login"):
-            return
-
-        expected = session.get("_csrf")
-        got = _read_csrf_from_request()
-
-        if not expected or not got or got != expected:
-            app.logger.warning("CSRF blocked: method=%s path=%s got=%r", request.method, path, got)
+        data = request.get_json(silent=True) if request.is_json else None
+        supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+        if not supplied and isinstance(data, dict):
+            supplied = data.get("csrf_token")
+        if not isinstance(supplied, str) or not hmac.compare_digest(supplied.encode(), session["_csrf"].encode()):
             abort(403, description="csrf_failed")
 
 
-def install_timing_metrics(app: Flask, container) -> None:
+def install_timing_metrics(app, container):
     @app.before_request
-    def _start_timer():
-        g._t0 = time.time()
+    def start_timer():
+        g.started = time.monotonic()
 
     @app.after_request
-    def _stop_timer(response):
-        try:
-            t0 = getattr(g, "_t0", None)
-            if t0 is not None:
-                dt = int((time.time() - t0) * 1000)
-                container.analytics.record_timing(path=request.path, ms=dt)
-        except Exception:
-            pass
+    def elapsed(response):
+        if hasattr(g, "started"):
+            response.headers["Server-Timing"] = f'app;dur={(time.monotonic() - g.started) * 1000:.1f}'
         return response

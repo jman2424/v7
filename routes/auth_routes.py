@@ -1,41 +1,37 @@
-# routes/auth_routes.py
-from __future__ import annotations
+from flask import Blueprint, jsonify, request, session
 
-from flask import Blueprint, request, jsonify, session
 from routes import get_container
+from service import session_store
+from service.security import (
+    authenticate_user,
+    management_user,
+    start_management_session,
+    verify_totp,
+)
 
-# Unique blueprint name to avoid: "auth already registered"
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
+
+
+@bp.get("/session")
+def session_info():
+    user = management_user() if session.get("management_token") else None
+    return jsonify(user=user, csrf_token=session["_csrf"])
 
 
 @bp.post("/login")
 def login_post():
-    c = get_container()
-
-    if not request.is_json:
-        return jsonify({"ok": False, "error": "json_required"}), 400
-
-    data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-    totp = (data.get("totp") or None)
-
-    from service.security import authenticate_user, verify_totp
-
-    # IMPORTANT: pass container
-    user = authenticate_user(c, email=email, password=password)
-    if not user:
-        return jsonify({"ok": False, "error": "invalid_credentials"}), 401
-
-    if user.get("totp_secret"):
-        if not totp or not verify_totp(user["totp_secret"], totp):
-            return jsonify({"ok": False, "error": "totp_required"}), 401
-
-    session["user"] = {"id": user["id"], "email": user["email"], "roles": user.get("roles", [])}
-    return jsonify({"ok": True, "user": session["user"]})
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(ok=False, error="json_object_required"), 400
+    user = authenticate_user(get_container(), email=data.get("email"), password=data.get("password"))
+    if not user or not verify_totp(user.get("totp_secret"), data.get("totp", "")):
+        return jsonify(ok=False, error="invalid_credentials"), 401
+    identity = start_management_session(user)
+    return jsonify(ok=True, user=identity, csrf_token=session["_csrf"])
 
 
 @bp.post("/logout")
 def logout_post():
-    session.pop("user", None)
-    return jsonify({"ok": True})
+    session_store.revoke(session.get("management_token"))
+    session.clear()
+    return jsonify(ok=True)

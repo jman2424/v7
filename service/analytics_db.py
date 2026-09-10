@@ -207,10 +207,7 @@ def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone:
                 (tenant_n, lead_id_n, name, phone, now),
             )
         else:
-            con.execute(
-                "INSERT OR REPLACE INTO leads (lead_id, name, phone, updated_utc) VALUES (?, ?, ?, ?);",
-                (lead_id_n, name, phone, now),
-            )
+            raise RuntimeError("Legacy leads require tenant migration before writes")
 
 
 def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
@@ -507,7 +504,7 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
                 (tenant_n, since),
             ).fetchone()["n"]
         else:
-            leads = con.execute("SELECT COUNT(*) AS n FROM leads WHERE updated_utc>=?;", (since,)).fetchone()["n"]
+            raise RuntimeError("Legacy leads require tenant migration before access")
 
     inbound = int(row["inbound"] or 0)
     outbound = int(row["outbound"] or 0)
@@ -761,15 +758,7 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
                 (tenant_n, limit),
             ).fetchall()
         else:
-            rows = con.execute(
-                """
-                SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
-                FROM leads
-                ORDER BY updated_utc DESC
-                LIMIT ?;
-                """,
-                (limit,),
-            ).fetchall()
+            raise RuntimeError("Legacy leads require tenant migration before access")
 
     out: list[dict[str, Any]] = []
     for r in rows:

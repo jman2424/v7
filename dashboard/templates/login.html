@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Admin Login • AI Sales Assistant</title>
+  <title>Sign in • V7</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="icon" href="{{ url_for('static', filename='img/logo.svg') }}" />
@@ -27,10 +27,11 @@
         <p class="error">{{ error or qerr }}</p>
       {% endif %}
 
-      <label>Email
+      <p class="muted">Access your business workspace or platform overview.</p>
+      <label>Email or username
         <input
           name="email"
-          type="email"
+          type="text"
           autocomplete="username"
           required
           value="{{ request.form.get('email','') if request.method == 'POST' else '' }}"
@@ -49,6 +50,8 @@
       <label>TOTP (if enabled)
         <input
           name="totp"
+          maxlength="6"
+          pattern="[0-9]{6}"
           type="text"
           inputmode="numeric"
           autocomplete="one-time-code"

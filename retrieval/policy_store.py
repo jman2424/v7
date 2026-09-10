@@ -1,15 +1,13 @@
 # retrieval/policy_store.py
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import re
-
 from retrieval.storage import Storage
 from service.validators import normalize_postcode
-
 
 _OUTWARD_RE = re.compile(r"^([A-Z]{1,2})(\d{1,2})([A-Z]?)$")
 
@@ -219,8 +217,9 @@ class PolicyStore:
                 if _area_matches_outward(area, out):
                     return {
                         "fee": z.get("fee"),
-                        "min_order": z.get("min"),
-                        "eta_min": z.get("eta"),
+                        "min_order": z.get("min_order", z.get("min")),
+                        "eta_min": z.get("eta_min", z.get("eta")),
+                        "eta_hours": z.get("eta_hours"),
                         "source": "zone",
                         "zone": z.get("code") or None,
                         "area": area,

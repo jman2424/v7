@@ -4,33 +4,61 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import secrets
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, jsonify, make_response, render_template, request
+from flask import Blueprint, abort, current_app, g, jsonify, make_response, render_template, request
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from routes import get_container
 from connectors.web_widget import parse_inbound, send_reply
+from routes import get_container
 
 # DB-backed analytics (same DB used by dashboard)
-from service.analytics_db import log_message, log_error, upsert_lead, set_lead_session
+from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
 
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
-# If you want multiple origins later, upgrade to a whitelist.
-ALLOWED_ORIGIN = os.environ.get("WEBCHAT_ALLOWED_ORIGIN", "https://web-tester-jnwd.onrender.com")
+def _tenant_container(tenant):
+    try:
+        return get_container().for_tenant(tenant)
+    except ValueError:
+        abort(400, description="invalid_tenant")
+    except FileNotFoundError:
+        abort(404, description="tenant_not_found")
 
 
-# ---------------------------------------------------------------------
-# CORS
-# ---------------------------------------------------------------------
+def _branding(c):
+    try:
+        data = c.storage.read_json(c.settings.BUSINESS_KEY, "branding.json")
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
+def _check_origin(c):
+    origin = request.headers.get("Origin")
+    allowed = _branding(c).get("allowed_origins", [])
+    if not isinstance(allowed, list):
+        allowed = []
+    # Same-origin hosted chat always works. Cross-origin calls need tenant consent.
+    if origin and origin != request.host_url.rstrip("/") and origin not in allowed:
+        abort(403, description="origin_forbidden")
+
+
 def _cors(resp):
-    resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
-    resp.headers["Vary"] = "Origin"
-    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
+    origin = request.headers.get("Origin")
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Vary"] = "Origin"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+def _signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="web-conversation-v1")
 
 
 # ---------------------------------------------------------------------
@@ -184,53 +212,62 @@ def _safe_log_error(**kwargs) -> None:
 # ---------------------------------------------------------------------
 @bp.get("/chat_ui")
 def chat_ui():
-    c = get_container()
-    session_id = request.args.get("session") or ""
-    tenant = request.args.get("tenant") or c.settings.BUSINESS_KEY
-    return render_template("chatbot.html", session_id=session_id, tenant=tenant)
+    tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    c = _tenant_container(tenant)
+    from urllib.parse import urlsplit
+    origins = _branding(c).get("allowed_origins", [])
+    g.chat_origins = []
+    if isinstance(origins, list):
+        for origin in origins:
+            if isinstance(origin, str) and not any(ch in origin for ch in (";", "'", " ", "\r", "\n")):
+                parsed = urlsplit(origin)
+                if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path and not parsed.username:
+                    g.chat_origins.append(origin)
+    return render_template("chatbot.html", tenant=tenant, branding=_branding(c))
 
 
 @bp.route("/chat_api", methods=["OPTIONS"])
 def chat_api_options():
-    return _cors(make_response("", 200))
+    tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    _check_origin(_tenant_container(tenant))
+    return _cors(make_response("", 204))
 
 
 @bp.route("/chat_api", methods=["POST"])
 def chat_api():
-    c = get_container()
-
-    try:
-        data = request.get_json(force=True) or {}
-    except Exception:
-        logger.exception("WEB: Invalid JSON payload")
-        return _cors(jsonify({"error": "invalid_json"})), 400
-
-    events = parse_inbound(
-        data,
-        default_tenant=c.settings.BUSINESS_KEY,
-        default_channel="web",
-        remote_addr=request.remote_addr,
-    )
-    if not events:
-        return _cors(jsonify({"error": "missing_message"})), 400
-
-    ev = events[0]
-    text = (ev.get("text") or "").strip()
-    session_id = (ev.get("session_id") or "").strip() or "web_unknown"
-    tenant = (ev.get("tenant") or "").strip() or c.settings.BUSINESS_KEY
-    channel = (ev.get("channel") or "web").strip().lower() or "web"
-    metadata = ev.get("metadata") or {}
-
-    message_id = _extract_message_id(ev)
-
-    logger.info(
-        "WEB IN: tenant=%s session=%s channel=%s mid=%s text=%r",
-        tenant,
-        session_id,
-        channel,
-        message_id or "-",
-        text,
-    )
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="json_object_required"), 400
+    tenant = data.get("tenant") or get_container().settings.BUSINESS_KEY
+    if not isinstance(tenant, str):
+        return jsonify(error="invalid_tenant"), 400
+    c = _tenant_container(tenant)
+    _check_origin(c)
+    text = data.get("message", data.get("text", ""))
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+        return _cors(jsonify(error="message_must_be_1_to_4000_characters")), 400
+    text = text.strip()
+    token = data.get("conversation_token")
+    if token:
+        if not isinstance(token, str) or len(token) > 2048:
+            return _cors(jsonify(error="invalid_conversation")), 403
+        try:
+            identity = _signer().loads(token, max_age=86400)
+        except (BadSignature, SignatureExpired):
+            return _cors(jsonify(error="conversation_expired")), 403
+        if not isinstance(identity, dict) or identity.get("tenant") != tenant:
+            return _cors(jsonify(error="invalid_conversation")), 403
+        session_id = identity["id"]
+    else:
+        session_id = "web:" + secrets.token_urlsafe(24)
+        token = _signer().dumps({"tenant": tenant, "id": session_id})
+    channel = "web"
+    metadata = {"source": "widget"}
+    # Ignore caller identities/metadata: they must not select another conversation.
+    message_id = data.get("message_id") or secrets.token_hex(16)
+    if not isinstance(message_id, str) or len(message_id) > 128:
+        return _cors(jsonify(error="invalid_message_id")), 400
+    message_id = session_id + ":" + message_id
 
     lead_id = _lead_id_from_session(session_id)
 
@@ -286,15 +323,19 @@ def chat_api():
             logger.exception("WEB: handler.handle crashed: %s", exc)
             result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
-    reply = (result.get("reply") or "").strip()
+    if not isinstance(result, dict):
+        result = {"reply": "Sorry, please try again.", "intent": "system_error"}
+        is_error, error_code, error_type = True, "invalid_agent_response", "InvalidResponse"
+    reply = str(result.get("reply") or "Please rephrase your question.").strip()
     intent = (result.get("intent") or "unknown").strip()
+    if intent == "system_error":
+        is_error, error_code, error_type = True, "agent_failure", "AgentError"
     store = _extract_store_from_result(result)
     is_fallback = _is_fallback_result(result, intent)
 
     logger.info(
-        "WEB OUT: tenant=%s session=%s intent=%s fallback=%s error=%s reply_len=%s",
+        "WEB OUT: tenant=%s intent=%s fallback=%s error=%s reply_len=%s",
         tenant,
-        session_id,
         intent,
         is_fallback,
         is_error,
@@ -334,5 +375,5 @@ def chat_api():
             message_id=f"{message_id}:error" if message_id else "",
         )
 
-    resp_payload = send_reply(ev, reply, raw=result)
-    return _cors(jsonify({"reply": resp_payload["reply"], "raw": resp_payload["raw"]})), 200
+    return _cors(jsonify(reply=reply, conversation_token=token, session_id=session_id,
+                         error=error_code or None)), 503 if is_error else 200

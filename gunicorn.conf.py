@@ -1,9 +1,9 @@
-import multiprocessing
 import os
 
 # Bind / workers / threads
 bind = os.getenv("BIND", "0.0.0.0:10000")
-workers = int(os.getenv("WEB_CONCURRENCY", str(max(2, multiprocessing.cpu_count() // 2))))
+# Conversation memory is process-local; multiple workers require shared memory first.
+workers = int(os.getenv("WEB_CONCURRENCY", "1"))
 threads = int(os.getenv("WEB_THREADS", "2"))
 
 # Worker class & timeouts
@@ -19,7 +19,7 @@ errorlog = "-"    # stderr
 capture_output = True
 
 # Security / proxy
-forwarded_allow_ips = "*"
+forwarded_allow_ips = os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1,::1")
 proxy_protocol = False
 
 # Preload to reduce per-worker startup

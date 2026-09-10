@@ -7,7 +7,9 @@ Configuration loader.
 """
 
 from __future__ import annotations
+
 import os
+import secrets
 from dataclasses import dataclass
 from typing import Optional
 
@@ -42,6 +44,9 @@ class Settings:
     # Server
     BASE_URL: str
     HEALTH_PATH: str
+    WHATSAPP_TOKEN: str = ""
+    WHATSAPP_PHONE_ID: str = ""
+    WHATSAPP_API_URL: str = "https://graph.facebook.com/v21.0"
 
 
 def _to_bool(s: str | None, default: bool = False) -> bool:
@@ -52,13 +57,18 @@ def _to_bool(s: str | None, default: bool = False) -> bool:
 
 def load_settings(override: dict | None = None) -> Settings:
     o = override or {}
+    secret = o.get("SECRET_KEY") or os.environ.get("SECRET_KEY") or ""
+    if not secret and o.get("TESTING"):
+        secret = secrets.token_urlsafe(32)
+    if len(secret) < 32 or secret.lower() in {"change-me", "change_me"}:
+        raise RuntimeError("Set SECRET_KEY to a random value of at least 32 characters")
     return Settings(
         MODE=o.get("MODE", _get("MODE", "V6")),
         BUSINESS_KEY=o.get("BUSINESS_KEY", _get("BUSINESS_KEY", "EXAMPLE")),
-        SECRET_KEY=o.get("SECRET_KEY", _get("SECRET_KEY", "change-me")),
+        SECRET_KEY=secret,
 
-        WHATSAPP_VERIFY_TOKEN=o.get("WHATSAPP_VERIFY_TOKEN", _get("WHATSAPP_VERIFY_TOKEN", "dev")),
-        WHATSAPP_APP_SECRET=o.get("WHATSAPP_APP_SECRET", _get("WHATSAPP_APP_SECRET", "dev")),
+        WHATSAPP_VERIFY_TOKEN=o.get("WHATSAPP_VERIFY_TOKEN", _get("WHATSAPP_VERIFY_TOKEN", "")),
+        WHATSAPP_APP_SECRET=o.get("WHATSAPP_APP_SECRET", _get("WHATSAPP_APP_SECRET", "")),
         SHEETS_SERVICE_JSON=o.get("SHEETS_SERVICE_JSON", os.environ.get("SHEETS_SERVICE_JSON")),
 
         RATE_LIMIT_PER_MIN=int(o.get("RATE_LIMIT_PER_MIN", os.environ.get("RATE_LIMIT_PER_MIN", 120))),
@@ -70,4 +80,7 @@ def load_settings(override: dict | None = None) -> Settings:
 
         BASE_URL=o.get("BASE_URL", os.environ.get("BASE_URL", "http://localhost:10000")),
         HEALTH_PATH=o.get("HEALTH_PATH", os.environ.get("HEALTH_PATH", "/health")),
+        WHATSAPP_TOKEN=o.get("WHATSAPP_TOKEN", os.getenv("WHATSAPP_TOKEN", "")),
+        WHATSAPP_PHONE_ID=o.get("WHATSAPP_PHONE_ID", os.getenv("WHATSAPP_PHONE_ID", "")),
+        WHATSAPP_API_URL=o.get("WHATSAPP_API_URL", os.getenv("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0")),
     )

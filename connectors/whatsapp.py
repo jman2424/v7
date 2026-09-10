@@ -12,8 +12,9 @@ Provides:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
 import logging
+from typing import Any, Dict, List
+
 import requests
 
 from app.config import Settings
@@ -170,19 +171,7 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         "text": {"body": reply},
     }
 
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=8)
-        if resp.status_code >= 400:
-            logger.warning(
-                "send_reply: WA Cloud API returned non-2xx",
-                extra={
-                    "status": resp.status_code,
-                    "body": resp.text[:500],
-                    "wa_id": wa_id,
-                },
-            )
-    except Exception as exc:
-        logger.exception(
-            "send_reply: exception while calling WA Cloud API",
-            extra={"wa_id": wa_id, "error": str(exc)},
-        )
+    resp = requests.post(url, headers=headers, json=payload, timeout=8)
+    if resp.status_code >= 400:
+        # Do not log provider bodies, phone numbers or credentials.
+        raise RuntimeError(f"WhatsApp provider returned HTTP {resp.status_code}")
