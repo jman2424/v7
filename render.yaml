@@ -3,28 +3,54 @@ services:
     name: ai-sales-assistant
     env: python
     plan: starter
-    buildCommand: "pip install -r requirement.txt"
+    disk:
+      name: v7-data
+      mountPath: /var/data
+      sizeGB: 1
+    buildCommand: "pip install -r requirements.txt && cd frontend && npm ci && V7_CONSOLE_BASE_PATH=/console npm run build"
     startCommand: "gunicorn -c gunicorn.conf.py 'app:create_app()'"
     envVars:
       - key: MODE
-        value: AIV7
+        value: V7
       - key: BUSINESS_KEY
-        sync: false
-      - key: PORT
-        value: "10000"
-      - key: SECRET_KEY
-        sync: false
+        value: EXAMPLE
+      - key: ENVIRONMENT
+        value: production
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: V7_DATA_DIR
+        value: /var/data
+      - key: ANALYTICS_DB_PATH
+        value: /var/data/logs/analytics.db
+      - key: CRM_SNAPSHOT_PATH
+        value: /var/data/logs/crm_snapshot.json
+      - key: SECURITY_DB_PATH
+        value: /var/data/logs/security.db
       - key: BASE_URL
         sync: false
       - key: ADMIN_USERS_FILE
         sync: false
-      - key: WHATSAPP_VERIFY_TOKEN
+      - key: ADMIN_USERNAME
         sync: false
-      - key: WHATSAPP_TOKEN
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: ADMIN_TOTP_SECRET
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WHATSAPP_VERIFY_TOKEN
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
       - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: WHATSAPP_TENANT_MAP_JSON
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_NUMBER
         sync: false
       - key: SHEETS_API_KEY
         sync: false

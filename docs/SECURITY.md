@@ -7,9 +7,10 @@ security need deployment-specific review.
 ## Accounts and sessions
 
 Management routes require a server-configured account. The implemented roles are
-platform_admin and business_owner; the legacy admin role retains platform access.
-Business owners are restricted server-side to their assigned company. There is
-no staff role implementation or public registration.
+platform_admin, business_owner and business_staff; the legacy admin role retains
+platform access. Owners and staff are restricted server-side to their assigned
+company. Owners can manage staff; only platform operators can manage owners.
+There is no public registration.
 
 Run from the repository root:
 ```bash
@@ -22,10 +23,13 @@ Set ADMIN_USERS_FILE to the resulting registry's absolute path. Passwords are
 entered interactively and stored as Werkzeug scrypt hashes. Never commit the
 registry. Restrict its filesystem permissions to the service operator. Store it
 outside business and dashboard directories. Account removal, disabling,
-password changes and role changes invalidate existing sessions.
+password changes and role changes invalidate existing sessions. Existing
+BUSINESS_USERS_JSON and tenant-managed bcrypt accounts remain supported.
+Tenant accounts can be managed on the console's Team access page.
 
 Platform admins must configure an authenticator TOTP secret to log in when
-BASE_URL uses HTTPS. TOTP codes allow one 30-second step of clock skew; a valid
+BASE_URL uses HTTPS, secure cookies are enabled, or ENVIRONMENT is production.
+TOTP codes allow one 30-second step of clock skew; a valid
 code is not currently single-use within that window. Owners may configure TOTP.
 There is no self-service account recovery or authenticator enrollment screen.
 The environment admin fallback remains for compatibility; prefer the registry.
@@ -64,15 +68,18 @@ For Meta configure WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, WHATSAPP_TOKEN,
 WHATSAPP_PHONE_ID and the appropriate WHATSAPP_API_URL for your provider setup.
 POST signatures use X-Hub-Signature-256 over the original request body. The
 verification handshake checks the configured token. Incoming recipient IDs must
-match the configured phone ID.
+match the configured phone ID or an explicit WHATSAPP_TENANT_MAP_JSON entry.
 
 For Twilio configure TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_NUMBER (including the
 whatsapp: prefix). Signatures are checked with Twilio's validator against BASE_URL
-and the callback path; recipient numbers must match.
+and the callback path; recipient numbers must match the configured number or
+an explicit server-side mapping.
 
-WhatsApp currently belongs to BUSINESS_KEY for this deployment. It does not
-provide independent phone/credential mappings for every company. Web chat
-continues to work while WhatsApp is unconfigured.
+WHATSAPP_TENANT_MAP_JSON maps incoming business phone IDs or Twilio recipient
+numbers to tenant keys. When present, unknown recipients are rejected. Without
+a mapping, only the configured recipient is assigned to BUSINESS_KEY. Provider
+credentials are shared by this deployment; arbitrary per-tenant credentials
+are not supported. Web chat continues to work while WhatsApp is unconfigured.
 
 Provider message IDs are deduplicated in SECURITY_DB_PATH for seven days.
 Completed Twilio replies can be replayed safely; failed processing can retry.
@@ -106,5 +113,6 @@ python -m pytest tests/test_platform_security.py tests/test_whatsapp_security.py
 
 These tests exercise real Flask authentication, CSRF, tenant isolation, file
 validation, session revocation, webhook signatures and duplicate handling.
-The older test suite has stale imports and fixtures and must be reconciled
-before it can act as a full release gate.
+The full regression suite also covers existing sales, account-management,
+tenant configuration and console asset routes. Run it with `python -m pytest`.
+Frontend checking and a production console build are separate release checks.

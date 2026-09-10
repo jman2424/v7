@@ -7,6 +7,7 @@ Admin API tests:
 """
 
 from __future__ import annotations
+from tests.conftest import set_test_identity
 import json
 import pytest
 
@@ -14,7 +15,7 @@ import pytest
 def as_admin(client):
     """Helper: promote session to admin."""
     with client.session_transaction() as sess:
-        sess["user"] = {"username": "admin", "role": "admin"}
+        set_test_identity(client, sess, {"username": "admin", "role": "admin"})
 
 
 def test_admin_requires_auth(client):
@@ -33,6 +34,15 @@ def test_get_catalog_ok_as_admin(client):
     # quick sanity
     cats = data.get("categories") or []
     assert isinstance(cats, list) and len(cats) > 0
+
+
+def test_put_catalog_accepts_existing_version_and_currency_metadata(client):
+    as_admin(client)
+    catalog = client.get("/admin/api/catalog").get_json()
+    response = client.put("/admin/api/catalog", json=catalog)
+
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is True
 
 
 def test_put_faq_updates_and_audits(client, monkeypatch):
@@ -65,6 +75,141 @@ def test_put_faq_updates_and_audits(client, monkeypatch):
     assert len(calls) >= 0  # not hard-failing if audit is no-op in implementation
 
 
+def test_offers_api_persists_valid_data_and_rejects_invalid_dates(client):
+    as_admin(client)
+    offers = [
+        {
+            "id": "welcome_10",
+            "title": "Welcome saving",
+            "description": "Save 10% on your first order.",
+            "code": "WELCOME10",
+            "active": True,
+            "starts_on": "2026-01-01",
+            "ends_on": "2099-12-31",
+            "product_skus": [],
+        }
+    ]
+
+    saved = client.put("/admin/api/offers", json=offers)
+    invalid = client.put(
+        "/admin/api/offers",
+        json=[{**offers[0], "id": "invalid", "starts_on": "2026-12-31", "ends_on": "2026-01-01"}],
+    )
+
+    assert saved.status_code == 200
+    assert client.get("/admin/api/offers").get_json() == offers
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "offer_end_before_start"
+
+
+def test_delivery_api_accepts_zone_rules_and_rejects_bad_shapes(client):
+    as_admin(client)
+    delivery = {
+        "zones": [
+            {
+                "area": "E1-E4",
+                "fee": 3.5,
+                "min_order": 25,
+                "eta_hours": "Same-day",
+            }
+        ],
+        "click_and_collect": True,
+        "notes": "Free delivery over £50.",
+        "exceptions": [{"date": "2026-12-25", "note": "Closed"}],
+    }
+    saved = client.put("/admin/api/delivery", json=delivery)
+    invalid = client.put("/admin/api/delivery", json={"notes": "Missing delivery rules"})
+
+    assert saved.status_code == 200
+    assert client.get("/admin/api/delivery").get_json()["zones"] == delivery["zones"]
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "invalid_delivery"
+
+
+def test_profile_branches_and_agent_settings_round_trip(client):
+    as_admin(client)
+
+    profile = client.get("/admin/api/profile").get_json()
+    profile["name"] = "Example Butchers"
+    profile_saved = client.put("/admin/api/profile", json=profile)
+
+    branches = client.get("/admin/api/branches").get_json()
+    branches_saved = client.put("/admin/api/branches", json=branches)
+
+    tone_saved = client.put(
+        "/admin/api/agent-settings",
+        json={"tone": {"style": "professional", "max_sentences": 2}},
+    )
+    invalid_tone = client.put("/admin/api/agent-settings", json={"tone": {"style": "playful"}})
+
+    assert profile_saved.status_code == 200
+    assert branches_saved.status_code == 200
+    assert client.get("/admin/api/branches").get_json()[0]["address"]
+    assert tone_saved.get_json()["tone"]["style"] == "professional"
+    assert invalid_tone.status_code == 400
+
+
+def test_agent_playbook_round_trip_and_validation(client):
+    as_admin(client)
+    payload = {
+        "tone": {"style": "friendly", "max_sentences": 3},
+        "playbook": {
+            "business_focus": "Bespoke kitchen design and installation",
+            "ideal_customer": "Homeowners planning a fitted kitchen",
+            "value_propositions": ["Made-to-measure design", "Installation managed by one team"],
+            "offering_type": "services",
+            "primary_goal": "book_consultation",
+            "qualification_questions": [
+                "Which room are you planning?",
+                "When would you like the project completed?",
+            ],
+            "handoff_message": "Our design team can arrange a consultation.",
+        },
+    }
+
+    saved = client.put("/admin/api/agent-settings", json=payload)
+    loaded = client.get("/admin/api/agent-settings")
+    invalid = client.put(
+        "/admin/api/agent-settings",
+        json={
+            "tone": {"style": "friendly", "max_sentences": 2},
+            "playbook": {"offering_type": "unsupported"},
+        },
+    )
+
+    assert saved.status_code == 200
+    assert saved.get_json()["playbook"] == payload["playbook"]
+    assert loaded.get_json()["playbook"] == payload["playbook"]
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "invalid_offering_type"
+
+
+def test_agent_playbook_rejects_too_many_value_propositions(client):
+    as_admin(client)
+    response = client.put(
+        "/admin/api/agent-settings",
+        json={
+            "tone": {"style": "friendly", "max_sentences": 2},
+            "playbook": {"value_propositions": [f"Reason {index}" for index in range(6)]},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "too_many_value_propositions"
+
+
+def test_business_owner_cannot_update_another_tenant_playbook(client):
+    with client.session_transaction() as sess:
+        set_test_identity(client, sess, {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"})
+
+    response = client.put(
+        "/admin/api/agent-settings?tenant=OTHER",
+        json={"tone": {"style": "friendly", "max_sentences": 2}, "playbook": {}},
+    )
+
+    assert response.status_code == 403
+
+
 def test_mode_switch_and_reflects(client):
     as_admin(client)
     r = client.post(
@@ -89,3 +234,20 @@ def test_leads_list_ok(client):
     # each lead should be a dict with minimal keys (best-effort)
     if data:
         assert "status" in data[0] or "phone" in data[0]
+
+
+def test_owner_can_update_only_their_tenant_lead_status(client):
+    from service.analytics_db import get_leads, upsert_lead
+
+    upsert_lead(tenant="EXAMPLE", lead_id="web:lead-status-test", name="Taylor", phone="+447700900123")
+    with client.session_transaction() as sess:
+        set_test_identity(client, sess, {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"})
+
+    updated = client.put("/admin/api/leads/web:lead-status-test", json={"status": "Contacted"})
+    other_tenant = client.put("/admin/api/leads/web:lead-status-test?tenant=TARIQ", json={"status": "Won"})
+
+    lead = next(lead for lead in get_leads(tenant="EXAMPLE") if lead["lead_id"] == "web:lead-status-test")
+    assert updated.status_code == 200
+    assert updated.get_json()["status"] == "Contacted"
+    assert other_tenant.status_code == 403
+    assert lead["status"] == "Contacted"

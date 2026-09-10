@@ -6,5 +6,5 @@
 <section class="card"><h2>WhatsApp</h2><p id="integration-status" role="status">Checking configuration…</p><p>Connect Twilio or Meta Cloud API when you are ready. Website chat works independently.</p>
 <label for="webhook-url">Incoming message webhook</label><input id="webhook-url" readonly value="{{ base_url }}/whatsapp/webhook">
 <label for="status-url">Delivery status callback</label><input id="status-url" readonly value="{{ base_url }}/whatsapp/status">
-<p class="muted">Provider callbacks require public HTTPS. Credentials are configured securely on the server. This deployment's WhatsApp number is bound to its configured company.</p></section>
+<p class="muted">Provider callbacks require public HTTPS. Credentials and the mapping from each WhatsApp number to its company are configured securely on the server.</p></section>
 {% endblock %}

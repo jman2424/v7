@@ -9,39 +9,73 @@ Provides:
 """
 
 from __future__ import annotations
-
-import json
-from dataclasses import dataclass, replace
+import os
+import shutil
+import tempfile
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from threading import RLock
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+from app.config import Settings
+
+# Retrieval layer
+from retrieval.storage import Storage
+from retrieval.catalog_store import CatalogStore
+from retrieval.policy_store import PolicyStore
+from retrieval.geo_store import GeoStore
+from retrieval.faq_store import FAQStore
+from retrieval.offer_store import OfferStore
+from retrieval.synonyms_store import SynonymsStore
+from retrieval.overrides_store import OverridesStore
+
+# Services
+from service.analytics_service import AnalyticsService
+from service.crm_service import CRMService
+from service.memory import Memory
+from service.rewriter import Rewriter
+from service.router import Router
+from service.sales_flows import SalesFlows
+
+# Orchestrator
+from service.message_handler import MessageHandler
+from service import HandlerDeps  # dataclass used by MessageHandler
 
 # AI modes (legacy strategy object, still required by HandlerDeps.mode)
 from ai_modes.contracts import ModeStrategy
 from ai_modes.v5_legacy import V5Legacy
 from ai_modes.v6_hybrid import AIV6Hybrid
 from ai_modes.v7_flagship import AIV7Flagship
-from app.config import Settings
-from retrieval.catalog_store import CatalogStore
-from retrieval.faq_store import FAQStore
-from retrieval.geo_store import GeoStore
-from retrieval.overrides_store import OverridesStore
-from retrieval.policy_store import PolicyStore
 
-# Retrieval layer
-from retrieval.storage import Storage
-from retrieval.synonyms_store import SynonymsStore
-from service import HandlerDeps  # dataclass used by MessageHandler
 
-# Services
-from service.analytics_service import AnalyticsService
-from service.crm_service import CRMService
-from service.memory import Memory
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Orchestrator
-from service.message_handler import MessageHandler
-from service.rewriter import Rewriter
-from service.router import Router
-from service.sales_flows import SalesFlows
+
+def _bootstrap_persistent_business_data() -> None:
+    """Seed an empty mounted data directory without overwriting tenant changes."""
+    raw_data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+    if not raw_data_root:
+        return
+
+    data_root = Path(raw_data_root).expanduser().resolve()
+    target = data_root / "business"
+    marker = data_root / ".v7_data_initialized"
+    if marker.exists():
+        return
+
+    data_root.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        source = REPO_ROOT / "business"
+        if not source.is_dir():
+            raise RuntimeError("Bundled tenant data is missing")
+        staging = Path(tempfile.mkdtemp(prefix=".v7-business-", dir=data_root))
+        try:
+            shutil.copytree(source, staging / "business")
+            os.replace(staging / "business", target)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    marker.write_text("initialized\n", encoding="utf-8")
 
 
 @dataclass
@@ -50,18 +84,22 @@ class Container:
     # Filled during __post_init__
     mode: Optional[ModeStrategy] = None
     handler: Optional[MessageHandler] = None
+    _tenant_containers: Dict[str, "Container"] = field(default_factory=dict, init=False, repr=False)
+    _tenant_lock: object = field(default_factory=RLock, init=False, repr=False)
 
     def __post_init__(self):
-        self._tenants = {}
-        self._tenant_lock = RLock()
         # ---------- Retrieval layer ----------
+        _bootstrap_persistent_business_data()
         self.storage = Storage(self.settings.BUSINESS_KEY)
         self.catalog = CatalogStore(self.storage)
         self.policy = PolicyStore(self.storage)
         self.geo = GeoStore(self.storage)
         self.faq = FAQStore(self.storage)
+        self.offers = OfferStore(self.storage)
         self.synonyms = SynonymsStore(self.storage)
         self.overrides = OverridesStore(self.storage)
+        self.business_profile = self._load_business_profile()
+        self.business_name = str(self.business_profile.get("name") or "").strip()
 
         # ---------- Services ----------
         self.analytics = AnalyticsService(self.settings)
@@ -95,11 +133,10 @@ class Container:
             self.mode = V5Legacy()
         elif mode_name == "V6":
             # AIV6Hybrid takes no constructor args
-            self.mode = AIV6Hybrid(self.router, self.rewriter, self.sales)
+            self.mode = AIV6Hybrid()
         else:
             # default: V7 flagship, also no constructor args
-            self.mode = AIV7Flagship(catalog=self.catalog, policy=self.policy, geo=self.geo,
-                                     faq=self.faq, overrides=self.overrides, crm=self.crm)
+            self.mode = AIV7Flagship()
 
         # ---------- Message orchestrator ----------
         deps = HandlerDeps(
@@ -113,30 +150,57 @@ class Container:
             policy=self.policy,
             geo=self.geo,
             faq=self.faq,
+            offers=self.offers,
             synonyms=self.synonyms,
             overrides=self.overrides,
+            business_name=self.business_name,
+            business_profile=self.business_profile,
         )
 
         self.handler = MessageHandler(deps)
 
-    def for_tenant(self, tenant: str):
-        directory = self.storage.tenant_dir(tenant)
-        if not directory.is_dir():
-            raise FileNotFoundError("Tenant not found")
-        # Rebuild retrieval stores after business data changes without sharing
-        # catalog or memory between companies. Preserve conversation memory.
-        stamp = tuple((p.name, p.stat().st_mtime_ns) for p in sorted(directory.glob("*.json")))
+    def for_tenant(self, tenant: str) -> "Container":
+        """Return an isolated runtime whose stores are bound to one tenant."""
         with self._tenant_lock:
-            cached = self._tenants.get(tenant)
-            if cached and cached[0] == stamp:
-                return cached[1]
-            scoped = Container(replace(self.settings, BUSINESS_KEY=tenant))
-            scoped.crm = self.crm
-            scoped.handler.crm = self.crm
-            scoped.handler.deps.crm = self.crm
-            if cached:
-                scoped.memory = cached[1].memory
-                scoped.handler.deps.memory = scoped.memory
-                scoped.handler.memory = scoped.memory
-            self._tenants[tenant] = (stamp, scoped)
-            return scoped
+            return self._for_tenant(tenant)
+
+    def _for_tenant(self, tenant: str) -> "Container":
+        tenant_key = Storage.validate_tenant_key(tenant)
+        if tenant_key == self.settings.BUSINESS_KEY:
+            return self
+
+        if not self.storage.tenant_dir(tenant_key).is_dir():
+            raise ValueError("unknown_tenant")
+
+        cached = self._tenant_containers.get(tenant_key)
+        if cached is not None:
+            return cached
+
+        tenant_container = Container(replace(self.settings, BUSINESS_KEY=tenant_key))
+        tenant_container.crm = self.crm
+        tenant_container.handler.crm = self.crm
+        tenant_container.handler.deps.crm = self.crm
+        self._tenant_containers[tenant_key] = tenant_container
+        return tenant_container
+
+    def invalidate_tenant(self, tenant: str) -> None:
+        """Discard warmed retrieval state after an owner changes tenant data."""
+        tenant_key = Storage.validate_tenant_key(tenant)
+        with self._tenant_lock:
+            target = self if tenant_key == self.settings.BUSINESS_KEY else self._tenant_containers.get(tenant_key)
+            if target is None:
+                return
+            memory, crm = target.memory, target.crm
+            target.__post_init__()
+            target.memory, target.crm = memory, crm
+            target.handler.memory, target.handler.crm = memory, crm
+            target.handler.deps.memory, target.handler.deps.crm = memory, crm
+
+    def _load_business_profile(self) -> Dict[str, object]:
+        try:
+            profile = self.storage.read_json(self.settings.BUSINESS_KEY, "store_info.json")
+        except (FileNotFoundError, ValueError):
+            return {}
+        if not isinstance(profile, dict):
+            return {}
+        return profile

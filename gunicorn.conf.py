@@ -1,9 +1,9 @@
 import os
 
-# Bind / workers / threads
-bind = os.getenv("BIND", "0.0.0.0:10000")
-# Conversation memory is process-local; multiple workers require shared memory first.
-workers = int(os.getenv("WEB_CONCURRENCY", "1"))
+# Bind / workers / threads. Render supplies PORT at runtime; keep the local
+# default so the same command remains convenient outside its environment.
+bind = os.getenv("BIND") or f"0.0.0.0:{os.getenv('PORT', '10000')}"
+workers = int(os.getenv("WEB_CONCURRENCY", "1"))  # Agent memory is process-local.
 threads = int(os.getenv("WEB_THREADS", "2"))
 
 # Worker class & timeouts

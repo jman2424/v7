@@ -10,6 +10,7 @@ Key upgrades in this remake:
     * last_items
     * last_product_names
 - Preserves existing category / sku / postcode memory
+- Makes follow-up questions like "are they halal" more likely to work downstream
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ from typing import Any, Dict, List, Optional
 from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
+from service.sales_agent import SalesAgentPolicy
 from service.validators import normalize_postcode
-
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
 logger = logging.getLogger("MessageHandler")
@@ -47,7 +48,7 @@ _POSTCODE_FULL_IN_TEXT = re.compile(r"\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s*(\d[A-Z]{2})
 _POSTCODE_OUTWARD_STANDALONE = re.compile(r"^\s*([A-Z]{1,2}\d{1,2}[A-Z]?)\s*$", re.I)
 
 _FULL_LIST_PAT = re.compile(
-    r"\b(full|all|everything|entire|whole)\b.*\b(chicken|lamb|beef|grocer(?:y|ies)|frozen|marinated)\b",
+    r"\b(full|all|everything|entire|whole)\b.*\b(products?|items?|list|catalog|catalogue|range)\b",
     re.I,
 )
 
@@ -55,6 +56,11 @@ _TEST_NOISE = {
     "test", "tester", "testing", "demo", "dmo", "tst",
     "test1", "test2", "test3",
     "hello", "hi", "hey", "yo", "there", "sup",
+}
+
+_GREETINGS = {
+    "hello", "hi", "hey", "hiya", "yo", "sup", "salam", "salaam",
+    "asalam", "assalam", "good morning", "good afternoon", "good evening",
 }
 
 
@@ -121,39 +127,10 @@ def _looks_like_noise(text: str) -> bool:
     if t in _TEST_NOISE:
         return True
 
-    if len(t) <= 7 and t.isalpha():
-        known = {
-            "chicken", "lamb", "beef", "groceries", "grocery",
-            "frozen", "marinated", "delivery", "postcode",
-            "wings", "breast", "fillets", "fillet", "mince",
-        }
-        if t not in known:
-            return True
+    if len(t) <= 2 and t.isalpha():
+        return True
 
     return False
-
-
-def _category_from_full_list(text: str) -> Optional[str]:
-    if not text:
-        return None
-    m = _FULL_LIST_PAT.search(text)
-    if not m:
-        return None
-
-    s = m.group(0).lower()
-    if "chicken" in s:
-        return "chicken"
-    if "lamb" in s:
-        return "lamb"
-    if "beef" in s:
-        return "beef"
-    if "grocer" in s:
-        return "groceries"
-    if "frozen" in s:
-        return "frozen_meats"
-    if "marinated" in s:
-        return "marinated_meats"
-    return None
 
 
 def _safe_list_strings(values: Any, limit: int = 12) -> List[str]:
@@ -187,6 +164,11 @@ class MessageHandler:
         self.crm = deps.crm
         self.memory = deps.memory
         self.overrides = deps.overrides
+        self.sales_agent = SalesAgentPolicy(
+            overrides=deps.overrides,
+            catalog=deps.catalog,
+            business_profile=deps.business_profile,
+        )
 
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT
@@ -223,9 +205,11 @@ class MessageHandler:
 
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
+            guarded = self.sales_agent.guide(guarded, user_text=user_text, session=sess)
+            self._save_session(ctx, sess, guarded)
             logger.info(
-                "DISPATCH_GUARDED tenant=%s channel=%s mode=%s intent=%s",
-                ctx.tenant, ctx.channel, mode, guarded.get("intent"),
+                "DISPATCH_GUARDED tenant=%s channel=%s mode=%s rid=%s intent=%s session_present=%s text_len=%s",
+                ctx.tenant, ctx.channel, mode, rid, guarded.get("intent"), bool(ctx.session_id), len(user_text),
             )
             self._telemetry(
                 ctx,
@@ -242,8 +226,8 @@ class MessageHandler:
             return guarded
 
         logger.info(
-            "DISPATCH tenant=%s channel=%s mode=%s",
-            ctx.tenant, ctx.channel, mode,
+            "DISPATCH tenant=%s channel=%s mode=%s rid=%s session_present=%s text_len=%s",
+            ctx.tenant, ctx.channel, mode, rid, bool(ctx.session_id), len(user_text),
         )
 
         self._telemetry(
@@ -260,11 +244,12 @@ class MessageHandler:
             reply = self.h_v7.handle(user_text, ctx, sess)
 
         logger.info(
-            "DISPATCH_RESULT tenant=%s mode=%s intent=%s",
-            ctx.tenant, mode, reply.get("intent"),
+            "DISPATCH_RESULT tenant=%s mode=%s rid=%s intent=%s keys=%s",
+            ctx.tenant, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
         )
 
         reply = self._validate_reply(reply, user_text, ctx, sess)
+        reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
@@ -293,7 +278,7 @@ class MessageHandler:
         t = (user_text or "").strip()
         if not t:
             return {
-                "reply": "Send what you want (e.g. chicken wings, lamb chops, delivery to E1 6AN).",
+                "reply": "Send a question about the business or tell me what you need help with.",
                 "intent": "system_empty",
                 "resolved": False,
                 "facts": {},
@@ -309,10 +294,14 @@ class MessageHandler:
         if _FULL_LIST_PAT.search(t):
             return None
 
+        tl = _collapse_spaces(t).lower()
+
+        if tl in _GREETINGS:
+            return None
 
         if _RE_ONLY_SYMBOLS.match(t):
             return {
-                "reply": "Type what you’re after (e.g. chicken wings / lamb chops) or a postcode for delivery.",
+                "reply": "Type a question about the business or tell me what you need help with.",
                 "intent": "system_clarify",
                 "resolved": False,
                 "facts": {"reason": "symbols_only"},
@@ -329,10 +318,9 @@ class MessageHandler:
         if looks_like_short_code or looks_like_gibberish:
             return {
                 "reply": (
-                    "I didn’t catch that.\n\n"
-                    "Send either:\n"
-                    "• a product (e.g. **chicken wings**, **lamb chops**)\n"
-                    "• or a postcode for delivery (e.g. **E1 6AN**)"
+                    "I didn't catch that.\n\n"
+                    "Tell me what you need help with, ask about the business, "
+                    "or share a postcode if you want to check delivery."
                 ),
                 "intent": "system_clarify",
                 "resolved": False,
@@ -346,8 +334,7 @@ class MessageHandler:
     # MODE
     # ---------------------------------------------------------
     def _decide_mode(self, ctx: MessageContext) -> str:
-        mode = str(self.overrides.get("ai.mode") or self.deps.mode.name()).lower().replace("ai", "")
-        return mode if mode in {"v5", "v6", "v7"} else "v7"
+        return (self.overrides.get("ai.mode") or "v7").lower()
 
     # ---------------------------------------------------------
     # VALIDATION / SAFETY
@@ -365,63 +352,13 @@ class MessageHandler:
         text = (user_text or "").strip()
         lower = text.lower()
 
-        cat = _category_from_full_list(text)
-        if cat and not items:
-            pretty = cat.replace("_", " ")
-            return {
-                "reply": (
-                    f"Got it — **full {pretty} list**.\n\n"
-                    "Before I list everything, tell me what you want to see:\n"
-                    "• wings\n"
-                    "• breast\n"
-                    "• thighs\n"
-                    "• drumsticks\n"
-                    "• whole chicken\n\n"
-                    "Or say: **cheap chicken** / **BBQ chicken**."
-                ),
-                "intent": "system_force_browse",
-                "resolved": False,
-                "facts": {"force_category": cat},
-                "entities": {"category": cat},
-            }
-
-        known_category_words = {
-            "chicken", "lamb", "beef",
-            "groceries", "grocery",
-            "frozen", "frozen meats", "frozen_meats",
-            "marinated", "marinated meats", "marinated_meats",
-        }
-        looks_like_bare_category = (len(lower.split()) <= 2) and (lower in known_category_words)
-
-        if looks_like_bare_category and not items:
-            logger.warning(
-                "PIPELINE WARNING: bare-category but no items | intent=%s tenant=%s",
-                intent, ctx.tenant,
-            )
-            return {
-                "reply": (
-                    f"Got it — **{lower}**.\n\n"
-                    "Tell me what you want and I’ll pull options:\n"
-                    "• wings / thighs / breast\n"
-                    "• mince / chops / ribs\n"
-                    "• or ask: **cheapest**, **best for BBQ**, **family pack**"
-                ),
-                "intent": "system_force_browse",
-                "resolved": False,
-                "facts": {"force_category": lower},
-                "entities": {"category": lower},
-            }
-
-        requires_items = intent in {"browse_category", "search_product", "related_products", "price_check"}
+        requires_items = intent in {"browse_category", "search_product", "related_products"}
         if requires_items and not items:
             if _looks_like_noise(text):
                 return {
                     "reply": (
-                        "Tell me what you want to do:\n"
-                        "• search products (e.g. **chicken wings**)\n"
-                        "• check delivery (e.g. **E7 9QS**)\n"
-                        "• nearest branch (type **nearest branch**)\n"
-                        "• or ask for a category (e.g. **chicken**)"
+                        "Tell me what you need help with. You can ask about the business, "
+                        "browse its catalogue, or check delivery where it is offered."
                     ),
                     "intent": "system_clarify",
                     "resolved": False,
@@ -437,11 +374,7 @@ class MessageHandler:
             return {
                 "reply": (
                     f"I couldn’t find matches for **{q}**.\n\n"
-                    "Try one of these:\n"
-                    "• **chicken wings**\n"
-                    "• **lamb chops**\n"
-                    "• **beef mince**\n"
-                    "• **cheapest chicken**"
+                    "Try a different name, category, feature, or ask for the catalogue."
                 ),
                 "intent": "system_no_results",
                 "resolved": False,
@@ -464,6 +397,7 @@ class MessageHandler:
             "last_product_query": self.memory.get(ctx.session_id, "last_product_query"),
             "last_items": self.memory.get(ctx.session_id, "last_items", []),
             "last_product_names": self.memory.get(ctx.session_id, "last_product_names", []),
+            "sales_agent": self.memory.get(ctx.session_id, "sales_agent", {}),
         }
 
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
@@ -487,6 +421,20 @@ class MessageHandler:
 
         if reply.get("intent"):
             self.memory.set(ctx.session_id, "last_intent", reply["intent"], ttl)
+
+        agent = reply.get("agent")
+        if isinstance(agent, dict):
+            self.memory.set(
+                ctx.session_id,
+                "sales_agent",
+                {
+                    "stage": agent.get("stage"),
+                    "objective": agent.get("objective"),
+                    "next_action": agent.get("next_action"),
+                    "qualification_index": agent.get("qualification_index"),
+                },
+                ttl,
+            )
 
         product_query = entities.get("product_name")
         if product_query:
@@ -523,21 +471,45 @@ class MessageHandler:
     # CRM
     # ---------------------------------------------------------
     def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> None:
+        entities = reply.get("entities") or {}
         lead = self.crm.upsert_lead(
             ctx.tenant,
-            name=None,
-            phone=(reply.get("entities") or {}).get("phone"),
+            name=entities.get("name"),
+            phone=entities.get("phone"),
+            email=entities.get("email"),
             channel=ctx.channel,
             session_id=ctx.session_id,
             tags=[reply.get("intent")] if reply.get("intent") else None,
         )
         lead_id = lead.get("id") or lead.get("_id") or "unknown"
+        analytics_lead_id = self._analytics_lead_id(ctx)
 
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
         self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
 
-        # Transport routes own analytics lead identity. Do not create a second
-        # UUID lead here for the same web/WhatsApp conversation.
+        try:
+            if hasattr(self.analytics, "upsert_lead"):
+                self.analytics.upsert_lead(
+                    tenant=ctx.tenant,
+                    lead_id=analytics_lead_id,
+                    phone=entities.get("phone"),
+                    name=entities.get("name"),
+                )
+            if hasattr(self.analytics, "set_lead_session"):
+                self.analytics.set_lead_session(
+                    tenant=ctx.tenant,
+                    lead_id=analytics_lead_id,
+                    session_id=ctx.session_id,
+                )
+        except Exception:
+            logger.exception("analytics lead upsert failed")
+
+    @staticmethod
+    def _analytics_lead_id(ctx: MessageContext) -> str:
+        channel = (ctx.channel or "web").strip().lower()
+        prefix = "wa" if channel == "whatsapp" else "web"
+        session_id = (ctx.session_id or "unknown").strip() or "unknown"
+        return session_id if session_id.startswith(prefix + ":") else f"{prefix}:{session_id}"
 
     # ---------------------------------------------------------
     # TELEMETRY (safe)

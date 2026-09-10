@@ -90,8 +90,7 @@ def _should_add_cta(line: str) -> bool:
     ):
         return False
 
-    # Avoid CTA for very short direct answers like:
-    # "Yes — I'm an AI-powered Tariq Halal assistant."
+    # Keep short direct answers self-contained.
     if len(low) < 60:
         return False
 
@@ -259,12 +258,13 @@ class Rewriter:
             facts_str = ""
 
         system = (
-            "You rewrite assistant messages for a halal butcher shop chatbot.\n"
+            "You rewrite grounded messages for a business sales assistant.\n"
             "STRICT RULES:\n"
             "- Rewrite only.\n"
             "- Do NOT add any new facts.\n"
             "- Do NOT add or change prices, postcodes, phone numbers, branch names, or addresses.\n"
             "- Do NOT add products not already present in the draft.\n"
+            "- Do NOT imply a particular industry, brand, product type, certification, or policy.\n"
             "- Keep the message natural, short, and clear.\n"
             "- Avoid sounding pushy or overly salesy.\n"
             "- Preserve the meaning exactly.\n"
@@ -314,7 +314,9 @@ class Rewriter:
 
         # clean awkward spacing around punctuation
         s = re.sub(r"\s+([,.;:!?])", r"\1", s)
-        s = re.sub(r"([,.;:!?])([A-Za-z])", r"\1 \2", s)
+        # Do not insert spaces after periods: that would corrupt email addresses
+        # and website domains in grounded business contact details.
+        s = re.sub(r"([,;:!?])([A-Za-z])", r"\1 \2", s)
 
         # capitalization
         if s and not s[0].isupper():

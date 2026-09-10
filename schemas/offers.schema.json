@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tenant Offers Schema",
+  "type": "array",
+  "maxItems": 50,
+  "items": {
+    "type": "object",
+    "required": ["id", "title", "description", "active"],
+    "properties": {
+      "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+      "description": { "type": "string", "minLength": 1, "maxLength": 600 },
+      "code": { "type": "string", "maxLength": 64 },
+      "active": { "type": "boolean" },
+      "starts_on": { "type": "string", "maxLength": 10 },
+      "ends_on": { "type": "string", "maxLength": 10 },
+      "product_skus": {
+        "type": "array",
+        "maxItems": 30,
+        "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -2,25 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Delivery Schema",
   "type": "object",
-  "anyOf": [{"required": ["areas"]}, {"required": ["zones"]}],
+  "anyOf": [
+    { "required": ["areas"] },
+    { "required": ["zones"] }
+  ],
   "properties": {
-    "zones": {
-      "type": "array",
-      "items": {
-        "type": "object", "required": ["area", "fee"],
-        "properties": {
-          "area": {"type": "string", "minLength": 1},
-          "code": {"type": "string"},
-          "fee": {"type": "number", "minimum": 0},
-          "min": {"type": "number", "minimum": 0},
-          "min_order": {"type": "number", "minimum": 0},
-          "eta": {"type": "number", "minimum": 0},
-          "eta_min": {"type": "number", "minimum": 0},
-          "eta_hours": {"type": "string"}
-        },
-        "additionalProperties": false
-      }
-    },
     "areas": {
       "type": "array",
       "items": {
@@ -31,6 +17,23 @@
           "fee": { "type": "number", "minimum": 0 },
           "min_order": { "type": "number", "minimum": 0 },
           "eta_min": { "type": "integer", "minimum": 0 },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["area"],
+        "properties": {
+          "area": { "type": "string", "minLength": 1 },
+          "code": { "type": "string", "minLength": 1 },
+          "fee": { "type": "number", "minimum": 0 },
+          "min_order": { "type": "number", "minimum": 0 },
+          "eta_min": { "type": "integer", "minimum": 0 },
+          "eta_hours": { "type": "string", "minLength": 1 },
           "notes": { "type": "string" }
         },
         "additionalProperties": false

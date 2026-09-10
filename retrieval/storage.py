@@ -25,7 +25,7 @@ import re
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -41,7 +41,9 @@ except Exception:
 REPO_ROOT = Path(os.getcwd()).resolve()  # assume app runs from repo root
 BUSINESS_ROOT = REPO_ROOT / "business"
 VERSIONS_ROOT = BUSINESS_ROOT / "versions"
-SCHEMAS_ROOT = REPO_ROOT / "schemas"
+SCHEMAS_ROOT = Path(__file__).resolve().parents[1] / "schemas"
+
+_TENANT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 # Known tenant files and their schemas (if any)
 KNOWN_FILES: Dict[str, Optional[str]] = {
@@ -49,10 +51,11 @@ KNOWN_FILES: Dict[str, Optional[str]] = {
     "delivery.json": "delivery.schema.json",
     "branches.json": "branches.schema.json",
     "faq.json": "faq.schema.json",
+    "offers.json": "offers.schema.json",
     "synonyms.json": None,
     "overrides.json": None,
     "branding.json": None,
-    "store_info.json": None,
+    "store_info.json": "store_info.schema.json",
 }
 
 
@@ -81,51 +84,84 @@ def _read_json(path: Path) -> Any:
         return json.load(f)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Storage:
     tenant_key: str
-    business_root: Path = field(default_factory=lambda: Path.cwd() / "business")
-    versions_root: Optional[Path] = None
-    schemas_root: Path = field(default_factory=lambda: Path(__file__).resolve().parents[1] / "schemas")
+    business_root: Path = BUSINESS_ROOT
+    versions_root: Path = VERSIONS_ROOT
+    schemas_root: Path = SCHEMAS_ROOT
 
-    def __post_init__(self):
-        object.__setattr__(self, "business_root", Path(self.business_root).resolve())
-        object.__setattr__(self, "versions_root", Path(self.versions_root or self.business_root / "versions").resolve())
-        self.tenant_dir()
+    def __init__(
+        self,
+        tenant_key: str = "EXAMPLE",
+        *,
+        base_dir: Optional[Path | str] = None,
+        business_root: Optional[Path | str] = None,
+        versions_root: Optional[Path | str] = None,
+        schemas_root: Optional[Path | str] = None,
+    ) -> None:
+        runtime_root = Path(os.getcwd()).resolve()
+        data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+        root = (
+            Path(base_dir).resolve()
+            if base_dir is not None
+            else (Path(data_root).expanduser().resolve() / "business" if data_root else runtime_root / "business")
+        )
+        if business_root is not None:
+            root = Path(business_root).resolve()
+
+        object.__setattr__(self, "tenant_key", tenant_key)
+        object.__setattr__(self, "business_root", root)
+        object.__setattr__(
+            self,
+            "versions_root",
+            Path(versions_root).resolve() if versions_root is not None else root / "versions",
+        )
+        object.__setattr__(
+            self,
+            "schemas_root",
+            Path(schemas_root).resolve()
+            if schemas_root is not None
+            else (runtime_root / "schemas" if (runtime_root / "schemas").exists() else SCHEMAS_ROOT),
+        )
 
     # -------- paths --------
 
+    @staticmethod
+    def validate_tenant_key(tenant: str) -> str:
+        """Return a safe tenant key or reject path-like identifiers."""
+        value = str(tenant or "").strip()
+        if not _TENANT_KEY_RE.fullmatch(value) or value.lower() == "versions":
+            raise ValueError("invalid_tenant")
+        return value
+
     def tenant_dir(self, tenant: Optional[str] = None) -> Path:
-        key = tenant or self.tenant_key
-        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", key) or key.lower() == "versions":
-            raise ValueError("Invalid tenant")
-        path = (self.business_root / key).resolve()
-        if self.business_root.is_dir():
-            matches = [p for p in self.business_root.iterdir() if p.is_dir() and p.name.casefold() == key.casefold()]
-            if len(matches) > 1:
-                raise ValueError("Ambiguous tenant names")
-        if path.parent != self.business_root:
-            raise ValueError("Tenant path outside business root")
-        return path
+        key = self.validate_tenant_key(tenant or self.tenant_key)
+        root = self.business_root.resolve()
+        target = (root / key).resolve()
+        if not target.is_relative_to(root) or target == root:
+            raise ValueError("invalid_tenant")
+        if root.is_dir() and sum(p.is_dir() and p.name.casefold() == key.casefold() for p in root.iterdir()) > 1:
+            raise ValueError("ambiguous_tenant")
+        return target
 
     def file_path(self, tenant: Optional[str], filename: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", filename):
+            raise ValueError("invalid_filename")
         root = self.tenant_dir(tenant)
-        if not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9_-]+\.json", filename):
-            raise ValueError("Invalid tenant filename")
-        path = (root / filename).resolve()
-        if path.parent != root:
-            raise ValueError("File path outside tenant")
-        return path
+        target = (root / filename).resolve()
+        if not target.is_relative_to(root):
+            raise ValueError("invalid_filename")
+        return target
 
     def versions_day_dir(self, day: Optional[str] = None, tenant: Optional[str] = None) -> Path:
         date_str = day or datetime.utcnow().strftime("%Y-%m-%d")
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
-            raise ValueError("Invalid snapshot date")
-        key = self.tenant_dir(tenant).name
-        path = (self.versions_root / date_str / key).resolve()
-        if not path.is_relative_to(self.versions_root):
-            raise ValueError("Invalid snapshot path")
-        return path
+        datetime.strptime(date_str, "%Y-%m-%d")
+        root = self.versions_root.resolve()
+        target = (root / date_str / self.validate_tenant_key(tenant or self.tenant_key)).resolve()
+        if not target.is_relative_to(root):
+            raise ValueError("invalid_snapshot")
+        return target
 
     # -------- public API --------
 
@@ -135,6 +171,15 @@ class Storage:
         """
         path = self.file_path(tenant, filename)
         return _read_json(path)
+
+    def load_json(self, path: str) -> Any:
+        """
+        Backwards-compatible loader for paths like ``EXAMPLE/catalog.json``.
+        """
+        rel = Path(path)
+        if rel.is_absolute():
+            return _read_json(rel)
+        return _read_json(self.business_root / rel)
 
     def write_json(
         self,
@@ -153,23 +198,21 @@ class Storage:
         """
         tkey = tenant or self.tenant_key
         # schema may be provided as "schemas/catalog.schema.json" or just "catalog.schema.json"
+        if filename == "catalog.json" and isinstance(data, dict) and "product_catalog" in data and "categories" not in data:
+            schema = "catalog-sheet.schema.json"
         if schema:
             schema_path = self._schema_path(schema)
             self._validate_json(data, schema_path)
 
         dest = self.file_path(tkey, filename)
-        if snapshot:
-            self._ensure_daily_snapshot_folder(tkey)
-        _atomic_write_json(dest, data)
-
         snap_path = ""
         if snapshot:
             snap_dir = self._ensure_daily_snapshot_folder(tkey)
-            # ensure identical path structure inside snapshot
-            snap_path = str((snap_dir / filename).relative_to(self.versions_root))
-            # Preserve the first pre-edit version for recovery throughout the day.
-            if not (snap_dir / filename).exists():
-                _atomic_write_json(snap_dir / filename, data)
+            if dest.exists() and not (snap_dir / filename).exists():
+                shutil.copy2(dest, snap_dir / filename)
+            if (snap_dir / filename).exists():
+                snap_path = str((snap_dir / filename).relative_to(self.versions_root))
+        _atomic_write_json(dest, data)
 
         return snap_path
 
@@ -178,7 +221,6 @@ class Storage:
         Return list of YYYY-MM-DD version folders that contain this tenant.
         """
         tkey = tenant or self.tenant_key
-        self.tenant_dir(tkey)
         if not self.versions_root.exists():
             return []
         days: List[str] = []
@@ -223,15 +265,15 @@ class Storage:
                 continue
             try:
                 data = _read_json(path)
-            except (OSError, ValueError):
-                results["files"][fname] = {"exists": True, "valid": False, "error": "Unreadable or invalid JSON"}
+            except (ValueError, OSError):
+                results["files"][fname] = {"exists": True, "valid": False, "error": "Invalid JSON"}
                 continue
+            if fname == "catalog.json" and isinstance(data, dict) and "product_catalog" in data and "categories" not in data:
+                schema = "catalog-sheet.schema.json"
             if not schema:
                 results["files"][fname] = {"exists": True, "valid": True, "error": None}
                 continue
             try:
-                if fname == "catalog.json" and isinstance(data, dict) and "product_catalog" in data:
-                    schema = "catalog-sheet.schema.json"
                 schema_path = self._schema_path(schema)
                 self._validate_json(data, schema_path)
                 results["files"][fname] = {"exists": True, "valid": True, "error": None}
@@ -249,7 +291,7 @@ class Storage:
         if p.is_absolute():
             return p
         if p.parts and p.parts[0] == "schemas":
-            return self.schemas_root / p.name
+            return REPO_ROOT / p
         return self.schemas_root / p
 
     def _validate_json(self, data: Any, schema_path: Path) -> None:
@@ -277,9 +319,13 @@ class Storage:
         today_dir.mkdir(parents=True, exist_ok=True)
         if src.exists():
             for p in src.iterdir():
-                if p.is_file() and not p.is_symlink() and p.suffix.lower() == ".json":
+                if p.is_file() and p.suffix.lower() == ".json":
                     shutil.copy2(p, today_dir / p.name)
         # write a snapshot metadata file
-        meta = {"tenant": tenant, "created_at": _utc_now_iso()}
+        try:
+            source = str(src.relative_to(REPO_ROOT))
+        except ValueError:
+            source = str(src)
+        meta = {"tenant": tenant, "created_at": _utc_now_iso(), "source": source}
         _atomic_write_json(today_dir / "_snapshot.json", meta)
         return today_dir

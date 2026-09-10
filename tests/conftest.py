@@ -14,6 +14,46 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any
 import pytest
+from flask.testing import FlaskClient
+from werkzeug.security import generate_password_hash
+
+
+class CsrfClient(FlaskClient):
+    """Exercise real CSRF checks with the token a browser would submit."""
+    def open(self, *args, **kwargs):
+        if kwargs.get("method", "GET").upper() not in {"GET", "HEAD", "OPTIONS"}:
+            with self.session_transaction() as state:
+                token = state.get("_csrf")
+            if not token:
+                token = super().get("/auth/session").get_json()["csrf_token"]
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-CSRF-Token", token)
+            kwargs["headers"] = headers
+        return super().open(*args, **kwargs)
+
+
+def set_test_identity(client, state, user):
+    """Seed a real server session for route-permission unit tests."""
+    from service.security import _revision
+    from service import session_store
+    identity = dict(user)
+    roles = identity.get("roles") or [identity.get("role", "business_owner")]
+    identity.update(roles=roles, id=identity.get("id") or identity.get("username") or "test",
+                    email=identity.get("email") or str(identity.get("id") or "test") + "@example.test",
+                    tenant=identity.get("tenant") or "EXAMPLE")
+    with client.application.app_context():
+        revision = _revision(identity)
+        if not revision:
+            registry = Path(os.environ["ADMIN_USERS_FILE"])
+            data = json.loads(registry.read_text())
+            data["users"] = [r for r in data["users"] if r["email"] != identity["email"]]
+            data["users"].append({"email": identity["email"], "role": roles[0], "tenant": identity["tenant"],
+                                  "password_hash": generate_password_hash("Unit-test-password-only")})
+            registry.write_text(json.dumps(data))
+            revision = _revision(identity)
+        assert revision
+        state["user"] = identity
+        state["management_token"] = session_store.create(identity, revision)
 
 # ---------------------------------------------------------------------------
 # Import target app
@@ -78,12 +118,20 @@ def app(tmp_business: Path, monkeypatch):
     # Redirect business path for this test run
     monkeypatch.chdir(tmp_business.parent.parent)
 
-    flask_app = create_app()
+    from service import analytics_db
+    monkeypatch.setattr(analytics_db, "DB_PATH", str(tmp_business.parent.parent / "analytics.db"))
+    monkeypatch.setattr(analytics_db, "_INIT_DONE", False)
+    monkeypatch.setenv("ANALYTICS_DB_PATH", analytics_db.DB_PATH)
+    monkeypatch.setenv("SECURITY_DB_PATH", str(tmp_business.parent.parent / "security.db"))
+    registry = tmp_business.parent.parent / "test-accounts.json"
+    registry.write_text('{"users": []}')
+    monkeypatch.setenv("ADMIN_USERS_FILE", str(registry))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    flask_app = create_app({"TESTING": True, "SECRET_KEY": "test-secret-" * 4})
+    flask_app.test_client_class = CsrfClient
     flask_app.config.update(
         TESTING=True,
-        WTF_CSRF_ENABLED=False,
         SERVER_NAME="localhost",
-        SECRET_KEY="test-secret",
         BUSINESS_PATH=str(tmp_business),
     )
     yield flask_app

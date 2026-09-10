@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from app import middleware
 from app.config import Settings, load_settings
-from app.container import Container
 from app.logging_setup import configure_logging
+from app.container import Container
+from app import middleware
 
 # Analytics DB init (safe)
 try:
@@ -65,16 +67,17 @@ def _register_blueprints(app: Flask) -> None:
     routes/ is TOP-LEVEL in this repo (NOT app/routes).
     All imports must reflect that.
     """
-    from routes.admin_routes import bp as admin_bp
-    from routes.analytics_routes import bp as analytics_bp
-    from routes.auth_routes import bp as auth_bp
-    from routes.catalog_routes import bp as catalog_bp
-    from routes.diag_routes import bp as diag_bp
-    from routes.files_routes import bp as files_bp
     from routes.health_routes import bp as health_bp
-    from routes.mode_routes import bp as mode_bp
     from routes.webchat_routes import bp as webchat_bp
     from routes.whatsapp_routes import bp as whatsapp_bp
+    from routes.analytics_routes import bp as analytics_bp
+    from routes.admin_routes import bp as admin_bp
+    from routes.files_routes import bp as files_bp
+    from routes.auth_routes import bp as auth_bp
+    from routes.diag_routes import bp as diag_bp
+    from routes.catalog_routes import bp as catalog_bp
+    from routes.mode_routes import bp as mode_bp
+    from routes.owner_console_routes import bp as owner_console_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -86,8 +89,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
     app.register_blueprint(mode_bp)
+    app.register_blueprint(owner_console_bp)
 
-    # Admin API (dashboard)
     from routes.admin_api_routes import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
 
@@ -155,19 +158,32 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     )
 
     app.config["SECRET_KEY"] = settings.SECRET_KEY
-    app.config.update(
-        TESTING=bool((config_override or {}).get("TESTING", False)),
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=settings.BASE_URL.startswith("https://"),
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
-        SESSION_REFRESH_EACH_REQUEST=False,
-        MAX_CONTENT_LENGTH=1024 * 1024,
-    )
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    # Render terminates HTTPS before proxying to Gunicorn. Its public service
+    # still needs Secure cookies even when no explicit BASE_URL is configured.
+    app.config["SESSION_COOKIE_SECURE"] = settings.BASE_URL.startswith("https://") or os.getenv("RENDER") == "true"
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(seconds=max(300, settings.SESSION_MAX_AGE_SECONDS))
+    app.config["SESSION_REFRESH_EACH_REQUEST"] = False
+    app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
+    app.config["TESTING"] = bool((config_override or {}).get("TESTING", False))
+
+    if settings.TRUST_PROXY_COUNT > 0:
+        app.wsgi_app = ProxyFix(  # type: ignore[assignment]
+            app.wsgi_app,
+            x_for=settings.TRUST_PROXY_COUNT,
+            x_proto=settings.TRUST_PROXY_COUNT,
+        )
 
     # Container
     container = Container(settings)
     app.container = container  # type: ignore[attr-defined]
+    from service.login_limiter import LoginAttemptLimiter
+
+    app.extensions["auth_login_limiter"] = LoginAttemptLimiter(
+        max_attempts=settings.AUTH_LOGIN_MAX_ATTEMPTS,
+        window_seconds=settings.AUTH_LOGIN_WINDOW_SECONDS,
+    )
 
     # Middleware
     middleware.install_request_id(app)
@@ -178,6 +194,15 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Routes + errors
     _register_blueprints(app)
     _install_error_handlers(app)
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)" if request.path == "/chat_ui" else "camera=(), geolocation=(), microphone=()")
+        if app.config["SESSION_COOKIE_SECURE"]:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
 
     # Root
     @app.get("/")

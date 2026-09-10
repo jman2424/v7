@@ -29,6 +29,7 @@ install:
 	$(PIP) install -r requirements.txt
 
 dev: install
+	$(PIP) install -r requirements-dev.txt
 	pre-commit install
 
 fmt:

@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import logging
+from dataclasses import replace
 
 from flask import Blueprint, Response, abort, jsonify, request
 from twilio.request_validator import RequestValidator
@@ -20,8 +22,8 @@ bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 def _verify():
     settings = get_container().settings
     if request.mimetype == "application/x-www-form-urlencoded":
-        token = os.getenv("TWILIO_AUTH_TOKEN", "")
-        if not token or not os.getenv("TWILIO_WHATSAPP_NUMBER"):
+        token = os.getenv("TWILIO_AUTH_TOKEN", "") or settings.TWILIO_AUTH_TOKEN
+        if not token or not (os.getenv("TWILIO_WHATSAPP_NUMBER") or settings.WHATSAPP_TENANT_MAP):
             abort(503, description="whatsapp_not_configured")
         url = settings.BASE_URL.rstrip("/") + request.full_path.rstrip("?")
         if not RequestValidator(token).validate(url, request.form, request.headers.get("X-Twilio-Signature", "")):
@@ -59,13 +61,17 @@ def _reply(c, event, source):
     sid = "wa:" + sender
     raw = event.get("raw", {})
     mid = raw.get("id") or raw.get("MessageSid") or ""
+    logging.getLogger("WA.Webhook").info("WA inbound source=%s tenant=%s message_len=%s", source, tenant, len(text))
     upsert_lead(tenant=tenant, lead_id=sid, phone="+" + sender)
     set_lead_session(tenant=tenant, lead_id=sid, session_id=sid)
     log_message(tenant=tenant, channel="whatsapp", direction="inbound", session_id=sid,
                 text=text, lead_id=sid, message_id=mid)
     try:
+        metadata = {"source": source, "wa_id": sender}
+        if source == "cloud":
+            metadata["phone_number_id"] = event.get("metadata", {}).get("phone_number_id")
         result = c.handler.handle(text, tenant=tenant, session_id=sid, channel="whatsapp",
-                                  metadata={"source": source, "wa_id": sender})
+                                  metadata=metadata)
         reply = result.get("reply") if isinstance(result, dict) else None
         if not isinstance(reply, str) or not reply.strip() or result.get("intent") == "system_error":
             raise ValueError("Invalid agent response")
@@ -93,7 +99,8 @@ def _process(c, event, source):
     try:
         reply = _reply(c, event, source)
         if source == "cloud":
-            send_reply(event, reply, settings=c.settings)
+            phone_id = event.get("metadata", {}).get("phone_number_id")
+            send_reply(event, reply, settings=replace(c.settings, WHATSAPP_PHONE_ID=phone_id))
         webhook_inbox.finish(*key, reply)
         return reply
     except Exception as error:
@@ -107,13 +114,19 @@ def _process(c, event, source):
 def webhook_receive():
     source = _verify()
     root = get_container()
-    try:
-        c = root.for_tenant(root.settings.BUSINESS_KEY)
-    except (FileNotFoundError, ValueError):
-        abort(503, description="whatsapp_tenant_not_configured")
-    if source == "twilio":
-        if request.form.get("To") != os.getenv("TWILIO_WHATSAPP_NUMBER"):
+    def recipient_container(recipient):
+        number = str(recipient or "").removeprefix("whatsapp:").lstrip("+")
+        mapping = root.settings.WHATSAPP_TENANT_MAP
+        expected = os.getenv("TWILIO_WHATSAPP_NUMBER", "") if source == "twilio" else root.settings.WHATSAPP_PHONE_ID
+        tenant = mapping.get(number) if mapping else root.settings.BUSINESS_KEY if number and number == expected.removeprefix("whatsapp:").lstrip("+") else None
+        if not tenant:
             abort(403)
+        try:
+            return root.for_tenant(tenant)
+        except (FileNotFoundError, ValueError):
+            abort(503, description="whatsapp_tenant_not_configured")
+    if source == "twilio":
+        c = recipient_container(request.form.get("To"))
         events = parse_inbound({"raw_form": request.form.to_dict()})
         response = MessagingResponse()
         if events:
@@ -127,11 +140,10 @@ def webhook_receive():
         events = parse_inbound(payload)
     except (TypeError, AttributeError, KeyError):
         abort(400, description="invalid_webhook_payload")
-    if events and (not c.settings.WHATSAPP_TOKEN or not c.settings.WHATSAPP_PHONE_ID):
+    if events and not root.settings.WHATSAPP_TOKEN:
         abort(503, description="whatsapp_not_configured")
     for event in events:
-        if event.get("metadata", {}).get("phone_number_id") != c.settings.WHATSAPP_PHONE_ID:
-            abort(403)
+        c = recipient_container(event.get("metadata", {}).get("phone_number_id"))
         _process(c, event, source)
     return jsonify(ok=True, events=len(events))
 

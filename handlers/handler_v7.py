@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from brain_v7 import BrainV7
 from renderer_v7 import RendererV7
+from service.sales_playbook import load_sales_playbook, offering_terms
+from service.tenant_sales_context import build_tenant_sales_context, discovery_question
+from service.validators import normalize_phone
 
 logger = logging.getLogger("handler_v7")
 
@@ -23,7 +26,7 @@ class MessageHandlerV7:
     - Smalltalk/meta-AI handled locally.
     - Out-of-scope detection handled cleanly.
     - Delivery / nearest-branch logic preserved.
-    - Product typo handling restored (e.g. chciken -> chicken).
+    - Product typo handling delegated to the tenant catalog search.
     - Better product-ish detection.
     - One safe retry search for empty product results.
     """
@@ -51,28 +54,36 @@ class MessageHandlerV7:
         "what time is it in",
     )
 
-    _MEATS = ("chicken", "beef", "lamb", "goat")
-
-    _TOPIC_WORDS = (
-        "steak", "chops", "wing", "wings", "mince", "kofta", "breast", "thigh",
-        "drumstick", "drumsticks", "ribs", "rib", "fillet", "fillets", "sirloin",
-        "ribeye", "rump", "leg", "shoulder", "neck", "shank", "burger", "burgers",
-        "patty", "patties", "liver", "kidney", "kidneys", "paya", "feet",
-        "nugget", "nuggets", "kebab", "kebabs",
-    )
-
     _BUY_WORDS = (
         "price", "prices", "cost", "how much", "cheapest", "cheap", "offer", "deal",
         "recommend", "recommendation", "suggest", "suggestion", "options", "list",
-        "full list", "family pack", "bbq", "barbecue", "grill", "grilling", "curry",
+        "full list", "catalog", "catalogue", "product", "products", "item", "items",
+        "available", "stock", "buy", "purchase", "shop", "looking for", "need", "want",
+        "service", "services", "consultation", "appointment", "quote", "estimate", "booking",
+        "book", "hire", "install", "repair",
     )
 
-    _MEAT_ALIASES = {
-        "poultry": "chicken",
-        "hen": "chicken",
-        "mutton": "lamb",
-        "cow": "beef",
+    _EXPLICIT_SHOPPING_WORDS = (
+        "buy", "purchase", "price", "prices", "cost", "how much", "cheapest",
+        "offer", "deal", "recommend", "list", "catalog", "catalogue", "available",
+        "show", "browse", "view", "products", "items", "in stock", "do you have",
+        "have you got", "do you sell", "looking for", "need", "want",
+        "service", "services", "consultation", "appointment", "quote", "estimate", "booking",
+        "book", "hire", "install", "repair",
+    )
+
+    _SEARCH_STOP_WORDS = {
+        "a", "an", "and", "any", "available", "buy", "catalog", "catalogue", "do",
+        "for", "have", "i", "in", "is", "item", "items", "list", "looking", "me",
+        "need", "of", "product", "products", "recommend", "show", "some", "the",
+        "to", "want", "what", "with", "you", "your",
     }
+
+    _BROWSE_ALL_PAT = re.compile(
+        r"\b(show|browse|list|see|view)?\s*(all|full|entire|whole)?\s*"
+        r"(products?|items?|services?|offerings?|catalog|catalogue|range)\b",
+        re.I,
+    )
 
     _POSTCODE_FULL = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
     _POSTCODE_OUTWARD = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\b", re.I)
@@ -103,29 +114,93 @@ class MessageHandlerV7:
         "delivery to",
     )
 
+    _HANDOFF_PHRASES = (
+        "speak to someone",
+        "speak with someone",
+        "talk to someone",
+        "talk to a person",
+        "human agent",
+        "real person",
+        "call me back",
+        "contact me",
+        "customer service",
+        "book a consultation",
+        "arrange a consultation",
+        "book a call",
+        "schedule a call",
+        "book an appointment",
+        "schedule an appointment",
+        "get a quote",
+        "request a quote",
+        "request a callback",
+    )
+    _PHONE_CANDIDATE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
+    _EMAIL_CANDIDATE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+    _HANDOFF_NAME_CANDIDATE = re.compile(
+        r"\b(?i:my name is|this is|i am|i['’]m)\s+"
+        r"([A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){0,3})"
+    )
+    _COMPARISON_REQUEST = re.compile(
+        r"\b(?:compare|comparison|difference between|versus)\b|\bvs\.?(?=\s|$)",
+        re.I,
+    )
+    _COMPARISON_SEPARATOR = re.compile(r"\s+(?:and|with|versus|vs\.?)\s+", re.I)
+    _STORE_INFO_PHRASES = (
+        "how can i contact",
+        "how do i contact",
+        "contact details",
+        "phone number",
+        "telephone number",
+        "email address",
+        "what is your number",
+        "what's your number",
+        "your website",
+        "website address",
+        "tell me about your business",
+        "about the business",
+    )
+    _OFFER_REQUEST = re.compile(
+        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?)\b",
+        re.I,
+    )
+    _PRICE_REQUEST = re.compile(r"\b(?:price|prices|cost|how much)\b", re.I)
+    _SELECTION_NUMBER = re.compile(r"^\s*(?:option\s*)?([1-9]|1[0-2])\s*[.)]?\s*$", re.I)
+    _SELECTION_ACTIONS = {
+        "compare_or_price_selection",
+        "select_available_alternative",
+        "select_compared_product",
+    }
+
     def __init__(self, deps: Any):
         self.catalog = getattr(deps, "catalog", None)
         self.policy = getattr(deps, "policy", None)
         self.geo = getattr(deps, "geo", None)
         self.faq = getattr(deps, "faq", None)
+        self.offers = getattr(deps, "offers", None)
         self.synonyms = getattr(deps, "synonyms", None)
-        self.catalog_terms = set()
-        if self.catalog:
-            for item in self.catalog.list_all_items():
-                words = re.findall(r"[a-z0-9]+", str(item.get("name", "")).lower())
-                self.catalog_terms.update(word for word in words if len(word) >= 3 and word not in {"the", "and", "for", "with"})
-            for category in self.catalog.categories():
-                self.catalog_terms.update(re.findall(r"[a-z0-9]{3,}", str(category.get("name", "")).lower()))
-        self.branding = {}
-        if self.catalog:
-            try:
-                self.branding = self.catalog.storage.read_json(None, "branding.json")
-            except (FileNotFoundError, ValueError):
-                pass
+        self.overrides = getattr(deps, "overrides", None)
         self.logger = getattr(deps, "logger", None)
+        self.business_name = str(getattr(deps, "business_name", "") or "").strip()
+        profile = getattr(deps, "business_profile", None)
+        self.business_profile = profile if isinstance(profile, dict) else {}
+        self.sales_playbook = load_sales_playbook(self.overrides)
+        self.offering_singular, self.offering_plural = offering_terms(self.sales_playbook)
+        self.sales_context = build_tenant_sales_context(
+            self.business_profile,
+            self.sales_playbook,
+            self._catalog_categories(),
+        )
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
-        self.renderer = RendererV7(getattr(deps, "rewriter", None))
+        tone_style, max_sentences = self._tone_settings()
+        self.renderer = RendererV7(
+            getattr(deps, "rewriter", None),
+            self.business_name,
+            tone_style=tone_style,
+            max_sentences=max_sentences,
+            offering_type=self.sales_playbook["offering_type"],
+            business_context=self.sales_context,
+        )
 
     # ------------------------------------------------------------------
     # PUBLIC
@@ -146,22 +221,27 @@ class MessageHandlerV7:
             "last_category": (sess or {}).get("last_category"),
             "last_sku": (sess or {}).get("last_sku"),
         }
+        session_state = {
+            "has_postcode": bool(session_snapshot["postcode"]),
+            "last_intent": session_snapshot["last_intent"],
+            "has_category": bool(session_snapshot["last_category"]),
+            "has_sku": bool(session_snapshot["last_sku"]),
+        }
 
         self._info(
             request_id,
             "V7.start",
             tenant=tenant,
-            session=session_id,
             channel=channel,
-            text=self._clip(user_text, 240),
-            sess=session_snapshot,
+            session_present=bool(session_id and session_id != "unknown"),
+            text_len=len(user_text),
+            session_state=session_state,
         )
 
         try:
             # 0) Greeting only
             if self._is_greeting(user_text):
-                widget = self.branding.get("widget", {}) if isinstance(self.branding, dict) else {}
-                reply_text = widget.get("greeting") or "Hello! I can help with products, prices, delivery and business information. What are you looking for?"
+                reply_text = self._greeting_reply()
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -188,21 +268,9 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # Exact curated answers work without a model and remain company-scoped.
-            if self.faq:
-                question = self._clean_text(user_text)
-                for entry in self.faq.all():
-                    answer = entry.get("a", "")
-                    if question == self._clean_text(entry.get("q", "")) and answer and not re.search(r"\{[^{}]+\}", answer):
-                        return self._wrap_reply(request_id=request_id, t0=t0, reply=answer,
-                                                intent="faq", plan=None, facts={"faq": entry}, entities={}, items=[])
-
             # 0.75) Out of scope
             if self._looks_out_of_scope(user_text):
-                reply_text = (
-                    "I’m this business’s sales assistant.\n"
-                    "Ask me about products, prices, delivery, or your nearest branch."
-                )
+                reply_text = f"I can help with questions about {self._business_scope()}."
                 safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -212,6 +280,146 @@ class MessageHandlerV7:
                     plan=safe_plan,
                     facts={},
                     entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
+
+            # 0.9) Explicit human handoff and voluntary contact details.
+            contact = self._handoff_contact(user_text, session_snapshot)
+            if contact and self._has_pending_handoff(session_snapshot):
+                plan = self._simple_plan("handoff_contact_captured", "HUMAN_HANDOFF", session_snapshot)
+                reply_text = (
+                    "Thanks, I’ve recorded those contact details for the team. "
+                    "You can add any product or delivery details that would help them."
+                )
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="handoff_contact_captured",
+                    plan=plan,
+                    facts={"handoff": {"contact_captured": True}},
+                    entities=contact,
+                    items=[],
+                )
+
+            if self._requests_handoff(user_text):
+                plan = self._simple_plan("human_handoff", "HUMAN_HANDOFF", session_snapshot)
+                reply_text = self._handoff_reply()
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="human_handoff",
+                    plan=plan,
+                    facts={},
+                    entities={},
+                    items=[],
+                )
+
+            offers = self._current_offers(user_text)
+            if offers is not None:
+                plan = self._simple_plan("offers", "SHOW_OFFERS", session_snapshot)
+                facts = {"offers": offers}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="offers",
+                    plan=plan,
+                    facts=facts,
+                    entities={"product_sku": offers.get("matched_product_sku")} if offers.get("matched_product_sku") else {},
+                    items=[],
+                )
+
+            comparison_items = self._comparison_items(user_text, request_id=request_id)
+            if comparison_items is not None:
+                plan = self._simple_plan("compare_products", "COMPARE_PRODUCTS", session_snapshot)
+                facts = {
+                    "comparison": {"items": comparison_items},
+                    "items": comparison_items,
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="compare_products",
+                    plan=plan,
+                    facts=facts,
+                    entities={"comparison_skus": [item.get("sku") for item in comparison_items]},
+                    items=comparison_items,
+                )
+
+            selected_product = self._selected_product_from_session(user_text, sess)
+            price_product = selected_product or self._price_product_in_text(user_text)
+            if price_product and price_product.get("in_stock", True):
+                sku = str(price_product.get("sku") or "").strip()
+                plan = self._simple_plan("price_check", "PRICE_CHECK", session_snapshot)
+                plan["sku"] = sku
+                facts = {
+                    "price": {
+                        "sku": sku,
+                        "name": str(price_product.get("name") or "").strip(),
+                        "price": price_product.get("price"),
+                        "unit": str(price_product.get("unit") or "").strip(),
+                        "in_stock": True,
+                    },
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="price_check",
+                    plan=plan,
+                    facts=facts,
+                    entities={"sku": sku, "product_name": facts["price"]["name"]},
+                    items=[],
+                )
+
+            unavailable_product = (
+                price_product if price_product and not price_product.get("in_stock", True)
+                else self._unavailable_product_in_text(user_text)
+            )
+            if unavailable_product:
+                alternatives = self._in_stock_alternatives(unavailable_product)
+                plan = self._simple_plan("unavailable_product", "SHOW_ALTERNATIVES", session_snapshot)
+                facts = {
+                    "unavailable_product": unavailable_product,
+                    "items": alternatives,
+                    "currency": self._catalog_currency(),
+                }
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="unavailable_product",
+                    plan=plan,
+                    facts=facts,
+                    entities={
+                        "product_sku": unavailable_product.get("sku"),
+                        "alternative_skus": [item.get("sku") for item in alternatives],
+                    },
+                    items=alternatives,
+                )
+
+            store_info = self._store_info_answer(user_text)
+            if store_info:
+                plan = self._simple_plan("store_info", "STORE_INFO", session_snapshot)
+                facts = {"store_info": {"answer": store_info}}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="store_info",
+                    plan=plan,
+                    facts=facts,
+                    entities={},
                     items=[],
                 )
 
@@ -302,7 +510,24 @@ class MessageHandlerV7:
 
             # 3) Heuristic plan only if product-ish
             plan: Optional[Dict[str, Any]] = None
-            if self._looks_like_product_query(user_text):
+            product_query = self._looks_like_product_query(user_text)
+            faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
+            if faq and not (product_query and self._is_explicit_shopping_request(user_text)):
+                plan = self._simple_plan("faq", "FAQ_LOOKUP", session_snapshot)
+                facts = {"faq": faq}
+                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="faq",
+                    plan=plan,
+                    facts=facts,
+                    entities={},
+                    items=[],
+                )
+
+            if product_query:
                 plan = self._heuristic_plan(user_text, request_id=request_id)
 
             # 4) Otherwise brain
@@ -330,7 +555,7 @@ class MessageHandlerV7:
 
             # 6) Unknown but not product-ish
             if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
-                reply_text = "Ask me about this business's products, prices, delivery or opening hours. What would you like to know?"
+                reply_text = self._discovery_reply()
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
                     request_id=request_id,
@@ -387,18 +612,93 @@ class MessageHandlerV7:
         t = self._clean_text(user_text)
 
         if any(x in t for x in ("ai", "bot", "real", "who are you", "where is the ai", "were is the ai")):
-            return (
-                "Yes — I’m this business’s AI sales assistant.\n"
-                "I can help with products, prices, delivery, and nearest branch details."
-            )
+            return f"Yes - I'm an AI-powered {self._assistant_label()}. I can help with {self._business_scope()}."
 
         if "help" in t:
-            return "Sure — tell me what you need. For example: chicken wings, lamb chops, or delivery to E7 9QS."
+            return f"Sure - tell me what you need. I can help with {self._business_scope()}."
 
         if any(x in t for x in ("how are you", "how r u", "hru", "whats up", "what's up")):
-            return "I’m ready to help. Ask me about products, prices, delivery, or nearest branch."
+            return f"I'm ready to help with {self._business_scope()}."
 
-        return "I’m your sales assistant. Ask me about products, prices, delivery, or the nearest branch."
+        return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
+
+    def _business_label(self) -> str:
+        return self.business_name or "this business"
+
+    def _assistant_label(self) -> str:
+        if self.business_name:
+            return f"{self.business_name} sales assistant"
+        return "sales assistant for this business"
+
+    def _business_scope(self) -> str:
+        focus = str(self.sales_context.get("business_focus") or "").strip()
+        if focus:
+            return focus
+        categories = self.sales_context.get("categories") or []
+        if isinstance(categories, list):
+            labels = [str(category).strip() for category in categories[:3] if str(category).strip()]
+            if labels:
+                return ", ".join(labels)
+        if self.offering_singular == "product":
+            return "products, pricing, delivery, and branch details"
+        if self.offering_singular == "service":
+            return "services, availability, and business details"
+        return "offerings, availability, and business details"
+
+    def _opening_question(self) -> str:
+        goal = str(self.sales_playbook.get("primary_goal") or "drive_sales")
+        if goal == "book_consultation":
+            return "What would you like to discuss with the team?"
+        if goal == "capture_leads":
+            return "What can the team help you with today?"
+        if goal == "answer_questions":
+            return "What would you like to know?"
+        return discovery_question(self.sales_context, self.offering_singular, self.offering_plural)
+
+    def _greeting_reply(self) -> str:
+        focus = str(self.sales_context.get("business_focus") or "").strip()
+        proposition = self._primary_value_proposition()
+        if focus:
+            benefit = f" {proposition}" if proposition else ""
+            return f"Hi, I'm the {self._assistant_label()}. I can help with {focus}.{benefit} {self._opening_question()}"
+        description = str(self.sales_context.get("about") or "").strip()
+        if description:
+            return f"Hi, I'm the {self._assistant_label()}. {description} {self._opening_question()}"
+        return f"Hi, I'm the {self._assistant_label()}. I can help with {self._business_scope()}. {self._opening_question()}"
+
+    def _discovery_reply(self) -> str:
+        value = self._primary_value_proposition()
+        lead = f"I can help you explore {self._business_scope()}."
+        if value:
+            lead = f"{lead} {value}"
+        return f"{lead} {self._opening_question()}"
+
+    def _primary_value_proposition(self) -> str:
+        propositions = self.sales_context.get("value_propositions") or []
+        if not isinstance(propositions, list) or not propositions:
+            return ""
+        return str(propositions[0] or "").strip()
+
+    def _handoff_reply(self) -> str:
+        configured = str(self.sales_playbook.get("handoff_message") or "").strip()
+        if not configured:
+            configured = "I can have the team follow up."
+        elif configured[-1:] not in {".", "!", "?"}:
+            configured = f"{configured}."
+        return f"{configured} Please send a phone number or email, plus a short note about what you need."
+
+    def _tone_settings(self) -> Tuple[str, int]:
+        style = "friendly"
+        max_sentences = 2
+        if self.overrides:
+            try:
+                candidate = str(self.overrides.get("tone.style") or style).strip().lower()
+                if candidate in {"friendly", "professional", "concise"}:
+                    style = candidate
+                max_sentences = int(self.overrides.get("tone.max_sentences") or max_sentences)
+            except (TypeError, ValueError):
+                max_sentences = 2
+        return style, min(max(max_sentences, 1), 4)
 
     def _simple_plan(self, intent: str, action: str, session: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -489,16 +789,16 @@ class MessageHandlerV7:
         if self._is_smalltalk(t):
             return False
 
-        if self.catalog_terms.intersection(re.findall(r"[a-z0-9]+", t)):
-            return True
+        if self.catalog:
+            try:
+                if self.catalog.search(text=t, limit=1):
+                    return True
+            except Exception:
+                logger.debug("V7 catalog probe failed", exc_info=True)
 
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._MEATS):
-            return True
-        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in self._TOPIC_WORDS):
-            return True
         if any(w in t for w in self._BUY_WORDS):
             return True
-        if "£" in user_text or re.search(r"\b(under|below|less than)\b", t):
+        if re.search(r"[$£€]", user_text) or re.search(r"\b(under|below|less than)\b", t):
             return True
 
         toks = t.split()
@@ -506,10 +806,340 @@ class MessageHandlerV7:
             tok = toks[0]
             if tok in {"ai", "bot"}:
                 return False
-            if tok in set(self._TOPIC_WORDS) or tok in set(self._MEATS):
-                return True
 
         return False
+
+    def _is_explicit_shopping_request(self, user_text: str) -> bool:
+        text = self._clean_text(user_text)
+        return any(word in text for word in self._EXPLICIT_SHOPPING_WORDS)
+
+    def _requests_handoff(self, user_text: str) -> bool:
+        text = self._clean_text(user_text)
+        return any(phrase in text for phrase in self._HANDOFF_PHRASES)
+
+    def _store_info_answer(self, user_text: str) -> Optional[str]:
+        text = self._clean_text(user_text)
+        if not text:
+            return None
+
+        is_contact_question = (
+            any(phrase in text for phrase in self._STORE_INFO_PHRASES)
+            or bool(re.search(r"\b(contact|phone|telephone|email|website)\b", text))
+        )
+        is_about_question = "about" in text and any(word in text for word in ("business", "company", "store"))
+        if not is_contact_question and not is_about_question:
+            return None
+
+        name = str(self.business_profile.get("name") or self.business_name or "the business").strip()
+        phone = str(self.business_profile.get("phone") or "").strip()
+        email = str(self.business_profile.get("email") or "").strip()
+        website = str(self.business_profile.get("website") or "").strip()
+        about = str(self.business_profile.get("about") or "").strip()
+
+        if is_about_question and about:
+            return about
+
+        if "website" in text and website:
+            return f"{name}'s website is {website}."
+
+        contact_options: List[str] = []
+        if phone:
+            contact_options.append(f"phone at {phone}")
+        if email:
+            contact_options.append(f"email at {email}")
+        if contact_options:
+            if len(contact_options) == 1:
+                answer = f"You can contact {name} by {contact_options[0]}."
+            else:
+                answer = f"You can contact {name} by {contact_options[0]} or {contact_options[1]}."
+            if website and "website" not in text:
+                answer = f"{answer} You can also visit {website}."
+            return answer
+
+        return "Contact details are not configured for this business yet."
+
+    def _current_offers(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """Return only current tenant offers, optionally scoped to a named product."""
+        if not self._OFFER_REQUEST.search(user_text or ""):
+            return None
+
+        active: List[Dict[str, Any]] = []
+        if self.offers:
+            try:
+                active = [offer for offer in self.offers.active() if isinstance(offer, dict)]
+            except Exception:
+                logger.exception("V7 offer lookup failed")
+
+        product = self._offer_product_in_text(user_text)
+        if product:
+            sku = str(product.get("sku") or "").strip()
+            active = [
+                offer
+                for offer in active
+                if not offer.get("product_skus") or sku in offer.get("product_skus", [])
+            ]
+            return {
+                "items": active,
+                "matched_product_name": str(product.get("name") or "").strip(),
+                "matched_product_sku": sku,
+            }
+        return {"items": active}
+
+    def _offer_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        if not self.catalog:
+            return None
+        text = self._normalize_text(user_text)
+        if not text:
+            return None
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return None
+
+        matches: List[Tuple[int, Dict[str, Any]]] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            if name and name in text:
+                matches.append((len(name), item))
+        return max(matches, key=lambda pair: pair[0])[1] if matches else None
+
+    def _exact_catalog_item_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        """Match an explicitly named catalog product or SKU without fuzzy guessing."""
+        if not self.catalog:
+            return None
+
+        text = self._normalize_text(user_text)
+        if not text:
+            return None
+
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return None
+
+        matches: List[Tuple[int, Dict[str, Any]]] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            sku = self._normalize_text(str(item.get("sku") or ""))
+            for identifier in (name, sku):
+                if not identifier or len(identifier) < 3:
+                    continue
+                if re.search(rf"(?<!\w){re.escape(identifier)}(?!\w)", text):
+                    matches.append((len(identifier), item))
+                    break
+
+        return max(matches, key=lambda pair: pair[0])[1] if matches else None
+
+    def _price_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        if not self._PRICE_REQUEST.search(user_text or ""):
+            return None
+        return self._exact_catalog_item_in_text(user_text)
+
+    def _selected_product_from_session(self, user_text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Resolve a click or numbered choice only within the current session's last results."""
+        if not self.catalog:
+            return None
+        agent = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
+        if agent.get("next_action") not in self._SELECTION_ACTIONS:
+            return None
+
+        last_items = session.get("last_items")
+        if not isinstance(last_items, list) or not last_items:
+            return None
+        skus = [str(sku).strip() for sku in last_items[:12] if str(sku).strip()]
+        if not skus:
+            return None
+
+        number_match = self._SELECTION_NUMBER.match(user_text or "")
+        if number_match:
+            index = int(number_match.group(1)) - 1
+            if 0 <= index < len(skus):
+                return self.catalog.get_item_by_sku(skus[index])
+            return None
+
+        selected_text = self._normalize_text(user_text)
+        if not selected_text:
+            return None
+        for sku in skus:
+            item = self.catalog.get_item_by_sku(sku)
+            if not isinstance(item, dict):
+                continue
+            name = self._normalize_text(str(item.get("name") or ""))
+            item_sku = self._normalize_text(str(item.get("sku") or ""))
+            if selected_text in {name, item_sku}:
+                return item
+        return None
+
+    def _unavailable_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+        item = self._exact_catalog_item_in_text(user_text)
+        return item if item and not item.get("in_stock", True) else None
+
+    def _in_stock_alternatives(self, unavailable_item: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
+        """Return related, tenant-catalog alternatives only when they are in stock."""
+        if not self.catalog:
+            return []
+
+        unavailable_sku = str(unavailable_item.get("sku") or "").strip()
+        category_id = str(unavailable_item.get("_category_id") or "").strip()
+        unavailable_tags = {
+            str(tag).strip().lower()
+            for tag in (unavailable_item.get("_norm_tags") or unavailable_item.get("tags") or [])
+            if str(tag).strip()
+        }
+        try:
+            unavailable_price = float(unavailable_item.get("price"))
+        except (TypeError, ValueError):
+            unavailable_price = None
+
+        try:
+            candidates = self.catalog.list_all_items()
+        except Exception:
+            return []
+
+        same_category: List[Dict[str, Any]] = []
+        shared_tag_matches: List[Dict[str, Any]] = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("sku") or "").strip() == unavailable_sku or not item.get("in_stock", True):
+                continue
+
+            item_category = str(item.get("_category_id") or "").strip()
+            item_tags = {
+                str(tag).strip().lower()
+                for tag in (item.get("_norm_tags") or item.get("tags") or [])
+                if str(tag).strip()
+            }
+            if category_id and item_category == category_id:
+                same_category.append(item)
+            elif unavailable_tags.intersection(item_tags):
+                shared_tag_matches.append(item)
+
+        related = same_category or shared_tag_matches
+
+        def rank(item: Dict[str, Any]) -> Tuple[int, float, str]:
+            item_tags = {
+                str(tag).strip().lower()
+                for tag in (item.get("_norm_tags") or item.get("tags") or [])
+                if str(tag).strip()
+            }
+            shared_tags = len(unavailable_tags.intersection(item_tags))
+            try:
+                item_price = float(item.get("price"))
+            except (TypeError, ValueError):
+                item_price = unavailable_price if unavailable_price is not None else 0.0
+            price_gap = abs(item_price - unavailable_price) if unavailable_price is not None else 0.0
+            return (-shared_tags, price_gap, str(item.get("name") or "").casefold())
+
+        return sorted(related, key=rank)[:limit]
+
+    def _comparison_items(self, user_text: str, *, request_id: str) -> Optional[List[Dict[str, Any]]]:
+        if not self._COMPARISON_REQUEST.search(user_text or ""):
+            return None
+
+        if not self.catalog:
+            return []
+
+        request_match = re.search(r"\b(?:compare|comparison|difference between)\b", user_text, re.I)
+        candidates_text = user_text[request_match.end() :] if request_match else user_text
+        product_queries = [
+            re.sub(r"^(?:the|a|an)\s+", "", value.strip(" ?!.,"), flags=re.I)
+            for value in self._COMPARISON_SEPARATOR.split(candidates_text)
+            if value.strip(" ?!.,")
+        ]
+        if len(product_queries) < 2:
+            return []
+
+        items: List[Dict[str, Any]] = []
+        seen_skus = set()
+        for query in product_queries[:2]:
+            matches = self._catalog_search_safe(request_id, query=query, tags=[], limit=3)
+            if not matches:
+                return []
+            item = matches[0]
+            sku = str(item.get("sku") or "")
+            if not sku or sku in seen_skus:
+                return []
+            seen_skus.add(sku)
+            items.append(item)
+
+        return items
+
+    @staticmethod
+    def _has_pending_handoff(session: Dict[str, Any]) -> bool:
+        if str(session.get("last_intent") or "").strip().lower() in {
+            "human_handoff",
+            "handoff_contact_captured",
+        }:
+            return True
+        agent = session.get("sales_agent")
+        return isinstance(agent, dict) and agent.get("stage") == "handoff"
+
+    @classmethod
+    def _handoff_contact(cls, user_text: str, session: Dict[str, Any]) -> Dict[str, str]:
+        del session
+        contact: Dict[str, str] = {}
+        phone_match = cls._PHONE_CANDIDATE.search(user_text or "")
+        if phone_match:
+            phone = normalize_phone(phone_match.group(0))
+            if phone:
+                contact["phone"] = phone
+
+        email_match = cls._EMAIL_CANDIDATE.search(user_text or "")
+        if email_match:
+            contact["email"] = email_match.group(0).lower()
+
+        name_match = cls._HANDOFF_NAME_CANDIDATE.search(user_text or "")
+        if name_match:
+            contact["name"] = " ".join(name_match.group(1).split())
+        return contact
+
+    def _find_faq(
+        self,
+        user_text: str,
+        session: Dict[str, Any],
+        *,
+        request_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Find and safely render a tenant FAQ before asking the model to infer it."""
+        if not self.faq:
+            return None
+
+        try:
+            matches = self.faq.best_match(
+                user_text,
+                hint_tags=self._token_tags(user_text),
+                min_sim=0.45,
+            )
+        except Exception as exc:
+            self._exc(request_id, "V7.faq_lookup_failed", err=str(exc))
+            return None
+
+        if not matches or not isinstance(matches[0], dict):
+            return None
+
+        entry = matches[0]
+        placeholders: Dict[str, str] = {}
+        if self.business_name:
+            placeholders["business_name"] = self.business_name
+
+        postcode = self._normalize_postcode(str(session.get("postcode") or ""))
+        if postcode:
+            placeholders["postcode"] = postcode
+            if self.policy:
+                try:
+                    placeholders["delivery_summary"] = self.policy.delivery_summary(postcode) or ""
+                except Exception as exc:
+                    self._exc(request_id, "V7.faq_delivery_summary_failed", err=str(exc))
+
+        answer = self.faq.render_answer(entry, placeholders).strip()
+        if not answer:
+            return None
+        return {"question": str(entry.get("q") or ""), "answer": answer}
 
     # ------------------------------------------------------------------
     # Retry search
@@ -533,22 +1163,19 @@ class MessageHandlerV7:
         if not tokens or len(tokens) > 3:
             return None
 
-        cut = None
-        for t in tokens:
-            if t in set(self._TOPIC_WORDS) or t in set(self._MEATS):
-                cut = t
-                break
-        if not cut:
-            return None
-
         try:
             limit = int(meta.get("max_items") or 12)
         except Exception:
             limit = 12
 
-        tags = self._token_tags(cut)
-        self._info(request_id, "V7.catalog.retry", cut=cut, tags=tags, limit=limit)
-        return self._catalog_search_safe(request_id, query=cut, tags=tags, limit=limit)
+        for token in reversed(tokens):
+            if token in self._SEARCH_STOP_WORDS:
+                continue
+            items = self._catalog_search_safe(request_id, query=token, tags=[token], limit=limit)
+            if items:
+                self._info(request_id, "V7.catalog.retry", token=token, limit=limit)
+                return items
+        return None
 
     # ------------------------------------------------------------------
     # Wrappers / request helpers
@@ -567,6 +1194,14 @@ class MessageHandlerV7:
         items: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         dt_ms = int((time.perf_counter() - t0) * 1000)
+        safe_facts = dict(facts or {})
+        safe_facts.setdefault(
+            "sales_context",
+            {
+                "categories": list(self.sales_context.get("categories") or []),
+                "offering_type": self.sales_playbook["offering_type"],
+            },
+        )
         ui = {
             "has_catalog": bool(items),
             "catalog_items": self._format_items_for_ui(items or []),
@@ -576,10 +1211,19 @@ class MessageHandlerV7:
             "mode": "v7",
             "intent": intent or "unknown",
             "entities": entities or {},
-            "facts": facts or {},
+            "facts": safe_facts,
             "ui": ui,
             "meta": {"request_id": request_id, "latency_ms": dt_ms},
         }
+
+    def _catalog_categories(self) -> List[Dict[str, Any]]:
+        if not self.catalog:
+            return []
+        try:
+            categories = self.catalog.categories()
+        except Exception:
+            return []
+        return [category for category in categories if isinstance(category, dict)]
 
     def _get_request_id(self, ctx: Any) -> Optional[str]:
         try:
@@ -648,35 +1292,27 @@ class MessageHandlerV7:
             except Exception:
                 max_price = None
 
-        tags: List[str] = []
-        if re.search(r"\b(bbq|barbecue)\b", t):
-            tags.append("bbq")
-        if re.search(r"\b(marinated|marinaded|marinted)\b", t):
-            tags.append("marinated")
-        if re.search(r"\bboneless\b", t):
-            tags.append("boneless")
-
-        return {"sort": sort, "max_price": max_price, "tags": tags}
+        return {"sort": sort, "max_price": max_price, "tags": []}
 
     def _required_terms_from_text(self, text: str) -> List[str]:
         t = self._normalize_text(text)
         if not t:
             return []
-        out: List[str] = []
-        for w in self._TOPIC_WORDS:
-            if re.search(rf"\b{re.escape(w)}\b", t):
-                out.append(w)
-        return out
+        return [
+            token
+            for token in t.split()
+            if token not in self._SEARCH_STOP_WORDS and self._catalog_has_match(token)
+        ]
 
     def _strip_modifier_words(self, text: str) -> str:
         s = self._normalize_text(text)
         s = re.sub(
             r"\b(cheapest|chepest|cheap|lowest|low|most|expensive|highest|premium|best|"
-            r"under|below|less|than|boneless|bbq|barbecue|marinated|marinted)\b",
+            r"under|below|less|than)\b",
             " ",
             s,
         )
-        s = s.replace("£", " ")
+        s = re.sub(r"[$£€]", " ", s)
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
@@ -687,8 +1323,9 @@ class MessageHandlerV7:
 
         mods = self._parse_modifiers(t)
         required = self._required_terms_from_text(t)
+        browse_all = bool(self._BROWSE_ALL_PAT.search(t))
 
-        core = self._strip_modifier_words(t) or t
+        core = "" if browse_all else (self._strip_modifier_words(t) or t)
         core = self._normalize_text(core)
 
         tags = self._token_tags(core)
@@ -702,13 +1339,17 @@ class MessageHandlerV7:
             "sort": mods.get("sort"),
             "max_price": mods.get("max_price"),
             "required_terms": required,
+            "browse_all": browse_all,
+            "search_scope": "full_store" if browse_all else "top_picks",
+            "item_level": False,
+            "wants_chunking": browse_all,
         }
 
         return {
             "intent": "search_product",
             "action": "SEARCH_PRODUCTS",
             "category": None,
-            "product_name": core,
+            "product_name": core or None,
             "postcode": None,
             "sku": None,
             "handoff_channel": None,
@@ -719,11 +1360,12 @@ class MessageHandlerV7:
 
     def _safe_plan(self, user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         try:
-            hints: Dict[str, Any] = {}
-            if self.synonyms:
-                hints["synonyms"] = self.synonyms.forward()
-            if self.catalog:
-                hints["categories"] = [cat.get("name") for cat in self.catalog.categories()]
+            # Hints are consumed only by the local fallback planner. They are
+            # intentionally not included in the external model request.
+            hints: Dict[str, Any] = {
+                "business": self.sales_context,
+                "categories": self._catalog_categories(),
+            }
 
             plan = self.brain.plan(
                 user_text=user_text,
@@ -819,11 +1461,24 @@ class MessageHandlerV7:
             except Exception:
                 limit = 12
 
-            items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
+            if meta.get("browse_all") and self.catalog:
+                try:
+                    items = self.catalog.list_all_items()[:limit]
+                except Exception:
+                    items = []
+            else:
+                items = self._catalog_search_safe(request_id, query=query, tags=tags, limit=limit)
             required = meta.get("required_terms") or self._required_terms_from_text(user_text)
             items = self._topic_enforce(items, required=required)
             items = self._post_filter_items(items, meta)
             facts["items"] = items
+            facts["currency"] = self._catalog_currency()
+            facts["search_meta"] = {
+                "scope": meta.get("search_scope") or "top_picks",
+                "item_level": bool(meta.get("item_level")),
+                "max_items": limit,
+                "wants_chunking": bool(meta.get("wants_chunking")),
+            }
 
         return facts
 
@@ -840,6 +1495,22 @@ class MessageHandlerV7:
         except Exception as e:
             self._exc(request_id, "V7.catalog.search_failed", err=str(e))
             return []
+
+    def _catalog_has_match(self, token: str) -> bool:
+        if not self.catalog:
+            return False
+        try:
+            return bool(self.catalog.search(text=token, limit=1))
+        except Exception:
+            return False
+
+    def _catalog_currency(self) -> str:
+        if not self.catalog:
+            return "GBP"
+        try:
+            return str(self.catalog.currency() or "GBP").upper()
+        except Exception:
+            return "GBP"
 
     def _topic_enforce(self, items: List[Dict[str, Any]], required: List[str]) -> List[Dict[str, Any]]:
         required = [str(x).strip().lower() for x in (required or []) if str(x).strip()]
@@ -964,7 +1635,7 @@ class MessageHandlerV7:
 
     def _clean_text(self, text: str) -> str:
         t = (text or "").lower().strip()
-        t = re.sub(r"[^a-z0-9\s£_-]+", " ", t)
+        t = re.sub(r"[^a-z0-9\s$£€_-]+", " ", t)
         t = re.sub(r"\s+", " ", t).strip()
         return t
 
@@ -973,28 +1644,7 @@ class MessageHandlerV7:
         if not t:
             return t
 
-        toks = t.split()
-        out: List[str] = []
-
-        for tok in toks:
-            if tok in self._MEAT_ALIASES:
-                out.append(self._MEAT_ALIASES[tok])
-                continue
-            out.append(self._fuzzy_fix_meat_token(tok))
-
-        return " ".join(out).strip()
-
-    def _fuzzy_fix_meat_token(self, tok: str) -> str:
-        tok = (tok or "").lower().strip()
-        if not tok:
-            return tok
-        if tok in self._MEATS:
-            return tok
-
-        match = difflib.get_close_matches(tok, list(self._MEATS), n=1, cutoff=0.72)
-        if match:
-            return match[0]
-        return tok
+        return t
 
     def _token_tags(self, text: str) -> List[str]:
         t = self._normalize_text(text)
@@ -1041,8 +1691,6 @@ class MessageHandlerV7:
     def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
         for k, v in (d or {}).items():
-            if k in {"text", "session", "sess", "err", "reply", "history", "prompt"}:
-                continue
             if v is None:
                 continue
             if isinstance(v, str):

@@ -62,6 +62,42 @@ def _canon_origin(u: str) -> str:
         return ""
 
 
+def canonical_origin(origin: str) -> str:
+    """Return an exact HTTP(S) browser origin or an empty string."""
+    value = _canon_origin(origin)
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+    return value
+
+
+def allowed_origins_from_branding(branding: Dict[str, Any] | None) -> List[str]:
+    """Read a tenant's explicit website allowlist from branding.json."""
+    if not isinstance(branding, dict):
+        return []
+    widget = branding.get("widget") or {}
+    if not isinstance(widget, dict):
+        return []
+    configured = widget.get("allowed_origins") or []
+    if not isinstance(configured, list):
+        return []
+
+    origins: List[str] = []
+    for raw in configured:
+        origin = canonical_origin(str(raw or ""))
+        if origin and origin not in origins:
+            origins.append(origin)
+    return origins
+
+
+def is_allowed_origin(origin: str, allowed_origins: List[str]) -> bool:
+    """Use exact origin comparison; prefix matching permits lookalike domains."""
+    normalized = canonical_origin(origin)
+    return bool(normalized and normalized in set(allowed_origins or []))
+
+
 def _safe_str(v: Any, max_len: int = 300) -> str:
     """
     Safe string for logs to avoid huge payloads + newlines.
@@ -111,7 +147,9 @@ def _extract_text(payload: Dict[str, Any]) -> str:
 
 def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> str:
     """
-    Use explicit session_id if provided, otherwise fall back to old behaviour: "asa_<remote_addr>".
+    Use an explicit session id when provided. Anonymous requests receive a
+    cryptographically random id so unrelated visitors never share a chat
+    memory or lead record through an IP-address fallback.
     """
     try:
         sess = payload.get("session_id") or payload.get("sessionId") or ""
@@ -121,10 +159,7 @@ def _extract_session_id(payload: Dict[str, Any], remote_addr: Optional[str]) -> 
     except Exception:
         sess = ""
 
-    if not sess and remote_addr:
-        sess = f"asa_{remote_addr}"
-
-    return sess or "asa_anon"
+    return sess or f"web_{secrets.token_urlsafe(24)}"
 
 
 def _extract_channel(payload: Dict[str, Any], default_channel: str) -> str:
@@ -203,8 +238,12 @@ class WidgetBridge:
             logger.warning("validate_origin: missing origin %s", _log_ctx(req_id))
             return False
 
-        allowed = self.allowed_origins or DEFAULT_ALLOWED_ORIGINS
-        o = _canon_origin(origin)
+        allowed = [
+            normalized
+            for raw in (self.allowed_origins or DEFAULT_ALLOWED_ORIGINS)
+            if (normalized := canonical_origin(raw))
+        ]
+        o = canonical_origin(origin)
 
         if not o:
             logger.warning(
@@ -214,7 +253,7 @@ class WidgetBridge:
             )
             return False
 
-        ok = any(o == a or o.startswith(a) for a in allowed)
+        ok = is_allowed_origin(o, allowed)
 
         logger.debug(
             "validate_origin: origin=%s ok=%s allowed=%s %s",
@@ -248,8 +287,8 @@ class WidgetBridge:
 
         if not ok:
             logger.debug(
-                "is_chat_message: empty/invalid text=%r %s",
-                _safe_str(text),
+                "is_chat_message: empty/invalid text_type=%s %s",
+                type(text).__name__,
                 _log_ctx(req_id),
             )
         return ok
@@ -269,8 +308,8 @@ class WidgetBridge:
             meta = {}
 
         logger.debug(
-            "parse_chat_message: session_id=%r tenant=%r text_len=%d meta_keys=%d %s",
-            sess,
+            "parse_chat_message: session_present=%s tenant=%r text_len=%d meta_keys=%d %s",
+            bool(sess),
             tenant,
             len(text),
             len(meta.keys()),
@@ -338,7 +377,7 @@ def parse_inbound(
         logger.warning(
             "parse_inbound: payload not dict type=%s %s",
             type(payload),
-            _log_ctx(rid, remote_addr=remote_addr),
+            _log_ctx(rid),
         )
         return events
 
@@ -347,7 +386,7 @@ def parse_inbound(
         logger.info(
             "parse_inbound: empty text message_keys=%s %s",
             list(payload.keys()),
-            _log_ctx(rid, remote_addr=remote_addr),
+            _log_ctx(rid),
         )
         return events
 
@@ -364,14 +403,13 @@ def parse_inbound(
     metadata["client_message_id"] = message_id
 
     logger.info(
-        "parse_inbound: ok session_id=%s channel=%s tenant=%s mid=%s text_len=%d meta_keys=%d %s",
-        session_id,
+        "parse_inbound: ok session_present=%s channel=%s tenant=%s text_len=%d meta_keys=%d %s",
+        bool(session_id),
         channel,
         tenant,
-        message_id,
         len(text),
         len(metadata.keys()),
-        _log_ctx(rid, remote_addr=remote_addr),
+        _log_ctx(rid),
     )
 
     # Keep raw payload, but DO NOT log it here (too noisy + may contain PII).
@@ -411,8 +449,8 @@ def send_reply(
     raw_out = raw or {}
 
     logger.info(
-        "send_reply: session_id=%s reply_len=%d raw_keys=%d %s",
-        session_id,
+        "send_reply: session_present=%s reply_len=%d raw_keys=%d %s",
+        bool(session_id),
         len(reply_str),
         len(raw_out.keys()) if isinstance(raw_out, dict) else 0,
         _log_ctx(rid),

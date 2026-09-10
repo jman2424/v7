@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -42,7 +43,8 @@ def configure_logging(settings: Settings) -> None:
     root.addHandler(console_err)
 
     # Optional file logs (useful locally; Render won’t show them)
-    logs_dir = Path("logs")
+    data_root = (os.getenv("V7_DATA_DIR") or "").strip()
+    logs_dir = Path(data_root) / "logs" if data_root else Path("logs")
     runtime = _mk_handler(logs_dir / "chatbot.log", logging.INFO)
     errors = _mk_handler(logs_dir / "errors.log", logging.ERROR)
     analytics = _mk_handler(logs_dir / "analytics.log", logging.INFO)

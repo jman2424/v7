@@ -43,6 +43,16 @@
       }
       remember(data.conversation_token);
       add(data.reply, "bot");
+      if (Array.isArray(data.agent?.suggested_replies)) {
+        const choices = document.createElement("div"); choices.className = "quick-replies";
+        for (const text of data.agent.suggested_replies.slice(0,3)) {
+          if (typeof text !== "string") continue;
+          const choice = document.createElement("button"); choice.type = "button"; choice.className = "quick-reply"; choice.textContent = text;
+          choice.onclick = () => { if (busy) return; input.value = text; choices.remove(); form.requestSubmit(); };
+          choices.append(choice);
+        }
+        log.append(choices);
+      }
       if (aloud.checked && "speechSynthesis" in window) {
         speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(data.reply);

@@ -12,9 +12,8 @@ Provides:
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, List
-
+import logging
 import requests
 
 from app.config import Settings
@@ -78,8 +77,10 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             )
         else:
             logger.debug(
-                "parse_inbound(Twilio): missing wa_id/body; form=%r",
-                {k: form.get(k) for k in ["From", "WaId", "Body"]},
+                "parse_inbound(Twilio): missing wa_id/body has_from=%s has_wa_id=%s body_len=%s",
+                bool(form.get("From")),
+                bool(form.get("WaId")),
+                len(body),
             )
 
         return events
@@ -147,15 +148,12 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         return
 
     token = settings.WHATSAPP_TOKEN
-    phone_id = settings.WHATSAPP_PHONE_ID
+    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    phone_id = str(metadata.get("phone_number_id") or settings.WHATSAPP_PHONE_ID).strip()
     base_url = settings.WHATSAPP_API_URL or "https://graph.facebook.com/v21.0"
 
     if not token or not phone_id:
-        logger.warning(
-            "send_reply: missing WA Cloud API config (token/phone_id). Skipping send.",
-            extra={"wa_id": wa_id},
-        )
-        return
+        raise RuntimeError("WhatsApp send configuration missing")
 
     url = f"{base_url.rstrip('/')}/{phone_id}/messages"
 
@@ -173,5 +171,4 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
 
     resp = requests.post(url, headers=headers, json=payload, timeout=8)
     if resp.status_code >= 400:
-        # Do not log provider bodies, phone numbers or credentials.
-        raise RuntimeError(f"WhatsApp provider returned HTTP {resp.status_code}")
+        raise RuntimeError("WhatsApp provider rejected the send")

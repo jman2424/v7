@@ -25,6 +25,77 @@ class SalesFlows:
 
     # --- Simple helpers you can expand later ---
 
+    def bbq_for(self, people: int, *, budget_per_person: float = 10.0) -> Dict[str, Any]:
+        """
+        Build a simple grounded BBQ bundle from the tenant catalog.
+        """
+        people = max(1, int(people or 1))
+        budget = max(0.0, float(budget_per_person or 0.0) * people)
+
+        candidates = self.related_products(tags=["bbq", "wing", "drumstick", "kebab"], limit=12)
+        if len(candidates) < 3:
+            candidates = self.related_products(limit=12)
+
+        items: List[Dict[str, Any]] = []
+        total = 0.0
+        for item in candidates:
+            if len(items) >= 4:
+                break
+            price = self._price(item)
+            if price <= 0:
+                continue
+            if budget and total + price > budget and len(items) >= 3:
+                continue
+            items.append(
+                {
+                    "sku": item.get("sku"),
+                    "name": item.get("name"),
+                    "qty": 1,
+                    "unit_price": price,
+                    "line_total": price,
+                }
+            )
+            total += price
+
+        return {
+            "title": f"BBQ bundle for {people}",
+            "items": items,
+            "total": round(total, 2),
+            "budget": round(budget, 2),
+            "within_budget": (total <= budget) if budget else True,
+        }
+
+    def suggest_substitutions(self, sku: str, *, limit: int = 4) -> List[Dict[str, Any]]:
+        """
+        Suggest in-stock-ish alternatives using the original item's tags.
+        """
+        try:
+            item = self.catalog.get_item_by_sku(sku)
+        except Exception:
+            item = None
+
+        tags = []
+        if isinstance(item, dict):
+            tags = [str(t) for t in (item.get("tags") or []) if t]
+
+        candidates = self.related_products(tags=tags, limit=max(limit + 3, 8))
+        out: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            if candidate.get("sku") == sku:
+                continue
+            price = self._price(candidate)
+            out.append(
+                {
+                    "sku": candidate.get("sku"),
+                    "name": candidate.get("name"),
+                    "unit_price": price,
+                    "in_stock": bool(candidate.get("in_stock", True)),
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
     def related_products(
         self,
         sku: Optional[str] = None,
@@ -88,6 +159,16 @@ class SalesFlows:
             data = {"raw": repr(item)}
 
         return data
+
+    def _price(self, item: Dict[str, Any]) -> float:
+        for key in ("price", "unit_price"):
+            try:
+                value = item.get(key)
+                if value is not None:
+                    return float(value)
+            except Exception:
+                continue
+        return 0.0
 
     # --- Safety net for unknown calls ---
 

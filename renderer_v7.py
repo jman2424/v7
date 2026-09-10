@@ -1,8 +1,16 @@
 # ai_modes/renderer_v7.py
 from __future__ import annotations
 
-import random
+import re
 from typing import Any, Dict, List, Optional
+
+from service.sales_playbook import offering_terms
+from service.tenant_sales_context import discovery_question
+
+
+_CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
+_SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+")
+_TONE_STYLES = {"friendly", "professional", "concise"}
 
 
 class RendererV7:
@@ -16,10 +24,29 @@ class RendererV7:
       products, prices, or delivery areas that aren't already in `facts`.
     """
 
-    def __init__(self, rewriter: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        rewriter: Optional[Any] = None,
+        business_name: str = "",
+        *,
+        tone_style: str = "friendly",
+        max_sentences: int = 2,
+        offering_type: str = "products",
+        business_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         # `rewriter` is expected to provide:
         #   rewrite(text, style="sales", facts: dict | None = None, **kwargs)
         self.rewriter = rewriter
+        self.business_name = (business_name or "").strip()
+        requested_tone = (tone_style or "friendly").strip().lower()
+        self.tone_style = requested_tone if requested_tone in _TONE_STYLES else "friendly"
+        try:
+            configured_max_sentences = int(max_sentences or 2)
+        except (TypeError, ValueError):
+            configured_max_sentences = 2
+        self.max_sentences = min(max(configured_max_sentences, 1), 4)
+        self.offering_singular, self.offering_plural = offering_terms({"offering_type": offering_type})
+        self.business_context = business_context if isinstance(business_context, dict) else {}
 
     # ------------------------------------------------------------------ #
     # PUBLIC ENTRYPOINT                                                  #
@@ -46,27 +73,37 @@ class RendererV7:
 
         # 2) Simple / cheap actions that don't depend much on facts
         if action == "GREET" or intent == "greeting":
-            base = "Wa alaikum salam! How can I help you today – products, prices, or delivery?"
+            base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
             return self._polish(base, facts)
 
         if action == "SMALLTALK_REPLY" or intent == "smalltalk":
-            base = "I’m your sales assistant. I can help with products, prices and delivery details."
+            label = self.business_name or "this business"
+            base = f"I'm an AI sales assistant for {label}. I can help with {self._business_scope()}."
             return self._polish(base, facts)
 
         if action == "DO_NOTHING":
-            base = (
-                "Could you tell me what you’d like help with? "
-                "For example: chicken for BBQ, lamb for a family dinner, or delivery to your postcode."
-            )
+            base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
             return self._polish(base, facts)
 
         if action == "HUMAN_HANDOFF" or intent == "human_handoff":
             base = (
-                "No problem. What’s your postcode so I can find the nearest branch and phone number?"
+                "No problem. Please share a phone number or email and a short note about what you need."
             )
             return self._polish(base, facts)
 
         # 3) Data-backed actions
+        if action == "SHOW_OFFERS" or intent == "offers":
+            msg = self._offers_reply(facts)
+            return self._polish(msg, facts)
+
+        if action == "COMPARE_PRODUCTS" or intent == "compare_products":
+            msg = self._comparison_reply(facts)
+            return self._polish(msg, facts)
+
+        if action == "SHOW_ALTERNATIVES" or intent == "unavailable_product":
+            msg = self._alternatives_reply(facts)
+            return self._polish(msg, facts)
+
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             msg = self._delivery_reply(plan, facts, session)
             return self._polish(msg, facts)
@@ -84,11 +121,22 @@ class RendererV7:
             return self._polish(msg, facts)
 
         # 4) Absolute fallback
-        base = (
-            "I’m not fully sure what you need yet. "
-            "Are you looking for chicken, lamb, beef, groceries, or delivery info?"
-        )
+        base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
         return self._polish(base, facts)
+
+    def _business_scope(self) -> str:
+        focus = str(self.business_context.get("business_focus") or "").strip()
+        if focus:
+            return focus
+        categories = self.business_context.get("categories") or []
+        if isinstance(categories, list):
+            labels = [str(category).strip() for category in categories[:3] if str(category).strip()]
+            if labels:
+                return ", ".join(labels)
+        return self.offering_plural
+
+    def _discovery_question(self) -> str:
+        return discovery_question(self.business_context, self.offering_singular, self.offering_plural)
 
     # ------------------------------------------------------------------ #
     # DELIVERY                                                           #
@@ -167,7 +215,12 @@ class RendererV7:
         return (category or "").replace("_", " ").strip()
 
     @staticmethod
-    def _format_item_line(item: Dict[str, Any]) -> str:
+    def _format_money(value: float, currency: str) -> str:
+        code = (currency or "GBP").upper()
+        symbol = _CURRENCY_SYMBOLS.get(code)
+        return f"{symbol}{value:.2f}" if symbol else f"{code} {value:.2f}"
+
+    def _format_item_line(self, item: Dict[str, Any], currency: str) -> str:
         name = item.get("name") or item.get("_norm_name") or ""
         name = name.strip()
         if not name:
@@ -181,7 +234,7 @@ class RendererV7:
             bits[-1] = f"{name} ({unit})"
 
         if isinstance(price, (int, float)):
-            bits.append(f"£{price:.2f}")
+            bits.append(self._format_money(float(price), currency))
 
         return " – ".join(bits)
 
@@ -196,6 +249,7 @@ class RendererV7:
         raw_category = plan.get("category") or session.get("last_category") or ""
         category = self._pretty_category(raw_category)
         product_name = (plan.get("product_name") or "").strip()
+        currency = str(facts.get("currency") or "GBP")
 
         user_text_raw = (user_text or "").strip()
         user_text_lower = user_text_raw.lower()
@@ -220,18 +274,18 @@ class RendererV7:
                 if category:
                     return (
                         f"The {category} catalog is quite big. "
-                        "Tell me what you’re after – for example: wings, mince, fillets, or BBQ pieces."
+                        f"Tell me the {self.offering_singular} type, category, or feature you need."
                     )
                 return (
                     "The full catalog is very large. "
-                    "Tell me what you’re after – for example: chicken wings, lamb mince, or a BBQ mix."
+                    f"Tell me the {self.offering_singular} type, category, or feature you need."
                 )
 
             if product_name:
-                return f"I couldn’t find matches for “{product_name}”. Any alternative product or cut?"
+                return f"I couldn’t find matches for “{product_name}”. Could you try a different {self.offering_singular} name, category, or feature?"
             if category:
-                return f"I couldn’t find matches in {category}. Any different cut or product you’d like?"
-            return "I couldn’t find matching items. Any specific product or cut you’re after?"
+                return f"I couldn’t find matches in {category}. Could you try a different {self.offering_singular} or category?"
+            return f"I couldn’t find matching items. What {self.offering_singular}, category, or feature are you looking for?"
 
         total_items = len(items)
 
@@ -246,19 +300,19 @@ class RendererV7:
 
         lines: List[str] = []
         for idx, item in enumerate(top, start=1):
-            line = self._format_item_line(item)
+            line = self._format_item_line(item, currency)
             if line:
                 lines.append(f"{idx}) {line}")
 
         if not lines:
-            return "I found some items, but I couldn’t read their names. Could you try describing the product again?"
+            return f"I found some items, but I couldn’t read their names. Could you try describing the {self.offering_singular} again?"
 
         if item_level and primary_cut:
             intro = f"Here are our {primary_cut} options" + (f" in {category}:" if category else ":")
         elif scope == "full_category" and category:
             intro = f"Here’s a wider selection from our {category} range:"
         elif scope == "full_store":
-            intro = "Here’s a wider selection from across the store:"
+            intro = "Here’s a wider selection from across the store:" if self.offering_singular == "product" else "Here’s a wider selection from across the catalogue:"
         elif category:
             intro = f"For {category}, here are some good options:"
         else:
@@ -271,7 +325,7 @@ class RendererV7:
             if scope in {"full_category", "full_store"} or wants_chunking:
                 extra_tail = (
                     f" I’ve shown the first {limit} items to keep things clear. "
-                    "Tell me a specific cut (for example: wings, fillets, mince) or a number from the list."
+                    f"Tell me a {self.offering_singular} type, category, feature, or a number from the list."
                 )
             elif item_level:
                 extra_tail = (
@@ -287,28 +341,122 @@ class RendererV7:
     # PRICE                                                              #
     # ------------------------------------------------------------------ #
 
+    def _comparison_reply(self, facts: Dict[str, Any]) -> str:
+        comparison = facts.get("comparison") or {}
+        items = comparison.get("items") if isinstance(comparison, dict) else []
+        if not isinstance(items, list) or len(items) != 2:
+            return f"Tell me the two {self.offering_singular} names you’d like to compare."
+
+        currency = str(facts.get("currency") or "GBP")
+        lines: List[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("_norm_name") or "").strip()
+            price = item.get("price")
+            stock = self._availability_label(bool(item.get("in_stock", True)))
+            if not name or not isinstance(price, (int, float)):
+                continue
+            lines.append(f"{name}: {self._format_money(float(price), currency)}, {stock}.")
+
+        if len(lines) != 2:
+            return f"I found the {self.offering_plural}, but I could not confirm both prices."
+        return " ".join(lines)
+
+    def _availability_label(self, is_available: bool) -> str:
+        if self.offering_singular == "product":
+            return "in stock" if is_available else "out of stock"
+        return "available" if is_available else "unavailable"
+
+    def _alternatives_reply(self, facts: Dict[str, Any]) -> str:
+        unavailable = facts.get("unavailable_product") or {}
+        name = str(unavailable.get("name") or unavailable.get("_norm_name") or f"That {self.offering_singular}").strip()
+        alternatives = facts.get("items") or []
+        currency = str(facts.get("currency") or "GBP")
+
+        if not isinstance(alternatives, list) or not alternatives:
+            if self.offering_singular == "product":
+                return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+            return f"{name} is currently unavailable; I do not have a similar available option recorded right now."
+
+        lines: List[str] = []
+        for item in alternatives[:3]:
+            if not isinstance(item, dict):
+                continue
+            line = self._format_item_line(item, currency)
+            if line:
+                lines.append(line)
+
+        if not lines:
+            if self.offering_singular == "product":
+                return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
+            return f"{name} is currently unavailable; I do not have a similar available option recorded right now."
+        if self.offering_singular == "product":
+            return f"{name} is currently out of stock; available alternatives: " + " | ".join(lines) + "."
+        return f"{name} is currently unavailable; available alternatives: " + " | ".join(lines) + "."
+
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}
         sku = price_block.get("sku") or plan.get("sku")
 
         if not sku:
-            return "Tell me the SKU or exact product name and I’ll confirm the price for you."
+            return f"Tell me the SKU or exact {self.offering_singular} name and I’ll confirm the price for you."
 
         price = price_block.get("price", None)
         in_stock = price_block.get("in_stock", None)
         name = (price_block.get("name") or "").strip()
         unit = (price_block.get("unit") or "").strip()
+        currency = str(facts.get("currency") or "GBP")
 
         if price is None:
             return f"I couldn’t find a price for {sku}. It might be missing or not available right now."
 
-        stock_str = "in stock" if in_stock else "out of stock"
+        stock_str = self._availability_label(bool(in_stock))
         label = name or sku
         if unit:
             label = f"{label} ({unit})"
 
-        base = f"{label} is £{price:.2f} and {stock_str}."
+        base = f"{label} is {self._format_money(float(price), currency)} and {stock_str}."
         return self._append_cta(base)
+
+    # ------------------------------------------------------------------ #
+    # OFFERS                                                             #
+    # ------------------------------------------------------------------ #
+
+    def _offers_reply(self, facts: Dict[str, Any]) -> str:
+        offer_data = facts.get("offers") or {}
+        offers = offer_data.get("items") if isinstance(offer_data, dict) else []
+        product_name = str(offer_data.get("matched_product_name") or "").strip() if isinstance(offer_data, dict) else ""
+
+        if not isinstance(offers, list) or not offers:
+            if product_name:
+                return f"I do not have a current offer recorded for {product_name}."
+            return "There are no current offers configured at the moment."
+
+        lines: List[str] = []
+        for offer in offers[:3]:
+            if not isinstance(offer, dict):
+                continue
+            title = str(offer.get("title") or "").strip()
+            description = str(offer.get("description") or "").strip()
+            if not title or not description:
+                continue
+            # Keep terms, code, and expiry in one sentence so a tenant's
+            # configured reply-length setting cannot hide a material condition.
+            description = re.sub(r"[.!?]+", ",", description).strip(" ,")
+            detail = f"{title}: {description}"
+            code = str(offer.get("code") or "").strip()
+            ends_on = str(offer.get("ends_on") or "").strip()
+            if code:
+                detail = f"{detail} (code: {code})"
+            if ends_on:
+                detail = f"{detail} (ends {ends_on})"
+            lines.append(detail)
+
+        if not lines:
+            return "There are no current offers configured at the moment."
+        lead = f"For {product_name}, the current offer is" if product_name else "Current offers"
+        return f"{lead}: " + " | ".join(lines) + "."
 
     # ------------------------------------------------------------------ #
     # FAQ / STORE INFO                                                   #
@@ -323,9 +471,13 @@ class RendererV7:
     ) -> str:
         faq = facts.get("faq") or {}
         answer = (faq.get("answer") or "").strip()
+        store_info = facts.get("store_info") or {}
+        store_answer = (store_info.get("answer") or "").strip()
 
         if answer:
             return self._append_cta(answer)
+        if store_answer:
+            return self._append_cta(store_answer)
 
         delivery = facts.get("delivery") or {}
         postcode = (
@@ -340,7 +492,7 @@ class RendererV7:
 
         return (
             "I’m not fully sure about that from my data. "
-            "You can ask about products, prices, delivery, or store branches."
+            f"You can ask about {self.offering_plural}, pricing, or business details."
         )
 
     # ------------------------------------------------------------------ #
@@ -359,15 +511,15 @@ class RendererV7:
             return "What’s your postcode (for example: E1 6AN)?"
 
         if intent in {"search_product", "browse_category"}:
-            return "Are you after chicken, lamb, beef, groceries, or a mix for BBQ / weekly shop?"
+            return f"What {self.offering_singular}, category, or feature are you looking for?"
 
         if intent == "price_check":
-            return "Which product or SKU should I check the price for?"
+            return f"Which {self.offering_singular} or SKU should I check the price for?"
 
         if intent == "human_handoff":
-            return "What’s your postcode so I can find the nearest branch and number?"
+            return "Please share a phone number or email and a short note about what you need."
 
-        return "Could you clarify what you need? For example: delivery, chicken for BBQ, or store opening times."
+        return f"Could you clarify what you need? For example: a {self.offering_singular}, pricing, or business information."
 
     # ------------------------------------------------------------------ #
     # POLISH / CTA                                                       #
@@ -384,22 +536,24 @@ class RendererV7:
         if t.endswith("?"):
             return t
 
-        variants = [
-            "Anything else you’d like to check?",
-            "Want to look at anything else?",
-            "Anything else I can help you with?",
-        ]
-        return f"{t} {random.choice(variants)}"
+        return t
 
     def _polish(self, text: str, facts: Dict[str, Any]) -> str:
         text = (text or "").strip()
         if not text:
             return ""
 
-        if not self.rewriter:
-            return text
+        rewritten = text
+        if self.rewriter:
+            try:
+                rewritten = self.rewriter.rewrite(rewritten, style=self.tone_style, facts=facts)
+            except Exception:
+                rewritten = text
 
-        try:
-            return self.rewriter.rewrite(text, style="sales", facts=facts)
-        except Exception:
-            return text
+        if self.tone_style == "professional":
+            rewritten = re.sub(r"\bI['’]m\b", "I am", rewritten)
+            rewritten = re.sub(r"\bwe['’]re\b", "we are", rewritten, flags=re.IGNORECASE)
+            rewritten = re.sub(r"\bdon['’]t\b", "do not", rewritten, flags=re.IGNORECASE)
+
+        sentences = [part.strip() for part in _SENTENCE_BREAK_RE.split(rewritten) if part.strip()]
+        return " ".join(sentences[: self.max_sentences]).strip()

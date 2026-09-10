@@ -30,12 +30,27 @@ def _haversine_km(a: GeoPoint, b: GeoPoint) -> float:
     return R * c
 
 
-@dataclass
-class GeoStore:
-    storage: Storage
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    return _haversine_km((lat1, lon1), (lat2, lon2))
 
-    def __post_init__(self):
-        self._branches: List[Dict[str, Any]] = self._load_branches()
+
+@dataclass(init=False)
+class GeoStore:
+    storage: Optional[Storage]
+
+    def __init__(
+        self,
+        storage: Optional[Storage | List[Dict[str, Any]]] = None,
+        *,
+        branches: Optional[List[Dict[str, Any]]] = None,
+        data: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        if isinstance(storage, list) and branches is None and data is None:
+            branches = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._branches: List[Dict[str, Any]] = branches or data or self._load_branches()
         self._delivery: Dict[str, Any] = self._load_delivery()
 
         self._branch_by_id: Dict[str, Dict[str, Any]] = {str(b.get("id")): b for b in self._branches}
@@ -47,6 +62,8 @@ class GeoStore:
                 self._outward_map.setdefault(out, []).append(b)
 
     def _load_branches(self) -> List[Dict[str, Any]]:
+        if self.storage is None:
+            return []
         try:
             data = self.storage.read_json(self.storage.tenant_key, "branches.json")
             if not isinstance(data, list):
@@ -56,6 +73,8 @@ class GeoStore:
             return []
 
     def _load_delivery(self) -> Dict[str, Any]:
+        if self.storage is None:
+            return {}
         try:
             data = self.storage.read_json(self.storage.tenant_key, "delivery.json")
             return data if isinstance(data, dict) else {}
@@ -76,10 +95,17 @@ class GeoStore:
             p = _outward(str(a.get("postcode_prefix") or ""))
             if p:
                 out.append(p)
+        if not out:
+            out = [_outward(str(b.get("postcode", ""))) for b in self._branches]
         return sorted(set(out))
 
+    def covered_prefixes(self, prefix: str = "") -> List[str]:
+        pref = str(prefix or "").upper().strip()
+        values = self.coverage_prefixes()
+        return [p for p in values if not pref or p.startswith(pref)]
+
     # -------- nearest calculations --------
-    def nearest(self, lat: float, lon: float) -> Optional[Dict[str, Any]]:
+    def nearest(self, lat: float, lon: float, radius_km: Optional[float] = None) -> Optional[Dict[str, Any]]:
         if not self._branches:
             return None
 
@@ -98,7 +124,11 @@ class GeoStore:
         if best is None:
             return None
 
-        return {**best, "_distance_km": round(best_dist, 3)}
+        if radius_km is not None and best_dist > float(radius_km):
+            return None
+
+        dist = round(best_dist, 3)
+        return {**best, "_distance_km": dist, "distance_km": dist}
 
     def nearest_for_postcode(self, postcode: str, geocoder: Optional[Geocoder] = None) -> Optional[Dict[str, Any]]:
         pc = normalize_postcode(postcode)
@@ -124,3 +154,20 @@ class GeoStore:
 
     def distance_between(self, a: GeoPoint, b: GeoPoint) -> float:
         return _haversine_km(a, b)
+
+    def to_geojson(self) -> Dict[str, Any]:
+        features: List[Dict[str, Any]] = []
+        for branch in self._branches:
+            try:
+                lat = float(branch.get("lat"))
+                lon = float(branch.get("lon"))
+            except Exception:
+                continue
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                    "properties": {k: v for k, v in branch.items() if k not in {"lat", "lon"}},
+                }
+            )
+        return {"type": "FeatureCollection", "features": features}

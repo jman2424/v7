@@ -9,3 +9,6 @@ business/versions
 __pycache__
 *.pyc
 management-users.json
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build

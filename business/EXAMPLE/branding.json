@@ -1,0 +1,19 @@
+{
+  "theme": {
+    "primary_color": "#127A32",
+    "secondary_color": "#FFFFFF",
+    "accent_color": "#E63946",
+    "text_color": "#222222",
+    "font_family": "Inter, sans-serif"
+  },
+  "logo": {
+    "light": "https://cdn.examplebutchers.co.uk/logo-light.png",
+    "dark": "https://cdn.examplebutchers.co.uk/logo-dark.png"
+  },
+  "favicon": "https://cdn.examplebutchers.co.uk/favicon.ico",
+  "widget": {
+    "avatar": "https://cdn.examplebutchers.co.uk/chat-avatar.png",
+    "greeting": "Hi! How can I help you today?",
+    "chat_title": "Example Butchers Assistant"
+  }
+}

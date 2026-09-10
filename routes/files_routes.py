@@ -1,71 +1,82 @@
-"""Tenant-scoped, allowlisted business data management."""
-from flask import Blueprint, abort, jsonify, request
-from jsonschema import ValidationError
+from __future__ import annotations
+from flask import Blueprint, abort, jsonify, request, session
+from jsonschema.exceptions import ValidationError
+from service.business_validation import validate_settings
 
+from retrieval.storage import KNOWN_FILES
 from routes import get_container
-from service.audit import AuditService
-from service.security import authorized_tenant, management_user
+from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
+from routes.tenancy import require_admin_role, resolve_admin_tenant
 
 bp = Blueprint("files", __name__, url_prefix="/files")
-FILES = {"catalog.json", "faq.json", "delivery.json", "branches.json",
-         "branding.json", "store_info.json", "overrides.json", "synonyms.json"}
-SCHEMAS = {name: name.replace(".json", ".schema.json") for name in
-           ("catalog.json", "faq.json", "delivery.json", "branches.json")}
+
+
+def _tenant() -> str:
+    container = get_container()
+    return resolve_admin_tenant(
+        request.args.get("tenant") or "",
+        str(container.settings.BUSINESS_KEY or "EXAMPLE"),
+    )
+
+
+def _filename(value: str) -> str:
+    filename = str(value or "").strip()
+    if filename not in KNOWN_FILES:
+        abort(404)
+    return filename
 
 
 @bp.before_request
-def protect_files():
-    management_user()
-
-
-def target(filename=None):
-    c = get_container()
-    tenant = authorized_tenant(request.args.get("tenant"))
-    if filename is not None and filename not in FILES:
-        abort(404)
-    if not c.storage.tenant_dir(tenant).is_dir():
-        abort(404)
-    return c, tenant
+def _require_tenant_admin() -> None:
+    if not session.get("user"):
+        abort(401, description="unauthorized")
+    if not is_authenticated_account_active(get_container().storage):
+        clear_authenticated_session()
+        abort(401, description="unauthorized")
+    require_admin_role()
 
 
 @bp.get("/raw/<path:filename>")
-def get_file(filename):
-    c, tenant = target(filename)
+def get_file(filename: str):
     try:
-        return jsonify(c.storage.read_json(tenant, filename))
+        return jsonify(get_container().storage.read_json(_tenant(), _filename(filename)))
     except FileNotFoundError:
         abort(404)
     except ValueError:
-        abort(422, description="Invalid stored JSON")
+        abort(422)
 
 
 @bp.put("/raw/<path:filename>")
-def put_file(filename):
-    c, tenant = target(filename)
-    payload = request.get_json()
-    if not isinstance(payload, (dict, list)):
-        abort(400, description="Structured JSON required")
-    schema = SCHEMAS.get(filename)
-    # Existing sheet catalogs use product_catalog; validate that supported format.
-    if filename == "catalog.json" and isinstance(payload, dict) and "product_catalog" in payload:
-        schema = "catalog-sheet.schema.json"
-    if filename in {"branding.json", "store_info.json", "overrides.json", "synonyms.json"} and not isinstance(payload, dict):
-        abort(400, description="JSON object required")
-    if filename in {"branding.json", "store_info.json", "overrides.json", "synonyms.json"}:
-        from service.business_validation import validate_settings
-        validate_settings(filename, payload)
+def put_file(filename: str):
+    filename = _filename(filename)
+    payload = request.get_json(force=True)
+    schema_map = {
+        "catalog.json": "catalog.schema.json",
+        "faq.json": "faq.schema.json",
+        "offers.json": "offers.schema.json",
+        "delivery.json": "delivery.schema.json",
+        "branches.json": "branches.schema.json",
+        "store_info.json": "store_info.schema.json",
+    }
+    tenant = _tenant()
+    container = get_container()
     try:
-        snapshot = c.storage.write_json(tenant, filename, payload, schema=schema)
-    except ValidationError:
-        abort(400, description="Business data does not match the schema")
-    user = management_user()
-    AuditService().record(user=user["id"], role=user["roles"][0], ip=request.remote_addr or "",
-                          action="business.update", target=f"{tenant}/{filename}",
-                          extra={"snapshot": snapshot})
-    return jsonify(ok=True, snapshot=snapshot)
+        if filename in {"branding.json", "overrides.json", "store_info.json", "synonyms.json"} and not isinstance(payload, dict):
+            abort(400)
+        validate_settings(filename, payload)
+        snap = container.storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
+    except (ValidationError, ValueError):
+        abort(400, description="invalid_business_data")
+    container.invalidate_tenant(tenant)
+    from service.audit import AuditService
+
+    identity = session.get("user") or {}
+    actor = str(identity.get("email") or identity.get("id") or "admin")
+    AuditService().record(user=actor, role=(identity.get("roles") or ["unknown"])[0], ip=request.remote_addr or "",
+                          action="files.put", target=f"{tenant}/{filename}", extra={"snapshot": snap})
+    return jsonify({"ok": True, "snapshot_path": snap, "snapshot": snap})
 
 
 @bp.get("/versions")
 def list_versions():
-    c, tenant = target()
-    return jsonify(versions=c.storage.list_versions(tenant))
+    return jsonify({"versions": get_container().storage.list_versions(_tenant())})

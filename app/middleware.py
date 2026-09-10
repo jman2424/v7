@@ -25,7 +25,7 @@ def install_request_id(app):
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
-        if request.path.startswith(("/admin", "/auth", "/files", "/analytics", "/__diag")):
+        if request.path.startswith(("/admin", "/auth", "/files", "/analytics", "/__diag", "/console")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] += "; frame-ancestors 'none'"

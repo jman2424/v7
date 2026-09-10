@@ -6,6 +6,9 @@
 
   <div class="navbar__controls">
     <span class="role">Role: <strong>{{ role }}</strong></span>
-    <a class="btn btn--ghost" href="{{ url_for('admin_ui.logout') }}">Logout</a>
+    <form action="{{ url_for('admin_ui.logout') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <button class="btn btn--ghost" type="submit">Logout</button>
+    </form>
   </div>
 </nav>

@@ -20,6 +20,11 @@ def get_container():
     return c
 
 
+def get_tenant_container(tenant: str):
+    """Return the container whose retrieval stores are bound to `tenant`."""
+    return get_container().for_tenant(tenant)
+
+
 def _has_any_role(user_roles: Iterable[str], required: Set[str]) -> bool:
     user_set = {str(r) for r in (user_roles or [])}
     return bool(user_set.intersection(required))
@@ -35,9 +40,8 @@ def require_auth(roles: Optional[Iterable[str]] = None) -> Callable[..., Any]:
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            user = session.get("user")
-            if not user:
-                abort(401, description="unauthorized")
+            from service.security import management_user
+            user = management_user()
 
             if required:
                 if not _has_any_role(user.get("roles", []), required):

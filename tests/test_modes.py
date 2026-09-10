@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from ai_modes import make_v5, make_v6, make_v7  # type: ignore
+from renderer_v7 import RendererV7
 
 
 # ---- Shared context helpers ----
@@ -76,6 +77,22 @@ def test_v7_grounded_price_reply_and_guardrail():
     assert "in stock" in txt.lower()
 
 
+def test_v7_applies_tenant_tone_and_response_length():
+    class Overrides:
+        def __init__(self, values):
+            self.values = values
+
+        def get(self, key):
+            return self.values.get(key)
+
+    professional = make_v7(overrides=Overrides({"tone.style": "professional", "tone.max_sentences": 2}))
+    concise = make_v7(overrides=Overrides({"tone.style": "concise", "tone.max_sentences": 1}))
+    ctx = {"intent": "faq", "facts": {"faq": {"answer": "We deliver locally."}}, **ctx_base()}
+
+    assert professional.rewrite("", ctx).endswith("How else may I help?")
+    assert concise.rewrite("", ctx) == "We deliver locally."
+
+
 def test_v5_v6_v7_parity_simple_faq():
     draft = "Yes. All products are halal and HMC-inspected."
     ctx = {"intent": "faq", "facts": {"faq": {"answer": draft}}, **ctx_base()}
@@ -95,3 +112,35 @@ def test_v5_v6_v7_parity_simple_faq():
     # None should introduce external claims
     for r in (r5, r6, r7):
         assert "guaranteed next-day worldwide" not in r.lower()
+
+
+def test_renderer_applies_professional_style_without_changing_facts():
+    renderer = RendererV7(None, tone_style="professional", max_sentences=2)
+
+    reply = renderer.render(
+        user_text="What is your policy?",
+        plan={"intent": "faq", "action": "FAQ_LOOKUP", "needs_clarification": False},
+        facts={"faq": {"answer": "I’m happy to help. Returns are accepted within 30 days."}},
+        session={},
+    )
+
+    assert reply == "I am happy to help. Returns are accepted within 30 days."
+
+
+def test_renderer_keeps_grounded_alternatives_with_a_one_sentence_limit():
+    renderer = RendererV7(None, max_sentences=1)
+
+    reply = renderer.render(
+        user_text="Do you have the Weekender Duffel?",
+        plan={"intent": "unavailable_product", "action": "SHOW_ALTERNATIVES", "needs_clarification": False},
+        facts={
+            "unavailable_product": {"name": "Weekender Duffel"},
+            "items": [{"name": "Carry-on Duffel", "price": 179.0, "unit": "each", "in_stock": True}],
+            "currency": "USD",
+        },
+        session={},
+    )
+
+    assert "Weekender Duffel is currently out of stock" in reply
+    assert "Carry-on Duffel" in reply
+    assert "$179.00" in reply

@@ -94,6 +94,23 @@ def test_policy_delivery_rules(storage):
     assert not miss
 
 
+def test_policy_delivery_summary_includes_zone_eta_text():
+    ps = make_policy_store(
+        {
+            "zones": [
+                {
+                    "area": "E1-E4",
+                    "fee": 3.5,
+                    "min_order": 25,
+                    "eta_hours": "Same-day before 5pm",
+                }
+            ]
+        }
+    )
+
+    assert ps.delivery_summary("E2 8AA") == "£3.50 fee, min £25.00, Same-day before 5pm"
+
+
 def test_geo_nearest_branch(storage):
     branches = storage.load_json("EXAMPLE/branches.json")
     gs = make_geo_store(branches)
@@ -117,6 +134,22 @@ def test_faq_best_match(storage):
 
     deliv = fs.best_match("Do you deliver to E1 6AN?")
     assert deliv and "{delivery_summary}" in deliv.get("answer", "")
+
+
+def test_faq_best_match_uses_distinct_answer_terms():
+    fs = make_faq_store(
+        [
+            {
+                "q": "What certification do you have?",
+                "a": "Our products are HMC inspected.",
+                "tags": ["certification"],
+            }
+        ]
+    )
+
+    answer = fs.best_match("Do you have HMC inspection?", min_sim=0.45)
+
+    assert answer and "HMC" in answer.get("answer", "")
 
 
 def test_synonyms_merge_and_lookup(storage):

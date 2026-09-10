@@ -1,51 +1,53 @@
 # Dashboard and security change review
 
-This change set was developed in the downloaded V7 workspace based on archive
-commit `a9c67c3bca62db56af761e41c50e4db03bba1ca2`. GitHub main was subsequently
-found at `ea55ce894654d6a1a8de552d387cdece3e9f6851`, 39 commits ahead of that
-archive. It contains additional account, sales and Svelte console work.
+The dashboard and security patches are integrated with GitHub main at
+`ea55ce894654d6a1a8de552d387cdece3e9f6851`. The integration retains the existing
+Svelte console, tenant onboarding, owner/staff accounts, offers, sales playbooks,
+pipeline, widget installation and multi-tenant WhatsApp routing.
 
-The downloaded-workspace changes are published on their own review branch.
-They must be reconciled with those newer implementations before merging or
-deploying; replacing main with this snapshot would discard newer functionality.
+## Result
 
-## Changes in this workspace
-
-- Dedicated Flask dashboard URLs and templates for overview, companies,
-  conversations, products, FAQs, branches, delivery, profile, settings, errors
-  and integrations. Product search, filtering and pagination; mobile sign-out.
-- Tenant-scoped management APIs, file validation and recoverable snapshots.
-- Scrypt account registry, revocable server-side sessions, login throttling,
-  CSRF protection, security headers and HTTPS platform-admin MFA requirement.
-- Optional signed Meta/Twilio WhatsApp routes with recipient validation,
-  persistent deduplication and retry/error reporting.
-- Tenant-bound web conversation tokens, approved embedding origins, browser
-  speech controls, scoped agent configuration and safer catalog matching.
-- Deployment configuration corrections, local preview/account tooling and
-  security documentation describing actual controls and limitations.
+- Separate URL-based owner console pages and Flask management pages.
+- Tenant-scoped APIs, platform company/error monitoring, validated file updates,
+  audit events and pre-edit snapshots.
+- Revocable server sessions, credential-change invalidation, login throttling,
+  mandatory CSRF checks, nonced scripts and production platform-admin MFA.
+- Signed Meta/Twilio webhooks, recipient mapping, persistent deduplication and
+  retry/error reporting. WhatsApp remains optional.
+- Signed web conversation continuation, approved embedding origins, optional
+  browser speech controls and Python-client conversation-token compatibility.
+- Persistent deployment paths, isolated preview/account tools, and frontend
+  checks/builds added to CI.
 
 ## Main files
 
+- `frontend/src/lib/Console.svelte`, `frontend/src/routes/`, `routes/owner_console_routes.py`
 - `routes/admin_routes.py`, `routes/admin_api_routes.py`, `dashboard/templates/pages/`
-- `dashboard/templates/dashboard.html`, `dashboard/static/css/workspace.css`
-- `dashboard/static/js/management.js`, `workspace.js`, `widget.js`, `admin.js`, `charts.js`
 - `service/security.py`, `service/session_store.py`, `app/middleware.py`
 - `routes/whatsapp_routes.py`, `service/webhook_inbox.py`, `connectors/whatsapp.py`
 - `routes/webchat_routes.py`, `routes/files_routes.py`, `retrieval/storage.py`
-- `app/container.py`, `service/message_handler.py`, `handlers/handler_v7.py`
-- `retrieval/catalog_store.py`, `retrieval/policy_store.py`, `schemas/`
+- `app/container.py`, `service/message_handler.py`, `sdk/python/client.py`
 - `scripts/run_local.py`, `scripts/manage_account.py`, `docs/SECURITY.md`
-- `tests/test_platform_security.py`, `tests/test_whatsapp_security.py`
+- `tests/test_platform_security.py`, `tests/test_whatsapp_security.py`,
+  `tests/test_owner_console.py`, `tests/test_python_sdk.py` and updated auth fixtures.
 
-## Validation
+## Release checks and limits
 
-- Targeted pytest suite: 50 passed, using temporary companies and mocked providers.
-- JavaScript syntax: six dashboard/widget scripts passed Node checks.
-- Live localhost HTTP: login, eleven dashboard pages and agent greeting passed.
-- Full legacy suite collection: three stale `services` imports fail in the
-  downloaded baseline. It is not a passing full-release test suite.
-- Browser visual QA was blocked by automatic approval review's account usage
-  limit. No visual-layout, microphone or live-provider verification is claimed.
+Validated on the integrated tree:
 
-No secrets, preview accounts, customer logs, local databases or test dependencies
-belong in this branch. See SECURITY.md for operational limitations.
+- `python -m pytest -o addopts='' -q`: 165 passed (45 datetime deprecation warnings).
+- `python -m ruff check .`: passed.
+- `npm run check`: zero errors and warnings.
+- `V7_CONSOLE_BASE_PATH=/console npm run build`: production build passed.
+- `git diff --check`: passed.
+
+Provider requests in tests are mocked and business data is isolated. CI repeats
+the backend and frontend checks before its image build.
+
+Browser visual QA was blocked by automatic approval review's account usage
+limit. No visual-layout, microphone or live-provider verification is claimed.
+No independent penetration test has been performed. See SECURITY.md for
+deployment requirements and remaining operational limitations.
+
+Secrets, preview accounts, customer logs, databases, build outputs and local
+test dependencies are excluded from source control.

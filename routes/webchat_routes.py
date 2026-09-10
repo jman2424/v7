@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import os
 import secrets
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, abort, current_app, g, jsonify, make_response, render_template, request
+from flask import Blueprint, Response, abort, current_app, g, jsonify, make_response, render_template, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from connectors.web_widget import parse_inbound, send_reply
@@ -19,13 +20,76 @@ from service.analytics_db import log_error, log_message, set_lead_session, upser
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
+def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
+    widget = branding.get("widget") if isinstance(branding, dict) else {}
+    widget = widget if isinstance(widget, dict) else {}
+    title = str(widget.get("chat_title") or "Sales assistant")
+    primary = str((branding.get("theme") or {}).get("primary_color") or "#0f9d58")
+    config = json.dumps({"tenant": tenant, "title": title, "primary": primary})
+
+    return f"""(function () {{
+  var config = {config};
+  var current = document.currentScript;
+  var host = new URL(current.src, window.location.href).origin;
+  var mount = current.dataset.target ? document.querySelector(current.dataset.target) : null;
+  var root = document.createElement('div');
+  var launcher = document.createElement('button');
+  var frame = document.createElement('iframe');
+  var frameId = 'v7-widget-' + Math.random().toString(36).slice(2);
+
+  root.id = frameId + '-root';
+  root.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;font-family:system-ui,-apple-system,Segoe UI,sans-serif;';
+  launcher.type = 'button';
+  launcher.setAttribute('aria-expanded', 'false');
+  launcher.setAttribute('aria-controls', frameId);
+  launcher.textContent = config.title;
+  launcher.style.cssText = 'border:0;border-radius:8px;background:' + config.primary + ';color:#fff;min-height:44px;padding:0 16px;font:600 14px system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.24);cursor:pointer;';
+  frame.id = frameId;
+  frame.title = config.title;
+  frame.loading = 'lazy';
+  frame.referrerPolicy = 'strict-origin-when-cross-origin';
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
+  frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
+  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:8px;box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
+  launcher.addEventListener('click', function () {{
+    var open = frame.style.display !== 'none';
+    frame.style.display = open ? 'none' : 'block';
+    launcher.setAttribute('aria-expanded', String(!open));
+  }});
+  root.appendChild(frame);
+  root.appendChild(launcher);
+  (mount || document.body).appendChild(root);
+}})();
+"""
+
+
+
+def _public_agent_payload(result: Dict[str, Any]) -> Dict[str, list[str]]:
+    """Expose only bounded UI suggestions, never handler facts or customer data."""
+    agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
+    ui = result.get("ui") if isinstance(result.get("ui"), dict) else {}
+    candidates = agent.get("suggested_replies") or ui.get("suggested_replies") or []
+    if not isinstance(candidates, list):
+        return {}
+
+    suggestions: list[str] = []
+    for item in candidates:
+        value = str(item or "").strip()
+        if value and len(value) <= 120 and value not in suggestions:
+            suggestions.append(value)
+        if len(suggestions) == 3:
+            break
+    return {"suggested_replies": suggestions} if suggestions else {}
+
+
+
 def _tenant_container(tenant):
     try:
         return get_container().for_tenant(tenant)
-    except ValueError:
-        abort(400, description="invalid_tenant")
-    except FileNotFoundError:
-        abort(404, description="tenant_not_found")
+    except (ValueError, FileNotFoundError):
+        response = jsonify(error="unknown_tenant")
+        response.status_code = 404
+        abort(response)
 
 
 def _branding(c):
@@ -38,12 +102,18 @@ def _branding(c):
 
 def _check_origin(c):
     origin = request.headers.get("Origin")
-    allowed = _branding(c).get("allowed_origins", [])
+    from connectors.web_widget import allowed_origins_from_branding
+    branding = _branding(c)
+    allowed = allowed_origins_from_branding(branding)
+    if isinstance(branding.get("allowed_origins"), list):
+        allowed = list(set(allowed + [origin for origin in branding["allowed_origins"] if isinstance(origin, str)]))
     if not isinstance(allowed, list):
         allowed = []
     # Same-origin hosted chat always works. Cross-origin calls need tenant consent.
     if origin and origin != request.host_url.rstrip("/") and origin not in allowed:
-        abort(403, description="origin_forbidden")
+        response = jsonify(error="origin_forbidden")
+        response.status_code = 403
+        abort(response)
 
 
 def _cors(resp):
@@ -215,7 +285,11 @@ def chat_ui():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     c = _tenant_container(tenant)
     from urllib.parse import urlsplit
-    origins = _branding(c).get("allowed_origins", [])
+    from connectors.web_widget import allowed_origins_from_branding
+    branding = _branding(c)
+    origins = allowed_origins_from_branding(branding)
+    if isinstance(branding.get("allowed_origins"), list):
+        origins = list(set(origins + [origin for origin in branding["allowed_origins"] if isinstance(origin, str)]))
     g.chat_origins = []
     if isinstance(origins, list):
         for origin in origins:
@@ -223,7 +297,16 @@ def chat_ui():
                 parsed = urlsplit(origin)
                 if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path and not parsed.username:
                     g.chat_origins.append(origin)
-    return render_template("chatbot.html", tenant=tenant, branding=_branding(c))
+    return render_template("chatbot.html", tenant=tenant, branding=_branding(c), embedded=request.args.get("embed") == "1")
+
+
+@bp.get("/widget.js")
+def widget_embed():
+    tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    c = _tenant_container(tenant)
+    response = Response(_embed_javascript(tenant, _branding(c)), mimetype="application/javascript")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
 
 
 @bp.route("/chat_api", methods=["OPTIONS"])
@@ -259,7 +342,7 @@ def chat_api():
             return _cors(jsonify(error="invalid_conversation")), 403
         session_id = identity["id"]
     else:
-        session_id = "web:" + secrets.token_urlsafe(24)
+        session_id = "web_" + secrets.token_urlsafe(24)
         token = _signer().dumps({"tenant": tenant, "id": session_id})
     channel = "web"
     metadata = {"source": "widget"}
@@ -376,4 +459,4 @@ def chat_api():
         )
 
     return _cors(jsonify(reply=reply, conversation_token=token, session_id=session_id,
-                         error=error_code or None)), 503 if is_error else 200
+                         error=error_code or None, agent=_public_agent_payload(result))), 503 if is_error else 200

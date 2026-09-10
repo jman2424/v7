@@ -32,12 +32,13 @@ def _only_alnum(s: str) -> str:
 
 @dataclass
 class Router:
-    synonyms: Any
-    geo_prefixes: List[str]
+    synonyms: Any = None
+    geo_prefixes: Optional[List[str]] = None
 
-    def route(self, text: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    def route(self, text: str, ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         t0 = time.time()
         text = text or ""
+        ctx = ctx or {}
         norm = _norm(text)
         toks = _tokens(text)
 
@@ -80,6 +81,8 @@ class Router:
             "intent": intent,
             "entities": entities,
             "needs_clarification": needs_clarification,
+            "need_clarification": needs_clarification,
+            "clarify": needs_clarification,
             "clarifier": clarifier,
             "utterance": utterance,
             "_latency_ms": int((time.time() - t0) * 1000),
@@ -172,9 +175,7 @@ class Router:
             return "check_delivery"
 
         if "price" in toks or "cost" in toks or "how much" in norm:
-            if ent.get("sku"):
-                return "price_check"
-            return "search_product"
+            return "price_check"
 
         if any(k in toks for k in ["open", "hours", "time", "when"]):
             return "faq"

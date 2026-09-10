@@ -3,7 +3,7 @@ AI Sales Assistant — Python Client
 
 Purpose:
 - Simple wrapper around /chat_api and selected admin JSON endpoints.
-- Stateless by default; you can pass session_id to maintain short-term context.
+- Stateless by default; session_id is a local alias for a server-signed conversation.
 
 Dependencies:
 - requests
@@ -41,6 +41,7 @@ class AssistantClient:
         self.api_key = api_key
         self.timeout = timeout
         self._session = requests.Session()
+        self._conversations: Dict[tuple, str] = {}
 
     # -------- Chat --------
     def send_message(
@@ -49,16 +50,18 @@ class AssistantClient:
         session_id: Optional[str] = None,
         channel: str = "web",
         metadata: Optional[Dict[str, Any]] = None,
+        conversation_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send a message to /chat_api and return JSON.
-        Server is expected to respond with: { reply: str, raw?: any }
+        Returns reply and a signed conversation_token. A session_id is a local
+        alias only; the server assigns the actual conversation identity.
         """
         url = f"{self.base_url}/chat_api"
         payload = {
             "message": message,
-            "session_id": session_id or self._new_session_id(),
-            "channel": channel,
+            "conversation_token": conversation_token or self._conversations.get((self.tenant, session_id)) if session_id else conversation_token,
+            "message_id": uuid.uuid4().hex,
             "tenant": self.tenant,
             "metadata": metadata or {},
         }
@@ -67,6 +70,8 @@ class AssistantClient:
         resp = self._session.post(url, json=payload, headers=headers, timeout=self.timeout)
         resp.raise_for_status()
         out = resp.json()
+        if session_id and out.get("conversation_token"):
+            self._conversations[(self.tenant, session_id)] = out["conversation_token"]
         out["_latency_ms"] = round((time.time() - t0) * 1000, 2)
         return out
 

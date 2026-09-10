@@ -22,18 +22,31 @@ def _norm(s: str) -> str:
     return (s or "").strip().lower()
 
 
-@dataclass
+@dataclass(init=False)
 class SynonymsStore:
-    storage: Storage
+    storage: Optional[Storage]
 
-    def __post_init__(self):
-        self._forward: Dict[str, List[str]] = self._load()
+    def __init__(
+        self,
+        storage: Optional[Storage | Dict[str, List[str]]] = None,
+        *,
+        synonyms: Optional[Dict[str, List[str]]] = None,
+        data: Optional[Dict[str, List[str]]] = None,
+    ) -> None:
+        if isinstance(storage, dict) and synonyms is None and data is None:
+            synonyms = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._forward: Dict[str, List[str]] = self._normalize(synonyms or data) if (synonyms or data) is not None else self._load()
         self._reverse: Dict[str, str] = {}
         self._build_reverse()
 
     # -------- internal --------
 
     def _load(self) -> Dict[str, List[str]]:
+        if self.storage is None:
+            return {}
         try:
             data = self.storage.read_json(self.storage.tenant_key, "synonyms.json")
             if not isinstance(data, dict):
@@ -51,6 +64,20 @@ class SynonymsStore:
         except FileNotFoundError:
             return {}
 
+    def _normalize(self, data: Optional[Dict[str, List[str]]]) -> Dict[str, List[str]]:
+        if not isinstance(data, dict):
+            return {}
+        out: Dict[str, List[str]] = {}
+        for canon, alts in data.items():
+            canon_n = _norm(canon)
+            if not canon_n:
+                continue
+            if isinstance(alts, list):
+                out[canon_n] = sorted({_norm(a) for a in alts if _norm(a)})
+            elif isinstance(alts, str) and _norm(alts):
+                out[canon_n] = [_norm(alts)]
+        return out
+
     def _build_reverse(self) -> None:
         self._reverse.clear()
         for canon, alts in self._forward.items():
@@ -63,11 +90,25 @@ class SynonymsStore:
     def canonical(self, term: str) -> str:
         """Return canonical tag for a term (or the term itself if unknown)."""
         t = _norm(term)
-        return self._reverse.get(t, t)
+        if t in self._reverse:
+            return self._reverse[t]
+        if t.endswith("s") and len(t) > 3:
+            singular = t[:-1]
+            return self._reverse.get(singular, singular)
+        return t
 
     def apply(self, tags: List[str]) -> List[str]:
         """Normalize a list of tags to canonical set (deduped, sorted)."""
         return sorted({self.canonical(t) for t in tags if _norm(t)})
+
+    def expand_terms(self, terms: List[str]) -> List[str]:
+        expanded = set()
+        for term in terms or []:
+            canon = self.canonical(term)
+            if canon:
+                expanded.add(canon)
+                expanded.update(self._forward.get(canon, []))
+        return sorted(expanded)
 
     def forward(self) -> Dict[str, List[str]]:
         """Return copy of canon→alts for UI consumption."""

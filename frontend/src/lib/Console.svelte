@@ -1,0 +1,1463 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { base } from '$app/paths';
+  export let section = 'pipeline';
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  $: pageTitle = sections[section] || 'Sales workspace';
+  let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
+  let errorStatus = '';
+  async function loadErrors() {
+    errorStatus = 'Loading…';
+    const response = await fetch(apiPath('/admin/api/errors?tenant='+encodeURIComponent(tenant)+'&minutes=10080'), {credentials:'same-origin'});
+    const data = await readJson(response);
+    errors = response.ok && Array.isArray(data) ? data : [];
+    errorStatus = response.ok ? (errors.length ? 'Recorded failures in the last 7 days.' : 'No recorded errors in the last 7 days.') : 'Unable to load errors. Please sign in again.';
+  }
+
+
+  type User = {
+    email: string;
+    roles: string[];
+    tenant: string;
+  };
+
+  type Widget = {
+    chat_title: string;
+    greeting: string;
+    avatar: string;
+    allowed_origins: string[];
+  };
+
+  type Tenant = {
+    key: string;
+    name: string;
+    valid: boolean;
+    widget_configured: boolean;
+  };
+
+  type ManagedAccount = {
+    id: string;
+    email: string;
+    roles: string[];
+    active: boolean;
+  };
+
+  type ManagedRole = 'business_owner' | 'business_staff';
+
+  type CatalogItem = {
+    sku: string;
+    name: string;
+    price: number;
+    unit: string;
+    tags: string[];
+    in_stock: boolean;
+  };
+
+  type CatalogCategory = {
+    id: string;
+    name: string;
+    items: CatalogItem[];
+  };
+
+  type Catalog = {
+    version: number | string;
+    currency?: string;
+    categories: CatalogCategory[];
+  };
+
+  type Faq = {
+    q: string;
+    a: string;
+    tags: string[];
+  };
+
+  type Offer = {
+    id: string;
+    title: string;
+    description: string;
+    code: string;
+    active: boolean;
+    starts_on: string;
+    ends_on: string;
+    product_skus: string[];
+  };
+
+  type DeliveryRule = {
+    area: string;
+    fee: number;
+    min_order: number;
+    eta_hours: string;
+    eta_min: number;
+  };
+
+  type DeliveryException = {
+    date: string;
+    note: string;
+  };
+
+  type Delivery = {
+    mode: 'zones' | 'areas';
+    rules: DeliveryRule[];
+    click_and_collect: boolean;
+    notes: string;
+    exceptions: DeliveryException[];
+  };
+
+  type Profile = {
+    name: string;
+    about: string;
+    email: string;
+    phone: string;
+    website: string;
+    legacyHalalCertified: boolean;
+    certifications: string[];
+    social: Record<string, string>;
+  };
+
+  type InsightKpis = {
+    inbound: number;
+    sessions: number;
+    leads: number;
+    fallbacks: number;
+  };
+
+  type InsightLead = {
+    lead_id: string;
+    name: string | null;
+    phone: string | null;
+    status: string;
+    updated_utc: string;
+  };
+
+  type LeadStatus = 'Open' | 'Contacted' | 'Qualified' | 'Won' | 'Lost';
+
+  type InsightItem = {
+    label: string;
+    count: number;
+  };
+
+  type SalesFunnel = {
+    total: number;
+    active: number;
+    open: number;
+    contacted: number;
+    qualified: number;
+    won: number;
+    lost: number;
+    other: number;
+    handoffs: number;
+    contacts_captured: number;
+  };
+
+  type Insights = {
+    kpis: InsightKpis;
+    sales_funnel: SalesFunnel;
+    leads: InsightLead[];
+    top_intents: InsightItem[];
+  };
+
+  type BranchHours = Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', string>;
+
+  type Branch = {
+    id: string;
+    name: string;
+    address: string;
+    postcode: string;
+    phone: string;
+    lat: number;
+    lon: number;
+    hours: BranchHours;
+  };
+
+  type AgentPlaybook = {
+    business_focus: string;
+    ideal_customer: string;
+    value_propositions: string[];
+    offering_type: 'products' | 'services' | 'mixed';
+    primary_goal: 'drive_sales' | 'book_consultation' | 'capture_leads' | 'answer_questions';
+    qualification_questions: string[];
+    handoff_message: string;
+  };
+
+  type AgentSettings = {
+    tone: {
+      style: 'friendly' | 'professional' | 'concise';
+      max_sentences: number;
+    };
+    playbook: AgentPlaybook;
+  };
+
+  let user: User | null = null;
+  let csrf = '';
+  let widget: Widget = { chat_title: '', greeting: '', avatar: '', allowed_origins: [] };
+  let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
+  let faqs: Faq[] = [];
+  let offers: Offer[] = [];
+  let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
+  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
+  let branches: Branch[] = [];
+  let agentSettings: AgentSettings = {
+    tone: { style: 'friendly', max_sentences: 2 },
+    playbook: { business_focus: '', ideal_customer: '', value_propositions: [], offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
+  };
+  let snippet = '';
+  let tenant = 'EXAMPLE';
+  let originText = '';
+  let tenants: Tenant[] = [];
+  let email = '';
+  let password = '';
+  let totp = '';
+  let loginError = '';
+  let formStatus = '';
+  let formError = false;
+  let loading = true;
+
+  let newTenantKey = '';
+  let newTenantName = '';
+  let createStatus = '';
+  let accounts: ManagedAccount[] = [];
+  let accountEmail = '';
+  let accountPassword = '';
+  let accountRole: ManagedRole = 'business_owner';
+  let selectedAccountId = '';
+  let selectedAccountPassword = '';
+  let selectedAccountActive = true;
+  let accountStatus = '';
+  let accountError = false;
+  let catalogStatus = '';
+  let catalogError = false;
+  let faqStatus = '';
+  let faqError = false;
+  let offersStatus = '';
+  let offersError = false;
+  let deliveryStatus = '';
+  let deliveryError = false;
+  let profileStatus = '';
+  let profileError = false;
+  let branchesStatus = '';
+  let branchesError = false;
+  let agentStatus = '';
+  let agentError = false;
+  let insights: Insights = {
+    kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 },
+    sales_funnel: { total: 0, active: 0, open: 0, contacted: 0, qualified: 0, won: 0, lost: 0, other: 0, handoffs: 0, contacts_captured: 0 },
+    leads: [],
+    top_intents: []
+  };
+  let activityStatus = '';
+  const leadStatuses: LeadStatus[] = ['Open', 'Contacted', 'Qualified', 'Won', 'Lost'];
+
+  $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
+  $: isOwner = Boolean(user?.roles?.includes('business_owner'));
+  $: canManageAccounts = hasAccountManagementAccess();
+  $: if (!isPlatform && accountRole !== 'business_staff') accountRole = 'business_staff';
+
+  function apiPath(path: string) {
+    // The dev server proxies API requests. In production Flask serves this
+    // console at /console, so direct same-origin requests retain its session.
+    return import.meta.env.DEV ? `/api${path}` : path;
+  }
+
+  async function readJson(response: Response) {
+    return response.json().catch(() => ({}));
+  }
+
+  function stringList(value: unknown) {
+    return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+  }
+
+  function normalizeCatalog(value: unknown): Catalog {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const categories = Array.isArray(source.categories) ? source.categories : [];
+    return {
+      version: typeof source.version === 'number' || typeof source.version === 'string' ? source.version : 1,
+      currency: typeof source.currency === 'string' ? source.currency : 'GBP',
+      categories: categories.filter((category): category is Record<string, unknown> => Boolean(category && typeof category === 'object')).map((category) => ({
+        id: String(category.id || ''),
+        name: String(category.name || ''),
+        items: Array.isArray(category.items) ? category.items.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+          sku: String(item.sku || ''),
+          name: String(item.name || ''),
+          price: Number(item.price || 0),
+          unit: String(item.unit || 'each'),
+          tags: stringList(item.tags),
+          in_stock: item.in_stock !== false
+        })) : []
+      }))
+    };
+  }
+
+  function normalizeFaqs(value: unknown): Faq[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+      q: String(item.q || ''),
+      a: String(item.a || ''),
+      tags: stringList(item.tags)
+    }));
+  }
+
+  function normalizeOffers(value: unknown): Offer[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+      id: String(item.id || ''), title: String(item.title || ''), description: String(item.description || ''), code: String(item.code || ''),
+      active: item.active === true, starts_on: String(item.starts_on || ''), ends_on: String(item.ends_on || ''), product_skus: stringList(item.product_skus)
+    }));
+  }
+
+  function normalizeDelivery(value: unknown): Delivery {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const zones = Array.isArray(source.zones) ? source.zones : [];
+    const areas = Array.isArray(source.areas) ? source.areas : [];
+    const mode: Delivery['mode'] = zones.length > 0 || !Array.isArray(source.areas) ? 'zones' : 'areas';
+    const rawRules = mode === 'zones' ? zones : areas;
+    return {
+      mode,
+      rules: rawRules.filter((rule): rule is Record<string, unknown> => Boolean(rule && typeof rule === 'object')).map((rule) => ({
+        area: String(mode === 'zones' ? rule.area || '' : rule.postcode_prefix || ''),
+        fee: Number(rule.fee || 0),
+        min_order: Number(rule.min_order || 0),
+        eta_hours: String(rule.eta_hours || ''),
+        eta_min: Number(rule.eta_min || 0)
+      })),
+      click_and_collect: source.click_and_collect !== false,
+      notes: String(source.notes || ''),
+      exceptions: Array.isArray(source.exceptions) ? source.exceptions.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+        date: String(item.date || ''),
+        note: String(item.note || '')
+      })) : []
+    };
+  }
+
+  function normalizeProfile(value: unknown): Profile {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const socialSource = source.social && typeof source.social === 'object' ? source.social as Record<string, unknown> : {};
+    const social = Object.fromEntries(Object.entries(socialSource).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, String(item)]));
+    return {
+      name: String(source.name || ''), about: String(source.about || ''), email: String(source.email || ''), phone: String(source.phone || ''), website: String(source.website || ''),
+      legacyHalalCertified: source.halal_certified === true, certifications: stringList(source.certifications), social
+    };
+  }
+
+  function emptyHours(): BranchHours {
+    return { mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: '' };
+  }
+
+  function expandHours(value: unknown): BranchHours {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const hours = emptyHours();
+    const days: Array<keyof BranchHours> = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    for (const day of days) hours[day] = typeof source[day] === 'string' ? source[day] : '';
+    for (const [key, raw] of Object.entries(source)) {
+      if (typeof raw !== 'string' || !key.includes('-')) continue;
+      const [first, last] = key.toLowerCase().split('-', 2) as [keyof BranchHours, keyof BranchHours];
+      const start = days.indexOf(first);
+      const end = days.indexOf(last);
+      if (start >= 0 && end >= start) for (let index = start; index <= end; index += 1) if (!hours[days[index]]) hours[days[index]] = raw;
+    }
+    if (typeof source.daily === 'string') for (const day of days) if (!hours[day]) hours[day] = source.daily;
+    return hours;
+  }
+
+  function normalizeBranches(value: unknown): Branch[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((branch): branch is Record<string, unknown> => Boolean(branch && typeof branch === 'object')).map((branch) => ({
+      id: String(branch.id || ''), name: String(branch.name || ''), address: String(branch.address || ''), postcode: String(branch.postcode || ''), phone: String(branch.phone || ''),
+      lat: Number(branch.lat || 0), lon: Number(branch.lon || 0), hours: expandHours(branch.hours)
+    }));
+  }
+
+  function normalizeAgentSettings(value: unknown): AgentSettings {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const tone = source.tone && typeof source.tone === 'object' ? source.tone as Record<string, unknown> : {};
+    const playbook = source.playbook && typeof source.playbook === 'object' ? source.playbook as Record<string, unknown> : {};
+    const style = ['friendly', 'professional', 'concise'].includes(String(tone.style)) ? String(tone.style) as AgentSettings['tone']['style'] : 'friendly';
+    const max = Number(tone.max_sentences || 2);
+    const offeringType = ['products', 'services', 'mixed'].includes(String(playbook.offering_type)) ? String(playbook.offering_type) as AgentPlaybook['offering_type'] : 'products';
+    const primaryGoal = ['drive_sales', 'book_consultation', 'capture_leads', 'answer_questions'].includes(String(playbook.primary_goal)) ? String(playbook.primary_goal) as AgentPlaybook['primary_goal'] : 'drive_sales';
+    const qualificationQuestions = Array.isArray(playbook.qualification_questions)
+      ? playbook.qualification_questions.map((question) => String(question).trim()).filter(Boolean).slice(0, 4)
+      : [];
+    const valuePropositions = Array.isArray(playbook.value_propositions)
+      ? playbook.value_propositions.map((item) => String(item).trim()).filter(Boolean).slice(0, 5)
+      : [];
+    return {
+      tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 },
+      playbook: {
+        business_focus: String(playbook.business_focus || ''),
+        ideal_customer: String(playbook.ideal_customer || ''),
+        value_propositions: valuePropositions,
+        offering_type: offeringType,
+        primary_goal: primaryGoal,
+        qualification_questions: qualificationQuestions,
+        handoff_message: String(playbook.handoff_message || '')
+      }
+    };
+  }
+
+  function addQualificationQuestion() {
+    if (agentSettings.playbook.qualification_questions.length >= 4) return;
+    agentSettings.playbook.qualification_questions = [...agentSettings.playbook.qualification_questions, ''];
+  }
+
+  function removeQualificationQuestion(index: number) {
+    agentSettings.playbook.qualification_questions = agentSettings.playbook.qualification_questions.filter((_, questionIndex) => questionIndex !== index);
+  }
+
+  function addValueProposition() {
+    if (agentSettings.playbook.value_propositions.length >= 5) return;
+    agentSettings.playbook.value_propositions = [...agentSettings.playbook.value_propositions, ''];
+  }
+
+  function removeValueProposition(index: number) {
+    agentSettings.playbook.value_propositions = agentSettings.playbook.value_propositions.filter((_, propositionIndex) => propositionIndex !== index);
+  }
+
+  function safeCount(value: unknown) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : 0;
+  }
+
+  function normalizeInsights(value: unknown): Insights {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const kpis = source.kpis && typeof source.kpis === 'object' ? source.kpis as Record<string, unknown> : {};
+    const funnel = source.sales_funnel && typeof source.sales_funnel === 'object' ? source.sales_funnel as Record<string, unknown> : {};
+    const leads = Array.isArray(source.leads) ? source.leads : [];
+    const intents = Array.isArray(source.top_intents) ? source.top_intents : [];
+    return {
+      kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
+      sales_funnel: {
+        total: safeCount(funnel.total), active: safeCount(funnel.active), open: safeCount(funnel.open), contacted: safeCount(funnel.contacted),
+        qualified: safeCount(funnel.qualified), won: safeCount(funnel.won), lost: safeCount(funnel.lost), other: safeCount(funnel.other),
+        handoffs: safeCount(funnel.handoffs), contacts_captured: safeCount(funnel.contacts_captured)
+      },
+      leads: leads.filter((lead): lead is Record<string, unknown> => Boolean(lead && typeof lead === 'object')).map((lead) => ({
+        lead_id: String(lead.lead_id || ''), name: typeof lead.name === 'string' && lead.name ? lead.name : null, phone: typeof lead.phone === 'string' && lead.phone ? lead.phone : null,
+        status: leadStatuses.includes(String(lead.status) as LeadStatus) ? String(lead.status) : 'Open', updated_utc: String(lead.updated_utc || '')
+      })),
+      top_intents: intents.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+        label: String(item.label || 'Unknown'), count: safeCount(item.count)
+      }))
+    };
+  }
+
+  function formatActivityDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  }
+
+  async function loadTenantWorkspace(selectedTenant = tenant) {
+    const encodedTenant = encodeURIComponent(selectedTenant);
+    const responses = await Promise.all([
+      fetch(apiPath(`/admin/api/widget?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/catalog?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/faq?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/offers?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/delivery?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/profile?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/branches?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+      fetch(apiPath(`/admin/api/agent-settings?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+    ]);
+    const [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(readJson));
+    if (responses.some((response) => !response.ok)) {
+      const failed = [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData].find((data, index) => !responses[index].ok);
+      throw new Error(failed?.error || 'Could not load this tenant workspace.');
+    }
+    tenant = widgetData.tenant;
+    widget = widgetData.widget;
+    originText = (widget.allowed_origins || []).join('\n');
+    snippet = widgetData.embed?.snippet || '';
+    catalog = normalizeCatalog(catalogData);
+    faqs = normalizeFaqs(faqData);
+    offers = normalizeOffers(offersData);
+    delivery = normalizeDelivery(deliveryData);
+    profile = normalizeProfile(profileData);
+    branches = normalizeBranches(branchesData);
+    agentSettings = normalizeAgentSettings(agentData);
+    if (hasAccountManagementAccess()) await loadAccounts(selectedTenant);
+    else accounts = [];
+    await loadInsights(selectedTenant);
+  }
+
+  async function loadTenants() {
+    if (!isPlatform) return;
+    const response = await fetch(apiPath('/admin/api/tenants'), { credentials: 'same-origin' });
+    const data = await readJson(response);
+    if (response.ok) tenants = data.tenants || [];
+  }
+
+  function hasAccountManagementAccess() {
+    return Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin' || role === 'business_owner'));
+  }
+
+  async function loadAccounts(selectedTenant = tenant) {
+    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
+    const data = await readJson(response);
+    accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
+    const selected = accounts.find((account) => account.id === selectedAccountId);
+    const next = selected || accounts.find((account) => isPlatform || account.roles.includes('business_staff'));
+    selectedAccountId = next?.id || '';
+    selectedAccountActive = next?.active ?? true;
+    selectedAccountPassword = '';
+  }
+
+  function selectManagedAccount(accountId: string) {
+    selectedAccountId = accountId;
+    const selected = accounts.find((account) => account.id === accountId);
+    selectedAccountActive = selected?.active ?? true;
+    selectedAccountPassword = '';
+  }
+
+  async function loadInsights(selectedTenant = tenant) {
+    activityStatus = 'Loading activity...';
+    const response = await fetch(apiPath(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`), { credentials: 'same-origin' });
+    const data = await readJson(response);
+    if (!response.ok) {
+      activityStatus = 'Sales activity is currently unavailable.';
+      return;
+    }
+    insights = normalizeInsights(data);
+    activityStatus = '';
+  }
+
+  async function updateLeadStatus(leadId: string, status: LeadStatus) {
+    activityStatus = 'Updating lead...';
+    const response = await fetch(apiPath(`/admin/api/leads/${encodeURIComponent(leadId)}?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify({ status })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      activityStatus = data.error || 'Could not update this lead.';
+      return;
+    }
+    insights = { ...insights, leads: insights.leads.map((lead) => lead.lead_id === leadId ? { ...lead, status } : lead) };
+    activityStatus = 'Lead updated.';
+  }
+
+  async function restoreSession() {
+    const response = await fetch(apiPath('/auth/session'), { credentials: 'same-origin' });
+    if (!response.ok) return;
+    const data = await readJson(response);
+    user = data.user;
+    csrf = data.csrf_token || '';
+    tenant = user?.tenant || tenant;
+    if (user) {
+      await loadTenantWorkspace(tenant);
+      await loadTenants();
+    }
+  }
+
+  async function login() {
+    loginError = '';
+    const sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+    const sessionData = await readJson(sessionResponse);
+    csrf = sessionData.csrf_token || '';
+    const response = await fetch(apiPath('/auth/login'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({ email, password, totp, tenant })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      loginError = data.error || 'Sign-in failed.';
+      return;
+    }
+    user = data.user;
+    csrf = data.csrf_token || '';
+    tenant = user?.tenant || tenant;
+    await loadTenantWorkspace(tenant);
+    await loadTenants();
+  }
+
+  async function logout() {
+    const response = await fetch(apiPath('/auth/logout'), {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      credentials: 'same-origin'
+    });
+    if (!response.ok) {
+      formStatus = 'Could not sign out. Please refresh and try again.';
+      formError = true;
+      return;
+    }
+    user = null;
+    csrf = '';
+    password = '';
+    totp = '';
+  }
+
+  async function saveWidget() {
+    formStatus = 'Saving...';
+    formError = false;
+    const payload = {
+      chat_title: widget.chat_title,
+      greeting: widget.greeting,
+      avatar: widget.avatar,
+      allowed_origins: originText.split('\n').map((value) => value.trim()).filter(Boolean)
+    };
+    const response = await fetch(apiPath(`/admin/api/widget?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      formStatus = data.error || 'Could not save changes.';
+      formError = true;
+      return;
+    }
+    widget = data.widget;
+    snippet = data.embed?.snippet || '';
+    originText = (widget.allowed_origins || []).join('\n');
+    formStatus = 'Saved. New widget loads use these settings.';
+    await loadTenants();
+  }
+
+  async function copySnippet() {
+    await navigator.clipboard.writeText(snippet);
+    formStatus = 'Install script copied.';
+    formError = false;
+  }
+
+  async function createTenant() {
+    createStatus = 'Creating tenant...';
+    const response = await fetch(apiPath('/admin/api/tenants'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({ key: newTenantKey, name: newTenantName })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      createStatus = data.error || 'Could not create tenant.';
+      return;
+    }
+    createStatus = `${data.tenant.name} is ready for configuration.`;
+    newTenantKey = '';
+    newTenantName = '';
+    await loadTenants();
+  }
+
+  async function createAccount() {
+    accountStatus = 'Creating access...';
+    accountError = false;
+    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole] })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      accountStatus = data.error || 'Could not create access.';
+      accountError = true;
+      return;
+    }
+    accountStatus = `${data.account.email} can now sign in.`;
+    accountEmail = '';
+    accountPassword = '';
+    await loadAccounts(tenant);
+  }
+
+  async function updateAccount() {
+    if (!selectedAccountId) return;
+    accountStatus = 'Updating access...';
+    accountError = false;
+    const payload: { active: boolean; password?: string } = { active: selectedAccountActive };
+    if (selectedAccountPassword) payload.password = selectedAccountPassword;
+    const response = await fetch(apiPath(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      accountStatus = data.error || 'Could not update access.';
+      accountError = true;
+      return;
+    }
+    accountStatus = `${data.account.email} access updated.`;
+    selectedAccountPassword = '';
+    await loadAccounts(tenant);
+  }
+
+  async function selectTenant(nextTenant: string) {
+    formStatus = '';
+    catalogStatus = '';
+    faqStatus = '';
+    offersStatus = '';
+    deliveryStatus = '';
+    profileStatus = '';
+    branchesStatus = '';
+    agentStatus = '';
+    await loadTenantWorkspace(nextTenant);
+  }
+
+  function slug(value: string) {
+    return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'new_category';
+  }
+
+  function addCategory() {
+    const number = catalog.categories.length + 1;
+    catalog = { ...catalog, categories: [...catalog.categories, { id: `category_${number}`, name: `New category ${number}`, items: [] }] };
+  }
+
+  function removeCategory(index: number) {
+    catalog = { ...catalog, categories: catalog.categories.filter((_, current) => current !== index) };
+  }
+
+  function addProduct(categoryIndex: number) {
+    const categories = catalog.categories.map((category, index) => index === categoryIndex ? {
+      ...category,
+      items: [...category.items, { sku: 'NEW_OFFERING', name: 'New offering', price: 0, unit: 'each', tags: [], in_stock: true }]
+    } : category);
+    catalog = { ...catalog, categories };
+  }
+
+  function removeProduct(categoryIndex: number, itemIndex: number) {
+    const categories = catalog.categories.map((category, index) => index === categoryIndex ? {
+      ...category,
+      items: category.items.filter((_, current) => current !== itemIndex)
+    } : category);
+    catalog = { ...catalog, categories };
+  }
+
+  function addFaq() {
+    faqs = [...faqs, { q: 'New question', a: 'Add a helpful answer.', tags: [] }];
+  }
+
+  function removeFaq(index: number) {
+    faqs = faqs.filter((_, current) => current !== index);
+  }
+
+  function addOffer() {
+    const number = offers.length + 1;
+    offers = [...offers, { id: `offer_${number}`, title: 'New offer', description: 'Describe the customer benefit and any conditions.', code: '', active: true, starts_on: '', ends_on: '', product_skus: [] }];
+  }
+
+  function removeOffer(index: number) {
+    offers = offers.filter((_, current) => current !== index);
+  }
+
+  function addDeliveryRule() {
+    delivery = {
+      ...delivery,
+      rules: [...delivery.rules, { area: '', fee: 0, min_order: 0, eta_hours: 'Next-day', eta_min: 60 }]
+    };
+  }
+
+  function removeDeliveryRule(index: number) {
+    delivery = { ...delivery, rules: delivery.rules.filter((_, current) => current !== index) };
+  }
+
+  function addException() {
+    delivery = { ...delivery, exceptions: [...delivery.exceptions, { date: '', note: '' }] };
+  }
+
+  function removeException(index: number) {
+    delivery = { ...delivery, exceptions: delivery.exceptions.filter((_, current) => current !== index) };
+  }
+
+  async function saveCatalog() {
+    catalogStatus = 'Saving...';
+    catalogError = false;
+    const categories = catalog.categories.map((category) => ({
+      id: category.id.trim() || slug(category.name),
+      name: category.name.trim(),
+      items: category.items.map((item) => ({
+        sku: item.sku.trim(), name: item.name.trim(), price: Number(item.price), unit: item.unit.trim() || 'each',
+        tags: item.tags.map((tag) => tag.trim()).filter(Boolean), in_stock: Boolean(item.in_stock)
+      }))
+    }));
+    if (!categories.length || categories.some((category) => !category.name || !category.items.length || category.items.some((item) => !item.sku || !item.name || !Number.isFinite(item.price) || item.price < 0))) {
+      catalogStatus = 'Each category needs a name and at least one complete offering.';
+      catalogError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/catalog?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin',
+      body: JSON.stringify({ version: catalog.version || 1, currency: (catalog.currency || 'GBP').toUpperCase(), categories })
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      catalogStatus = data.detail || data.error || 'Could not save catalog.';
+      catalogError = true;
+      return;
+    }
+    catalog = { ...catalog, categories };
+    catalogStatus = 'Catalogue saved. New conversations use these offerings.';
+  }
+
+  async function saveFaqs() {
+    faqStatus = 'Saving...';
+    faqError = false;
+    const payload = faqs.map((faq) => ({ q: faq.q.trim(), a: faq.a.trim(), tags: faq.tags.map((tag) => tag.trim()).filter(Boolean) }));
+    if (payload.some((faq) => !faq.q || !faq.a)) {
+      faqStatus = 'Every FAQ needs both a question and answer.';
+      faqError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/faq?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      faqStatus = data.detail || data.error || 'Could not save FAQs.';
+      faqError = true;
+      return;
+    }
+    faqs = payload;
+    faqStatus = 'FAQs saved. The assistant can use the new answers now.';
+  }
+
+  async function saveOffers() {
+    offersStatus = 'Saving...';
+    offersError = false;
+    const payload = offers.map((offer) => ({
+      id: (offer.id.trim() || slug(offer.title)), title: offer.title.trim(), description: offer.description.trim(), code: offer.code.trim(), active: Boolean(offer.active),
+      starts_on: offer.starts_on, ends_on: offer.ends_on, product_skus: offer.product_skus.map((sku) => sku.trim()).filter(Boolean)
+    }));
+    const ids = payload.map((offer) => offer.id);
+    if (payload.some((offer) => !offer.title || !offer.description || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(offer.id) || (offer.starts_on && offer.ends_on && offer.starts_on > offer.ends_on)) || new Set(ids).size !== ids.length) {
+      offersStatus = 'Each offer needs a unique key, title, description, and valid date range.';
+      offersError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/offers?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      offersStatus = data.detail || data.error || 'Could not save offers.';
+      offersError = true;
+      return;
+    }
+    offers = normalizeOffers(payload);
+    offersStatus = 'Offers saved. The assistant now uses the active offers only.';
+  }
+
+  async function saveDelivery() {
+    deliveryStatus = 'Saving...';
+    deliveryError = false;
+    const rules = delivery.rules.map((rule) => ({ ...rule, area: rule.area.trim(), fee: Number(rule.fee), min_order: Number(rule.min_order), eta_hours: rule.eta_hours.trim(), eta_min: Number(rule.eta_min) }));
+    if (rules.some((rule) => !rule.area || !Number.isFinite(rule.fee) || rule.fee < 0 || !Number.isFinite(rule.min_order) || rule.min_order < 0 || (delivery.mode === 'zones' && !rule.eta_hours) || (delivery.mode === 'areas' && (!Number.isFinite(rule.eta_min) || rule.eta_min < 0)))) {
+      deliveryStatus = 'Complete each delivery rule with a coverage area, fee, minimum order, and ETA.';
+      deliveryError = true;
+      return;
+    }
+    const exceptions = delivery.exceptions.map((item) => ({ date: item.date, note: item.note.trim() })).filter((item) => item.date || item.note);
+    if (exceptions.some((item) => !item.date || !item.note)) {
+      deliveryStatus = 'Each delivery exception needs both a date and note.';
+      deliveryError = true;
+      return;
+    }
+    const base = { click_and_collect: delivery.click_and_collect, notes: delivery.notes.trim(), exceptions };
+    const payload = delivery.mode === 'zones'
+      ? { ...base, zones: rules.map(({ area, fee, min_order, eta_hours }) => ({ area, fee, min_order, eta_hours })) }
+      : { ...base, areas: rules.map(({ area, fee, min_order, eta_min }) => ({ postcode_prefix: area, fee, min_order, eta_min })) };
+    const response = await fetch(apiPath(`/admin/api/delivery?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      deliveryStatus = data.detail || data.error || 'Could not save delivery settings.';
+      deliveryError = true;
+      return;
+    }
+    deliveryStatus = 'Delivery settings saved. New conversations use these rules.';
+  }
+
+  function addBranch() {
+    const number = branches.length + 1;
+    branches = [...branches, { id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: 0, lon: 0, hours: emptyHours() }];
+  }
+
+  function removeBranch(index: number) {
+    branches = branches.filter((_, current) => current !== index);
+  }
+
+  async function saveProfile() {
+    profileStatus = 'Saving...';
+    profileError = false;
+    const payload = {
+      name: profile.name.trim(), about: profile.about.trim(), email: profile.email.trim(), phone: profile.phone.trim(), website: profile.website.trim(),
+      halal_certified: profile.legacyHalalCertified, certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
+      social: Object.fromEntries(Object.entries(profile.social).map(([key, value]) => [key, value.trim()]).filter(([, value]) => Boolean(value)))
+    };
+    if (!payload.name) {
+      profileStatus = 'Business name is required.';
+      profileError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/profile?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      profileStatus = data.detail || data.error || 'Could not save business profile.';
+      profileError = true;
+      return;
+    }
+    profile = { ...profile, ...payload };
+    profileStatus = 'Business profile saved.';
+  }
+
+  async function saveBranches() {
+    branchesStatus = 'Saving...';
+    branchesError = false;
+    const payload = branches.map((branch) => ({
+      id: branch.id.trim() || slug(branch.name), name: branch.name.trim(), address: branch.address.trim(), postcode: branch.postcode.trim(), phone: branch.phone.trim(),
+      lat: Number(branch.lat), lon: Number(branch.lon), hours: Object.fromEntries(Object.entries(branch.hours).map(([day, hours]) => [day, hours.trim()]).filter(([, hours]) => Boolean(hours)))
+    }));
+    if (payload.some((branch) => !branch.id || !branch.name || !branch.postcode || !Number.isFinite(branch.lat) || branch.lat < -90 || branch.lat > 90 || !Number.isFinite(branch.lon) || branch.lon < -180 || branch.lon > 180)) {
+      branchesStatus = 'Each branch needs a name, postcode, and valid latitude and longitude.';
+      branchesError = true;
+      return;
+    }
+    const response = await fetch(apiPath(`/admin/api/branches?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      branchesStatus = data.detail || data.error || 'Could not save branches.';
+      branchesError = true;
+      return;
+    }
+    branches = normalizeBranches(payload);
+    branchesStatus = 'Branches and opening hours saved.';
+  }
+
+  async function saveAgentSettings() {
+    agentStatus = 'Saving...';
+    agentError = false;
+    const response = await fetch(apiPath(`/admin/api/agent-settings?tenant=${encodeURIComponent(tenant)}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(agentSettings)
+    });
+    const data = await readJson(response);
+    if (!response.ok) {
+      agentStatus = data.error || 'Could not save agent settings.';
+      agentError = true;
+      return;
+    }
+    agentSettings = normalizeAgentSettings(data);
+    agentStatus = 'Agent playbook saved. New conversations use these settings.';
+  }
+
+  onMount(async () => {
+    try {
+      await restoreSession();
+    } finally {
+      loading = false;
+    }
+  });
+</script>
+
+<svelte:head>
+  <title>{pageTitle} · V7</title>
+  <meta name="description" content="Tenant widget configuration for the V7 AI sales agent." />
+</svelte:head>
+
+{#if loading}
+  <main class="loading" aria-live="polite">Loading owner console...</main>
+{:else if !user}
+  <main class="login-shell">
+    <form class="login" on:submit|preventDefault={login}>
+      <div class="product-mark">V7</div>
+      <h1>Owner console</h1>
+      <p>Sales agent control for your business.</p>
+      <label>Tenant key<input bind:value={tenant} autocomplete="organization" required /></label>
+      <label>Email<input bind:value={email} type="email" autocomplete="username" required /></label>
+      <label>Password<input bind:value={password} type="password" autocomplete="current-password" required /></label>
+      <label>TOTP code <span>Optional</span><input bind:value={totp} inputmode="numeric" autocomplete="one-time-code" /></label>
+      {#if loginError}<div class="notice error">{loginError}</div>{/if}
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+  </main>
+{:else}
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="side-brand"><span>V7</span><strong>{tenant}</strong><small>Sales agent workspace</small></div>
+      <nav aria-label="Owner console navigation">
+        {#each Object.entries(sections) as [key,label]}
+          {#if (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
+            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key}>{label}</a>
+          {/if}
+        {/each}
+        <a href={apiPath('/admin/conversations?tenant='+encodeURIComponent(tenant))}>Conversations</a>
+      </nav>
+      <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : 'Business owner'}</span></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-head">
+        <div><p class="eyebrow">Owner workspace</p><h1>{pageTitle}</h1></div>
+        <div class="workspace-actions">
+        {#if isPlatform && tenants.length > 0}
+          <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
+        {/if}
+          <button class="secondary sign-out" type="button" on:click={logout}>Sign out</button>
+        </div>
+      </header>
+
+      {#if section === 'companies' && isPlatform}
+        <section class="operator-panel" aria-labelledby="tenant-create-heading">
+          <div><p class="eyebrow">Platform operator</p><h2 id="tenant-create-heading">Create a clean tenant</h2><p>The starter workspace has no allowed websites and only an out-of-stock setup item.</p></div>
+          <form class="tenant-form" on:submit|preventDefault={createTenant}>
+            <label>Tenant key<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /></label>
+            <label>Business name<input bind:value={newTenantName} placeholder="Northstar Homewares" required /></label>
+            <button class="primary" type="submit">Create tenant</button>
+          </form>
+          {#if createStatus}<p class="form-status">{createStatus}</p>{/if}
+        </section>
+      {/if}
+
+      {#if section === 'pipeline'}
+      <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
+        <div class="surface-head pipeline-head"><div><p class="eyebrow">Sales pipeline</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>Refresh</button></div>
+        <div class="metric-grid" aria-label="Sales pipeline summary">
+          <div><span>Active leads</span><strong>{insights.sales_funnel.active}</strong><small>Current pipeline</small></div>
+          <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong><small>Ready for follow-up</small></div>
+          <div><span>Won</span><strong>{insights.sales_funnel.won}</strong><small>Recorded outcomes</small></div>
+          <div><span>Requested a person</span><strong>{insights.sales_funnel.handoffs}</strong><small>Last 7 days</small></div>
+        </div>
+        <div class="funnel-strip" aria-label="Current lead stages">
+          <div><span>Open</span><strong>{insights.sales_funnel.open}</strong></div>
+          <div><span>Contacted</span><strong>{insights.sales_funnel.contacted}</strong></div>
+          <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong></div>
+          <div><span>Won</span><strong>{insights.sales_funnel.won}</strong></div>
+          <div><span>Lost</span><strong>{insights.sales_funnel.lost}</strong></div>
+        </div>
+        <div class="activity-details">
+          <div class="activity-list">
+            <div class="list-heading"><h3>Recent leads</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
+            {#each insights.leads as lead}
+              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+            {:else}
+              <p class="empty-state">New customer conversations will appear here.</p>
+            {/each}
+          </div>
+          <div class="activity-list">
+            <div class="list-heading"><h3>Conversation topics</h3><span>Last 7 days</span></div>
+            {#each insights.top_intents as item}
+              <div class="intent-row"><span>{item.label.replaceAll('_', ' ')}</span><strong>{item.count}</strong></div>
+            {:else}
+              <p class="empty-state">Topics will appear after customer conversations.</p>
+            {/each}
+          </div>
+        </div>
+        {#if activityStatus}<p class="activity-status">{activityStatus}</p>{/if}
+      </section>
+      {/if}
+
+      {#if canManageAccounts}
+        {#if section === 'team'}
+      <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
+          <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
+          <form class="team-form" on:submit|preventDefault={createAccount}>
+            <label>Email<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
+            {#if isPlatform}
+              <label>Access level<select bind:value={accountRole}><option value="business_owner">Business owner</option><option value="business_staff">Business staff</option></select></label>
+            {:else}
+              <label>Access level<input value="Business staff" readonly aria-readonly="true" /></label>
+            {/if}
+            <label>Temporary password<input bind:value={accountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
+            <button class="primary" type="submit">Add access</button>
+          </form>
+          {#if accounts.some((account) => isPlatform || account.roles.includes('business_staff'))}
+            <form class="account-control-form" on:submit|preventDefault={updateAccount}>
+              <label>Account<select value={selectedAccountId} on:change={(event) => selectManagedAccount(event.currentTarget.value)}>{#each accounts.filter((account) => isPlatform || account.roles.includes('business_staff')) as account}<option value={account.id}>{account.email}</option>{/each}</select></label>
+              <label>New password <span>Optional</span><input bind:value={selectedAccountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" /></label>
+              <label class="account-active"><input bind:checked={selectedAccountActive} type="checkbox" /><span>Account active</span></label>
+              <button class="secondary" type="submit">Update access</button>
+            </form>
+          {/if}
+          <div class="account-list" aria-live="polite">
+            {#each accounts as account}
+              <div class="account-row"><strong>{account.email}</strong><span>{account.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span><span class:account-inactive={!account.active}>{account.active ? 'Active' : 'Inactive'}</span></div>
+            {:else}
+              <p class="empty-state">No team access has been added for this business.</p>
+            {/each}
+          </div>
+          {#if accountStatus}<p class:error={accountError} class="form-status team-status">{accountStatus}</p>{/if}
+        </section>
+      {/if}
+      {/if}
+
+      <div class="content-grid">
+        {#if section === 'website'}
+      <section id="widget" class="surface setup" aria-labelledby="widget-heading">
+          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">Widget settings</h2></div><span class="status-dot">Ready</span></div>
+          <form class="settings-form" on:submit|preventDefault={saveWidget}>
+            <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
+            <label>Greeting<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
+            <label>Avatar URL<input bind:value={widget.avatar} type="url" placeholder="https://assets.yourcompany.com/avatar.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
+            <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com" required></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development.</small></label>
+            <div class="form-footer"><span class:error={formError} class="form-status">{formStatus}</span><button class="primary" type="submit">Save changes</button></div>
+          </form>
+        </section>
+      {/if}
+
+        {#if section === 'integrations'}
+      <section id="install" class="surface install" aria-labelledby="install-heading">
+          <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet}>Copy</button></div>
+          <p>Place this once before the closing body tag on an approved website.</p>
+          <p><a href={`/admin/integrations?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup and connection status</a>. Web chat works while WhatsApp is awaiting setup.</p>
+          <textarea class="code" readonly value={snippet} aria-label="Website install script"></textarea>
+          <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
+        </section>
+      {/if}
+      </div>
+
+      {#if section === 'catalog'}
+      <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
+        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Catalogue</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
+        <div class="catalog-toolbar">
+          <label>Currency<input class="currency" bind:value={catalog.currency} maxlength="3" aria-label="Catalog currency" /></label>
+          <button class="secondary" type="button" on:click={addCategory}>Add category</button>
+        </div>
+        {#each catalog.categories as category, categoryIndex}
+          <section class="editor-group" aria-label={`Category ${category.name || categoryIndex + 1}`}>
+            <div class="group-heading">
+              <div class="category-fields"><label>Category name<input bind:value={category.name} required /></label><label>Category key<input bind:value={category.id} required /></label></div>
+              <button class="icon-button danger" type="button" title="Remove category" aria-label={`Remove ${category.name || 'category'}`} on:click={() => removeCategory(categoryIndex)}>Remove</button>
+            </div>
+            <div class="product-table" role="region" aria-label={`${category.name || 'Category'} offerings`}>
+              <div class="product-table-head" aria-hidden="true"><span>Offering</span><span>Reference</span><span>Price</span><span>Unit</span><span>Tags</span><span>Availability</span><span></span></div>
+              {#each category.items as item, itemIndex}
+                <div class="product-row">
+                  <input bind:value={item.name} aria-label="Offering name" required />
+                  <input bind:value={item.sku} aria-label="Offering reference" required />
+                  <input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required />
+                  <input bind:value={item.unit} aria-label="Offering unit" required />
+                  <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Offering tags" placeholder="gift, summer" />
+                  <label class="stock-toggle"><input bind:checked={item.in_stock} type="checkbox" /><span>{item.in_stock ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
+                  <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>Remove</button>
+                </div>
+              {/each}
+            </div>
+            <button class="add-row" type="button" on:click={() => addProduct(categoryIndex)}>Add offering</button>
+          </section>
+        {/each}
+        <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>Save catalog</button></div>
+      </section>
+      {/if}
+
+      {#if section === 'offers'}
+      <section id="offers" class="surface workspace-section" aria-labelledby="offers-heading">
+        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Current offers</h2></div><button class="secondary" type="button" on:click={addOffer}>Add offer</button></div>
+        <div class="offers-list">
+          {#each offers as offer, index}
+            <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
+              <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Remove offer" aria-label={`Remove ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Remove</button></div>
+              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
+            </section>
+          {:else}
+            <p class="empty-state offers-empty">No offers have been added. The assistant will accurately say that there are no current offers.</p>
+          {/each}
+        </div>
+        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>Save offers</button></div>
+      </section>
+      {/if}
+
+      <div class="management-grid">
+        {#if section === 'faqs'}
+      <section id="faqs" class="surface workspace-section" aria-labelledby="faq-heading">
+          <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="faq-heading">Frequently asked questions</h2></div><button class="secondary" type="button" on:click={addFaq}>Add FAQ</button></div>
+          <div class="faq-list">
+            {#each faqs as faq, index}
+              <div class="faq-editor">
+                <label>Question<input bind:value={faq.q} required /></label>
+                <label>Answer<textarea bind:value={faq.a} required></textarea></label>
+                <div class="row-actions"><label>Topics<input value={faq.tags.join(', ')} on:input={(event) => (faq.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="delivery, opening hours" /></label><button class="icon-button danger" type="button" title="Remove FAQ" aria-label={`Remove FAQ ${index + 1}`} on:click={() => removeFaq(index)}>Remove</button></div>
+              </div>
+            {:else}
+              <p class="empty-state">No FAQs yet. Add the answers customers ask for most.</p>
+            {/each}
+          </div>
+          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs}>Save FAQs</button></div>
+        </section>
+      {/if}
+
+        {#if section === 'delivery'}
+      <section id="delivery" class="surface workspace-section" aria-labelledby="delivery-heading">
+          <div class="surface-head"><div><p class="eyebrow">Sales fulfillment</p><h2 id="delivery-heading">Delivery settings</h2></div><button class="secondary" type="button" on:click={addDeliveryRule}>Add delivery area</button></div>
+          <div class="delivery-content">
+            <label>Delivery notes<textarea bind:value={delivery.notes} placeholder="Tell customers about free delivery, ordering cutoffs, or collection."></textarea></label>
+            <label class="collection-toggle"><input bind:checked={delivery.click_and_collect} type="checkbox" /><span>Click and collect is available</span></label>
+            <p class="field-note">This tenant currently uses {delivery.mode === 'zones' ? 'postcode zones' : 'postcode prefixes'}. Existing delivery data stays in that format.</p>
+            {#each delivery.rules as rule, index}
+              <div class="delivery-rule">
+                <label>Coverage<input bind:value={rule.area} placeholder={delivery.mode === 'zones' ? 'E1-E4' : 'E1'} required /></label>
+                <label>Delivery fee<input bind:value={rule.fee} type="number" min="0" step="0.01" required /></label>
+                <label>Minimum order<input bind:value={rule.min_order} type="number" min="0" step="0.01" required /></label>
+                {#if delivery.mode === 'zones'}
+                  <label>Customer ETA<input bind:value={rule.eta_hours} placeholder="Same-day before 5pm" required /></label>
+                {:else}
+                  <label>ETA minutes<input bind:value={rule.eta_min} type="number" min="0" step="1" required /></label>
+                {/if}
+                <button class="icon-button danger" type="button" title="Remove delivery area" aria-label={`Remove delivery area ${index + 1}`} on:click={() => removeDeliveryRule(index)}>Remove</button>
+              </div>
+            {:else}
+              <p class="empty-state">No delivery areas have been added.</p>
+            {/each}
+            <div class="exception-heading"><h3>Service exceptions</h3><button class="add-row" type="button" on:click={addException}>Add exception</button></div>
+            {#each delivery.exceptions as exception, index}
+              <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>Remove</button></div>
+            {/each}
+          </div>
+          <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
+        </section>
+      {/if}
+      </div>
+
+      <div class="management-grid business-grid">
+        {#if section === 'profile'}
+      <section id="profile" class="surface workspace-section" aria-labelledby="profile-heading">
+          <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">Business profile</h2></div></div>
+          <form class="profile-form" on:submit|preventDefault={saveProfile}>
+            <label>Business name<input bind:value={profile.name} maxlength="120" required /></label>
+            <label>About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What do you sell and why do customers choose you?"></textarea></label>
+            <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
+            <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /></label>
+            <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
+            <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
+            <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">Save profile</button></div>
+          </form>
+        </section>
+      {/if}
+
+        {#if section === 'agent'}
+      <section id="agent" class="surface workspace-section" aria-labelledby="agent-heading">
+          <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="agent-heading">Sales playbook</h2></div></div>
+          <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>
+            <div class="agent-settings-grid">
+              <label class="agent-wide">Business focus<textarea bind:value={agentSettings.playbook.business_focus} maxlength="240" placeholder="What do you help customers buy, book, or achieve?"></textarea></label>
+              <label class="agent-wide">Ideal customer<textarea bind:value={agentSettings.playbook.ideal_customer} maxlength="240" placeholder="Who do you most want the assistant to help?"></textarea></label>
+              <label>Catalogue type<select bind:value={agentSettings.playbook.offering_type}><option value="products">Products</option><option value="services">Services</option><option value="mixed">Products and services</option></select></label>
+              <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Book a consultation</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
+              <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
+              <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
+            </div>
+            <div class="qualification-editor">
+              <div class="qualification-heading"><h3>Why customers choose you</h3><button class="secondary" type="button" on:click={addValueProposition} disabled={agentSettings.playbook.value_propositions.length >= 5}>Add point</button></div>
+              {#each agentSettings.playbook.value_propositions as proposition, propositionIndex}
+                <div class="qualification-row"><label>{`Point ${propositionIndex + 1}`}<input bind:value={agentSettings.playbook.value_propositions[propositionIndex]} maxlength="160" placeholder="A real customer benefit or differentiator" /></label><button class="icon-button danger" type="button" title="Remove point" aria-label={`Remove point ${propositionIndex + 1}`} on:click={() => removeValueProposition(propositionIndex)}>Remove</button></div>
+              {:else}
+                <p class="empty-state">No differentiators added.</p>
+              {/each}
+            </div>
+            <div class="qualification-editor">
+              <div class="qualification-heading"><h3>Qualification questions</h3><button class="secondary" type="button" on:click={addQualificationQuestion} disabled={agentSettings.playbook.qualification_questions.length >= 4}>Add question</button></div>
+              {#each agentSettings.playbook.qualification_questions as question, questionIndex}
+                <div class="qualification-row"><label>{`Question ${questionIndex + 1}`}<input bind:value={agentSettings.playbook.qualification_questions[questionIndex]} maxlength="180" placeholder="What should the assistant learn next?" /></label><button class="icon-button danger" type="button" title="Remove question" aria-label={`Remove question ${questionIndex + 1}`} on:click={() => removeQualificationQuestion(questionIndex)}>Remove</button></div>
+              {:else}
+                <p class="empty-state">No qualification questions added.</p>
+              {/each}
+            </div>
+            <label>Handoff message<textarea bind:value={agentSettings.playbook.handoff_message} maxlength="360" placeholder="What should the assistant say before it asks for contact details?"></textarea></label>
+            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save playbook</button></div>
+          </form>
+        </section>
+      {/if}
+      </div>
+
+      {#if section === 'branches'}
+      <section id="branches" class="surface workspace-section" aria-labelledby="branches-heading">
+        <div class="surface-head"><div><p class="eyebrow">Locations and handoff</p><h2 id="branches-heading">Branches and opening hours</h2></div><button class="secondary" type="button" on:click={addBranch}>Add branch</button></div>
+        <div class="branches-list">
+          {#each branches as branch, branchIndex}
+            <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
+              <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>Remove</button></div>
+              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>Phone<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" required /></label><label>Longitude<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" required /></label></div>
+              <div class="hours-grid"><h4>Opening hours</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
+            </section>
+          {:else}
+            <p class="empty-state branches-empty">No branches yet. Add a location so the assistant can direct customers to the right place.</p>
+          {/each}
+        </div>
+        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>Save branches</button></div>
+      </section>
+      {/if}
+
+      {#if section === 'companies' && isPlatform}
+        <section class="surface workspace-section"><div class="surface-head"><h2>Your companies</h2></div>
+          {#each tenants as company}<div class="company-row"><strong>{company.name}</strong><span>{company.valid ? 'Data valid' : 'Data needs attention'}</span><button class="secondary" type="button" on:click={() => selectTenant(company.key)}>Select {company.key}</button></div>{/each}
+        </section>
+      {/if}
+      {#if section === 'errors'}
+        <section class="surface workspace-section"><div class="surface-head"><h2>Agent errors</h2><button class="secondary" type="button" on:click={loadErrors}>Check errors</button></div><p role="status">{errorStatus || 'Check for recorded errors for this company.'}</p>
+        {#each errors as error}<p>{error.error_code || error.error_type || 'Agent error'}: {error.count ?? 0}</p>{/each}
+        <a href={apiPath('/admin/errors?tenant='+encodeURIComponent(tenant))}>Open data health checks</a></section>
+      {/if}
+    </main>
+  </div>
+{/if}
+
+<style>
+  :global(body) { background: #f7f7f2; }
+  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #67706b; }
+  .login-shell { padding: 24px; }
+  .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; box-shadow: 0 16px 40px rgba(31, 42, 35, .09); }
+  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #007d70; color: #fff; border-radius: 8px; font-weight: 800; }
+  h1, h2, h3, p { margin-top: 0; }
+  .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
+  .login p { color: #67706b; line-height: 1.5; }
+  label { display: grid; gap: 7px; color: #2f3833; font-size: 13px; font-weight: 700; }
+  label span { color: #79837c; font-weight: 500; }
+  input, textarea, select { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; }
+  textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
+  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #007d70; }
+  .primary, .secondary { min-height: 38px; border-radius: 6px; padding: 0 14px; font-weight: 700; font-size: 14px; }
+  .primary { border: 1px solid #007d70; background: #007d70; color: #fff; }
+  .primary:hover { background: #00695e; }
+  .secondary { border: 1px solid #bbc4bc; background: #fff; color: #2f3833; }
+  .secondary:hover { background: #f1f4ef; }
+  .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
+  .error { color: #b42318; background: #fff2f0; }
+  .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+  .sidebar { display: flex; flex-direction: column; gap: 28px; padding: 24px 16px; background: #252c27; color: #f8faf7; }
+  .side-brand { display: grid; gap: 6px; padding: 0 10px 18px; border-bottom: 1px solid #3d4940; }
+  .side-brand span { color: #7ee0c6; font-size: 13px; font-weight: 800; letter-spacing: .08em; }
+  .side-brand strong { font-size: 17px; overflow-wrap: anywhere; }
+  .side-brand small { color: #acb8ae; font-size: 12px; font-weight: 500; }
+  nav { display: grid; gap: 4px; }
+  nav a { width: 100%; border: 0; border-radius: 6px; padding: 10px; color: #c9d2cb; background: transparent; text-align: left; text-decoration: none; font-size: 14px; }
+  nav a:hover, nav a.active { color: #fff; background: #3b4940; }
+  .account { display: grid; gap: 4px; margin-top: auto; padding: 14px 10px 0; border-top: 1px solid #3d4940; font-size: 12px; overflow-wrap: anywhere; }
+  .account span { color: #acb8ae; }
+  .workspace { padding: 38px clamp(20px, 5vw, 76px) 64px; max-width: 1720px; }
+  .workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+  .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
+  .workspace-actions { display: flex; align-items: end; gap: 10px; }
+  .sign-out { white-space: nowrap; }
+  .eyebrow { margin-bottom: 7px; color: #007d70; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .tenant-picker { min-width: 220px; }
+  .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: #eefbf5; border: 1px solid #b9e9d0; border-radius: 8px; }
+  .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
+  .operator-panel p:not(.eyebrow) { margin-bottom: 0; color: #526172; line-height: 1.45; }
+  .tenant-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; }
+  .team-form, .account-control-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .account-control-form { grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(130px, .6fr) auto; background: #fbfcfa; }
+  .account-active { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 8px; white-space: nowrap; }
+  .account-active input { width: 16px; min-height: 16px; accent-color: #007d70; }
+  .account-list { display: grid; }
+  .account-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px 90px; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #edf0f4; color: #526172; font-size: 13px; }
+  .account-row strong { color: #172033; overflow-wrap: anywhere; }
+  .account-inactive { color: #b42318; }
+  .team-status { display: block; margin: 14px 20px 20px; }
+  .content-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: 20px; align-items: start; }
+  .surface { background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; }
+  .surface-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
+  .surface-head h2 { margin-bottom: 0; font-size: 17px; }
+  .status-dot { padding: 5px 8px; color: #00695e; background: #e7f5ef; border: 1px solid #b8dfd2; border-radius: 99px; font-size: 12px; font-weight: 700; }
+  .settings-form { display: grid; gap: 18px; padding: 20px; }
+  small { color: #667085; font-size: 12px; font-weight: 500; line-height: 1.4; }
+  .origins { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+  .form-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 38px; }
+  .form-status { color: #667085; font-size: 13px; line-height: 1.4; }
+  .form-status.error { color: #b42318; }
+  .install > p { padding: 18px 20px 0; margin-bottom: 12px; color: #667085; font-size: 14px; line-height: 1.5; }
+  .code { min-height: 132px; margin: 0 20px; width: calc(100% - 40px); background: #101c27; color: #dbf8e7; border: 0; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+  .allowlist { padding: 20px; }
+  .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
+  .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
+  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
+  .workspace-section { margin-top: 22px; scroll-margin-top: 18px; }
+  .pipeline-head { background: #fcfdfb; }
+  .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e4e8e1; }
+  .metric-grid > div { display: grid; gap: 6px; min-height: 116px; align-content: center; padding: 20px; }
+  .metric-grid > div + div { border-left: 1px solid #e4e8e1; }
+  .metric-grid span, .lead-row span, .lead-row time { color: #67706b; font-size: 12px; }
+  .metric-grid strong { color: #1f2923; font-size: 31px; line-height: 1; }
+  .metric-grid small { color: #8a938d; font-size: 11px; font-weight: 600; }
+  .funnel-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 14px 20px; background: #f1f5f0; border-bottom: 1px solid #e4e8e1; }
+  .funnel-strip > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 12px; }
+  .funnel-strip > div + div { border-left: 1px solid #d8dfd8; }
+  .funnel-strip span { color: #67706b; font-size: 12px; }
+  .funnel-strip strong { color: #2f3833; font-size: 17px; }
+  .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
+  .activity-list { min-width: 0; padding: 20px; }
+  .activity-list + .activity-list { border-left: 1px solid #e4e8e1; }
+  .list-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .list-heading h3 { margin: 0; color: #2f3833; font-size: 14px; }
+  .list-heading span { color: #8a938d; font-size: 11px; font-weight: 700; }
+  .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #edf0eb; }
+  .lead-row > div { display: grid; gap: 4px; min-width: 0; }
+  .lead-row > div:last-child { text-align: right; }
+  .lead-row select { min-width: 116px; min-height: 32px; font-size: 12px; }
+  .lead-row strong { color: #1f2923; font-size: 13px; overflow-wrap: anywhere; }
+  .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #edf0eb; color: #4e5b52; font-size: 13px; text-transform: capitalize; }
+  .intent-row strong { color: #1f2923; }
+  .activity-status { margin: 0; padding: 0 20px 20px; color: #67706b; font-size: 13px; }
+  .count-label { padding: 5px 8px; color: #526172; background: #f2f4f7; border: 1px solid #d8dee8; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ee; }
+  .catalog-toolbar label { max-width: 112px; }
+  .currency { text-transform: uppercase; }
+  .editor-group { padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .group-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  .category-fields { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, .55fr); gap: 12px; width: min(100%, 580px); }
+  .product-table { overflow-x: auto; border: 1px solid #e2e7ee; border-radius: 6px; }
+  .product-table-head, .product-row { display: grid; grid-template-columns: minmax(190px, 1.4fr) minmax(150px, 1fr) 96px 92px minmax(170px, 1fr) 86px 76px; gap: 8px; align-items: center; min-width: 880px; padding: 9px 10px; }
+  .product-table-head { color: #667085; background: #f8fafc; border-bottom: 1px solid #e2e7ee; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+  .product-row + .product-row { border-top: 1px solid #edf0f4; }
+  .product-row input { min-width: 0; }
+  .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
+  .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
+  .icon-button { min-height: 34px; padding: 0 8px; border: 1px solid #b9c3d2; border-radius: 6px; background: #fff; color: #526172; font-size: 12px; font-weight: 700; }
+  .icon-button:hover { background: #f8fafc; }
+  .icon-button.danger { color: #b42318; border-color: #f0b5af; }
+  .icon-button.danger:hover { background: #fff2f0; }
+  .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #087b4c; background: transparent; font-size: 13px; font-weight: 800; }
+  .add-row:hover { color: #065f3c; text-decoration: underline; }
+  .section-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
+  .section-footer .form-status { max-width: 68ch; }
+  .management-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .management-grid .workspace-section { min-width: 0; }
+  .faq-list, .delivery-content { padding: 20px; }
+  .faq-list { display: grid; gap: 16px; }
+  .faq-editor { display: grid; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e2e7ee; }
+  .faq-editor:last-child { padding-bottom: 0; border-bottom: 0; }
+  .offers-list { display: grid; }
+  .offer-editor { padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .offer-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .offer-heading h3 { margin: 0; font-size: 16px; }
+  .offer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .offer-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
+  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
+  .offers-empty { padding: 20px; }
+  .row-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+  .empty-state { margin: 0; padding: 14px 0; color: #667085; font-size: 14px; line-height: 1.5; }
+  .delivery-content { display: grid; gap: 16px; }
+  .field-note { margin: -4px 0 2px; color: #667085; font-size: 12px; line-height: 1.45; }
+  .delivery-rule { display: grid; grid-template-columns: minmax(110px, .85fr) minmax(105px, .7fr) minmax(115px, .8fr) minmax(150px, 1.2fr) auto; align-items: end; gap: 10px; padding: 14px 0; border-top: 1px solid #e2e7ee; }
+  .exception-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid #e2e7ee; }
+  .exception-heading h3 { margin: 12px 0 0; font-size: 14px; }
+  .exception-row { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr) auto; align-items: end; gap: 10px; }
+  .profile-form, .agent-form { display: grid; gap: 16px; padding: 20px; }
+  .agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .agent-wide { grid-column: 1 / -1; }
+  .qualification-editor { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #e2e7ee; }
+  .qualification-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .qualification-heading h3 { margin: 0; color: #344054; font-size: 14px; }
+  .qualification-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+  .two-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .profile-footer { padding: 2px 0 0; }
+  .branches-list { display: grid; }
+  .branch-editor { padding: 20px; border-bottom: 1px solid #e2e7ee; }
+  .branch-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .branch-heading h3 { margin: 0; font-size: 16px; }
+  .branch-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .wide-field { grid-column: span 2; }
+  .hours-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 9px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #e2e7ee; }
+  .hours-grid h4 { grid-column: 1 / -1; margin: 0 0 2px; color: #344054; font-size: 14px; }
+  .hours-grid label { font-size: 11px; text-transform: uppercase; }
+  .hours-grid input { font-size: 12px; text-transform: none; }
+  .branches-empty { padding: 20px; }
+  @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
+  @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form, .account-control-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading, .qualification-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row, .agent-settings-grid, .qualification-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button, .qualification-row .icon-button { width: fit-content; } }
+.content-grid { grid-template-columns: 1fr; }
+  .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
+</style>

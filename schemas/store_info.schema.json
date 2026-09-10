@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Store Information Schema",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "about": { "type": "string", "maxLength": 1200 },
+    "email": { "type": "string", "maxLength": 320 },
+    "phone": { "type": "string", "maxLength": 80 },
+    "website": { "type": "string", "maxLength": 500 },
+    "halal_certified": { "type": "boolean" },
+    "certifications": {
+      "type": "array",
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "social": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "maxLength": 500 }
+    }
+  },
+  "additionalProperties": false
+}

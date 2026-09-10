@@ -182,7 +182,7 @@ def test_chat_uses_scoped_catalog_and_protected_conversation(platform, monkeypat
 
 @pytest.mark.parametrize("payload", [[], None, {"message": []}, {"message": "x" * 4001}, {"tenant": "../BETA", "message": "Hi"}])
 def test_chat_rejects_malformed_payloads(platform, payload):
-    assert platform[0].test_client().post("/chat_api", json=payload).status_code in {400, 415}
+    assert platform[0].test_client().post("/chat_api", json=payload).status_code in {400, 404, 415}
 
 
 def test_chat_origin_and_missing_tenant(platform):

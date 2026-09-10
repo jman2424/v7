@@ -167,15 +167,28 @@ def _area_matches_outward(area: str, outward: str) -> bool:
     return False
 
 
-@dataclass
+@dataclass(init=False)
 class PolicyStore:
-    storage: Storage
+    storage: Optional[Storage]
 
-    def __post_init__(self):
-        self._delivery = self._load("delivery.json") or {}
+    def __init__(
+        self,
+        storage: Optional[Storage | Dict[str, Any]] = None,
+        *,
+        delivery: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if isinstance(storage, dict) and delivery is None and data is None:
+            delivery = storage
+            storage = None
+
+        self.storage = storage if isinstance(storage, Storage) else None
+        self._delivery = delivery or data or self._load("delivery.json") or {}
         self._branches: List[Dict[str, Any]] = self._load("branches.json") or []
 
     def _load(self, filename: str):
+        if self.storage is None:
+            return None
         try:
             return self.storage.read_json(self.storage.tenant_key, filename)
         except FileNotFoundError:
@@ -246,6 +259,7 @@ class PolicyStore:
         fee = rule.get("fee")
         min_order = rule.get("min_order")
         eta_min = rule.get("eta_min")
+        eta_hours = rule.get("eta_hours")
 
         if isinstance(fee, (int, float)) or (isinstance(fee, str) and fee.strip().replace(".", "", 1).isdigit()):
             parts.append(f"£{float(fee):.2f} fee")
@@ -253,6 +267,8 @@ class PolicyStore:
             parts.append(f"min £{float(min_order):.2f}")
         if isinstance(eta_min, (int, float)) or (isinstance(eta_min, str) and str(eta_min).strip().isdigit()):
             parts.append(f"~{int(float(eta_min))} mins")
+        elif isinstance(eta_hours, str) and eta_hours.strip():
+            parts.append(eta_hours.strip())
 
         return ", ".join(parts) if parts else None
 

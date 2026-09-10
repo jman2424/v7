@@ -42,6 +42,8 @@ def main():
     os.environ["ADMIN_USERS_FILE"] = str(accounts)
     os.environ["ANALYTICS_DB_PATH"] = str(preview / "analytics.db")
     os.environ["SECURITY_DB_PATH"] = str(preview / "security.db")
+    os.environ["V7_DATA_DIR"] = str(preview)
+    os.environ["CRM_SNAPSHOT_PATH"] = str(preview / "crm_snapshot.json")
     for key in ["OPENAI_API_KEY", "ADMIN_PASSWORD", "ADMIN_USERNAME", "ADMIN_PASSWORD_HASH",
                 "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_NUMBER"]:
         os.environ.pop(key, None)
@@ -49,7 +51,10 @@ def main():
     analytics_db.DB_PATH = str(preview / "analytics.db")
     app = create_app({"SECRET_KEY": secrets.token_urlsafe(48), "MODE": "V7", "BUSINESS_KEY": "TARIQ",
                       "BASE_URL": "http://127.0.0.1:10000", "WHATSAPP_TOKEN": "", "WHATSAPP_PHONE_ID": "",
-                      "WHATSAPP_APP_SECRET": "", "WHATSAPP_VERIFY_TOKEN": ""})
+                      "WHATSAPP_APP_SECRET": "", "WHATSAPP_VERIFY_TOKEN": "",
+                      "WHATSAPP_TENANT_MAP_JSON": "", "TWILIO_AUTH_TOKEN": "",
+                      "ENVIRONMENT": "development", "SESSION_COOKIE_SECURE": False,
+                      "TRUST_PROXY_COUNT": 0})
     app.run(host="127.0.0.1", port=10000, debug=False, use_reloader=False)
 
 
