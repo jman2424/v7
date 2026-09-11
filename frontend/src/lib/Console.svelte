@@ -4,8 +4,9 @@
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
   import ApiUsage from './ApiUsage.svelte';
+  import Implementation from './Implementation.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',implementation:'Implementation',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -639,9 +640,14 @@
   }
 
   async function copySnippet() {
-    await navigator.clipboard.writeText(snippet);
-    formStatus = 'Install script copied.';
-    formError = false;
+    try {
+      await navigator.clipboard.writeText(snippet);
+      formStatus = 'Install script copied.';
+      formError = false;
+    } catch {
+      formStatus = 'Copy is unavailable. Select the install script and copy it manually.';
+      formError = true;
+    }
   }
 
   async function createTenant() {
@@ -1039,6 +1045,9 @@
       {#if section === 'test'}
         {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
+      {#if section === 'implementation'}
+        {#key tenant}<Implementation {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+      {/if}
 
       {#if section === 'companies' && isPlatform}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
@@ -1127,12 +1136,12 @@
       <div class="content-grid">
         {#if section === 'website'}
       <section id="widget" class="surface setup" aria-labelledby="widget-heading">
-          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">Widget settings</h2></div><span class="status-dot">Ready</span></div>
+          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">Widget settings</h2></div><a href={base+'/implementation'}>Implementation guide</a></div>
           <form class="settings-form" on:submit|preventDefault={saveWidget}>
             <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
             <label>Greeting<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
-            <label>Avatar URL<input bind:value={widget.avatar} type="url" placeholder="https://assets.yourcompany.com/avatar.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
-            <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com" required></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development.</small></label>
+            <label>Avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
+            <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development. Leave blank to prevent embedding on external websites.</small></label>
             <div class="form-footer"><span class:error={formError} class="form-status">{formStatus}</span><button class="primary" type="submit">Save changes</button></div>
           </form>
         </section>
@@ -1140,11 +1149,15 @@
 
         {#if section === 'integrations'}
       <section id="install" class="surface install" aria-labelledby="install-heading">
-          <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet}>Copy</button></div>
+          <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet} disabled={!snippet}>Copy</button></div>
+          <div class="surface-body">
+          <p><a href={base+'/implementation'}>Open the step-by-step Implementation guide</a> for your website builder, installation code and launch checks.</p>
           <p>Place this once before the closing body tag on an approved website.</p>
           <p><a href={`/admin/integrations?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup and connection status</a>. Web chat works while WhatsApp is awaiting setup.</p>
           <textarea class="code" readonly value={snippet} aria-label="Website install script"></textarea>
+          {#if formStatus}<p role="status" class:error={formError}>{formStatus}</p>{/if}
           <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
+          </div>
         </section>
       {/if}
       </div>
@@ -1394,16 +1407,15 @@
   .surface { min-width: 0; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; overflow-wrap: anywhere; }
   .surface-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
   .surface-head h2 { margin-bottom: 0; font-size: 17px; }
-  .status-dot { padding: 5px 8px; color: #00695e; background: #e7f5ef; border: 1px solid #b8dfd2; border-radius: 99px; font-size: 12px; font-weight: 700; }
   .settings-form { display: grid; gap: 18px; padding: 20px; }
   small { color: #667085; font-size: 12px; font-weight: 500; line-height: 1.4; }
   .origins { min-height: 120px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
   .form-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 38px; }
   .form-status { color: #667085; font-size: 13px; line-height: 1.4; }
   .form-status.error { color: #b42318; }
-  .install > p { padding: 18px 20px 0; margin-bottom: 12px; color: #667085; font-size: 14px; line-height: 1.5; }
-  .code { min-height: 132px; margin: 0 20px; width: calc(100% - 40px); background: #101c27; color: #dbf8e7; border: 0; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-  .allowlist { padding: 20px; }
+  .install .surface-body > p { margin: 0 0 16px; color: #667085; font-size: 14px; line-height: 1.5; }
+  .code { min-height: 132px; margin: 0; width: 100%; background: #101c27; color: #dbf8e7; border: 0; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+  .allowlist { padding: 20px 0 0; }
   .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
   .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }

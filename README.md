@@ -142,6 +142,20 @@ delivery requests use ISO dates (`YYYY-MM-DD`); postcode-specific notices stay
 scoped to their postcode. FAQ, business-information and delivery replies retain
 their full conditions even when the tone's sentence limit is shorter.
 
+**Implementation** (`/console/implementation`) guides owners through website
+approval, installation, launch testing, optional WhatsApp and troubleshooting.
+It provides company-specific floating-widget, responsive iframe and direct-chat
+code, with instructions for HTML, WordPress, Shopify, Wix and Squarespace. The
+website checker compares the saved allowlist only; it does not scan a website.
+Setup data comes from authenticated, tenant-scoped widget and integration APIs.
+Only exact localhost/loopback hosts permit HTTP origins for local development.
+The floating loader ignores duplicate installation for the same company and
+supports Escape to close the chat, restoring focus to its launcher. Speech still
+requires browser support, user permission and the host website's permissions policy.
+Installing the widget does not import website content or connect bookings,
+payments or inventory automatically. Use `pytest tests/test_widget_tenancy.py
+tests/test_owner_console.py` and `npm run check` in `frontend/` to check setup changes.
+
 Use **Test agent** (`/console/test`) to type questions, dictate them with a supported
 browser, or hear replies aloud. Tests use the selected company's saved settings
 and real response engine (including its configured AI provider). They retain

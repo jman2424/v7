@@ -30,6 +30,8 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     return f"""(function () {{
   var config = {config};
   var current = document.currentScript;
+  var rootId = 'v7-widget-' + encodeURIComponent(config.tenant) + '-root';
+  if (document.getElementById(rootId)) return;
   var host = new URL(current.src, window.location.href).origin;
   var mount = current.dataset.target ? document.querySelector(current.dataset.target) : null;
   var root = document.createElement('div');
@@ -37,7 +39,7 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   var frame = document.createElement('iframe');
   var frameId = 'v7-widget-' + Math.random().toString(36).slice(2);
 
-  root.id = frameId + '-root';
+  root.id = rootId;
   root.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483000;font-family:system-ui,-apple-system,Segoe UI,sans-serif;';
   launcher.type = 'button';
   launcher.setAttribute('aria-expanded', 'false');
@@ -49,12 +51,24 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.loading = 'lazy';
   frame.referrerPolicy = 'strict-origin-when-cross-origin';
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
+  frame.setAttribute('allow', 'microphone');
   frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
   frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:8px;box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
   launcher.addEventListener('click', function () {{
     var open = frame.style.display !== 'none';
     frame.style.display = open ? 'none' : 'block';
     launcher.setAttribute('aria-expanded', String(!open));
+  }});
+  function closeChat() {{
+    frame.style.display = 'none';
+    launcher.setAttribute('aria-expanded', 'false');
+    launcher.focus();
+  }}
+  root.addEventListener('keydown', function (event) {{
+    if (event.key === 'Escape') closeChat();
+  }});
+  window.addEventListener('message', function (event) {{
+    if (event.origin === host && event.source === frame.contentWindow && event.data && event.data.type === 'V7_WIDGET_CLOSE') closeChat();
   }});
   root.appendChild(frame);
   root.appendChild(launcher);

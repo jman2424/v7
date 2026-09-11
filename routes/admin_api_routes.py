@@ -5,7 +5,8 @@ import logging
 import hashlib
 import secrets
 from typing import Any, Callable, Dict, List
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
+from html import escape
 
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -578,9 +579,14 @@ def _clean_allowed_origins(value: Any) -> List[str]:
         origin = canonical_origin(str(raw or ""))
         if not origin:
             abort(400, description="invalid_allowed_origin")
-        if origin.startswith("http://") and not (
-            origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
-        ):
+        try:
+            parsed = urlsplit(origin)
+            port = parsed.port
+        except ValueError:
+            abort(400, description="invalid_allowed_origin")
+        if not parsed.hostname or parsed.username or parsed.password or port == 0:
+            abort(400, description="invalid_allowed_origin")
+        if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             abort(400, description="allowed_origin_requires_https")
         if origin not in origins:
             origins.append(origin)
@@ -591,6 +597,7 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
     widget = branding.get("widget") or {}
     widget = widget if isinstance(widget, dict) else {}
     script_url = f"{request.url_root.rstrip('/')}/widget.js?tenant={quote(tenant)}"
+    chat_url = f"{request.url_root.rstrip('/')}/chat_ui?tenant={quote(tenant)}"
     return {
         "tenant": tenant,
         "widget": {
@@ -601,7 +608,14 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
         },
         "embed": {
             "script_url": script_url,
-            "snippet": f'<script src="{script_url}" async></script>',
+            "snippet": f'<script src="{escape(script_url, quote=True)}" async></script>',
+            "chat_url": chat_url,
+            "iframe_snippet": (
+                f'<iframe src="{escape(chat_url + "&embed=1", quote=True)}" '
+                'title="Sales assistant" width="100%" height="640" '
+                'style="max-width:100%;border:0;border-radius:8px" loading="lazy" '
+                'allow="microphone" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>'
+            ),
         },
     }
 

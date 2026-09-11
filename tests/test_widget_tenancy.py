@@ -4,6 +4,7 @@ from tests.conftest import set_test_identity
 import json
 import logging
 import shutil
+import pytest
 from pathlib import Path
 
 
@@ -240,6 +241,50 @@ def test_widget_settings_are_saved_by_an_authorized_owner(client):
     assert body["widget"]["chat_title"] == payload["chat_title"]
     assert body["widget"]["allowed_origins"] == payload["allowed_origins"]
     assert "widget.js?tenant=EXAMPLE" in body["embed"]["snippet"]
+    assert body["embed"]["chat_url"] == "http://localhost/chat_ui?tenant=EXAMPLE"
+    assert 'chat_ui?tenant=EXAMPLE&amp;embed=1' in body["embed"]["iframe_snippet"]
+    assert 'width="100%"' in body["embed"]["iframe_snippet"]
+
+
+@pytest.mark.parametrize("origin", [
+    "http://localhost.evil.test", "http://127.0.0.1.evil.test",
+    "http://localhost@evil.test", "https://name:password@example.test",
+    "https://example.test:99999", "https://example.test:notaport",
+    "javascript://example.test", "http://example.test",
+])
+def test_widget_origins_reject_insecure_and_malformed_addresses(client, app, origin):
+    _as_platform_admin(client)
+    before = app.container.storage.read_json("EXAMPLE", "branding.json")
+    response = client.put("/admin/api/widget", json={"allowed_origins": [origin]})
+    assert response.status_code == 400
+    assert app.container.storage.read_json("EXAMPLE", "branding.json") == before
+
+
+@pytest.mark.parametrize("origins", [[], ["http://localhost:5173", "http://127.0.0.1:10000", "http://[::1]:8000", "https://shop.example.test"]])
+def test_widget_origins_allow_exact_development_hosts_and_removal(client, origins):
+    _as_platform_admin(client)
+    response = client.put("/admin/api/widget", json={"allowed_origins": origins})
+    assert response.status_code == 200
+    assert response.json["widget"]["allowed_origins"] == origins
+
+
+def test_installation_data_cannot_be_read_for_another_company(client, app):
+    _add_tenant(app)
+    with client.session_transaction() as sess:
+        set_test_identity(client, sess, {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"})
+    for endpoint in ("widget", "integrations"):
+        assert client.get(f"/admin/api/{endpoint}?tenant=ALT").status_code == 403
+        own = client.get(f"/admin/api/{endpoint}?tenant=EXAMPLE")
+        assert own.status_code == 200
+        assert own.json["tenant"] == "EXAMPLE"
+
+
+def test_embedded_chat_uses_full_frame_layout(client):
+    embedded = client.get("/chat_ui?tenant=EXAMPLE&embed=1")
+    standalone = client.get("/chat_ui?tenant=EXAMPLE")
+    assert embedded.status_code == standalone.status_code == 200
+    assert 'class="widget-page--embedded"' in embedded.text
+    assert 'class="widget-page--embedded"' not in standalone.text
 
 
 def test_platform_operator_can_create_a_clean_starter_tenant(client, app):

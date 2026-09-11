@@ -86,4 +86,11 @@
   if (!("speechSynthesis" in window)) { aloud.disabled = true; }
   aloud.addEventListener("change", () => { if (!aloud.checked && "speechSynthesis" in window) speechSynthesis.cancel(); });
   window.addEventListener("pagehide", () => { if (recognition) recognition.stop(); if ("speechSynthesis" in window) speechSynthesis.cancel(); });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || window.parent === window) return;
+    if (recognition) recognition.stop();
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    // Only a close signal is shared; the launcher verifies this frame's source and origin.
+    window.parent.postMessage({type: "V7_WIDGET_CLOSE"}, "*");
+  });
 })();
