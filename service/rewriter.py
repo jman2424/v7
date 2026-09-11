@@ -5,6 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Set
+from service.api_usage import tracked_completion
 
 try:
     from openai import OpenAI
@@ -280,7 +281,7 @@ class Rewriter:
             user += f"FACTS (grounding only, do not expand beyond them):\n{facts_str}\n"
 
         try:
-            resp = self._client.chat.completions.create(
+            resp = tracked_completion(self._client, purpose="rewriting",
                 model=self._model,
                 temperature=min(self._temperature, 0.3),
                 timeout=self._timeout,

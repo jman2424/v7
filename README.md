@@ -151,6 +151,38 @@ both the company and management session; test actions are audited without messag
 contents. New conversation or switching companies clears the displayed chat.
 Microphone permission is requested only when the user starts dictation.
 
+**API usage & cost** (`/console/usage`) shows the selected company's configured
+planning/rewriting models, actual response models, recorded input/output/cached
+tokens and estimated GBP cost. Platform operators can select all companies;
+company owners can only see their own company; staff cannot access this report.
+The authenticated `/admin/api/api-usage` endpoint enforces these restrictions.
+The 1–90 day report includes web, WhatsApp and Test agent calls at both OpenAI
+call sites, including paid responses subsequently rejected by a guard.
+Fast paths and deterministic replies do not create API-call records.
+
+Accounting stores only model, company, channel, purpose, timestamps, status,
+token counts and a USD cost snapshot in an additive `api_usage` table in
+`ANALYTICS_DB_PATH`. Keep that database on persistent storage and back it up;
+ephemeral hosting loses retained usage after replacement/redeployment. There is
+no import of spending before this feature. Unknown prices, nonstandard tiers,
+failed requests and missing provider usage are explicitly unpriced. SDK retries
+without returned usage, taxes, credits and other applications are not included;
+this is an estimate, not the provider invoice. Browser speech is not billed by
+this OpenAI text ledger. Recording failures log a safe operational error and do
+not discard customer replies.
+
+Standard text rates in `service/api_usage.py` were checked on 2026-09-11 against
+[GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini) and
+[GPT-4o](https://developers.openai.com/api/docs/models/gpt-4o). Only listed aliases
+and snapshots are priced; update explicit rates and version after verifying
+provider prices. Stored USD costs do not change when rates are updated.
+GBP estimates convert the report at the latest retained ECB reference rate via
+[Frankfurter](https://frankfurter.dev/), showing the rate and date. The server
+refreshes hourly with a three-second timeout and sends no company data. An outage
+uses the saved rate, labelled stale after four days; no retained rate means the
+GBP estimate is unavailable. Estimates may change with exchange rates and differ
+from actual card charges. No extra API key or dependency is required.
+
 For an isolated localhost preview, run `python scripts/run_local.py`. It writes
 temporary login details to the ignored `logs/local-preview-access.txt`; test at
 `http://127.0.0.1:10000/admin/login` and `http://127.0.0.1:10000/chat_ui?tenant=TARIQ`.

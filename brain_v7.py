@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
+from service.api_usage import tracked_completion
 
 
 # -------------------------------------------------------------------
@@ -176,7 +177,7 @@ class BrainV7:
             return self._fallback_plan(user_text, session, hints)
 
         try:
-            completion = self.client.chat.completions.create(
+            completion = tracked_completion(self.client, purpose="planning",
                 model=self.config.model,
                 temperature=min(max(self.config.temperature, 0.0), 0.5),
                 timeout=self.config.timeout,

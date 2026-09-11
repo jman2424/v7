@@ -25,6 +25,7 @@ from handlers.handler_v5 import MessageHandlerV5
 from handlers.handler_v6 import MessageHandlerV6
 from handlers.handler_v7 import MessageHandlerV7
 from service.sales_agent import SalesAgentPolicy
+from service.api_usage import usage_context
 from service.validators import normalize_postcode
 from . import DEFAULT_SESSION_TTL, HandlerDeps
 
@@ -236,12 +237,13 @@ class MessageHandler:
             meta={"mode": mode, "rid": rid, "text_len": len(user_text)},
         )
 
-        if mode == "v5":
-            reply = self.h_v5.handle(user_text, ctx, sess)
-        elif mode == "v6":
-            reply = self.h_v6.handle(user_text, ctx, sess)
-        else:
-            reply = self.h_v7.handle(user_text, ctx, sess)
+        with usage_context(ctx.tenant, ctx.channel):
+            if mode == "v5":
+                reply = self.h_v5.handle(user_text, ctx, sess)
+            elif mode == "v6":
+                reply = self.h_v6.handle(user_text, ctx, sess)
+            else:
+                reply = self.h_v7.handle(user_text, ctx, sess)
 
         logger.info(
             "DISPATCH_RESULT tenant=%s mode=%s rid=%s intent=%s keys=%s",

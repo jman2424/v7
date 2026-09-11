@@ -3,8 +3,9 @@
   import { base } from '$app/paths';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
+  import ApiUsage from './ApiUsage.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -1006,7 +1007,7 @@
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>Menu</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each Object.entries(sections) as [key,label]}
-          {#if (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
+          {#if (key !== 'usage' || isPlatform || user.roles.includes('business_owner')) && (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
             <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
@@ -1027,6 +1028,9 @@
 
       {#if section === 'conversations'}
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
+      {/if}
+      {#if section === 'usage' && (isPlatform || user.roles.includes('business_owner'))}
+        {#key tenant}<ApiUsage {tenant} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'test'}
         {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}

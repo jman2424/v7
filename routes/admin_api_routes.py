@@ -160,6 +160,40 @@ def api_tenants_post():
     return jsonify({"ok": True, "tenant": created}), 201
 
 
+@bp.get("/api-usage")
+def api_usage_get():
+    from service.api_usage import summary
+    from service.usage_currency import gbp_rate
+
+    if not is_platform_operator() and "business_owner" not in user_roles():
+        abort(403, description="company_owner_required")
+    tenant = _tenant()
+    scope = request.args.get("scope", "company")
+    if scope not in {"company", "all"}:
+        abort(400, description="invalid_usage_scope")
+    if scope == "all":
+        require_platform_operator()
+    days = _int_arg("days", 30, maximum=90)
+    container = get_container().for_tenant(tenant)
+    result = summary(None if scope == "all" else tenant, days)
+    exchange = gbp_rate()
+    for row in [result["totals"], *result["breakdown"]]:
+        usd = row.pop("estimated_cost_usd")
+        row["estimated_cost_gbp"] = round(usd * exchange["rate"], 9) if usd is not None and exchange else None
+    result.update(currency="GBP", exchange_rate=exchange)
+    brain = container.handler.h_v7.brain
+    mode = str(container.overrides.get("ai.mode") or "v7").lower()
+    mode = mode if mode in {"v5", "v6"} else "v7"
+    result.update(scope=scope, tenant=tenant, configuration={
+        "mode": mode.upper(),
+        "planning_model": brain.config.model,
+        "planning_enabled": mode == "v7" and brain.client is not None,
+        "rewriting_model": container.rewriter._model,
+        "rewriting_enabled": container.rewriter._client is not None,
+    })
+    return jsonify(result)
+
+
 @bp.post("/test-agent")
 def api_test_agent():
     """Use the real tenant agent with separate test memory and no sales activity."""
