@@ -27,7 +27,7 @@ def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_
     assert missing.status_code == 404
 
 
-@pytest.mark.parametrize("section", ["catalog", "conversations"])
+@pytest.mark.parametrize("section", ["catalog", "conversations", "test"])
 def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path, section):
     build_dir = tmp_path / "console-pages"
     build_dir.mkdir()
@@ -40,3 +40,11 @@ def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path
     assert response.headers["Cache-Control"] == "no-store"
     assert client.get("/console/unrecognised").status_code == 404
     assert client.get("/console/%2e%2e/AGENTS.md").status_code == 404
+
+
+def test_console_microphone_policy_is_limited_to_test_page(client, app, tmp_path):
+    app.config["OWNER_CONSOLE_DIR"] = str(tmp_path)
+    for name in ("test", "profile"):
+        (tmp_path / f"{name}.html").write_text("<main>Console</main>", encoding="utf-8")
+    assert "microphone=(self)" in client.get("/console/test").headers["Permissions-Policy"]
+    assert "microphone=()" in client.get("/console/profile").headers["Permissions-Policy"]

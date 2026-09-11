@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import secrets
 from typing import Any, Callable, Dict, List
 from urllib.parse import quote
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, current_app, jsonify, request, session
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from jsonschema.exceptions import ValidationError
 
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
@@ -155,6 +158,53 @@ def api_tenants_post():
         return jsonify({"error": str(exc)}), 400
     _audit("tenant.create", created["key"], after=created)
     return jsonify({"ok": True, "tenant": created}), 201
+
+
+@bp.post("/test-agent")
+def api_test_agent():
+    """Use the real tenant agent with separate test memory and no sales activity."""
+    tenant = _tenant()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="json_object_required"), 400
+    message = data.get("message")
+    if not isinstance(message, str) or not message.strip() or len(message) > 4000:
+        return jsonify(error="message_must_be_1_to_4000_characters"), 400
+    signer = URLSafeTimedSerializer(current_app.secret_key, salt="console-agent-test-v1")
+    owner = hashlib.sha256(session["_csrf"].encode()).hexdigest()
+    token = data.get("conversation_token")
+    if token:
+        if not isinstance(token, str) or len(token) > 2048:
+            return jsonify(error="invalid_test_conversation"), 403
+        try:
+            identity = signer.loads(token, max_age=3600)
+        except BadSignature:
+            return jsonify(error="test_conversation_expired"), 403
+        if (not isinstance(identity, dict) or identity.get("tenant") != tenant
+                or identity.get("owner") != owner or not isinstance(identity.get("id"), str)
+                or not identity["id"].startswith("test_")):
+            return jsonify(error="invalid_test_conversation"), 403
+    else:
+        identity = {"tenant": tenant, "owner": owner, "id": "test_" + secrets.token_urlsafe(24)}
+        token = signer.dumps(identity)
+    try:
+        container = get_container().for_tenant(tenant)
+    except ValueError:
+        return jsonify(error="unknown_tenant"), 404
+    try:
+        result = container.handler.handle(message.strip(), tenant=tenant, session_id=identity["id"],
+                                          channel="test", metadata={"source": "console_test"})
+    except Exception:
+        logger.exception("Agent test failed tenant=%s", tenant)
+        _audit("agent.test", tenant, after={"error": True})
+        return jsonify(error="agent_test_failed"), 503
+    failed = not isinstance(result, dict) or result.get("intent") == "system_error"
+    _audit("agent.test", tenant, after={"error": failed})
+    if failed:
+        return jsonify(error="agent_test_failed"), 503
+    from routes.webchat_routes import _public_agent_payload
+    return jsonify(reply=str(result.get("reply") or "Please rephrase your question."),
+                   conversation_token=token, agent=_public_agent_payload(result))
 
 
 def _may_manage_accounts() -> bool:

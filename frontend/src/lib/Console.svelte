@@ -2,8 +2,9 @@
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
   import Conversations from './Conversations.svelte';
+  import AgentTest from './AgentTest.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -1006,7 +1007,7 @@
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each Object.entries(sections) as [key,label]}
           {#if (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
-            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} on:click={() => navigationOpen = false}>{label}</a>
+            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
       </nav>
@@ -1026,6 +1027,9 @@
 
       {#if section === 'conversations'}
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
+      {/if}
+      {#if section === 'test'}
+        {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
 
       {#if section === 'companies' && isPlatform}
@@ -1181,7 +1185,7 @@
               <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
             </section>
           {:else}
-            <p class="empty-state offers-empty">No offers have been added. The assistant will accurately say that there are no current offers.</p>
+            <div class="surface-body"><p class="empty-state">No offers have been added. Add an offer when you are ready to run a promotion.</p></div>
           {/each}
         </div>
         <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>Save offers</button></div>
@@ -1317,9 +1321,9 @@
         </section>
       {/if}
       {#if section === 'errors'}
-        <section class="surface workspace-section"><div class="surface-head"><h2>Agent errors</h2><button class="secondary" type="button" on:click={loadErrors}>Check errors</button></div><p role="status">{errorStatus || 'Check for recorded errors for this company.'}</p>
+        <section class="surface workspace-section"><div class="surface-head"><h2>Agent errors</h2><button class="secondary" type="button" on:click={loadErrors}>Check errors</button></div><div class="surface-body"><p role="status">{errorStatus || 'Check for recorded errors for this company.'}</p>
         {#each errors as error}<p>{error.error_code || error.error_type || 'Agent error'}: {error.count ?? 0}</p>{/each}
-        <a href={apiPath('/admin/errors?tenant='+encodeURIComponent(tenant))}>Open data health checks</a></section>
+        <a class="text-link" href={apiPath('/admin/errors?tenant='+encodeURIComponent(tenant))}>Open data health checks</a></div></section>
       {/if}
     </main>
   </div>
@@ -1457,7 +1461,10 @@
   .offer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   .offer-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
   .offer-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
-  .offers-empty { padding: 20px; }
+  .surface-body { padding: 20px; }
+  .surface-body > :last-child { margin-bottom: 0; }
+  .surface-body > .empty-state { padding: 0; }
+  .text-link { color: #007d70; text-underline-offset: 3px; }
   .row-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
   .empty-state { margin: 0; padding: 14px 0; color: #667085; font-size: 14px; line-height: 1.5; }
   .delivery-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }

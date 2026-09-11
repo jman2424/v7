@@ -212,7 +212,8 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     def _security_headers(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)" if request.path == "/chat_ui" else "camera=(), geolocation=(), microphone=()")
+        speech_page = request.path in {"/chat_ui", "/console/test", "/console/test/", "/console/test.html"}
+        response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)" if speech_page else "camera=(), geolocation=(), microphone=()")
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response

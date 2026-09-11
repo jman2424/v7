@@ -471,6 +471,8 @@ class MessageHandler:
     # CRM
     # ---------------------------------------------------------
     def _log_crm(self, ctx: MessageContext, user_text: str, reply: Dict[str, Any]) -> None:
+        if ctx.channel == "test":
+            return
         entities = reply.get("entities") or {}
         lead = self.crm.upsert_lead(
             ctx.tenant,
@@ -515,6 +517,8 @@ class MessageHandler:
     # TELEMETRY (safe)
     # ---------------------------------------------------------
     def _telemetry(self, ctx: MessageContext, *, event_type: str, meta: Dict[str, Any]) -> None:
+        if ctx.channel == "test":
+            return
         if not event_type:
             return
         if event_type in _KPI_EVENT_TYPES:

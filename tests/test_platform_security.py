@@ -434,3 +434,57 @@ def test_agent_keeps_delivery_conditions_notices_and_collection_setting(platform
     assert "Click and collect is not currently available." in collection.json["reply"]
     other = client.post("/chat_api", json={"tenant": "BETA", "message": "Do you offer free delivery?"})
     assert delivery["notes"] not in other.json["reply"]
+
+
+def test_agent_testing_requires_active_login_csrf_and_tenant_access(platform):
+    client = platform[0].test_client()
+    csrf = client.get("/auth/session").json["csrf_token"]
+    assert client.post("/admin/api/test-agent?tenant=ALPHA", json={"message": "hello"},
+                       headers={"X-CSRF-Token": csrf}).status_code == 401
+    csrf = login(client)
+    assert client.post("/admin/api/test-agent?tenant=ALPHA", json={"message": "hello"}).status_code == 403
+    assert client.post("/admin/api/test-agent?tenant=BETA", json={"message": "hello"},
+                       headers={"X-CSRF-Token": csrf}).status_code == 403
+    for payload in ({"message": ""}, {"message": "x" * 4001}, {"message": []}, []):
+        assert client.post("/admin/api/test-agent", json=payload,
+                           headers={"X-CSRF-Token": csrf}).status_code == 400
+
+
+def test_agent_test_conversation_is_scoped_and_does_not_create_sales_activity(platform):
+    app = platform[0]
+    client = app.test_client()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    before = analytics_db.get_kpis(tenant="ALPHA")
+    first = client.post("/admin/api/test-agent?tenant=ALPHA", json={"message": "laptop"}, headers=headers)
+    assert first.status_code == 200, first.json
+    assert "Alpha laptop" in first.json["reply"]
+    assert "facts" not in first.json
+    token = first.json["conversation_token"]
+    followup = client.post("/admin/api/test-agent?tenant=ALPHA",
+                           json={"message": "how much is it?", "conversation_token": token}, headers=headers)
+    assert followup.status_code == 200, followup.json
+    assert "25" in followup.json["reply"]
+    assert analytics_db.get_leads(tenant="ALPHA") == []
+    assert app.container.crm.list_leads(tenant="ALPHA") == []
+    assert analytics_db.get_kpis(tenant="ALPHA") == before
+    public = client.post("/chat_api", json={"tenant": "ALPHA", "message": "hello", "conversation_token": token})
+    assert public.status_code == 403
+    second_login = app.test_client()
+    admin_csrf = login(second_login, "admin@example.test")
+    for tenant in ("ALPHA", "BETA"):
+        response = second_login.post("/admin/api/test-agent?tenant=" + tenant,
+            json={"message": "hello", "conversation_token": token}, headers={"X-CSRF-Token": admin_csrf})
+        assert response.status_code == 403
+    normal = client.post("/chat_api", json={"tenant": "ALPHA", "message": "laptop", "channel": "test"})
+    assert normal.status_code == 200
+    assert len(analytics_db.get_leads(tenant="ALPHA")) == 1
+
+
+def test_agent_testing_reports_failures_without_exposing_exception_details(platform, monkeypatch):
+    client = platform[0].test_client()
+    csrf = login(client)
+    monkeypatch.setattr(platform[0].container.handler, "handle", Mock(side_effect=RuntimeError("private details")))
+    response = client.post("/admin/api/test-agent", json={"message": "hello"}, headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 503
+    assert response.json == {"error": "agent_test_failed"}

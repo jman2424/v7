@@ -124,7 +124,7 @@ conversations immediately.
 
 ## Dashboard pages and local testing
 
-The owner console has separate URLs under `/console/`: `pipeline`, `conversations`, `agent`,
+The owner console has separate URLs under `/console/`: `pipeline`, `test`, `conversations`, `agent`,
 `website`, `integrations`, `catalog`, `offers`, `faqs`, `delivery`,
 `profile`, `branches`, and `team`. Platform operators also have `companies`
 and `errors` pages. The Flask dashboard at `/admin` provides separate overview,
@@ -141,6 +141,15 @@ branch hours, plus delivery notes and applicable dated service notices. Dated
 delivery requests use ISO dates (`YYYY-MM-DD`); postcode-specific notices stay
 scoped to their postcode. FAQ, business-information and delivery replies retain
 their full conditions even when the tone's sentence limit is shorter.
+
+Use **Test agent** (`/console/test`) to type questions, dictate them with a supported
+browser, or hear replies aloud. Tests use the selected company's saved settings
+and real response engine (including its configured AI provider). They retain
+conversation memory separately and do not create sales leads or customer analytics.
+The authenticated, CSRF-protected test API binds expiring conversation tokens to
+both the company and management session; test actions are audited without message
+contents. New conversation or switching companies clears the displayed chat.
+Microphone permission is requested only when the user starts dictation.
 
 For an isolated localhost preview, run `python scripts/run_local.py`. It writes
 temporary login details to the ignored `logs/local-preview-access.txt`; test at

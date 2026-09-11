@@ -1020,6 +1020,12 @@ class MessageHandlerV7:
         if not skus:
             return None
 
+        if len(skus) == 1 and re.fullmatch(
+            r"\s*(?:how much(?: is (?:it|that|this))?|what(?:'s| is) (?:its|the) price)\s*[?.!]*\s*",
+            user_text or "", re.I,
+        ):
+            return self.catalog.get_item_by_sku(skus[0])
+
         number_match = self._SELECTION_NUMBER.match(user_text or "")
         if number_match:
             index = int(number_match.group(1)) - 1
