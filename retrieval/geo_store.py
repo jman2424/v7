@@ -14,9 +14,7 @@ Geocoder = Callable[[str], Optional[GeoPoint]]
 
 def _outward(pc: str) -> str:
     # normalize_postcode can return outward-only already (like "E1") OR full "E1 6AN"
-    n = normalize_postcode(pc) or ""
-    n = n.replace(" ", "")
-    return n[:-3] if len(n) > 3 else n
+    return (normalize_postcode(pc) or "").split(" ", 1)[0]
 
 
 def _haversine_km(a: GeoPoint, b: GeoPoint) -> float:

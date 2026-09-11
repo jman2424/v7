@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import pytest
 
 
 def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_path):
@@ -26,12 +27,13 @@ def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_
     assert missing.status_code == 404
 
 
-def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path):
+@pytest.mark.parametrize("section", ["catalog", "conversations"])
+def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path, section):
     build_dir = tmp_path / "console-pages"
     build_dir.mkdir()
-    (build_dir / "catalog.html").write_text('<main>Catalogue</main><script>start()</script>', encoding="utf-8")
+    (build_dir / f"{section}.html").write_text('<main>Console</main><script>start()</script>', encoding="utf-8")
     app.config["OWNER_CONSOLE_DIR"] = str(build_dir)
-    response = client.get("/console/catalog")
+    response = client.get(f"/console/{section}")
     assert response.status_code == 200
     nonce = re.search(r'<script nonce="([^"]+)"', response.text).group(1)
     assert "'nonce-" + nonce + "'" in response.headers["Content-Security-Policy"]

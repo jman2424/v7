@@ -552,7 +552,7 @@ def test_v7_shows_only_active_tenant_offers_without_a_model(app):
     assert "do not have a current offer recorded for Chicken Thigh" in no_offer["reply"]
 
 
-def test_v7_applies_the_saved_tenant_response_length(app):
+def test_v7_keeps_faq_conditions_despite_short_tenant_response_length(app):
     storage = app.container.storage
     storage.write_json(
         "EXAMPLE",
@@ -583,7 +583,7 @@ def test_v7_applies_the_saved_tenant_response_length(app):
     )
 
     assert response["intent"] == "faq"
-    assert response["reply"] == "Returns are accepted within 30 days."
+    assert response["reply"] == "Returns are accepted within 30 days. Please keep your receipt."
 
 
 def test_v7_captures_a_voluntary_handoff_phone_in_the_tenant_lead(app):

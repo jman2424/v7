@@ -124,12 +124,23 @@ conversations immediately.
 
 ## Dashboard pages and local testing
 
-The owner console has separate URLs under `/console/`: `pipeline`, `agent`,
+The owner console has separate URLs under `/console/`: `pipeline`, `conversations`, `agent`,
 `website`, `integrations`, `catalog`, `offers`, `faqs`, `delivery`,
 `profile`, `branches`, and `team`. Platform operators also have `companies`
 and `errors` pages. The Flask dashboard at `/admin` provides separate overview,
 company monitoring, conversation, error, knowledge and integration pages.
 Permissions are enforced by the APIs as well as the navigation.
+
+Conversations uses the same console layout with separate message, lead and common
+question views. Profile and delivery forms use the available page width and wrap
+on smaller screens. Saving delivery or branch settings retains existing postcode
+exceptions, area notes and branch holiday dates.
+
+The V7 agent reads configured profile contacts, social links, certifications and
+branch hours, plus delivery notes and applicable dated service notices. Dated
+delivery requests use ISO dates (`YYYY-MM-DD`); postcode-specific notices stay
+scoped to their postcode. FAQ, business-information and delivery replies retain
+their full conditions even when the tone's sentence limit is shorter.
 
 For an isolated localhost preview, run `python scripts/run_local.py`. It writes
 temporary login details to the ignored `logs/local-preview-access.txt`; test at

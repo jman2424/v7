@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
+  import Conversations from './Conversations.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -83,6 +84,7 @@
   };
 
   type DeliveryRule = {
+    source: Record<string, unknown>;
     area: string;
     fee: number;
     min_order: number;
@@ -91,11 +93,14 @@
   };
 
   type DeliveryException = {
+    source: Record<string, unknown>;
     date: string;
     note: string;
   };
 
   type Delivery = {
+    source: Record<string, unknown>;
+    preservedExceptions: Record<string, unknown>[];
     mode: 'zones' | 'areas';
     rules: DeliveryRule[];
     click_and_collect: boolean;
@@ -159,13 +164,14 @@
   type BranchHours = Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', string>;
 
   type Branch = {
+    source: Record<string, unknown>;
     id: string;
     name: string;
     address: string;
     postcode: string;
     phone: string;
-    lat: number;
-    lon: number;
+    lat: number | null;
+    lon: number | null;
     hours: BranchHours;
   };
 
@@ -193,7 +199,7 @@
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
   let offers: Offer[] = [];
-  let delivery: Delivery = { mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
+  let delivery: Delivery = { source: {}, preservedExceptions: [], mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
   let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
   let branches: Branch[] = [];
   let agentSettings: AgentSettings = {
@@ -211,6 +217,7 @@
   let formStatus = '';
   let formError = false;
   let loading = true;
+  let navigationOpen = false;
 
   let newTenantKey = '';
   let newTenantName = '';
@@ -310,21 +317,26 @@
     const areas = Array.isArray(source.areas) ? source.areas : [];
     const mode: Delivery['mode'] = zones.length > 0 || !Array.isArray(source.areas) ? 'zones' : 'areas';
     const rawRules = mode === 'zones' ? zones : areas;
+    const exceptions = Array.isArray(source.exceptions) ? source.exceptions.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')) : [];
     return {
+      source,
+      preservedExceptions: exceptions.filter(item => item.postcode && (!item.date || !item.note)),
       mode,
       rules: rawRules.filter((rule): rule is Record<string, unknown> => Boolean(rule && typeof rule === 'object')).map((rule) => ({
+        source: Object.fromEntries(Object.entries(rule).filter(([key]) => !['min', 'eta', 'eta_min', 'eta_hours'].includes(key))),
         area: String(mode === 'zones' ? rule.area || '' : rule.postcode_prefix || ''),
         fee: Number(rule.fee || 0),
-        min_order: Number(rule.min_order || 0),
-        eta_hours: String(rule.eta_hours || ''),
-        eta_min: Number(rule.eta_min || 0)
+        min_order: Number(rule.min_order ?? rule.min ?? 0),
+        eta_hours: String(rule.eta_hours ?? (typeof rule.eta === 'string' ? rule.eta : rule.eta_min != null || typeof rule.eta === 'number' ? `${rule.eta_min ?? rule.eta} minutes` : '')),
+        eta_min: Number(rule.eta_min ?? (typeof rule.eta === 'number' ? rule.eta : 0))
       })),
       click_and_collect: source.click_and_collect !== false,
       notes: String(source.notes || ''),
-      exceptions: Array.isArray(source.exceptions) ? source.exceptions.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
+      exceptions: exceptions.filter(item => !item.postcode || (item.date && item.note)).map((item) => ({
+        source: item,
         date: String(item.date || ''),
         note: String(item.note || '')
-      })) : []
+      }))
     };
   }
 
@@ -361,8 +373,9 @@
   function normalizeBranches(value: unknown): Branch[] {
     if (!Array.isArray(value)) return [];
     return value.filter((branch): branch is Record<string, unknown> => Boolean(branch && typeof branch === 'object')).map((branch) => ({
+      source: branch,
       id: String(branch.id || ''), name: String(branch.name || ''), address: String(branch.address || ''), postcode: String(branch.postcode || ''), phone: String(branch.phone || ''),
-      lat: Number(branch.lat || 0), lon: Number(branch.lon || 0), hours: expandHours(branch.hours)
+      lat: branch.lat == null ? null : Number(branch.lat), lon: branch.lon == null ? null : Number(branch.lon), hours: expandHours(branch.hours)
     }));
   }
 
@@ -753,7 +766,7 @@
   function addDeliveryRule() {
     delivery = {
       ...delivery,
-      rules: [...delivery.rules, { area: '', fee: 0, min_order: 0, eta_hours: 'Next-day', eta_min: 60 }]
+      rules: [...delivery.rules, { source: {}, area: '', fee: 0, min_order: 0, eta_hours: 'Next-day', eta_min: 60 }]
     };
   }
 
@@ -762,7 +775,7 @@
   }
 
   function addException() {
-    delivery = { ...delivery, exceptions: [...delivery.exceptions, { date: '', note: '' }] };
+    delivery = { ...delivery, exceptions: [...delivery.exceptions, { source: {}, date: '', note: '' }] };
   }
 
   function removeException(index: number) {
@@ -856,16 +869,16 @@
       deliveryError = true;
       return;
     }
-    const exceptions = delivery.exceptions.map((item) => ({ date: item.date, note: item.note.trim() })).filter((item) => item.date || item.note);
+    const exceptions = delivery.exceptions.map((item) => ({ ...item.source, date: item.date, note: item.note.trim() })).filter((item) => item.date || item.note);
     if (exceptions.some((item) => !item.date || !item.note)) {
       deliveryStatus = 'Each delivery exception needs both a date and note.';
       deliveryError = true;
       return;
     }
-    const base = { click_and_collect: delivery.click_and_collect, notes: delivery.notes.trim(), exceptions };
+    const base = { ...delivery.source, click_and_collect: delivery.click_and_collect, notes: delivery.notes.trim(), exceptions: [...delivery.preservedExceptions, ...exceptions] };
     const payload = delivery.mode === 'zones'
-      ? { ...base, zones: rules.map(({ area, fee, min_order, eta_hours }) => ({ area, fee, min_order, eta_hours })) }
-      : { ...base, areas: rules.map(({ area, fee, min_order, eta_min }) => ({ postcode_prefix: area, fee, min_order, eta_min })) };
+      ? { ...base, zones: rules.map(({ source, area, fee, min_order, eta_hours }) => ({ ...source, area, fee, min_order, eta_hours })) }
+      : { ...base, areas: rules.map(({ source, area, fee, min_order, eta_min }) => ({ ...source, postcode_prefix: area, fee, min_order, eta_min })) };
     const response = await fetch(apiPath(`/admin/api/delivery?tenant=${encodeURIComponent(tenant)}`), {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
     });
@@ -880,7 +893,7 @@
 
   function addBranch() {
     const number = branches.length + 1;
-    branches = [...branches, { id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: 0, lon: 0, hours: emptyHours() }];
+    branches = [...branches, { source: {}, id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: null, lon: null, hours: emptyHours() }];
   }
 
   function removeBranch(index: number) {
@@ -917,11 +930,12 @@
     branchesStatus = 'Saving...';
     branchesError = false;
     const payload = branches.map((branch) => ({
+      ...branch.source,
       id: branch.id.trim() || slug(branch.name), name: branch.name.trim(), address: branch.address.trim(), postcode: branch.postcode.trim(), phone: branch.phone.trim(),
-      lat: Number(branch.lat), lon: Number(branch.lon), hours: Object.fromEntries(Object.entries(branch.hours).map(([day, hours]) => [day, hours.trim()]).filter(([, hours]) => Boolean(hours)))
+      lat: branch.lat == null ? null : Number(branch.lat), lon: branch.lon == null ? null : Number(branch.lon), hours: Object.fromEntries(Object.entries(branch.hours).map(([day, hours]) => [day, hours.trim()]).filter(([, hours]) => Boolean(hours)))
     }));
-    if (payload.some((branch) => !branch.id || !branch.name || !branch.postcode || !Number.isFinite(branch.lat) || branch.lat < -90 || branch.lat > 90 || !Number.isFinite(branch.lon) || branch.lon < -180 || branch.lon > 180)) {
-      branchesStatus = 'Each branch needs a name, postcode, and valid latitude and longitude.';
+    if (payload.some((branch) => !branch.id || !branch.name || !branch.postcode || (branch.lat !== null && (!Number.isFinite(branch.lat) || branch.lat < -90 || branch.lat > 90)) || (branch.lon !== null && (!Number.isFinite(branch.lon) || branch.lon < -180 || branch.lon > 180)))) {
+      branchesStatus = 'Each branch needs a name and postcode. If supplied, coordinates must be valid.';
       branchesError = true;
       return;
     }
@@ -988,20 +1002,20 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="side-brand"><span>V7</span><strong>{tenant}</strong><small>Sales agent workspace</small></div>
-      <nav aria-label="Owner console navigation">
+      <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>Menu</button>
+      <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each Object.entries(sections) as [key,label]}
           {#if (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
-            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key}>{label}</a>
+            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
-        <a href={apiPath('/admin/conversations?tenant='+encodeURIComponent(tenant))}>Conversations</a>
       </nav>
       <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : 'Business owner'}</span></div>
     </aside>
 
     <main class="workspace">
       <header class="workspace-head">
-        <div><p class="eyebrow">Owner workspace</p><h1>{pageTitle}</h1></div>
+        <div><p class="eyebrow">{isPlatform ? 'Platform workspace' : 'Business workspace'}</p><h1>{pageTitle}</h1></div>
         <div class="workspace-actions">
         {#if isPlatform && tenants.length > 0}
           <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
@@ -1009,6 +1023,10 @@
           <button class="secondary sign-out" type="button" on:click={logout}>Sign out</button>
         </div>
       </header>
+
+      {#if section === 'conversations'}
+        <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
+      {/if}
 
       {#if section === 'companies' && isPlatform}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
@@ -1195,7 +1213,7 @@
           <div class="delivery-content">
             <label>Delivery notes<textarea bind:value={delivery.notes} placeholder="Tell customers about free delivery, ordering cutoffs, or collection."></textarea></label>
             <label class="collection-toggle"><input bind:checked={delivery.click_and_collect} type="checkbox" /><span>Click and collect is available</span></label>
-            <p class="field-note">This tenant currently uses {delivery.mode === 'zones' ? 'postcode zones' : 'postcode prefixes'}. Existing delivery data stays in that format.</p>
+            <p class="field-note">Set the postcodes you serve, the delivery charge and when customers can expect their order.</p>
             {#each delivery.rules as rule, index}
               <div class="delivery-rule">
                 <label>Coverage<input bind:value={rule.area} placeholder={delivery.mode === 'zones' ? 'E1-E4' : 'E1'} required /></label>
@@ -1212,8 +1230,11 @@
               <p class="empty-state">No delivery areas have been added.</p>
             {/each}
             <div class="exception-heading"><h3>Service exceptions</h3><button class="add-row" type="button" on:click={addException}>Add exception</button></div>
+            {#if delivery.preservedExceptions.length}
+              <p class="field-note">{delivery.preservedExceptions.length} postcode-specific delivery exceptions also apply and will be kept when you save.</p>
+            {/if}
             {#each delivery.exceptions as exception, index}
-              <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>Remove</button></div>
+              <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message{#if exception.source.postcode}<small>Applies to {String(exception.source.postcode)}</small>{/if}<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>Remove</button></div>
             {/each}
           </div>
           <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
@@ -1226,8 +1247,8 @@
       <section id="profile" class="surface workspace-section" aria-labelledby="profile-heading">
           <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">Business profile</h2></div></div>
           <form class="profile-form" on:submit|preventDefault={saveProfile}>
-            <label>Business name<input bind:value={profile.name} maxlength="120" required /></label>
-            <label>About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What do you sell and why do customers choose you?"></textarea></label>
+            <label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
+            <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What do you sell and why do customers choose you?"></textarea></label>
             <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
             <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
@@ -1247,7 +1268,7 @@
               <label>Catalogue type<select bind:value={agentSettings.playbook.offering_type}><option value="products">Products</option><option value="services">Services</option><option value="mixed">Products and services</option></select></label>
               <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Book a consultation</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
               <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
-              <label>Maximum reply sentences<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select></label>
+              <label>Preferred reply length<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select><small>Business answers and delivery conditions stay complete when they need more detail.</small></label>
             </div>
             <div class="qualification-editor">
               <div class="qualification-heading"><h3>Why customers choose you</h3><button class="secondary" type="button" on:click={addValueProposition} disabled={agentSettings.playbook.value_propositions.length >= 5}>Add point</button></div>
@@ -1279,7 +1300,7 @@
           {#each branches as branch, branchIndex}
             <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
               <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>Remove</button></div>
-              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>Phone<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" required /></label><label>Longitude<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" required /></label></div>
+              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>Phone<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div>
               <div class="hours-grid"><h4>Opening hours</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
             </section>
           {:else}
@@ -1313,9 +1334,9 @@
   h1, h2, h3, p { margin-top: 0; }
   .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
   .login p { color: #67706b; line-height: 1.5; }
-  label { display: grid; gap: 7px; color: #2f3833; font-size: 13px; font-weight: 700; }
+  label { display: grid; min-width: 0; gap: 7px; color: #2f3833; font-size: 13px; font-weight: 700; }
   label span { color: #79837c; font-weight: 500; }
-  input, textarea, select { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; }
+  input, textarea, select { width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; font-weight: 400; }
   textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
   input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #007d70; }
   .primary, .secondary { min-height: 38px; border-radius: 6px; padding: 0 14px; font-weight: 700; font-size: 14px; }
@@ -1326,7 +1347,8 @@
   .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
   .error { color: #b42318; background: #fff2f0; }
   .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
-  .sidebar { display: flex; flex-direction: column; gap: 28px; padding: 24px 16px; background: #252c27; color: #f8faf7; }
+  .sidebar { position: sticky; top: 0; height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; padding: 24px 16px; background: #252c27; color: #f8faf7; }
+  .menu-toggle { display: none; }
   .side-brand { display: grid; gap: 6px; padding: 0 10px 18px; border-bottom: 1px solid #3d4940; }
   .side-brand span { color: #7ee0c6; font-size: 13px; font-weight: 800; letter-spacing: .08em; }
   .side-brand strong { font-size: 17px; overflow-wrap: anywhere; }
@@ -1336,17 +1358,17 @@
   nav a:hover, nav a.active { color: #fff; background: #3b4940; }
   .account { display: grid; gap: 4px; margin-top: auto; padding: 14px 10px 0; border-top: 1px solid #3d4940; font-size: 12px; overflow-wrap: anywhere; }
   .account span { color: #acb8ae; }
-  .workspace { padding: 38px clamp(20px, 5vw, 76px) 64px; max-width: 1720px; }
-  .workspace-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+  .workspace { min-width: 0; width: 100%; padding: 28px clamp(16px, 3vw, 48px) 48px; }
+  .workspace-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
   .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
-  .workspace-actions { display: flex; align-items: end; gap: 10px; }
+  .workspace-actions { display: flex; flex-wrap: wrap; max-width: 100%; align-items: end; gap: 10px; }
   .sign-out { white-space: nowrap; }
   .eyebrow { margin-bottom: 7px; color: #007d70; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
   .tenant-picker { min-width: 220px; }
   .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: #eefbf5; border: 1px solid #b9e9d0; border-radius: 8px; }
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
   .operator-panel p:not(.eyebrow) { margin-bottom: 0; color: #526172; line-height: 1.45; }
-  .tenant-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; }
+  .tenant-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 12px; }
   .team-form, .account-control-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
   .account-control-form { grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(130px, .6fr) auto; background: #fbfcfa; }
   .account-active { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 8px; white-space: nowrap; }
@@ -1356,9 +1378,9 @@
   .account-row strong { color: #172033; overflow-wrap: anywhere; }
   .account-inactive { color: #b42318; }
   .team-status { display: block; margin: 14px 20px 20px; }
-  .content-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: 20px; align-items: start; }
-  .surface { background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; }
-  .surface-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
+  .content-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+  .surface { min-width: 0; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; overflow-wrap: anywhere; }
+  .surface-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
   .surface-head h2 { margin-bottom: 0; font-size: 17px; }
   .status-dot { padding: 5px 8px; color: #00695e; background: #e7f5ef; border: 1px solid #b8dfd2; border-radius: 99px; font-size: 12px; font-weight: 700; }
   .settings-form { display: grid; gap: 18px; padding: 20px; }
@@ -1373,7 +1395,7 @@
   .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
   .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
-  .workspace-section { margin-top: 22px; scroll-margin-top: 18px; }
+  .workspace-section { scroll-margin-top: 18px; }
   .pipeline-head { background: #fcfdfb; }
   .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e4e8e1; }
   .metric-grid > div { display: grid; gap: 6px; min-height: 116px; align-content: center; padding: 20px; }
@@ -1389,7 +1411,7 @@
   .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
   .activity-list { min-width: 0; padding: 20px; }
   .activity-list + .activity-list { border-left: 1px solid #e4e8e1; }
-  .list-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .list-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .list-heading h3 { margin: 0; color: #2f3833; font-size: 14px; }
   .list-heading span { color: #8a938d; font-size: 11px; font-weight: 700; }
   .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #edf0eb; }
@@ -1420,9 +1442,9 @@
   .icon-button.danger:hover { background: #fff2f0; }
   .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #087b4c; background: transparent; font-size: 13px; font-weight: 800; }
   .add-row:hover { color: #065f3c; text-decoration: underline; }
-  .section-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
+  .section-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
   .section-footer .form-status { max-width: 68ch; }
-  .management-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .management-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
   .management-grid .workspace-section { min-width: 0; }
   .faq-list, .delivery-content { padding: 20px; }
   .faq-list { display: grid; gap: 16px; }
@@ -1438,13 +1460,15 @@
   .offers-empty { padding: 20px; }
   .row-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
   .empty-state { margin: 0; padding: 14px 0; color: #667085; font-size: 14px; line-height: 1.5; }
-  .delivery-content { display: grid; gap: 16px; }
+  .delivery-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .field-note { margin: -4px 0 2px; color: #667085; font-size: 12px; line-height: 1.45; }
-  .delivery-rule { display: grid; grid-template-columns: minmax(110px, .85fr) minmax(105px, .7fr) minmax(115px, .8fr) minmax(150px, 1.2fr) auto; align-items: end; gap: 10px; padding: 14px 0; border-top: 1px solid #e2e7ee; }
+  .delivery-rule { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, .7fr) minmax(0, .8fr) minmax(0, 1.2fr) auto; align-items: end; gap: 12px; padding: 16px 0; border-top: 1px solid #e2e7ee; }
   .exception-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; border-top: 1px solid #e2e7ee; }
   .exception-heading h3 { margin: 12px 0 0; font-size: 14px; }
   .exception-row { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr) auto; align-items: end; gap: 10px; }
   .profile-form, .agent-form { display: grid; gap: 16px; padding: 20px; }
+  .profile-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-wide, .profile-form > .two-fields, .profile-footer { grid-column: 1 / -1; }
   .agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .agent-wide { grid-column: 1 / -1; }
   .qualification-editor { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #e2e7ee; }
@@ -1467,6 +1491,22 @@
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
   @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form, .account-control-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid #e4e8e1; border-left: 0; } }
   @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading, .qualification-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row, .agent-settings-grid, .qualification-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid #e4e8e1; } .metric-grid > div:nth-child(4) { border-top: 1px solid #e4e8e1; } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button, .qualification-row .icon-button { width: fit-content; } }
-.content-grid { grid-template-columns: 1fr; }
+  @media (max-width: 1180px) {
+    .team-form, .account-control-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hours-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .app-shell { grid-template-rows: auto 1fr; }
+    .sidebar { position: static; height: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+    .menu-toggle { display: block; align-self: center; }
+    nav { display: none; grid-column: 1 / -1; }
+    nav.open { display: grid; }
+    .profile-form, .team-form, .account-control-form { grid-template-columns: minmax(0, 1fr); }
+    .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .surface-head, .exception-heading, .branch-heading, .offer-heading { flex-wrap: wrap; }
+    .collection-toggle, .offer-toggle { white-space: normal; }
+    .form-footer { flex-wrap: wrap; }
+  }
+  @media (max-width: 420px) { .delivery-rule { grid-template-columns: minmax(0, 1fr); } }
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
 </style>

@@ -22,7 +22,7 @@ def _serve_console(asset_path: str = ""):
         abort(404, description="owner_console_not_available")
 
     requested = asset_path or "index.html"
-    screens = {"pipeline", "agent", "website", "integrations", "catalog", "offers", "faqs", "delivery", "profile", "branches", "team", "companies", "errors"}
+    screens = {"pipeline", "conversations", "agent", "website", "integrations", "catalog", "offers", "faqs", "delivery", "profile", "branches", "team", "companies", "errors"}
     if requested.strip("/") in screens:
         requested = requested.strip("/") + ".html"
     candidate = (build_dir / requested).resolve()

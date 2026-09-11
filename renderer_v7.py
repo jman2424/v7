@@ -106,7 +106,7 @@ class RendererV7:
 
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             msg = self._delivery_reply(plan, facts, session)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
             msg = self._products_reply(plan, facts, user_text, session)
@@ -118,7 +118,7 @@ class RendererV7:
 
         if action in {"STORE_INFO", "FAQ_LOOKUP"} or intent in {"store_info", "faq", "unknown"}:
             msg = self._faq_reply(plan, facts, user_text, session)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         # 4) Absolute fallback
         base = f"I can help with {self._business_scope()}. {self._discovery_question()}"
@@ -187,9 +187,19 @@ class RendererV7:
 
         # Covered
         if rule:
-            base = f"Yes, we deliver to {postcode}."
+            notices = delivery.get("notices") or []
+            base = (f"{postcode} is in our delivery area. Standard terms:"
+                    if notices else f"Yes, we deliver to {postcode}.")
             if summary:
                 base = f"{base} {summary}"
+            area_notes = str(rule.get("notes") or "").strip()
+            if area_notes:
+                base += "\nArea conditions: " + area_notes
+            notes = str(delivery.get("notes") or "").strip()
+            if notes:
+                base += "\nDelivery notes: " + notes
+            if notices:
+                base = "\n".join("Service notice — " + str(note) for note in notices) + "\n" + base
             return self._append_cta(base + nearest_suffix())
 
         # Not covered (still show nearest branch if available)
@@ -538,13 +548,14 @@ class RendererV7:
 
         return t
 
-    def _polish(self, text: str, facts: Dict[str, Any]) -> str:
+    def _polish(self, text: str, facts: Dict[str, Any], *, preserve_facts: bool = False) -> str:
         text = (text or "").strip()
         if not text:
             return ""
-
+        # Sentence limits or a rewrite must not discard delivery conditions,
+        # service notices, contact details or part of an owner's FAQ answer.
         rewritten = text
-        if self.rewriter:
+        if self.rewriter and not preserve_facts:
             try:
                 rewritten = self.rewriter.rewrite(rewritten, style=self.tone_style, facts=facts)
             except Exception:
@@ -555,5 +566,7 @@ class RendererV7:
             rewritten = re.sub(r"\bwe['’]re\b", "we are", rewritten, flags=re.IGNORECASE)
             rewritten = re.sub(r"\bdon['’]t\b", "do not", rewritten, flags=re.IGNORECASE)
 
+        if preserve_facts:
+            return rewritten
         sentences = [part.strip() for part in _SENTENCE_BREAK_RE.split(rewritten) if part.strip()]
         return " ".join(sentences[: self.max_sentences]).strip()

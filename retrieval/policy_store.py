@@ -18,8 +18,7 @@ def _outward(pc: str) -> str:
     "SW1A 1AA" -> "SW1A"
     "E7" -> "E7"
     """
-    n = (normalize_postcode(pc) or "").replace(" ", "")
-    return n[:-3] if len(n) > 3 else n
+    return (normalize_postcode(pc) or "").split(" ", 1)[0]
 
 
 def _prefix(pc: str) -> str:
@@ -195,7 +194,7 @@ class PolicyStore:
             return None
 
     # -------- delivery --------
-    def delivery_rule_for(self, postcode: str) -> Optional[Dict[str, Any]]:
+    def delivery_rule_for(self, postcode: str, on_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
         pc_norm = normalize_postcode(postcode)
         if not pc_norm:
             return None
@@ -207,8 +206,12 @@ class PolicyStore:
         for ex in (self._delivery.get("exceptions") or []):
             if not isinstance(ex, dict):
                 continue
+            if ex.get("date") and ex["date"] != (on_date or datetime.now().date().isoformat()):
+                continue
             ex_pc = (normalize_postcode(str(ex.get("postcode") or "")) or "").replace(" ", "")
             if ex_pc and ex_pc == pc_full:
+                if not any(key in ex for key in ("fee", "min_order", "eta_min", "min", "eta")):
+                    continue
                 rule = {k: v for k, v in ex.items() if k in {"fee", "min_order", "eta_min"}}
                 # tolerate legacy keys
                 if "min_order" not in rule and "min" in ex:
@@ -233,6 +236,7 @@ class PolicyStore:
                         "min_order": z.get("min_order", z.get("min")),
                         "eta_min": z.get("eta_min", z.get("eta")),
                         "eta_hours": z.get("eta_hours"),
+                        "notes": z.get("notes"),
                         "source": "zone",
                         "zone": z.get("code") or None,
                         "area": area,
@@ -244,14 +248,14 @@ class PolicyStore:
                 continue
             ar_pref = _prefix(str(ar.get("postcode_prefix") or ""))
             if ar_pref and ar_pref == out:
-                rule = {k: v for k, v in ar.items() if k in {"fee", "min_order", "eta_min"}}
+                rule = {k: v for k, v in ar.items() if k in {"fee", "min_order", "eta_min", "notes"}}
                 rule["source"] = "prefix"
                 return rule
 
         return None
 
-    def delivery_summary(self, postcode: str) -> Optional[str]:
-        rule = self.delivery_rule_for(postcode)
+    def delivery_summary(self, postcode: str, on_date: Optional[str] = None) -> Optional[str]:
+        rule = self.delivery_rule_for(postcode, on_date)
         if not rule:
             return None
 
@@ -269,8 +273,27 @@ class PolicyStore:
             parts.append(f"~{int(float(eta_min))} mins")
         elif isinstance(eta_hours, str) and eta_hours.strip():
             parts.append(eta_hours.strip())
+        elif isinstance(eta_min, str) and eta_min.strip():
+            # Older zone records called their customer-facing ETA "eta".
+            parts.append(eta_min.strip())
 
         return ", ".join(parts) if parts else None
+
+    def service_notices(self, on_date: Optional[str] = None, postcode: Optional[str] = None) -> List[str]:
+        """Return dated service notes without treating free text as a guarantee."""
+        selected = on_date or datetime.now().date().isoformat()
+        notices = []
+        for item in self._delivery.get("exceptions") or []:
+            if not isinstance(item, dict) or item.get("date") != selected:
+                continue
+            if item.get("postcode") and (
+                not postcode or normalize_postcode(item["postcode"]) != normalize_postcode(postcode)
+            ):
+                continue
+            note = str(item.get("note") or "").strip()
+            if note:
+                notices.append(f"{selected}: {note}")
+        return notices
 
     def click_and_collect(self) -> bool:
         v = self._delivery.get("click_and_collect")

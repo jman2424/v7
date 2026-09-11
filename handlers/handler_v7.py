@@ -408,6 +408,8 @@ class MessageHandlerV7:
                 )
 
             store_info = self._store_info_answer(user_text)
+            if not store_info:
+                store_info = self._delivery_information_answer(user_text)
             if store_info:
                 plan = self._simple_plan("store_info", "STORE_INFO", session_snapshot)
                 facts = {"store_info": {"answer": store_info}}
@@ -822,6 +824,36 @@ class MessageHandlerV7:
         if not text:
             return None
 
+        certifications = self.business_profile.get("certifications") or []
+        if (not re.search(r"\b(buy|purchase|price|prices|products?|items?|catalogue|catalog|sell)\b", text)
+                and re.search(r"\b(certifications?|certified|accredited|accreditations?|inspected)\b", text)):
+            listed = [item.strip() for item in certifications if isinstance(item, str) and item.strip()]
+            if listed:
+                return "The business lists these certifications: " + ", ".join(listed) + "."
+        social = self.business_profile.get("social") or {}
+        if isinstance(social, dict):
+            requested = [key for key in social if key.lower() in text or "social media" in text]
+            links = [f"{key}: {social[key]}" for key in requested if isinstance(social[key], str) and social[key].strip()]
+            if links:
+                return "You can find the business on " + "; ".join(links) + "."
+
+        if self.geo and re.search(r"\b(opening hours|open hours|business hours|what time.*(?:open|close))\b", text):
+            branches = self.geo.branches()
+            named = [branch for branch in branches if str(branch.get("name") or "").strip()
+                     and str(branch["name"]).casefold() in text.casefold()]
+            selected = named or branches
+            details = []
+            for branch in selected[:3]:
+                hours = branch.get("hours") or {}
+                if isinstance(hours, dict) and hours:
+                    schedule = "; ".join(f"{day}: {value}" for day, value in hours.items() if value)
+                    if schedule:
+                        details.append(f"{branch.get('name') or branch.get('id')}: {schedule}")
+            if details:
+                if not named and len(branches) > 3:
+                    details.append("For another branch, tell me its name.")
+                return "Opening hours:\n" + "\n".join(details)
+
         is_contact_question = (
             any(phrase in text for phrase in self._STORE_INFO_PHRASES)
             or bool(re.search(r"\b(contact|phone|telephone|email|website)\b", text))
@@ -858,8 +890,42 @@ class MessageHandlerV7:
 
         return "Contact details are not configured for this business yet."
 
+    def _delivery_information_answer(self, user_text: str) -> Optional[str]:
+        """Answer configured general policy questions before requesting a postcode."""
+        if not self.policy:
+            return None
+        text = self._clean_text(user_text)
+        collection = any(term in text for term in (
+            "click and collect", "click & collect", "can i collect", "can we collect",
+            "do you offer collection", "pick up", "pickup",
+        ))
+        policy_question = any(term in text for term in (
+            "delivery notes", "delivery policy", "delivery rules", "shipping policy",
+            "free delivery", "delivery exceptions", "service exceptions", "holiday delivery",
+        ))
+        date_match = re.search(r"\b\d{4}-\d{2}-\d{2}\b", user_text)
+        dated_delivery = bool(date_match and ("deliver" in text or collection))
+        if not collection and (self._extract_postcode(user_text) or not (policy_question or dated_delivery)):
+            return None
+        parts = []
+        if collection:
+            parts.append("Click and collect is available." if self.policy.click_and_collect()
+                         else "Click and collect is not currently available.")
+        notes = self.policy.delivery_notes()
+        if notes and not collection:
+            parts.append("Delivery notes: " + notes)
+        notices = self.policy.service_notices(date_match.group(0) if date_match else None)
+        parts.extend("Service notice — " + note for note in notices)
+        if not parts:
+            return None
+        if not collection:
+            parts.append("Share your postcode to check the standard delivery fee and minimum order for your area.")
+        return "\n".join(parts)
+
     def _current_offers(self, user_text: str) -> Optional[Dict[str, Any]]:
         """Return only current tenant offers, optionally scoped to a named product."""
+        if re.search(r"\b(?:do you|can you)\s+offer\s+(?:free\s+)?(?:delivery|shipping|collection|pick[ -]?up)\b", user_text, re.I):
+            return None
         if not self._OFFER_REQUEST.search(user_text or ""):
             return None
 
@@ -1435,13 +1501,17 @@ class MessageHandlerV7:
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:
                 if self.policy:
+                    date_match = re.search(r"\b\d{4}-\d{2}-\d{2}\b", user_text)
+                    on_date = date_match.group(0) if date_match else None
                     try:
-                        rule = self.policy.delivery_rule_for(postcode)
-                        summary = self.policy.delivery_summary(postcode)
+                        rule = self.policy.delivery_rule_for(postcode, on_date)
+                        summary = self.policy.delivery_summary(postcode, on_date)
                     except Exception as e:
                         self._exc(request_id, "V7.delivery_failed", err=str(e))
                         rule, summary = None, ""
-                    facts["delivery"] = {"postcode": postcode, "rule": rule, "summary": summary or ""}
+                    facts["delivery"] = {"postcode": postcode, "rule": rule, "summary": summary or "",
+                                         "notes": self.policy.delivery_notes() or "",
+                                         "notices": self.policy.service_notices(on_date, postcode)}
                 else:
                     facts["delivery"] = {"postcode": postcode, "rule": None, "summary": ""}
 

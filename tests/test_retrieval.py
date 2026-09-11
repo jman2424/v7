@@ -125,6 +125,36 @@ def test_geo_nearest_branch(storage):
     assert far is None
 
 
+@pytest.mark.parametrize("postcode", ["SW1A", "sw1a1aa", "SW1A 1AA"])
+def test_four_character_postcode_district_keeps_delivery_and_branch_match(postcode):
+    ps = PolicyStore(delivery={"areas": [{"postcode_prefix": "SW1A", "fee": 4}]})
+    gs = GeoStore(branches=[
+        {"id": "a", "name": "East", "postcode": "E1 6AN"},
+        {"id": "b", "name": "Westminster", "postcode": "SW1A 1AA"},
+    ])
+    assert ps.delivery_rule_for(postcode)["fee"] == 4
+    assert gs.nearest_for_postcode(postcode)["id"] == "b"
+
+
+def test_delivery_notices_and_overrides_are_date_and_postcode_scoped():
+    ps = PolicyStore(delivery={
+        "zones": [{"area": "E1", "fee": 4, "eta": "Next day before 5pm"}],
+        "exceptions": [
+            {"date": "2099-12-25", "note": "No deliveries today."},
+            {"date": "2099-12-26", "postcode": "E1 6AN", "note": "Local road closure.", "fee": 7},
+            {"date": "2099-12-26", "postcode": "E1 7AA", "note": "Allow extra time."},
+        ],
+    })
+    assert ps.service_notices("2099-12-25") == ["2099-12-25: No deliveries today."]
+    assert ps.service_notices("2099-12-26") == []
+    assert ps.service_notices("2099-12-26", "e16an") == ["2099-12-26: Local road closure."]
+    assert ps.service_notices("2099-12-27", "E1 6AN") == []
+    assert ps.delivery_rule_for("E1 6AN", "2099-12-26")["fee"] == 7
+    assert ps.delivery_rule_for("E1 6AN", "2099-12-27")["fee"] == 4
+    assert ps.delivery_rule_for("E1 7AA", "2099-12-26")["fee"] == 4
+    assert "Next day before 5pm" in ps.delivery_summary("E1 6AN", "2099-12-27")
+
+
 def test_faq_best_match(storage):
     faq = storage.load_json("EXAMPLE/faq.json")
     fs = make_faq_store(faq)

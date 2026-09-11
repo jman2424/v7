@@ -381,3 +381,56 @@ def test_catalog_does_not_return_unrelated_in_stock_items(platform):
     catalog = platform[0].container.for_tenant("ALPHA").catalog
     assert catalog.search(text="unicornspaceship") == []
     assert catalog.search(text="laptop")[0]["name"] == "Alpha laptop"
+
+
+def test_agent_uses_saved_business_details_and_refreshes_existing_conversation(platform):
+    client = platform[0].test_client()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    profile = {"name": "Alpha technology", "about": "Repairs and devices.",
+               "certifications": ["ISO 9001"], "social": {"instagram": "https://instagram.com/alpha_example"}}
+    saved = client.put("/admin/api/profile", json=profile, headers=headers)
+    assert saved.status_code == 200, saved.json
+    first = client.post("/chat_api", json={"tenant": "ALPHA", "message": "What certifications do you have?"})
+    assert "ISO 9001" in first.json["reply"]
+    profile["certifications"] = ["B Corp"]
+    assert client.put("/admin/api/profile", json=profile, headers=headers).status_code == 200
+    updated = client.post("/chat_api", json={"tenant": "ALPHA", "message": "What certifications do you have?",
+                         "conversation_token": first.json["conversation_token"]})
+    assert "B Corp" in updated.json["reply"]
+    assert "ISO 9001" not in updated.json["reply"]
+    social = client.post("/chat_api", json={"tenant": "ALPHA", "message": "What is your Instagram?"})
+    assert profile["social"]["instagram"] in social.json["reply"]
+    branches = [{"id": "west", "name": "Westminster", "postcode": "SW1A 1AA", "lat": None, "lon": None,
+                 "hours": {"mon": "10:00-16:00", "sun": "Closed"}, "holidays": ["2099-12-25"]}]
+    saved = client.put("/admin/api/branches", json=branches, headers=headers)
+    assert saved.status_code == 200, saved.json
+    hours = client.post("/chat_api", json={"tenant": "ALPHA", "message": "What are Westminster opening hours?"})
+    assert "10:00-16:00" in hours.json["reply"]
+    assert "sun: Closed" in hours.json["reply"]
+    other = client.post("/chat_api", json={"tenant": "BETA", "message": "What certifications do you have?"})
+    assert "B Corp" not in other.json["reply"]
+
+
+def test_agent_keeps_delivery_conditions_notices_and_collection_setting(platform):
+    client = platform[0].test_client()
+    csrf = login(client)
+    delivery = {
+        "zones": [{"area": "E1", "fee": 4, "min_order": 25, "eta_hours": "Next-day",
+                   "notes": "Ground-floor delivery only."}],
+        "notes": "Free delivery over £60. Orders must be placed before 3pm.", "click_and_collect": False,
+        "exceptions": [{"date": "2099-12-25", "note": "No deliveries on Christmas Day."}],
+    }
+    saved = client.put("/admin/api/delivery", json=delivery, headers={"X-CSRF-Token": csrf})
+    assert saved.status_code == 200, saved.json
+    policy = client.post("/chat_api", json={"tenant": "ALPHA", "message": "Do you offer free delivery?"})
+    assert delivery["notes"] in policy.json["reply"]
+    dated = client.post("/chat_api", json={"tenant": "ALPHA", "message": "Can you deliver to E1 6AN on 2099-12-25?"})
+    reply = dated.json["reply"]
+    for required in ["No deliveries on Christmas Day.", "£4.00", "min £25.00", "Next-day", "Ground-floor delivery only.", delivery["notes"]]:
+        assert required in reply
+    assert "Yes, we deliver" not in reply
+    collection = client.post("/chat_api", json={"tenant": "ALPHA", "message": "Can I collect?"})
+    assert "Click and collect is not currently available." in collection.json["reply"]
+    other = client.post("/chat_api", json={"tenant": "BETA", "message": "Do you offer free delivery?"})
+    assert delivery["notes"] not in other.json["reply"]
