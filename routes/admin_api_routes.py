@@ -179,7 +179,8 @@ def api_usage_get():
     exchange = gbp_rate()
     for row in [result["totals"], *result["breakdown"]]:
         usd = row.pop("estimated_cost_usd")
-        row["estimated_cost_gbp"] = round(usd * exchange["rate"], 9) if usd is not None and exchange else None
+        row["estimated_cost_gbp"] = (0.0 if usd == 0 else round(usd * exchange["rate"], 9)
+                                     if usd is not None and exchange else None)
     result.update(currency="GBP", exchange_rate=exchange)
     brain = container.handler.h_v7.brain
     mode = str(container.overrides.get("ai.mode") or "v7").lower()

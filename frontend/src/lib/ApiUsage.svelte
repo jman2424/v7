@@ -20,7 +20,7 @@
   onMount(() => { mounted = true; });
   onDestroy(() => controller?.abort());
   const number = (value: number) => value.toLocaleString();
-  const money = (value: number | null) => value === null ? 'Unavailable' : new Intl.NumberFormat(undefined, {
+  const money = (value: number | null) => value === null ? 'Unavailable' : value > 0 && value < 0.000001 ? '<£0.000001' : new Intl.NumberFormat('en-GB', {
     style: 'currency', currency: 'GBP', minimumFractionDigits: 2, maximumFractionDigits: 6
   }).format(value);
 
@@ -71,7 +71,7 @@
       <p>Some answers use saved business information directly and need no API call. Actual response models appear below.</p>
     </article>
     <div class="metrics">
-      <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>
+      <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.calls === 0 ? 'No API calls recorded in this period' : data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>
       <article class="panel"><span>Recorded tokens</span><strong class="value">{number(data.totals.total_tokens)}</strong><small>{number(data.totals.input_tokens)} input · {number(data.totals.output_tokens)} output</small></article>
       <article class="panel"><span>Cached input tokens</span><strong class="value">{number(data.totals.cached_tokens)}</strong><small>Included in input tokens; discounted where priced</small></article>
       <article class="panel"><span>API calls</span><strong class="value">{number(data.totals.calls)}</strong><small>{number(data.totals.failed_calls)} failed · {number(data.totals.missing_usage_calls)} without token counts</small></article>

@@ -52,6 +52,26 @@ def test_cached_input_is_not_double_counted_and_cost_is_stored(ledger, monkeypat
     assert result["breakdown"][0]["model"] == "gpt-4o-mini-2024-07-18"
 
 
+def test_empty_period_has_zero_recorded_cost_but_unpriced_calls_remain_unknown(ledger):
+    empty = api_usage.summary("EXAMPLE", 30)
+    assert empty["totals"]["calls"] == 0
+    assert empty["totals"]["estimated_cost_usd"] == 0
+    assert empty["first_recorded_at"] is None
+    record(response=completion(usage=None))
+    assert api_usage.summary("EXAMPLE", 30)["totals"]["estimated_cost_usd"] is None
+
+
+def test_empty_gbp_cost_does_not_require_exchange_rate(client, monkeypatch):
+    monkeypatch.setattr(usage_currency, "gbp_rate", lambda: None)
+    with client.session_transaction() as state:
+        set_test_identity(client, state, {"id": "empty-owner", "role": "business_owner", "tenant": "EXAMPLE"})
+    report = client.get("/admin/api/api-usage").get_json()
+    assert report["totals"]["estimated_cost_gbp"] == 0
+    assert report["exchange_rate"] is None
+    record()
+    assert client.get("/admin/api/api-usage").get_json()["totals"]["estimated_cost_gbp"] is None
+
+
 @pytest.mark.parametrize("response", [completion(model="new-unpriced-model"),
     completion(model="gpt-4o-mini-2099-01-01"), completion(model="ft:gpt-4o-mini:custom"),
     completion(usage=None), completion(service_tier="priority")])

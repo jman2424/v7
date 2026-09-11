@@ -113,7 +113,8 @@ def summary(tenant: str | None, days: int) -> dict:
     def convert(row):
         data = dict(row)
         cost = data.pop("cost_nano_usd")
-        data["estimated_cost_usd"] = cost / 1_000_000_000 if cost is not None else None
+        data["estimated_cost_usd"] = (cost / 1_000_000_000 if cost is not None
+                                      else 0.0 if data["calls"] == 0 else None)
         data["total_tokens"] = data["input_tokens"] + data["output_tokens"]
         return data
 

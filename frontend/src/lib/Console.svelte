@@ -1029,8 +1029,12 @@
       {#if section === 'conversations'}
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
       {/if}
-      {#if section === 'usage' && (isPlatform || user.roles.includes('business_owner'))}
-        {#key tenant}<ApiUsage {tenant} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+      {#if section === 'usage'}
+        {#if isPlatform || user.roles.includes('business_owner')}
+          {#key tenant}<ApiUsage {tenant} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {:else}
+          <section class="surface"><div class="surface-body"><p>API usage and costs are available to the company owner and platform operator.</p></div></section>
+        {/if}
       {/if}
       {#if section === 'test'}
         {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
