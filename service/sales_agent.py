@@ -55,7 +55,7 @@ class SalesAgentPolicy:
         if (
             prompt
             and prompt.casefold() not in text.casefold()
-            and not text.rstrip().endswith("?")
+            and "?" not in text
             and not self._already_requests_next_action(text, agent["next_action"])
         ):
             text = f"{text.rstrip()} {prompt}".strip()
@@ -242,7 +242,7 @@ class SalesAgentPolicy:
             playbook=playbook,
             singular=singular,
             plural=plural,
-            has_items=bool(items),
+            has_items=bool(items or offer_items),
         )
 
         if previous.get("stage") and previous.get("stage") != state["stage"]:
@@ -379,13 +379,25 @@ class SalesAgentPolicy:
         has_items: bool,
     ) -> None:
         questions = playbook["qualification_questions"]
+        if previous.get("qualification_complete"):
+            state["qualification_complete"] = True
+            return
         if not questions or intent in {"human_handoff", "handoff", "handoff_contact_captured", "out_of_scope", "system_error"}:
             return
 
         previous_action = str(previous.get("next_action") or "")
-        continuing = previous_action == "ask_qualification_question"
-        starting = has_items or intent in {"price_check", "compare_products", "offers"}
+        continuing = previous_action == "ask_qualification_question" or bool(previous.get("qualification_pending"))
+        starting = has_items or intent == "price_check"
         if not continuing and not starting:
+            return
+
+        # A customer's own question is not an answer to our qualification question.
+        # Answer it first and retain the pending step for the next substantive reply.
+        acknowledgement = bool(re.fullmatch(r"(?:thanks|thank you|cheers|ok(?:ay)?|no thanks|not now)[.! ]*", user_text.strip(), re.I))
+        question = "?" in user_text or bool(re.match(r"^(?:what|when|where|why|how|who|can|could|do|does|is|are|will|would)\b", user_text.strip(), re.I))
+        if continuing and (acknowledgement or question or intent in {"faq", "store_info", "check_delivery", "ask_postcode", "check_delivery_needs_postcode", "smalltalk", "greeting"}):
+            state.update(qualification_index=self._qualification_index(previous), qualification_pending=True)
+            state["next_question"] = ""
             return
 
         if continuing and (not user_text.strip() or intent in {"system_empty", "system_clarify"}):
@@ -403,6 +415,7 @@ class SalesAgentPolicy:
                 next_question=questions[index],
                 suggested_replies=[],
                 qualification_index=index,
+                qualification_pending=True,
             )
             return
 

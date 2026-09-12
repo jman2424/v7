@@ -27,7 +27,7 @@ def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_
     assert missing.status_code == 404
 
 
-@pytest.mark.parametrize("section", ["catalog", "conversations", "test", "usage", "implementation"])
+@pytest.mark.parametrize("section", ["catalog", "conversations", "test", "usage", "implementation", "whatsapp-qr", "statistics"])
 def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path, section):
     build_dir = tmp_path / "console-pages"
     build_dir.mkdir()

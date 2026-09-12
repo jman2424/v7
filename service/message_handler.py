@@ -434,6 +434,8 @@ class MessageHandler:
                     "objective": agent.get("objective"),
                     "next_action": agent.get("next_action"),
                     "qualification_index": agent.get("qualification_index"),
+                    "qualification_pending": bool(agent.get("qualification_pending")),
+                    "qualification_complete": bool(agent.get("qualification_complete")),
                 },
                 ttl,
             )

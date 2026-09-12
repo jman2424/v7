@@ -5,8 +5,10 @@
   import AgentTest from './AgentTest.svelte';
   import ApiUsage from './ApiUsage.svelte';
   import Implementation from './Implementation.svelte';
+  import WhatsAppQr from './WhatsAppQr.svelte';
+  import Statistics from './Statistics.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',test:'Test agent',implementation:'Implementation',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -1047,6 +1049,13 @@
       {/if}
       {#if section === 'implementation'}
         {#key tenant}<Implementation {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+      {/if}
+
+      {#if section === 'statistics'}
+        {#key tenant}<Statistics {tenant} {isPlatform} canViewCosts={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+      {/if}
+      {#if section === 'whatsapp-qr'}
+        {#key tenant}<WhatsAppQr {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
 
       {#if section === 'companies' && isPlatform}

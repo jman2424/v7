@@ -2,10 +2,75 @@ from __future__ import annotations
 
 import logging
 import shutil
+import pytest
 from pathlib import Path
 
 from brain_v7 import BrainV7
 from service.sales_agent import SalesAgentPolicy
+
+
+class _QualificationOverrides:
+    def get(self, key):
+        if key == 'sales_playbook':
+            return {'offering_type':'services', 'primary_goal':'book_consultation',
+                    'qualification_questions':['Which room are you planning?', 'When would you like the project completed?']}
+        return None
+
+
+@pytest.mark.parametrize('text,intent,reply', [
+    ('What are your hours?', 'faq', 'We are open until 6pm.'),
+    ('Can you explain the options', 'unknown', 'There are two options.'),
+    ('Thanks!', 'smalltalk', 'You are welcome.'),
+    ('Do you deliver?', 'check_delivery_needs_postcode', 'What is your postcode?'),
+])
+def test_customer_questions_do_not_skip_qualification_steps(text, intent, reply):
+    policy = SalesAgentPolicy(overrides=_QualificationOverrides())
+    previous = {'next_action':'ask_qualification_question', 'qualification_index':0}
+    interrupted = policy.guide({'reply':reply, 'intent':intent}, user_text=text, session={'sales_agent':previous})
+    assert interrupted['reply'] == reply
+    assert interrupted['agent']['qualification_index'] == 0
+    assert interrupted['agent']['qualification_pending'] is True
+    resumed = policy.guide({'reply':'Thanks.', 'intent':'unknown'}, user_text='The kitchen', session={'sales_agent':interrupted['agent']})
+    assert resumed['agent']['qualification_index'] == 1
+    assert 'When would you like' in resumed['reply']
+
+
+def test_completed_qualification_is_not_restarted_after_a_followup_price_question():
+    policy = SalesAgentPolicy(overrides=_QualificationOverrides())
+    completed = {'qualification_complete':True, 'next_action':'book_consultation'}
+    reply = policy.guide({'reply':'The audit costs £50.', 'intent':'price_check'}, user_text='How much is the audit?', session={'sales_agent':completed})
+    assert reply['agent']['qualification_complete'] is True
+    assert reply['agent']['next_action'] == 'book_consultation'
+    assert 'Which room' not in reply['reply']
+
+
+def test_no_offers_does_not_start_a_qualification_interview():
+    response = SalesAgentPolicy(overrides=_QualificationOverrides()).guide(
+        {'reply':'There are no current offers.', 'intent':'offers', 'facts':{'offers':{'items':[]}}},
+        user_text='Any offers?', session={})
+    assert response['reply'] == 'There are no current offers.'
+
+
+def test_agent_does_not_stack_a_question_after_an_existing_question_and_explanation():
+    text = 'Which option would you like? I can check its current price.'
+    response = SalesAgentPolicy().guide({'reply':text, 'intent':'search_product', 'facts':{'items':[{'name':'Desk'}]}}, user_text='Show desks', session={})
+    assert response['reply'] == text
+
+
+def test_handler_retains_qualification_flags_between_turns(app, monkeypatch):
+    handler = app.container.handler
+    seen = []
+    def guide(response, *, user_text, session):
+        seen.append(session.get('sales_agent', {}))
+        response['agent'] = {'stage':'qualify','next_action':'await_customer_question',
+                             'qualification_index':0,'qualification_pending':True,
+                             'qualification_complete':False}
+        return response
+    monkeypatch.setattr(handler.sales_agent,'guide',guide)
+    handler.handle('hello',tenant='EXAMPLE',session_id='qualification-memory',channel='web')
+    handler.handle('hello again',tenant='EXAMPLE',session_id='qualification-memory',channel='web')
+    assert seen[-1]['qualification_pending'] is True
+    assert seen[-1]['qualification_complete'] is False
 
 
 def test_sales_agent_turns_catalog_results_into_a_recommendation_step():

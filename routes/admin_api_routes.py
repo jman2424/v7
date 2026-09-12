@@ -746,6 +746,20 @@ def api_insights():
     return jsonify(payload)
 
 
+@bp.get("/statistics")
+def api_statistics():
+    from service.statistics import get_statistics
+
+    tenant = _tenant()
+    days = _int_arg("days", 30, maximum=90)
+    channel = request.args.get("channel", "all")
+    if channel not in {"all", "web", "whatsapp"}:
+        return jsonify(error="invalid_statistics_channel"), 400
+    response = jsonify(get_statistics(tenant=tenant, days=days, channel=channel))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.get("/kpis")
 def api_kpis():
     minutes = _int_arg("minutes", 1440, maximum=525600)
@@ -859,6 +873,24 @@ def api_integrations():
         twilio_configured=assigned and bool((os.getenv("TWILIO_AUTH_TOKEN") or c.settings.TWILIO_AUTH_TOKEN) and (mapping or os.getenv("TWILIO_WHATSAPP_NUMBER"))),
         ai_configured=bool(os.getenv("OPENAI_API_KEY")),
     )
+
+
+@bp.post("/whatsapp-qr")
+def api_whatsapp_qr():
+    from service.whatsapp_qr import create_whatsapp_qr
+
+    tenant = _tenant()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Enter a WhatsApp number and optional message."), 400
+    try:
+        result = create_whatsapp_qr(data.get("phone"), data.get("message", ""))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    _audit("whatsapp.qr.create", f"{tenant}/whatsapp-qr")
+    response = jsonify(tenant=tenant, **result)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.get("/platform")

@@ -156,6 +156,32 @@ Installing the widget does not import website content or connect bookings,
 payments or inventory automatically. Use `pytest tests/test_widget_tenancy.py
 tests/test_owner_console.py` and `npm run check` in `frontend/` to check setup changes.
 
+**WhatsApp QR** (`/console/whatsapp-qr`) creates a click-to-chat link and downloadable
+SVG for an international WhatsApp number, with an optional 160-character message.
+The authenticated, CSRF-protected `POST /admin/api/whatsapp-qr` scopes requests to
+the permitted company, validates input and generates the QR locally with the pinned
+`qrcode` library. No external QR service, scan tracking or stored number/message is
+used. Owners must scan and verify the destination before sharing. Creating a QR
+does not connect the agent or change WhatsApp routing; automated replies require
+the same number to be configured through Meta/Twilio. See WhatsApp's
+[click-to-chat instructions](https://faq.whatsapp.com/5913398998672934/?locale=en_US).
+
+**Statistics** (`/console/statistics`) adds 1–90 day activity comparisons, UTC daily
+charts and tables, web/WhatsApp filters, handoff/contact counts, current lead stages,
+fallback topics and error breakdowns. The authenticated `/admin/api/statistics`
+endpoint returns tenant-scoped aggregates without customer messages or contact
+records. Its prior-period comparison uses an equal preceding window. Current lead
+statuses cover all dates/channels because the lead table has no reliable creation
+date or channel field. API costs remain restricted to owners/platform operators.
+Counts represent retained events, not unique people, verified sales, uptime or QR
+scans. Test with `pytest tests/test_statistics.py`.
+
+Agent qualification now retains the pending question while answering customer
+questions, avoids restarting completed qualification within a conversation, and
+does not append a second question after an existing one. Empty offers do not start
+a qualification interview. Checks: `pytest tests/test_sales_agent.py
+tests/test_whatsapp_qr.py`.
+
 Use **Test agent** (`/console/test`) to type questions, dictate them with a supported
 browser, or hear replies aloud. Tests use the selected company's saved settings
 and real response engine (including its configured AI provider). They retain
