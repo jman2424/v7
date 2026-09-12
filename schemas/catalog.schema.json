@@ -33,6 +33,8 @@
                 "unit": { "type": "string" },
                 "tags": { "type": "array", "items": { "type": "string" } },
                 "in_stock": { "type": "boolean", "default": true },
+                "stock_quantity": { "type": ["number", "null"], "minimum": 0, "maximum": 1000000000 },
+                "low_stock_threshold": { "type": "number", "minimum": 0, "maximum": 1000000000 },
                 "options": {
                   "type": "array",
                   "items": {

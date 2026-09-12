@@ -79,8 +79,11 @@ def _reply(c, event, source):
         log_error(tenant=tenant, channel="whatsapp", session_id=sid,
                   error_code="wa_handler_failure", error_type=type(error).__name__)
         abort(503, description="agent_unavailable")
+    from service.product_metrics import matched_products
     log_message(tenant=tenant, channel="whatsapp", direction="outbound", session_id=sid,
                 text=reply, intent=str(result.get("intent", "unknown")), lead_id=sid,
+                fallback=any(result.get(key) is True for key in ('fallback','is_fallback','did_fallback')) or result.get('intent') in {'system_no_results','system_clarify','unknown','fallback','default','clarify','needs_clarification','no_match','system_fallback'},
+                products=matched_products(result),
                 message_id=mid + ":out" if mid else "")
     return reply
 

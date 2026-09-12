@@ -82,6 +82,8 @@ def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str])
 # ---------------------------------------------------------------------
 def init_db() -> None:
     with _conn() as con:
+        from service.product_metrics import init_tables
+        init_tables(con)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -345,6 +347,7 @@ def log_message(
     error_code: str = "",
     error_type: str = "",
     message_id: str = "",
+    products: Optional[list[str]] = None,
 ) -> None:
     """
     Transport-boundary messages only:
@@ -354,6 +357,8 @@ def log_message(
     """
     event_type = "msg_in" if (direction or "inbound").strip().lower() == "inbound" else "msg_out"
     meta = {"store": store, "fallback": bool(fallback), "error": bool(error)}
+    if products is not None:
+        meta["products"] = list(dict.fromkeys(s for s in products if isinstance(s, str) and 0 < len(s) <= 200))[:100]
     _insert_event(
         tenant=tenant,
         channel=channel,

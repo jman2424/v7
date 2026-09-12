@@ -443,6 +443,7 @@ def chat_api():
     out_message_id = f"{message_id}:reply" if message_id else ""
 
     # ✅ KPI outbound row (dedup if retried)
+    from service.product_metrics import matched_products
     _safe_log_message(
         tenant=tenant,
         channel=channel,
@@ -457,6 +458,7 @@ def chat_api():
         error_code="",
         error_type="",
         message_id=out_message_id,
+        products=matched_products(result),
     )
 
     # ✅ error row (separate event_type='error' in analytics_db)

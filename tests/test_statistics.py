@@ -63,7 +63,7 @@ def test_statistics_route_enforces_company_boundary(client):
     assert 'leads' not in own.json
 
 
-@pytest.mark.parametrize('query',['days=0','days=-1','days=91','days=no','channel=unknown',"channel=web%27%20OR%201=1"])
+@pytest.mark.parametrize('query',['days=0','days=-1','days=366','days=no','channel=unknown',"channel=web%27%20OR%201=1"])
 def test_statistics_rejects_bad_filters(client,query):
     with client.session_transaction() as state:
         set_test_identity(client,state,{'id':'owner','roles':['business_owner'],'tenant':'EXAMPLE'})

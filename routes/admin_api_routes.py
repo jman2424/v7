@@ -328,17 +328,39 @@ def api_catalog_get():
 
 @bp.put("/catalog")
 def api_catalog_put():
+    import math
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "catalog_must_be_object"}), 400
 
     tenant = _tenant()
     before = _storage().read_json(tenant, "catalog.json")
+    from service.product_metrics import record_inventory
+    # Quantity is optional, but when supplied it is the source of availability.
+    if isinstance(data.get('categories'), list):
+        skus = []
+        for category in data['categories']:
+            if not isinstance(category, dict) or not isinstance(category.get('items'), list):
+                continue
+            for item in category['items']:
+                if not isinstance(item, dict):
+                    continue
+                skus.append(item.get('sku'))
+                quantity = item.get('stock_quantity')
+                for key in ('stock_quantity', 'low_stock_threshold'):
+                    value = item.get(key)
+                    if isinstance(value, float) and not math.isfinite(value):
+                        return jsonify(error='Stock quantities must be finite numbers.'), 400
+                if isinstance(quantity, (int, float)) and not isinstance(quantity, bool):
+                    item['in_stock'] = quantity > 0
+        if len(skus) != len(set(str(sku) for sku in skus)):
+            return jsonify(error='Product references must be unique within the company.'), 400
     try:
         snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
     except ValidationError as exc:
         return jsonify({"error": "invalid_catalog", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
+    record_inventory(tenant, before, data)
     _audit("catalog.update", f"{tenant}/catalog.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
@@ -751,13 +773,43 @@ def api_statistics():
     from service.statistics import get_statistics
 
     tenant = _tenant()
-    days = _int_arg("days", 30, maximum=90)
+    days = _int_arg("days", 30, maximum=365)
     channel = request.args.get("channel", "all")
     if channel not in {"all", "web", "whatsapp"}:
         return jsonify(error="invalid_statistics_channel"), 400
-    response = jsonify(get_statistics(tenant=tenant, days=days, channel=channel))
+    response = jsonify(get_statistics(tenant=tenant, days=days, channel=channel,
+                                      catalog=_storage().read_json(tenant, 'catalog.json')))
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@bp.post('/recorded-sales')
+def api_record_sale():
+    from service.product_metrics import record_sale
+    if not is_platform_operator() and 'business_owner' not in user_roles():
+        abort(403, description='company_owner_required')
+    tenant = _tenant()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error='Enter a sale record.'), 400
+    try:
+        result = record_sale(tenant, data, _storage().read_json(tenant, 'catalog.json'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    _audit('sale.record', f"{tenant}/{result['id']}")
+    return jsonify(result), 200
+
+
+@bp.post('/recorded-sales/<sale_id>/void')
+def api_void_sale(sale_id):
+    from service.product_metrics import void_sale
+    if not is_platform_operator() and 'business_owner' not in user_roles():
+        abort(403, description='company_owner_required')
+    tenant = _tenant()
+    if not void_sale(tenant, sale_id):
+        abort(404)
+    _audit('sale.void', f'{tenant}/{sale_id}')
+    return jsonify(ok=True)
 
 
 @bp.get("/kpis")

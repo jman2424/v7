@@ -57,6 +57,8 @@
     unit: string;
     tags: string[];
     in_stock: boolean;
+    stock_quantity?: number | null;
+    low_stock_threshold?: number;
   };
 
   type CatalogCategory = {
@@ -293,7 +295,9 @@
           price: Number(item.price || 0),
           unit: String(item.unit || 'each'),
           tags: stringList(item.tags),
-          in_stock: item.in_stock !== false
+          in_stock: item.in_stock !== false,
+          stock_quantity: typeof item.stock_quantity === 'number' ? item.stock_quantity : null,
+          low_stock_threshold: typeof item.low_stock_threshold === 'number' ? item.low_stock_threshold : 5
         })) : []
       }))
     };
@@ -800,7 +804,9 @@
       name: category.name.trim(),
       items: category.items.map((item) => ({
         sku: item.sku.trim(), name: item.name.trim(), price: Number(item.price), unit: item.unit.trim() || 'each',
-        tags: item.tags.map((tag) => tag.trim()).filter(Boolean), in_stock: Boolean(item.in_stock)
+        tags: item.tags.map((tag) => tag.trim()).filter(Boolean),
+        stock_quantity: item.stock_quantity ?? null, low_stock_threshold: item.low_stock_threshold ?? 5,
+        in_stock: item.stock_quantity == null ? Boolean(item.in_stock) : item.stock_quantity > 0
       }))
     }));
     if (!categories.length || categories.some((category) => !category.name || !category.items.length || category.items.some((item) => !item.sku || !item.name || !Number.isFinite(item.price) || item.price < 0))) {
@@ -1052,7 +1058,7 @@
       {/if}
 
       {#if section === 'statistics'}
-        {#key tenant}<Statistics {tenant} {isPlatform} canViewCosts={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#key tenant}<Statistics {tenant} {csrf} {isPlatform} canViewCosts={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'whatsapp-qr'}
         {#key tenant}<WhatsAppQr {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
@@ -1193,8 +1199,13 @@
                   <input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required />
                   <input bind:value={item.unit} aria-label="Offering unit" required />
                   <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Offering tags" placeholder="gift, summer" />
-                  <label class="stock-toggle"><input bind:checked={item.in_stock} type="checkbox" /><span>{item.in_stock ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
+                  <label class="stock-toggle"><input checked={item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0} on:change={(event)=>item.in_stock=event.currentTarget.checked} disabled={item.stock_quantity != null} type="checkbox" /><span>{(item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0) ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
                   <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>Remove</button>
+                </div>
+                <div class="inventory-fields">
+                  <label>Stock quantity · {item.name}<input bind:value={item.stock_quantity} type="number" min="0" max="1000000000" step="any" placeholder="Not counted" /></label>
+                  <label>Low-stock alert at<input bind:value={item.low_stock_threshold} type="number" min="0" max="1000000000" step="any" placeholder="5" /></label>
+                  <p>Use {item.unit || 'catalogue'} units. Leave quantity blank if untracked. A saved quantity of zero marks this offering unavailable.</p>
                 </div>
               {/each}
             </div>
@@ -1360,6 +1371,8 @@
 {/if}
 
 <style>
+  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce3dc;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#526359;margin:0;line-height:1.5}
+
   :global(body) { background: #f7f7f2; }
   .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #67706b; }
   .login-shell { padding: 24px; }
@@ -1465,7 +1478,6 @@
   .product-table { overflow-x: auto; border: 1px solid #e2e7ee; border-radius: 6px; }
   .product-table-head, .product-row { display: grid; grid-template-columns: minmax(190px, 1.4fr) minmax(150px, 1fr) 96px 92px minmax(170px, 1fr) 86px 76px; gap: 8px; align-items: center; min-width: 880px; padding: 9px 10px; }
   .product-table-head { color: #667085; background: #f8fafc; border-bottom: 1px solid #e2e7ee; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-  .product-row + .product-row { border-top: 1px solid #edf0f4; }
   .product-row input { min-width: 0; }
   .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
   .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
