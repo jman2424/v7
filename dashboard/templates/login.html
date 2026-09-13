@@ -47,7 +47,7 @@
         />
       </label>
 
-      <label>Authenticator code (if configured)
+      <label>Authenticator code (or continue to set up)
         <input
           name="totp"
           maxlength="6"
@@ -59,7 +59,7 @@
         />
       </label>
 
-      <p class="muted">Platform admins need an authenticator configured before signing in to production.</p>
+      <p class="muted">Every management account requires two-factor authentication. Continue to the console to set up or verify your authenticator.</p>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
       <button class="btn btn--primary" type="submit">Login</button>

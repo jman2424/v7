@@ -71,6 +71,9 @@ def test_auth_api_session_returns_tenant_scoped_identity(client, monkeypatch):
         "/auth/login",
         json={"email": "owner@example.test", "password": "strong-test-password", "tenant": "EXAMPLE"},
     )
+    assert login.status_code == 202
+    from service.security import generate_totp_token
+    login = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(login.json['mfa']['setup_key'])})
     assert login.status_code == 200
     assert login.get_json()["user"]["tenant"] == "EXAMPLE"
     assert login.get_json()["csrf_token"]
@@ -93,6 +96,9 @@ def test_business_owner_login_is_bound_to_its_tenant(client, monkeypatch):
         "/auth/login",
         json={"email": owner["email"], "password": "owner-test-password", "tenant": "EXAMPLE"},
     )
+    assert allowed.status_code == 202
+    from service.security import generate_totp_token
+    allowed = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(allowed.json['mfa']['setup_key'])})
     assert allowed.status_code == 200
     assert allowed.get_json()["user"]["roles"] == ["business_owner"]
 

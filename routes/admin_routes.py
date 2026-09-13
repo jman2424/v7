@@ -163,6 +163,10 @@ def login_submit():
         )
 
     secret = user.get("totp_secret") or ""
+    if not secret or not totp_code:
+        from service.account_mfa import begin
+        begin(user, tenant)
+        return redirect('/console/')
     if not verify_totp(secret, totp_code):
         limiter.record_failure(attempt_key)
         return (
@@ -176,7 +180,7 @@ def login_submit():
         )
 
     limiter.reset(attempt_key)
-    identity = establish_authenticated_session(user, tenant)
+    identity = establish_authenticated_session(user, tenant, mfa_verified=True)
     session["admin_session_id"] = identity["id"]
 
     return _redirect("admin_ui.dashboard")

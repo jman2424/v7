@@ -91,6 +91,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(catalog_bp)
     app.register_blueprint(mode_bp)
     app.register_blueprint(owner_console_bp)
+    from routes.billing_routes import bp as billing_bp
+    app.register_blueprint(billing_bp)
 
     from routes.admin_api_routes import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
@@ -105,7 +107,7 @@ def _install_error_handlers(app: Flask) -> None:
         # Only expose known, safe login reasons. Other internal descriptions
         # must not appear in API errors or operational logs.
         login_messages = {
-            "mfa_setup_required": "Your password was accepted, but this platform admin account needs two-factor authentication before it can sign in. Configure its authenticator on the server, then enter the six-digit code.",
+            "mfa_setup_required": "Your password was accepted. Complete authenticator setup and verification in the console before signing in.",
             "csrf_failed": "Your sign-in page expired or its cookie was blocked. Reload the page, allow cookies for this site, and try again.",
         }
         reason = err.description if request.path in {"/auth/login", "/admin/login"} and err.code == 403 and err.description in login_messages else None

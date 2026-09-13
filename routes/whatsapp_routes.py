@@ -89,6 +89,9 @@ def _reply(c, event, source):
 
 
 def _process(c, event, source):
+    from service.subscriptions import whatsapp_enabled
+    if not whatsapp_enabled(c.settings.BUSINESS_KEY):
+        return ''
     raw = event.get("raw", {})
     message_id = raw.get("id") if source == "cloud" else raw.get("MessageSid")
     if not isinstance(message_id, str) or not message_id or len(message_id) > 200:

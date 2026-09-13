@@ -275,7 +275,9 @@ def _revision(identity):
         if len(candidates) != 1 or candidates[0].get("active") is False:
             return None
         data = candidates[0]
-    return hmac.new(current_app.secret_key.encode(), json.dumps(data, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+    from service.account_mfa import enrolled_secret
+    protected = {'account': data, 'mfa_policy': 'all-accounts-v1', 'enrolled_secret': enrolled_secret(identity)}
+    return hmac.new(current_app.secret_key.encode(), json.dumps(protected, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
 
 def _verify_password(password: str, password_hash: str) -> bool:
@@ -313,6 +315,18 @@ def _registry_users(c: Any) -> list[dict[str, Any]]:
 
 
 def authenticate_user(
+    c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
+) -> Optional[Dict[str, Any]]:
+    user = _authenticate_user(c, email=email, password=password, tenant=tenant)
+    if user:
+        if user.get('tenant') and tenant and user['tenant'] != tenant:
+            return None
+        from service.account_mfa import enrolled_secret
+        user['totp_secret'] = user.get('totp_secret') or enrolled_secret(user)
+    return user
+
+
+def _authenticate_user(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
     """Authenticate a server-configured account; never take role/tenant from input."""
@@ -402,11 +416,10 @@ def verify_totp(secret: str, code: str) -> bool:
     return False
 
 
-def start_management_session(user: dict[str, Any], tenant: str = "") -> dict[str, Any]:
+def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_verified: bool = False) -> dict[str, Any]:
     """Rotate login state, storing only a safe, signed identity in the cookie."""
     identity = {key: user[key] for key in ("id", "email", "roles")}
-    c = getattr(current_app, "container", None)
-    if is_platform_admin(identity) and (c.settings.BASE_URL.startswith("https://") or current_app.config.get("SESSION_COOKIE_SECURE") or c.settings.ENVIRONMENT in {"production", "prod"}) and not user.get("totp_secret"):
+    if not mfa_verified or not user.get("totp_secret"):
         abort(403, description="mfa_setup_required")
     identity["tenant"] = user.get("tenant") or tenant
     revision = _revision(identity)

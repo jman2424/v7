@@ -27,19 +27,33 @@ password changes and role changes invalidate existing sessions. Existing
 BUSINESS_USERS_JSON and tenant-managed bcrypt accounts remain supported.
 Tenant accounts can be managed on the console's Team access page.
 
-Platform admins must configure an authenticator TOTP secret to log in when
-BASE_URL uses HTTPS, secure cookies are enabled, or ENVIRONMENT is production.
-TOTP codes allow one 30-second step of clock skew; a valid
-code is not currently single-use within that window. Owners may configure TOTP.
-There is no self-service account recovery or authenticator enrollment screen.
-The environment admin fallback remains for compatibility; prefer the registry.
+All management accounts (platform administrator, business owner and staff) must
+complete password and authenticator verification in every environment. A correct
+password with no enrolled authenticator starts a five-minute enrollment challenge
+and returns a locally generated QR code. Until a valid code is confirmed, no
+management session or tenant data is available. Existing configured TOTP secrets
+are preserved; they never appear in setup responses. Legacy `/admin/login` sends
+accounts to `/console/` for enrollment or verification when needed.
+
+Only an opaque challenge token and CSRF token enter the signed cookie. Pending
+secrets and enrolled authenticators live in the private `SECURITY_DB_PATH` SQLite
+database. Treat that database as credential storage: use persistent storage,
+restrict access, and include it in protected backups. Enrollment allows five
+attempts and also shares the server login rate limit. Challenges are single-use,
+bound to the browser and account credential revision, and cannot replace an
+existing authenticator. Existing sessions must sign in again after this policy
+upgrade. A TOTP permits one time step of clock skew; reuse within that short
+window is not currently prevented for the legacy combined password/code login.
+
+There is no public registration or unauthenticated MFA reset. Losing an existing
+authenticator requires operator recovery through the server's protected account
+configuration. Do not delete the security database as an account recovery method.
 
 ### A correct password is followed by Forbidden
 
-On production/HTTPS deployments a platform admin without a configured
-authenticator is denied access. The login response now identifies this as
-`mfa_setup_required` and explains the setup requirement; it does not indicate a
-password change. Invalid passwords still return `invalid_credentials`.
+A correct password now returns an HTTP 202 verification/enrollment challenge.
+Complete it in the console. Invalid passwords still return `invalid_credentials`.
+Local preview accounts exist only on localhost and cannot sign in on Render.
 
 For the environment admin, generate a private Base32 TOTP secret locally,
 add that key to your authenticator as a time-based account, and save the same

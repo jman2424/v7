@@ -35,6 +35,9 @@ def test_platform_operator_creates_tenant_owner_who_can_sign_in(client):
         "/auth/login",
         json={"email": "owner@example.test", "password": "correct-horse-battery-staple", "tenant": "EXAMPLE"},
     )
+    assert login.status_code == 202
+    from service.security import generate_totp_token
+    login = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(login.json['mfa']['setup_key'])})
     assert login.status_code == 200
     assert login.get_json()["user"]["roles"] == ["business_owner"]
     assert login.get_json()["user"]["tenant"] == 'EXAMPLE'

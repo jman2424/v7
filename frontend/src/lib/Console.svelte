@@ -3,6 +3,7 @@
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
   import PlatformOverview from './PlatformOverview.svelte';
+  import Subscription from './Subscription.svelte';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
   import ApiUsage from './ApiUsage.svelte';
@@ -10,7 +11,7 @@
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -222,6 +223,7 @@
   let email = '';
   let password = '';
   let totp = '';
+  let mfa: {enrollment:boolean;email:string;setup_key?:string;qr_image?:string}|null = null;
   let loginError = '';
   let formStatus = '';
   let formError = false;
@@ -265,7 +267,7 @@
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
   $: navigationSections = isPlatform
-    ? [['platform','Platform overview'], ['companies','Companies'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','usage'].includes(key))]
+    ? [['platform','Platform overview'], ['companies','Companies'], ['subscription','Subscriptions'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','subscription','usage'].includes(key))]
     : Object.entries(sections).filter(([key])=>key!=='platform');
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
   $: canManageAccounts = Boolean(user?.roles?.some(role=>role==='platform_admin'||role==='admin'||role==='business_owner'));
@@ -565,6 +567,7 @@
     if (!response.ok) return;
     const data = await readJson(response);
     user = data.user;
+    mfa = data.mfa || null;
     csrf = data.csrf_token || '';
     tenant = user?.tenant || tenant;
     if (user) {
@@ -594,6 +597,9 @@
       body: JSON.stringify({ email, password, totp, tenant })
     });
     const data = await readJson(response);
+    if (response.status === 202 && data.mfa_required) {
+      mfa = data.mfa; csrf = data.csrf_token; password = ''; totp = ''; return;
+    }
     if (!response.ok) {
       loginError = data.message || data.error || 'Sign-in failed.';
       return;
@@ -604,6 +610,22 @@
     await loadTenantWorkspace(tenant);
     await loadTenants();
     await openDefaultWorkspace();
+  }
+
+  async function confirmMfa() {
+    loginError = '';
+    try {
+      const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp})});
+      const data = await readJson(response);
+      if (!response.ok) {loginError = data.error === 'sign_in_again' ? 'This sign-in expired. Start again.' : 'Code not accepted. Check your authenticator and try again.'; return;}
+      mfa = null; totp = ''; user = data.user; csrf = data.csrf_token; tenant = user?.tenant || tenant;
+      await loadTenantWorkspace(tenant); await loadTenants(); await openDefaultWorkspace();
+    } catch {loginError = 'Could not complete sign-in. Please try again.';}
+  }
+
+  async function restartLogin() {
+    await fetch(apiPath('/auth/logout'), {method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf}});
+    mfa = null; totp = ''; password = ''; loginError = ''; await restoreSession();
   }
 
   async function openDefaultWorkspace() {
@@ -1020,16 +1042,27 @@
   <main class="loading" aria-live="polite">Loading owner console...</main>
 {:else if !user}
   <main class="login-shell">
-    <form class="login" on:submit|preventDefault={login}>
+    <form class="login" on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="product-mark">V7</div>
-      <h1>Owner console</h1>
-      <p>Sales agent control for your business.</p>
-      <label>Tenant key<input bind:value={tenant} autocomplete="organization" required /></label>
+      <h1>{mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7'}</h1>
+      {#if mfa}
+      <p>{mfa.email} · Every management account requires an authenticator.</p>
+      {#if mfa.enrollment}
+        <p>Scan this QR code in your authenticator app, then enter its six-digit code. Keep the setup key private.</p>
+        <img class="mfa-qr" src={mfa.qr_image} alt="Scan to set up your V7 authenticator"/>
+        <details><summary>Enter a setup key instead</summary><code class="mfa-key">{mfa.setup_key}</code></details>
+      {/if}
+      <label>Authenticator code<input bind:value={totp} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required /></label>
+      <button class="secondary" type="button" on:click={restartLogin}>Start again</button>
+      {:else}
+      <p>Use an account created on this site. Local preview passwords do not work on the live website.</p>
+      <label>Company key<input bind:value={tenant} autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
       <label>Email<input bind:value={email} type="email" autocomplete="username" required /></label>
       <label>Password<input bind:value={password} type="password" autocomplete="current-password" required /></label>
-      <label>Authenticator code <span>If configured; required for platform admins in production</span><input bind:value={totp} inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label>
+      <p>Two-factor verification follows after your password is accepted.</p>
+      {/if}
       {#if loginError}<div class="notice error">{loginError}</div>{/if}
-      <button class="primary" type="submit">Sign in</button>
+      <button class="primary" type="submit">{mfa ? 'Verify and sign in' : 'Continue'}</button>
     </form>
   </main>
 {:else}
@@ -1041,7 +1074,7 @@
         {#each navigationSections as [key,label]}
           {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
           {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
-          {#if (key !== 'usage' || isPlatform || user.roles.includes('business_owner')) && (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
+          {#if (!['usage','subscription'].includes(key) || isPlatform || user.roles.includes('business_owner')) && (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
             <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
@@ -1065,6 +1098,11 @@
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
+      {/if}
+
+      {#if section === 'subscription'}
+        {#if isPlatform || isOwner}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)}/>{/key}
+        {:else}<section class="surface"><div class="surface-body"><p>Subscription information is available to the company owner.</p></div></section>{/if}
       {/if}
 
       {#if section === 'conversations'}
@@ -1399,6 +1437,7 @@
 {/if}
 
 <style>
+  .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#b8c8bd;padding:12px 12px 2px;grid-column:1/-1}
   .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#526359}.company-scope small{font-size:12px;color:#526359}
   .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce3dc;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#526359;margin:0;line-height:1.5}

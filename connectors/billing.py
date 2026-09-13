@@ -34,6 +34,7 @@ from typing import Any, Dict, Optional, Tuple
 import urllib.parse
 import urllib.request
 import urllib.error
+import math
 
 
 JsonDict = Dict[str, Any]
@@ -215,6 +216,26 @@ class BillingClient:
 
     # ------------- Stripe -------------
 
+    def stripe_request(self, method: str, path: str, data: Optional[JsonDict] = None, *, idempotency_key: str = "") -> JsonDict:
+        """Direct Stripe API calls with bounded waits and explicit API shape."""
+        if self.provider != 'stripe' or not self.api_key or not path.startswith('/v1/'):
+            raise ValueError('stripe_not_configured')
+        # Credentials are sent only to Stripe, never to a caller-controlled origin.
+        headers = {'Authorization': 'Bearer '+self.api_key, 'Stripe-Version': '2025-06-30.basil',
+                   'Content-Type':'application/x-www-form-urlencoded'}
+        if idempotency_key:
+            headers['Idempotency-Key'] = idempotency_key
+        encoded = urllib.parse.urlencode(data or {}).encode() if method == 'POST' else None
+        req = urllib.request.Request('https://api.stripe.com'+path, data=encoded, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                result = json.loads(response.read(2_000_000))
+        except (OSError, ValueError) as exc:
+            raise ValueError('stripe_request_failed') from exc
+        if not isinstance(result, dict):
+            raise ValueError('stripe_response_invalid')
+        return result
+
     def _stripe_checkout(
         self,
         *,
@@ -255,23 +276,23 @@ class BillingClient:
     def _verify_stripe(self, signature_header: str, body: bytes) -> bool:
         """
         Stripe signature: t=timestamp, v1=HMAC_SHA256(secret, "{t}.{payload}")
-        We implement the common v1 case. If header missing, accept only if secret not set.
+        Fail closed without a secret, and accept any valid v1 during key rotation.
         """
         secret = self.webhook_secret
         if not secret:
-            return True
+            return False
         try:
-            parts = dict(item.split("=", 1) for item in signature_header.split(","))
-            ts = parts.get("t")
-            v1 = parts.get("v1")
-            if not ts or not v1:
+            parts = [item.strip().split("=", 1) for item in signature_header.split(",")]
+            ts = next((value for key, value in parts if key == 't'), '')
+            signatures = [value for key, value in parts if key == 'v1']
+            if not ts or not signatures:
                 return False
             signed = f"{ts}.{body.decode('utf-8')}".encode("utf-8")
             digest = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
             # optional: reject stale timestamps (e.g., >5 minutes)
-            if abs(time.time() - float(ts)) > 300:
+            if not math.isfinite(float(ts)) or abs(time.time() - float(ts)) > 300:
                 return False
-            return hmac.compare_digest(digest, v1)
+            return any(hmac.compare_digest(digest, value) for value in signatures)
         except Exception:
             return False
 

@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-const sections = ['platform','pipeline','statistics','test','implementation','whatsapp-qr','usage','conversations','agent','website','integrations','catalog','offers','faqs','delivery','profile','branches','team','companies','errors'];
+const sections = ['subscription','platform','pipeline','statistics','test','implementation','whatsapp-qr','usage','conversations','agent','website','integrations','catalog','offers','faqs','delivery','profile','branches','team','companies','errors'];
 export function entries() { return sections.map(section => ({section})); }
 export function load({ params }: { params: { section: string } }) {
   if (!sections.includes(params.section)) error(404, 'Page not found');

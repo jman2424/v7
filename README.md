@@ -287,3 +287,54 @@ See [security and operations](docs/SECURITY.md) for account setup, persistence,
 webhook configuration and remaining limitations. Run `python -m pytest`,
 `python -m ruff check .`, and `npm run check` / `npm run build` in `frontend`
 before release.
+
+### Subscription payments and mandatory two-factor authentication
+
+Every management account now completes authenticator verification. New accounts
+scan their own QR after their password is accepted; this does not grant dashboard
+access until a valid code is confirmed. Local preview credentials are not live
+Render credentials. Existing server-configured admin passwords and authenticators
+are unchanged. See [security and recovery](docs/SECURITY.md).
+
+The `/console/subscription` page shows the £400 monthly platform subscription,
+£200 one-time implementation and optional £200 monthly WhatsApp add-on. Each has
+20% exclusive VAT: £480/month, £240 once and £240/month respectively. Only platform
+administrators create tenants and see the all-company subscription list. Owners
+see their own billing; staff cannot see billing. API billing requires explicit
+platform approval of a completed month's amount; usage estimates are not charged
+automatically. No real Stripe charge is taken by tests or by deploying the code.
+
+Stripe setup (server-side only):
+- Set `BILLING_PROVIDER=stripe`, `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and
+  `STRIPE_TAX_RATE_ID` for an active **20% exclusive** tax rate.
+- Point Stripe webhooks to `/billing/stripe/webhook`; subscribe to
+  `checkout.session.completed`, `customer.subscription.created`,
+  `customer.subscription.updated`, `customer.subscription.deleted`,
+  `invoice.paid`, `invoice.payment_failed`, `invoice.finalized`, `invoice.updated`,
+  `invoice.voided`, and `invoice.marked_uncollectible`.
+- Enable the Stripe customer portal for payment method changes and subscription
+  cancellation. The portal uses the authenticated company's stored customer ID.
+- Use a Stripe test account first. Checkout accepts server-owned GBP prices;
+  implementation appears only on the first platform invoice. Each WhatsApp add-on
+  has its own monthly subscription and invoice history.
+- Use **persistent** `SECURITY_DB_PATH`, `V7_DATA_DIR` and `ANALYTICS_DB_PATH`
+  storage before onboarding paying companies. This deployment's previous free
+  Render instance has ephemeral local storage; deploying code alone does not
+  configure durable billing, account, authenticator or usage storage.
+
+Only signature-verified webhooks update payments. The server re-fetches Stripe
+objects, scopes them to recorded billing references and upserts invoices by ID;
+retries do not duplicate totals. Checkout redirects never grant paid status.
+Amounts are stored as integer pence. Totals are recorded invoice payments before
+refunds; credit notes/refunds are managed in Stripe and are not netted here yet.
+History shows up to 120 invoices, and recorded API usage up to 24 calendar months.
+
+WhatsApp deactivation pauses bot responses immediately and cancels renewal at the
+paid-through date, without automatic refunds. Reactivation before expiry resumes
+renewals. An expired subscription requires new checkout. Existing integrations
+remain available before Stripe configuration; after billing is configured,
+WhatsApp requires an active, unexpired, unpaused contract. Routes remain present.
+
+Implementation references: [Stripe Checkout](https://docs.stripe.com/api/checkout/sessions/create),
+[subscription events](https://docs.stripe.com/billing/subscriptions/webhooks), and
+[signature verification](https://docs.stripe.com/webhooks/signature).

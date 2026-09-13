@@ -25,7 +25,7 @@ def install_request_id(app):
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
-        if request.path.startswith(("/admin", "/auth", "/files", "/analytics", "/__diag", "/console")):
+        if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] += "; frame-ancestors 'none'"
@@ -45,7 +45,7 @@ def install_rate_limit(app, settings):
     def limit():
         # Do not trust caller-supplied forwarded IP headers.
         ip = request.remote_addr or "unknown"
-        login = request.method == "POST" and request.path in {"/auth/login", "/admin/login"}
+        login = request.method == "POST" and request.path in {"/auth/login", "/admin/login", "/auth/mfa/confirm"}
         if login:
             from service.session_store import allow_login
             if not allow_login(ip):
@@ -72,7 +72,7 @@ def install_csrf(app, settings):
     @app.before_request
     def csrf():
         # Webhooks and chat have separate authentication.
-        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook"}:
+        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook"}:
             return
         if "_csrf" not in session:
             session["_csrf"] = secrets.token_urlsafe(32)

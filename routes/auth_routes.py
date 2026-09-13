@@ -45,13 +45,17 @@ def login_post():
         limiter.record_failure(attempt_key)
         return jsonify({"ok": False, "error": "invalid_credentials"}), 401
 
-    if user.get("totp_secret"):
-        if not totp or not verify_totp(user["totp_secret"], totp):
+    if user.get("totp_secret") and totp:
+        if not verify_totp(user["totp_secret"], totp):
             limiter.record_failure(attempt_key)
             return jsonify({"ok": False, "error": "invalid_credentials"}), 401
+    else:
+        from service.account_mfa import begin
+        mfa = begin(user, tenant)
+        return jsonify(ok=False, mfa_required=True, mfa=mfa, csrf_token=session['_csrf']), 202
 
     limiter.reset(attempt_key)
-    identity = establish_authenticated_session(user, tenant)
+    identity = establish_authenticated_session(user, tenant, mfa_verified=True)
     return jsonify({"ok": True, "user": identity, "csrf_token": session.get("_csrf", "")})
 
 
@@ -59,7 +63,8 @@ def login_post():
 def session_get():
     user = session.get("user")
     if not isinstance(user, dict):
-        return jsonify({"ok": True, "user": None, "csrf_token": session.get("_csrf", "")})
+        from service.account_mfa import pending
+        return jsonify({"ok": True, "user": None, "mfa": pending(), "csrf_token": session.get("_csrf", "")})
     if not is_authenticated_account_active(get_container().storage):
         clear_authenticated_session()
         abort(401, description="unauthorized")
@@ -70,3 +75,17 @@ def session_get():
 def logout_post():
     clear_authenticated_session()
     return jsonify({"ok": True})
+
+
+@bp.post('/mfa/confirm')
+def mfa_confirm():
+    from service.account_mfa import confirm
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('code'), str):
+        return jsonify(error='invalid_authenticator_code'), 400
+    try:
+        user = confirm(data['code'])
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 401
+    identity = establish_authenticated_session(user, user['tenant'], mfa_verified=True)
+    return jsonify(ok=True, user=identity, csrf_token=session['_csrf'])

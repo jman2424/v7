@@ -58,6 +58,13 @@ def login(client, email="owner@example.test", password="Test-only-password-42!")
     csrf = client.get("/auth/session").json["csrf_token"]
     response = client.post("/auth/login", json={"email": email, "password": password},
                            headers={"X-CSRF-Token": csrf})
+    if response.status_code == 202:
+        from service.account_mfa import enrolled_secret
+        from service.security import generate_totp_token
+        details = response.json['mfa']
+        with client.application.app_context():
+            secret = details.get('setup_key') or enrolled_secret({'id':email,'email':email,'roles':['platform_admin'] if email.startswith('admin@') else ['business_owner'],'tenant':'ALPHA'})
+        response = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(secret)}, headers={'X-CSRF-Token':response.json['csrf_token']})
     assert response.status_code == 200, response.json
     return response.json["csrf_token"]
 
@@ -243,9 +250,9 @@ def test_production_platform_login_explains_mfa_without_granting_access(platform
     csrf = client.get("/auth/session").json["csrf_token"]
     response = client.post("/auth/login", json={"email": "admin@example.test", "password": platform[2]},
                            headers={"X-CSRF-Token": csrf})
-    assert response.status_code == 403
-    assert response.json["error"] == "mfa_setup_required"
-    assert "password was accepted" in response.json["message"]
+    assert response.status_code == 202
+    assert response.json["mfa_required"]
+    assert response.json["mfa"]["enrollment"]
     assert client.get("/admin/api/platform").status_code == 401
 
 
@@ -261,9 +268,8 @@ def test_mfa_setup_message_is_only_shown_after_correct_password(platform):
     assert response.json["error"] == "invalid_credentials"
     response = client.post("/admin/login", data={"email": "admin@example.test", "password": platform[2],
                                                 "csrf_token": csrf})
-    assert response.status_code == 403
-    assert "password was accepted" in response.text
-    assert 'name="csrf_token"' in response.text
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/console/"
     assert platform[2] not in response.text
     assert client.get("/admin/api/platform").status_code == 401
 
@@ -281,7 +287,9 @@ def test_production_admin_keeps_password_after_authenticator_configuration(platf
     csrf = client.get("/auth/session").json["csrf_token"]
     credentials = {"email": "admin@example.test", "password": password}
     headers = {"X-CSRF-Token": csrf}
-    assert client.post("/auth/login", json=credentials, headers=headers).status_code == 401
+    challenge = client.post("/auth/login", json=credentials, headers=headers)
+    assert challenge.status_code == 202
+    headers = {"X-CSRF-Token":challenge.json["csrf_token"]}
     response = client.post("/auth/login", json={**credentials, "totp": generate_totp_token(secret)}, headers=headers)
     assert response.status_code == 200
     assert client.get("/admin/api/platform").status_code == 200
