@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
+  import { goto } from '$app/navigation';
+  import PlatformOverview from './PlatformOverview.svelte';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
   import ApiUsage from './ApiUsage.svelte';
@@ -8,7 +10,7 @@
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
   export let section = 'pipeline';
-  const sections: Record<string, string> = {pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
   let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
   let errorStatus = '';
@@ -262,9 +264,12 @@
   const leadStatuses: LeadStatus[] = ['Open', 'Contacted', 'Qualified', 'Won', 'Lost'];
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
+  $: navigationSections = isPlatform
+    ? [['platform','Platform overview'], ['companies','Companies'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','usage'].includes(key))]
+    : Object.entries(sections).filter(([key])=>key!=='platform');
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
-  $: canManageAccounts = hasAccountManagementAccess();
-  $: if (!isPlatform && accountRole !== 'business_staff') accountRole = 'business_staff';
+  $: canManageAccounts = Boolean(user?.roles?.some(role=>role==='platform_admin'||role==='admin'||role==='business_owner'));
+  $: if (user) accountRole = isPlatform ? 'business_owner' : 'business_staff';
 
   function apiPath(path: string) {
     // The dev server proxies API requests. In production Flask serves this
@@ -598,6 +603,18 @@
     tenant = user?.tenant || tenant;
     await loadTenantWorkspace(tenant);
     await loadTenants();
+    await openDefaultWorkspace();
+  }
+
+  async function openDefaultWorkspace() {
+    if (user?.roles?.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
+      await goto(base+'/platform', {replaceState:true});
+    }
+  }
+
+  async function openCompanyWorkspace(company: string, screen: string) {
+    await selectTenant(company);
+    await goto(base+'/'+screen);
   }
 
   async function logout() {
@@ -690,7 +707,7 @@
       accountError = true;
       return;
     }
-    accountStatus = `${data.account.email} can now sign in.`;
+    accountStatus = `${data.account.email} can now sign in for ${tenant} only.`;
     accountEmail = '';
     accountPassword = '';
     await loadAccounts(tenant);
@@ -987,6 +1004,7 @@
   onMount(async () => {
     try {
       await restoreSession();
+      await openDefaultWorkspace();
     } finally {
       loading = false;
     }
@@ -1017,28 +1035,37 @@
 {:else}
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="side-brand"><span>V7</span><strong>{tenant}</strong><small>Sales agent workspace</small></div>
+      <div class="side-brand"><span>V7</span><strong>{isPlatform ? 'Platform admin' : tenant}</strong><small>{isPlatform ? 'All-business management' : 'Sales agent workspace'}</small></div>
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>Menu</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
-        {#each Object.entries(sections) as [key,label]}
+        {#each navigationSections as [key,label]}
+          {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
+          {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
           {#if (key !== 'usage' || isPlatform || user.roles.includes('business_owner')) && (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
             <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
       </nav>
-      <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : 'Business owner'}</span></div>
+      <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : user.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span></div>
     </aside>
 
     <main class="workspace">
       <header class="workspace-head">
         <div><p class="eyebrow">{isPlatform ? 'Platform workspace' : 'Business workspace'}</p><h1>{pageTitle}</h1></div>
         <div class="workspace-actions">
-        {#if isPlatform && tenants.length > 0}
+        {#if isPlatform && tenants.length > 0 && !['platform','companies'].includes(section)}
           <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
+        {:else if !isPlatform}
+          <div class="company-scope"><span>Company</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
         {/if}
           <button class="secondary sign-out" type="button" on:click={logout}>Sign out</button>
         </div>
       </header>
+
+      {#if section === 'platform'}
+        {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
+        {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
+      {/if}
 
       {#if section === 'conversations'}
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
@@ -1058,7 +1085,7 @@
       {/if}
 
       {#if section === 'statistics'}
-        {#key tenant}<Statistics {tenant} {csrf} {isPlatform} canViewCosts={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#key tenant}<Statistics {tenant} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'whatsapp-qr'}
         {#key tenant}<WhatsAppQr {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
@@ -1118,6 +1145,7 @@
         {#if section === 'team'}
       <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
+          <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong> only. Business owners cannot switch companies or access platform administration. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff for your own company.'}</p></div>
           <form class="team-form" on:submit|preventDefault={createAccount}>
             <label>Email<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
             {#if isPlatform}
@@ -1371,6 +1399,8 @@
 {/if}
 
 <style>
+  .nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#b8c8bd;padding:12px 12px 2px;grid-column:1/-1}
+  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#526359}.company-scope small{font-size:12px;color:#526359}
   .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce3dc;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#526359;margin:0;line-height:1.5}
 
   :global(body) { background: #f7f7f2; }

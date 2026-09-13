@@ -131,6 +131,18 @@ and `errors` pages. The Flask dashboard at `/admin` provides separate overview,
 company monitoring, conversation, error, knowledge and integration pages.
 Permissions are enforced by the APIs as well as the navigation.
 
+Platform administrators signing in at `/console/` land on `/console/platform`,
+which lists companies, recorded activity and issues, with company-specific links
+to workspaces, statistics and owner/staff accounts. The existing platform-only
+`/admin/api/platform` supplies this overview. Company owners retain their own
+workspace and a fixed company label; changing tenant query parameters or signing
+in against another company does not grant access. Use Team access as a platform
+administrator to create a `business_owner` for the selected company. Owner-created
+accounts are restricted to staff within their own company.
+
+API usage and cost appears only on its dedicated `/console/usage` page; the
+duplicate Statistics cost tab has been removed.
+
 Conversations uses the same console layout with separate message, lead and common
 question views. Profile and delivery forms use the available page width and wrap
 on smaller screens. Saving delivery or branch settings retains existing postcode

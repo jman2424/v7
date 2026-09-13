@@ -1,14 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { base } from '$app/paths';
-  import ApiUsage from './ApiUsage.svelte';
   import PerformanceStatistics from './PerformanceStatistics.svelte';
   import ProductStatistics from './ProductStatistics.svelte';
   import type {ReplyReport,Commerce} from './statisticsTypes';
   export let tenant: string;
   export let csrf = '';
-  export let isPlatform = false;
-  export let canViewCosts = false;
+  export let canRecordSales = false;
   export let apiPrefix = '';
   type Metrics = {inbound:number;outbound:number;sessions:number;fallbacks:number;errors:number;handoffs:number;contacts:number};
   type Breakdown = {label:string;count:number};
@@ -58,10 +56,7 @@
 </script>
 
 <section class="statistics" aria-label="Company statistics">
-  <nav aria-label="Statistics views">{#each views as item}<button class:active={view===item.id} aria-pressed={view===item.id} on:click={()=>view=item.id}>{item.label}</button>{/each}{#if canViewCosts}<button class:active={view==='cost'} aria-pressed={view==='cost'} on:click={()=>view='cost'}>API usage &amp; cost</button>{/if}</nav>
-  {#if view==='cost' && canViewCosts}
-    <ApiUsage {tenant} {isPlatform} {apiPrefix} />
-  {:else}
+  <nav aria-label="Statistics views">{#each views as item}<button class:active={view===item.id} aria-pressed={view===item.id} on:click={()=>view=item.id}>{item.label}</button>{/each}</nav>
     <div class="toolbar"><div><h2>{tenant} · recorded activity</h2><p>Compare customer activity and find areas that need attention.</p></div><div class="filters"><label>Period<select bind:value={days}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={180}>Last 180 days</option><option value={365}>Last 365 days</option></select></label><label>Channel<select bind:value={channel}><option value="all">All channels</option><option value="web">Web chat</option><option value="whatsapp">WhatsApp</option></select></label><button disabled={busy} on:click={()=>refresh(days,channel)}>Refresh</button></div></div>
     {#if busy}<p role="status">Loading statistics…</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -71,7 +66,7 @@
       {#if view==='performance'}
         <PerformanceStatistics replies={data.replies} previous={data.previous_replies} daily={data.daily} hours={data.hours} topics={data.topics_daily} pipeline={data.pipeline}/>
       {:else if view==='products'}
-        <ProductStatistics data={data.commerce} days={data.daily.map(row=>row.day)} {tenant} {csrf} {apiPrefix} canRecord={canViewCosts} bind:view={productView} bind:selected={selectedProduct} on:refresh={()=>refresh(days,channel)}/>
+        <ProductStatistics data={data.commerce} days={data.daily.map(row=>row.day)} {tenant} {csrf} {apiPrefix} canRecord={canRecordSales} bind:view={productView} bind:selected={selectedProduct} on:refresh={()=>refresh(days,channel)}/>
       {:else if view==='overview'}
         <div class="metrics">{#each metrics as metric}<article class="panel metric"><h3>{metric.label}</h3><strong>{number(data.current[metric.key])}</strong><p>{change(data.current[metric.key],data.previous[metric.key])}</p></article>{/each}</div>
         <article class="panel"><h3>Daily message activity</h3><p class="legend"><span>━ Customer messages</span><span>┄ Agent replies</span></p>
@@ -92,7 +87,6 @@
       {/if}
       <p class="hint">Figures include only retained records. Missing logging or replaced ephemeral storage can leave gaps. A fallback is a reply flagged as a fallback by the response engine; it is not an independent accuracy score. QR scans are not tracked.</p>
     {/if}
-  {/if}
 </section>
 
 <style>

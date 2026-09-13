@@ -14,6 +14,7 @@ def _as_owner(client, tenant: str = "EXAMPLE") -> None:
 
 def test_platform_operator_creates_tenant_owner_who_can_sign_in(client):
     _as_platform_admin(client)
+    assert client.post('/admin/api/tenants', json={'key':'OTHER','name':'Other company'}).status_code == 201
     created = client.post(
         "/admin/api/accounts",
         json={
@@ -36,6 +37,15 @@ def test_platform_operator_creates_tenant_owner_who_can_sign_in(client):
     )
     assert login.status_code == 200
     assert login.get_json()["user"]["roles"] == ["business_owner"]
+    assert login.get_json()["user"]["tenant"] == 'EXAMPLE'
+    for path in ('catalog','statistics','api-usage','accounts'):
+        assert client.get(f'/admin/api/{path}?tenant=OTHER').status_code == 403
+    assert client.get('/admin/api/tenants').status_code == 403
+    assert client.put('/admin/api/catalog?tenant=OTHER', json={'version':1,'categories':[]}).status_code == 403
+    # The same credentials cannot select another company at sign-in either.
+    other = client.post('/auth/login', json={'email':'owner@example.test',
+        'password':'correct-horse-battery-staple','tenant':'OTHER'})
+    assert other.status_code == 401
 
 
 def test_owner_can_create_staff_but_not_another_owner(client):
