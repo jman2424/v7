@@ -47,7 +47,7 @@ def test_owner_billing_is_private_and_only_platform_lists_companies(client):
     assert report['companies'][0]['contracts']==[]
 
 
-def test_checkout_prices_are_server_owned_and_include_one_time_implementation(client,stripe):
+def test_monthly_checkout_is_server_owned_and_excludes_implementation_and_addons(client,stripe):
     stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20}, {'id':'cs_test_checkout','url':'https://checkout.stripe.com/c/pay/example','expires_at':int(time.time())+3600}]
     identity(client,'business_owner')
     response=client.post('/billing/checkout',json={'kind':'platform','amount':1,'tenant':'OTHER'})
@@ -58,12 +58,86 @@ def test_checkout_prices_are_server_owned_and_include_one_time_implementation(cl
     assert body['managed_payments[enabled]']=='false'
     assert body['metadata[tenant]']=='EXAMPLE'
     assert body['line_items[0][price_data][unit_amount]']==40000
-    assert body['line_items[1][price_data][unit_amount]']==20000
+    assert not any(key.startswith('line_items[1]') for key in body)
+    assert body['mode']=='subscription'
     assert body['line_items[0][price_data][recurring][interval]']=='month'
     assert 'line_items[1][price_data][recurring][interval]' not in body
     assert body['line_items[0][tax_rates][0]']=='txr_test'
     assert body['subscription_data[metadata][billing_ref]']
     assert client.get('/billing/subscription').json['totals']['paid']==0
+
+
+def test_implementation_has_one_time_checkout_and_separate_paid_invoice(client,stripe):
+    stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20}, {'id':'cs_test_setup','url':'https://checkout.stripe.com/c/pay/setup'}]
+    identity(client,'business_owner')
+    assert client.post('/billing/checkout',json={'kind':'implementation','amount':1}).status_code==200
+    body=stripe.call_args.args[2]
+    assert body['mode']=='payment'
+    assert body['line_items[0][price_data][unit_amount]']==20000
+    assert not any('recurring' in key or key.startswith('subscription_data') for key in body)
+    assert body['invoice_creation[enabled]']=='true'
+    assert body['customer_creation']=='always'
+    ref=body['invoice_creation[invoice_data][metadata][billing_ref]']
+    invoice={'id':'in_setup','currency':'gbp','created':int(time.time()),'customer':'cus_setup',
+             'metadata':{'tenant':'EXAMPLE','kind':'implementation','billing_ref':ref},
+             'total':24000,'amount_paid':24000,'amount_remaining':0,'status':'paid','lines':{'data':[]}}
+    stripe.side_effect=None
+    stripe.return_value=invoice
+    event=json.dumps({'type':'invoice.paid','data':{'object':{'id':'in_setup'}}}).encode()
+    for _ in range(2):
+        assert client.post('/billing/stripe/webhook',data=event,headers={'Stripe-Signature':signature(event)},content_type='application/json').status_code==200
+    report=client.get('/billing/subscription').json
+    assert report['totals']['paid']==24000
+    assert report['invoices'][0]['kind']=='implementation'
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==1
+    assert subscriptions._contract('EXAMPLE','implementation')['status']=='paid'
+    stripe.reset_mock()
+    response=client.post('/billing/checkout',json={'kind':'implementation'})
+    assert response.status_code==400
+    assert response.json['error']=='implementation_already_paid'
+    stripe.assert_not_called()
+    stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20}, {'id':'cs_test_plan','url':'https://checkout.stripe.com/c/pay/plan'}]
+    assert client.post('/billing/checkout',json={'kind':'platform'}).status_code==200
+    assert stripe.call_args.args[2]['customer']=='cus_setup'
+    assert not any(key.startswith('line_items[1]') for key in stripe.call_args.args[2])
+
+
+def test_old_open_combined_checkout_is_expired_before_new_monthly_checkout(client,stripe):
+    contract=subscriptions._contract('EXAMPLE','platform')
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET checkout='cs_old' WHERE ref=?",(contract['ref'],))
+    stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20},
+                        {'status':'open','url':'https://checkout.stripe.com/c/pay/old'},
+                        {'status':'expired'}, {'id':'cs_new','url':'https://checkout.stripe.com/c/pay/new'}]
+    identity(client,'business_owner')
+    assert client.post('/billing/checkout',json={'kind':'platform'}).status_code==200
+    assert stripe.call_args_list[2].args[:2]==('POST','/v1/checkout/sessions/cs_old/expire')
+    assert stripe.call_args.args[2]['metadata[billing_ref]']!=contract['ref']
+    assert not any(key.startswith('line_items[1]') for key in stripe.call_args.args[2])
+
+
+def test_new_monthly_invoice_does_not_mark_implementation_paid(client,stripe):
+    contract=subscriptions._contract('EXAMPLE','platform')
+    sub={'metadata':{'tenant':'EXAMPLE','kind':'platform','billing_ref':contract['ref']},'status':'active','items':{'data':[]}}
+    invoice={'id':'in_monthly','currency':'gbp','created':int(time.time()),'subscription':'sub_new','total':48000,'amount_paid':48000,'amount_remaining':0,'status':'paid','billing_reason':'subscription_create','lines':{'data':[{'description':'V7 monthly subscription','amount':40000}]}}
+    stripe.side_effect=lambda method,path,*a,**k: invoice if path.startswith('/v1/invoices/') else sub
+    subscriptions.sync_invoice('in_monthly')
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==0
+
+
+def test_optional_whatsapp_checkout_requires_platform_and_charges_only_addon(client,stripe):
+    identity(client,'business_owner')
+    assert client.post('/billing/checkout',json={'kind':'whatsapp'}).status_code==400
+    stripe.assert_not_called()
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET status='active' WHERE tenant='EXAMPLE' AND kind='platform'")
+    stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20}, {'id':'cs_wa','url':'https://checkout.stripe.com/c/pay/wa'}]
+    assert client.post('/billing/checkout',json={'kind':'whatsapp'}).status_code==200
+    body=stripe.call_args.args[2]
+    assert body['mode']=='subscription'
+    assert body['line_items[0][price_data][unit_amount]']==20000
+    assert body['line_items[0][price_data][recurring][interval]']=='month'
+    assert not any(key.startswith('line_items[1]') for key in body)
 
 
 def test_bad_or_missing_stripe_signature_fails_closed(client,monkeypatch):

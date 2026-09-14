@@ -62,8 +62,11 @@ def _tax():
 
 
 def checkout(tenant, email, kind, base_url, month=''):
-    if not isinstance(kind,str) or kind not in {'platform','whatsapp','api'} or not isinstance(month,str):
+    if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
+    one_time = kind in {'implementation','api'}
+    if kind=='implementation' and (_contract(tenant,'platform')['implementation_paid'] or _contract(tenant,kind)['status']=='paid'):
+        raise ValueError('implementation_already_paid')
     if kind=='whatsapp' and _contract(tenant,'platform')['status']!='active':
         raise ValueError('active_platform_subscription_required')
     tax = _tax()
@@ -87,7 +90,11 @@ def checkout(tenant, email, kind, base_url, month=''):
     if contract.get('checkout'):
         previous = stripe.stripe_request('GET','/v1/checkout/sessions/'+contract['checkout'])
         if previous.get('status') == 'open':
-            return {'url':_safe_url(previous.get('url'),'checkout.stripe.com')}
+            if kind=='platform' and (previous.get('metadata') or {}).get('billing_version')!='separate_implementation':
+                # Retire old combined checkouts before replacing them with the monthly plan.
+                stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
+            else:
+                return {'url':_safe_url(previous.get('url'),'checkout.stripe.com')}
         if previous.get('status') == 'complete':
             raise ValueError('payment_processing_refresh_soon')
         # Serialize the new generation; simultaneous requests use one Stripe idempotency key.
@@ -102,24 +109,27 @@ def checkout(tenant, email, kind, base_url, month=''):
         contract['checkout_expires'] = db.execute(f'SELECT checkout_expires FROM {table} WHERE ref=?',(contract['ref'],)).fetchone()[0]
         db.execute('INSERT OR IGNORE INTO billing_references VALUES (?,?,?)',(contract['ref'],tenant,kind))
     ref = contract['ref']
-    data = {'mode':'payment' if kind=='api' else 'subscription','success_url':base_url+'/console/subscription?payment=processing','cancel_url':base_url+'/console/subscription',
+    data = {'mode':'payment' if one_time else 'subscription','success_url':base_url+'/console/subscription?payment=processing','cancel_url':base_url+'/console/subscription',
             'managed_payments[enabled]':'false',
             'client_reference_id':tenant,'metadata[tenant]':tenant,'metadata[kind]':kind,'metadata[billing_ref]':ref,
+            'metadata[billing_version]':'separate_implementation',
             }
     customer = contract.get('customer') or (_contract(tenant,'platform').get('customer') if kind!='platform' else None)
+    if not customer and kind=='platform':
+        customer = _contract(tenant,'implementation').get('customer')
     if customer:
         data['customer'] = customer
+    elif one_time:
+        data['customer_creation'] = 'always'
     # Stripe collects billing contact details; they do not depend on which admin opened checkout.
-    meta_prefix = 'invoice_creation[invoice_data][metadata]' if kind=='api' else 'subscription_data[metadata]'
+    meta_prefix = 'invoice_creation[invoice_data][metadata]' if one_time else 'subscription_data[metadata]'
     for key, value in {'tenant':tenant,'kind':kind,'billing_ref':ref,'month':month}.items():
         data[f'{meta_prefix}[{key}]'] = value
-    if kind == 'api':
+    if one_time:
         data['invoice_creation[enabled]'] = 'true'
     else:
         data['subscription_data[default_tax_rates][0]'] = tax
-    items = [(kind, contract['amount'] if kind=='api' else PRICES[kind], kind!='api')]
-    if kind=='platform' and not contract['implementation_paid']:
-        items.append(('implementation',PRICES['implementation'],False))
+    items = [(kind, contract['amount'] if kind=='api' else PRICES[kind], not one_time)]
     for index, (item,amount,recurring) in enumerate(items):
         prefix = f'line_items[{index}]'
         name = {'platform':'V7 monthly subscription','implementation':'V7 implementation (one time)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
@@ -166,17 +176,20 @@ def sync_invoice(invoice_id):
     else:
         metadata = invoice.get('metadata') or {}
         with connection() as db:
-            row = db.execute("SELECT tenant,? month FROM billing_references WHERE ref=? AND kind='api'", (metadata.get('month'),metadata.get('billing_ref',''))).fetchone()
-        if not row or row['tenant']!=metadata.get('tenant'):
+            row = db.execute("SELECT tenant,kind FROM billing_references WHERE ref=? AND kind IN ('api','implementation')", (metadata.get('billing_ref',''),)).fetchone()
+        if not row or row['tenant']!=metadata.get('tenant') or row['kind']!=metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
-        identity = {'tenant':row['tenant'],'kind':'api'}
-        month = row['month']
+        identity = dict(row)
+        month = metadata.get('month') if row['kind']=='api' else datetime.fromtimestamp(invoice['created'],timezone.utc).strftime('%Y-%m')
     lines = [{'description':str(line.get('description') or '')[:300], 'amount':line.get('amount',0)} for line in invoice.get('lines',{}).get('data',[])]
     with connection() as db:
         db.execute("INSERT INTO billing_invoices VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET total=excluded.total,paid=excluded.paid,remaining=excluded.remaining,status=excluded.status,lines=excluded.lines,url=excluded.url WHERE billing_invoices.status!='paid' OR excluded.status='paid'",
                    (invoice_id,identity['tenant'],identity['kind'],month,invoice['created'],invoice.get('due_date'),invoice['total'],invoice['amount_paid'],invoice['amount_remaining'],invoice['status'],json.dumps(lines),_safe_url(invoice.get('hosted_invoice_url'),'invoice.stripe.com')))
-        if identity['kind']=='platform' and invoice.get('status')=='paid' and invoice.get('billing_reason')=='subscription_create':
+        legacy_implementation = identity['kind']=='platform' and invoice.get('billing_reason')=='subscription_create' and any('V7 implementation' in line['description'] for line in lines)
+        if invoice.get('status')=='paid' and (identity['kind']=='implementation' or legacy_implementation):
             db.execute('UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind=\'platform\'',(identity['tenant'],))
+            if identity['kind']=='implementation':
+                db.execute("UPDATE billing_contracts SET status='paid',customer=? WHERE tenant=? AND kind='implementation'",(invoice.get('customer'),identity['tenant']))
 
 
 def change_whatsapp(tenant, enabled):

@@ -315,8 +315,11 @@ Stripe setup (server-side only):
 - Enable the Stripe customer portal for payment method changes and subscription
   cancellation. The portal uses the authenticated company's stored customer ID.
 - Use a Stripe test account first. Checkout accepts server-owned GBP prices;
-  implementation appears only on the first platform invoice. Each WhatsApp add-on
-  has its own monthly subscription and invoice history.
+  implementation uses its own one-time checkout and invoice, separate from the
+  monthly plan. Earlier combined implementation payments remain recognised.
+  Old open combined checkouts are expired when replaced. Optional WhatsApp has
+  its own monthly subscription. API usage is additional and paid separately.
+  The homepage and subscription page explain all four charges and VAT.
 - Use **persistent** `SECURITY_DB_PATH`, `V7_DATA_DIR` and `ANALYTICS_DB_PATH`
   storage before onboarding paying companies. This deployment's previous free
   Render instance has ephemeral local storage; deploying code alone does not
