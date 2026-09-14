@@ -1,11 +1,11 @@
-# AI Sales Assistant - Flagship Repo (AI Mode V7)
+# V7 Agents by Vertex Seven
 
 Unified AI-driven sales and support framework for WhatsApp, website chat
 widgets, tenant management, and admin CRM analytics.
 
 ## Overview
 
-AI Sales Assistant V7 is a modular, multi-tenant chatbot and sales automation
+V7 Agents by Vertex Seven is a modular, multi-tenant chatbot and sales automation
 platform. It combines deterministic business logic, tenant-specific retrieval,
 and AI-assisted response generation so each company can run a focused sales
 agent for its own niche.
@@ -338,3 +338,12 @@ WhatsApp requires an active, unexpired, unpaused contract. Routes remain present
 Implementation references: [Stripe Checkout](https://docs.stripe.com/api/checkout/sessions/create),
 [subscription events](https://docs.stripe.com/billing/subscriptions/webhooks), and
 [signature verification](https://docs.stripe.com/webhooks/signature).
+
+## Public website
+
+The root URL `/` renders the public Vertex Seven / V7 Agents homepage without
+login. It includes illustrative, fictional conversations; these do not call an AI
+provider or read tenant data. Management pages still require authentication.
+The former root status JSON is replaced by HTML; use `/healthz` for health checks.
+Homepage assets live in `dashboard/templates/home.html`, `dashboard/static/css/home.css`,
+`dashboard/static/js/home.js`, and `dashboard/static/img/vertex-seven.svg`.

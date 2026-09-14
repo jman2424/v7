@@ -223,7 +223,7 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Root
     @app.get("/")
     def root():
-        return {"ok": True, "mode": settings.MODE, "tenant": settings.BUSINESS_KEY}
+        return render_template("home.html")
 
     # Health (Render)
     @app.get("/healthz")

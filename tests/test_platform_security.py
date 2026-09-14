@@ -69,6 +69,23 @@ def login(client, email="owner@example.test", password="Test-only-password-42!")
     return response.json["csrf_token"]
 
 
+def test_public_homepage_does_not_expose_business_data(platform):
+    client = platform[0].test_client()
+    response = client.get("/?tenant=BETA")
+    assert response.status_code == 200
+    assert response.mimetype == "text/html"
+    assert "V7 Agents" in response.text
+    assert "Vertex Seven" in response.text
+    assert "Alpha laptop" not in response.text
+    assert "Beta tablet" not in response.text
+    assert "admin@example.test" not in response.text
+    assert client.get("/admin/").status_code == 302
+    assert client.get("/admin/api/conversations").status_code == 401
+    assert client.get("/healthz").json == {"ok": True}
+    for asset in ("css/home.css", "js/home.js", "img/vertex-seven.svg"):
+        assert client.get("/static/" + asset).status_code == 200
+
+
 @pytest.mark.parametrize("path", ["/admin/api/insights", "/admin/api/platform", "/admin/api/conversations",
     "/files/raw/catalog.json", "/analytics/kpis.json", "/__diag/validate", "/catalog_webhook", "/export_catalog_csv", "/mode"])
 def test_management_requires_login(platform, path):

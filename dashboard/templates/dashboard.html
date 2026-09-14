@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <title>{{ page_title }} · V7</title>
+  <title>{{ page_title }} · V7 Agents</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/workspace.css') }}">
   <script defer src="{{ url_for('static', filename='js/workspace-theme.js') }}"></script>
 </head>
@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="workspace">
     <aside class="sidebar">
-      <a class="workspace-brand" href="{{ url_for('admin_ui.dashboard', tenant=tenant) }}"><span class="brand-mark">V7</span><span>Sales workspace<small>{{ 'Platform operator' if platform_admin else 'Business owner' }}</small></span></a>
+      <a class="workspace-brand" href="{{ url_for('admin_ui.dashboard', tenant=tenant) }}"><span class="brand-mark">V7</span><span>V7 Agents<small>{{ 'Platform operator' if platform_admin else 'Business owner' }}</small></span></a>
       <div class="company-label"><span>Current company</span><strong>{{ tenant }}</strong>{% if platform_admin %}<a href="{{ url_for('admin_ui.dashboard', page='companies', tenant=tenant) }}">Switch company →</a>{% endif %}</div>
       <nav aria-label="Main navigation">
         {% set nav = [('overview','Overview'),('companies','Companies'),('conversations','Conversations & leads'),('products','Products & prices'),('faqs','Questions & answers'),('branches','Branches & hours'),('delivery','Delivery'),('business','Business profile'),('settings','Agent & widget'),('errors','Errors & health'),('integrations','Integrations')] %}
