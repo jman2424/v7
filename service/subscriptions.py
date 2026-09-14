@@ -103,6 +103,7 @@ def checkout(tenant, email, kind, base_url, month=''):
         db.execute('INSERT OR IGNORE INTO billing_references VALUES (?,?,?)',(contract['ref'],tenant,kind))
     ref = contract['ref']
     data = {'mode':'payment' if kind=='api' else 'subscription','success_url':base_url+'/console/subscription?payment=processing','cancel_url':base_url+'/console/subscription',
+            'managed_payments[enabled]':'false',
             'client_reference_id':tenant,'metadata[tenant]':tenant,'metadata[kind]':kind,'metadata[billing_ref]':ref,
             }
     customer = contract.get('customer') or (_contract(tenant,'platform').get('customer') if kind!='platform' else None)

@@ -55,6 +55,7 @@ def test_checkout_prices_are_server_owned_and_include_one_time_implementation(cl
     args=stripe.call_args.args
     assert args[:2]==('POST','/v1/checkout/sessions')
     body=args[2]
+    assert body['managed_payments[enabled]']=='false'
     assert body['metadata[tenant]']=='EXAMPLE'
     assert body['line_items[0][price_data][unit_amount]']==40000
     assert body['line_items[1][price_data][unit_amount]']==20000
