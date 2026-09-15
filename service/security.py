@@ -477,6 +477,26 @@ def require_management(platform_only: bool = False):
     return decorate
 
 
+def account_permissions(user):
+    from service.account_service import AccountService, STAFF_PERMISSIONS
+    if is_platform_admin(user) or 'business_owner' in user.get('roles', []):
+        return sorted(STAFF_PERMISSIONS)
+    c = getattr(current_app, 'container', None)
+    record = AccountService(c.storage).get_account(user['tenant'], user['id']) if c else None
+    return [value for value in (record or {}).get('permissions', []) if value in STAFF_PERMISSIONS]
+
+
+def require_permission(permission):
+    user = management_user()
+    if permission not in account_permissions(user):
+        abort(403, description='permission_required')
+    return user
+
+
+def public_identity(user):
+    return {**user, 'permissions': account_permissions(user)}
+
+
 def authorized_tenant(requested: Optional[str] = None, default: Optional[str] = None) -> str:
     """Resolve a tenant using server-assigned owner scope, with explicit admin override."""
     user = management_user()
@@ -488,7 +508,10 @@ def authorized_tenant(requested: Optional[str] = None, default: Optional[str] = 
         if not isinstance(assigned, str) or not _TENANT_KEY.fullmatch(assigned):
             abort(403, description="tenant_required")
         if selected and selected != assigned:
-            abort(403, description="tenant_forbidden")
+            from service.tenant_access import owned_tenants
+            if selected not in owned_tenants(user):
+                abort(403, description="tenant_forbidden")
+            return selected
         return assigned
     if not selected:
         container = getattr(current_app, "container", None)

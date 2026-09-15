@@ -42,11 +42,17 @@ class TenantService:
                     "name": str(store_info.get("name") or key) if isinstance(store_info, dict) else key,
                     "widget_configured": bool(widget.get("allowed_origins")),
                     "valid": self._is_valid(key),
+                    "activation": self.activation(key),
                 }
             )
         return tenants
 
-    def create_tenant(self, key: str, name: str) -> Dict[str, Any]:
+    @staticmethod
+    def activation(key):
+        from service.tenant_access import activation
+        return activation(key)
+
+    def create_tenant(self, key: str, name: str, owner=None) -> Dict[str, Any]:
         tenant_key = Storage.validate_tenant_key(key)
         business_name = str(name or "").strip()
         if not business_name or len(business_name) > 120:
@@ -59,10 +65,17 @@ class TenantService:
         staging_parent = self.storage.business_root
         staging_parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".tenant-", dir=staging_parent))
+        registered = False
         try:
             self._write_starter_files(staging, business_name)
+            from service.tenant_access import register
+            register(tenant_key, owner)
+            registered = True
             os.replace(staging, target)
         except Exception:
+            if registered:
+                from service.tenant_access import unregister
+                unregister(tenant_key)
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
@@ -71,6 +84,7 @@ class TenantService:
             "name": business_name,
             "widget_configured": False,
             "valid": self._is_valid(tenant_key),
+            "activation": self.activation(tenant_key),
         }
 
     def _is_valid(self, tenant: str) -> bool:

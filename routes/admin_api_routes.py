@@ -138,15 +138,25 @@ def _audit(action: str, target: str, before: Any = None, after: Any = None) -> N
 
 @bp.get("/tenants")
 def api_tenants_get():
-    require_platform_operator()
+    from service.security import management_user
+    user = management_user()
+    if not is_platform_operator() and 'business_owner' not in user_roles():
+        abort(403, description='company_owner_required')
     from service.tenant_service import TenantService
-
-    return jsonify({"tenants": TenantService(_storage()).list_tenants()})
+    tenants = TenantService(_storage()).list_tenants()
+    if not is_platform_operator():
+        from service.tenant_access import owned_tenants
+        allowed = {user['tenant'], *owned_tenants(user)}
+        tenants = [row for row in tenants if row['key'] in allowed]
+    return jsonify({"tenants": tenants})
 
 
 @bp.post("/tenants")
 def api_tenants_post():
-    require_platform_operator()
+    from service.security import management_user
+    user = management_user()
+    if not is_platform_operator() and 'business_owner' not in user_roles():
+        abort(403, description='company_owner_required')
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({"error": "tenant_payload_must_be_object"}), 400
@@ -154,11 +164,17 @@ def api_tenants_post():
     from service.tenant_service import TenantService
 
     try:
-        created = TenantService(_storage()).create_tenant(data.get("key") or "", data.get("name") or "")
+        created = TenantService(_storage()).create_tenant(data.get("key") or "", data.get("name") or "", owner=None if is_platform_operator() else user)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     _audit("tenant.create", created["key"], after=created)
     return jsonify({"ok": True, "tenant": created}), 201
+
+
+@bp.get('/activation')
+def api_activation_get():
+    from service.tenant_access import activation
+    return jsonify(activation(_tenant()))
 
 
 @bp.get("/api-usage")
@@ -166,8 +182,8 @@ def api_usage_get():
     from service.api_usage import summary
     from service.usage_currency import gbp_rate
 
-    if not is_platform_operator() and "business_owner" not in user_roles():
-        abort(403, description="company_owner_required")
+    from service.security import require_permission
+    require_permission('view_costs')
     tenant = _tenant()
     scope = request.args.get("scope", "company")
     if scope not in {"company", "all"}:
@@ -200,6 +216,8 @@ def api_usage_get():
 def api_test_agent():
     """Use the real tenant agent with separate test memory and no sales activity."""
     tenant = _tenant()
+    from service.tenant_access import require_active
+    require_active(tenant)
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="json_object_required"), 400
@@ -316,7 +334,7 @@ def api_accounts_put(account_id: str):
         "account.update",
         f"{tenant}/{account_id}",
         before={"active": existing.get("active") is not False},
-        after={"active": account["active"], "password_reset": bool(str(data.get("password") or ""))},
+        after={"active": account["active"], "permissions": account['permissions'], "password_reset": bool(str(data.get("password") or ""))},
     )
     return jsonify({"ok": True, "account": account})
 

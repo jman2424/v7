@@ -57,6 +57,8 @@ def test_monthly_checkout_is_server_owned_and_excludes_implementation_and_addons
     body=args[2]
     assert body['managed_payments[enabled]']=='false'
     assert body['metadata[tenant]']=='EXAMPLE'
+    assert body['success_url'].endswith('/console/subscription?tenant=EXAMPLE&payment=processing')
+    assert body['cancel_url'].endswith('/console/subscription?tenant=EXAMPLE')
     assert body['line_items[0][price_data][unit_amount]']==40000
     assert not any(key.startswith('line_items[1]') for key in body)
     assert body['mode']=='subscription'

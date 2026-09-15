@@ -90,6 +90,9 @@ def _reply(c, event, source):
 
 def _process(c, event, source):
     from service.subscriptions import whatsapp_enabled
+    from service.tenant_access import activation
+    if not activation(c.settings.BUSINESS_KEY)['active']:
+        return ''
     if not whatsapp_enabled(c.settings.BUSINESS_KEY):
         return ''
     raw = event.get("raw", {})

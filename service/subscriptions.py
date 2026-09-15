@@ -4,6 +4,7 @@ import re
 import secrets
 import sqlite3
 import time
+from urllib.parse import urlencode
 from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -109,7 +110,8 @@ def checkout(tenant, email, kind, base_url, month=''):
         contract['checkout_expires'] = db.execute(f'SELECT checkout_expires FROM {table} WHERE ref=?',(contract['ref'],)).fetchone()[0]
         db.execute('INSERT OR IGNORE INTO billing_references VALUES (?,?,?)',(contract['ref'],tenant,kind))
     ref = contract['ref']
-    data = {'mode':'payment' if one_time else 'subscription','success_url':base_url+'/console/subscription?payment=processing','cancel_url':base_url+'/console/subscription',
+    return_url = base_url+'/console/subscription?'+urlencode({'tenant':tenant})
+    data = {'mode':'payment' if one_time else 'subscription','success_url':return_url+'&payment=processing','cancel_url':return_url,
             'managed_payments[enabled]':'false',
             'client_reference_id':tenant,'metadata[tenant]':tenant,'metadata[kind]':kind,'metadata[billing_ref]':ref,
             'metadata[billing_version]':'separate_implementation',
@@ -208,7 +210,7 @@ def portal(tenant, base_url):
     customer = _contract(tenant,'platform').get('customer')
     if not customer:
         raise ValueError('subscription_required')
-    result = client().stripe_request('POST','/v1/billing_portal/sessions',{'customer':customer,'return_url':base_url+'/console/subscription'})
+    result = client().stripe_request('POST','/v1/billing_portal/sessions',{'customer':customer,'return_url':base_url+'/console/subscription?'+urlencode({'tenant':tenant})})
     url = _safe_url(result.get('url'),'billing.stripe.com')
     if not url:
         raise ValueError('stripe_response_invalid')
@@ -245,7 +247,7 @@ def usage_months(tenant):
              'estimated_pence':int((Decimal(row['cost'])*Decimal(str(rate['rate']))/Decimal(10_000_000)).quantize(Decimal('1'),rounding=ROUND_HALF_UP)) if rate and row['cost'] is not None and not row['unpriced'] else None} for row in rows],rate
 
 
-def report(tenant):
+def report(tenant, include_api=True):
     with connection() as db:
         contracts = [dict(row) for row in db.execute('SELECT kind,status,next_due,paused,cancel_at_end,implementation_paid FROM billing_contracts WHERE tenant=?',(tenant,))]
         invoices = [dict(row) for row in db.execute('SELECT * FROM billing_invoices WHERE tenant=? ORDER BY issued DESC LIMIT 120',(tenant,))]
@@ -254,5 +256,12 @@ def report(tenant):
         totals['approved_api_due'] = db.execute("SELECT COALESCE(SUM((amount*120+50)/100),0) FROM billing_api_charges a WHERE tenant=? AND NOT EXISTS (SELECT 1 FROM billing_invoices i WHERE i.tenant=a.tenant AND i.kind='api' AND i.month=a.month)",(tenant,)).fetchone()[0]
     for invoice in invoices:
         invoice['lines'] = json.loads(invoice['lines'])
-    usage, rate = usage_months(tenant)
+    if include_api:
+        usage, rate = usage_months(tenant)
+    else:
+        invoices = [row for row in invoices if row['kind']!='api']
+        with connection() as db:
+            totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=? AND kind!='api'", (tenant,)).fetchone())
+        totals['approved_api_due'] = 0
+        usage, rate, approved = [], None, []
     return {'tenant':tenant,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant)}

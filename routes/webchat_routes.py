@@ -99,7 +99,10 @@ def _public_agent_payload(result: Dict[str, Any]) -> Dict[str, list[str]]:
 
 def _tenant_container(tenant):
     try:
-        return get_container().for_tenant(tenant)
+        container = get_container().for_tenant(tenant)
+        from service.tenant_access import require_active
+        require_active(tenant)
+        return container
     except (ValueError, FileNotFoundError):
         response = jsonify(error="unknown_tenant")
         response.status_code = 404

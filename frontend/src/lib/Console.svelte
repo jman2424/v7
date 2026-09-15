@@ -25,6 +25,7 @@
 
 
   type User = {
+    permissions?: string[];
     email: string;
     roles: string[];
     tenant: string;
@@ -38,6 +39,7 @@
   };
 
   type Tenant = {
+    activation: {active:boolean;status:string};
     key: string;
     name: string;
     valid: boolean;
@@ -45,6 +47,7 @@
   };
 
   type ManagedAccount = {
+    permissions: string[];
     id: string;
     email: string;
     roles: string[];
@@ -270,6 +273,13 @@
     ? [['platform','Platform overview'], ['companies','Companies'], ['subscription','Subscriptions'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','subscription','usage'].includes(key))]
     : Object.entries(sections).filter(([key])=>key!=='platform');
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
+  $: canViewCosts = isPlatform || isOwner || Boolean(user?.permissions?.includes('view_costs'));
+  $: canViewSubscriptions = isPlatform || isOwner || Boolean(user?.permissions?.includes('view_subscriptions'));
+  let accountViewCosts=false;
+  let accountViewSubscriptions=false;
+  let selectedViewCosts=false;
+  let selectedViewSubscriptions=false;
+  let activation:{active:boolean;status:string}|null=null;
   $: canManageAccounts = Boolean(user?.roles?.some(role=>role==='platform_admin'||role==='admin'||role==='business_owner'));
   $: if (user) accountRole = isPlatform ? 'business_owner' : 'business_staff';
 
@@ -475,6 +485,9 @@
   }
 
   async function loadTenantWorkspace(selectedTenant = tenant) {
+    activation = null;
+    const activationResponse = await fetch(apiPath('/admin/api/activation?tenant='+encodeURIComponent(selectedTenant)), {credentials:'same-origin'});
+    if(activationResponse.ok) activation = await activationResponse.json();
     const encodedTenant = encodeURIComponent(selectedTenant);
     const responses = await Promise.all([
       fetch(apiPath(`/admin/api/widget?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
@@ -508,7 +521,7 @@
   }
 
   async function loadTenants() {
-    if (!isPlatform) return;
+    if (!isPlatform && !isOwner) return;
     const response = await fetch(apiPath('/admin/api/tenants'), { credentials: 'same-origin' });
     const data = await readJson(response);
     if (response.ok) tenants = data.tenants || [];
@@ -526,6 +539,8 @@
     const next = selected || accounts.find((account) => isPlatform || account.roles.includes('business_staff'));
     selectedAccountId = next?.id || '';
     selectedAccountActive = next?.active ?? true;
+    selectedViewCosts = next?.permissions?.includes('view_costs') ?? false;
+    selectedViewSubscriptions = next?.permissions?.includes('view_subscriptions') ?? false;
     selectedAccountPassword = '';
   }
 
@@ -533,6 +548,8 @@
     selectedAccountId = accountId;
     const selected = accounts.find((account) => account.id === accountId);
     selectedAccountActive = selected?.active ?? true;
+    selectedViewCosts = selected?.permissions?.includes('view_costs') ?? false;
+    selectedViewSubscriptions = selected?.permissions?.includes('view_subscriptions') ?? false;
     selectedAccountPassword = '';
   }
 
@@ -571,6 +588,7 @@
     csrf = data.csrf_token || '';
     tenant = user?.tenant || tenant;
     if (user) {
+      tenant = new URLSearchParams(window.location.search).get('tenant') || tenant;
       await loadTenantWorkspace(tenant);
       await loadTenants();
     }
@@ -636,7 +654,7 @@
 
   async function openCompanyWorkspace(company: string, screen: string) {
     await selectTenant(company);
-    await goto(base+'/'+screen);
+    await goto(base+'/'+screen+'?tenant='+encodeURIComponent(company));
   }
 
   async function logout() {
@@ -721,7 +739,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
-      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole] })
+      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[])] })
     });
     const data = await readJson(response);
     if (!response.ok) {
@@ -732,6 +750,8 @@
     accountStatus = `${data.account.email} can now sign in for ${tenant} only.`;
     accountEmail = '';
     accountPassword = '';
+    accountViewCosts = false;
+    accountViewSubscriptions = false;
     await loadAccounts(tenant);
   }
 
@@ -739,7 +759,7 @@
     if (!selectedAccountId) return;
     accountStatus = 'Updating access...';
     accountError = false;
-    const payload: { active: boolean; password?: string } = { active: selectedAccountActive };
+    const payload: { active: boolean; password?: string; permissions:string[] } = { active: selectedAccountActive, permissions:[...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[])] };
     if (selectedAccountPassword) payload.password = selectedAccountPassword;
     const response = await fetch(apiPath(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`), {
       method: 'PUT',
@@ -768,6 +788,9 @@
     branchesStatus = '';
     agentStatus = '';
     await loadTenantWorkspace(nextTenant);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tenant', nextTenant);
+    window.history.replaceState(window.history.state, '', url);
   }
 
   function slug(value: string) {
@@ -1074,8 +1097,8 @@
         {#each navigationSections as [key,label]}
           {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
           {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
-          {#if (!['usage','subscription'].includes(key) || isPlatform || user.roles.includes('business_owner')) && (key !== 'companies' || isPlatform) && (key !== 'team' || canManageAccounts)}
-            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
+          {#if (key!=='usage'||canViewCosts) && (key!=='subscription'||canViewSubscriptions) && (key !== 'companies' || isPlatform || isOwner) && (key !== 'team' || canManageAccounts)}
+            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
           {/if}
         {/each}
       </nav>
@@ -1086,7 +1109,7 @@
       <header class="workspace-head">
         <div><p class="eyebrow">{isPlatform ? 'Platform workspace' : 'Business workspace'}</p><h1>{pageTitle}</h1></div>
         <div class="workspace-actions">
-        {#if isPlatform && tenants.length > 0 && !['platform','companies'].includes(section)}
+        {#if (isPlatform || isOwner) && tenants.length > 0 && !['platform','companies'].includes(section)}
           <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
         {:else if !isPlatform}
           <div class="company-scope"><span>Company</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
@@ -1095,24 +1118,28 @@
         </div>
       </header>
 
+      {#if activation && !activation.active}
+        <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>You can complete your business information now. The agent starts automatically after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
+      {/if}
+
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
       {/if}
 
       {#if section === 'subscription'}
-        {#if isPlatform || isOwner}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)}/>{/key}
-        {:else}<section class="surface"><div class="surface-body"><p>Subscription information is available to the company owner.</p></div></section>{/if}
+        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)}/>{/key}
+        {:else}<section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view subscriptions.</p></div></section>{/if}
       {/if}
 
       {#if section === 'conversations'}
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
       {/if}
       {#if section === 'usage'}
-        {#if isPlatform || user.roles.includes('business_owner')}
+        {#if canViewCosts}
           {#key tenant}<ApiUsage {tenant} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
         {:else}
-          <section class="surface"><div class="surface-body"><p>API usage and costs are available to the company owner and platform operator.</p></div></section>
+          <section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view API usage and costs.</p></div></section>
         {/if}
       {/if}
       {#if section === 'test'}
@@ -1129,9 +1156,9 @@
         {#key tenant}<WhatsAppQr {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
 
-      {#if section === 'companies' && isPlatform}
+      {#if section === 'companies' && (isPlatform || isOwner)}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
-          <div><p class="eyebrow">Platform operator</p><h2 id="tenant-create-heading">Create a clean tenant</h2><p>The starter workspace has no allowed websites and only an out-of-stock setup item.</p></div>
+          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Fill in its information and configure the agent before launch. Each new business activates automatically after its subscription and implementation are paid. It starts with no approved websites and an unavailable setup item.</p></div>
           <form class="tenant-form" on:submit|preventDefault={createTenant}>
             <label>Tenant key<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /></label>
             <label>Business name<input bind:value={newTenantName} placeholder="Northstar Homewares" required /></label>
@@ -1183,7 +1210,7 @@
         {#if section === 'team'}
       <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
-          <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong> only. Business owners cannot switch companies or access platform administration. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff for your own company.'}</p></div>
+          <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
           <form class="team-form" on:submit|preventDefault={createAccount}>
             <label>Email<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
             {#if isPlatform}
@@ -1192,6 +1219,7 @@
               <label>Access level<input value="Business staff" readonly aria-readonly="true" /></label>
             {/if}
             <label>Temporary password<input bind:value={accountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
+            {#if accountRole==='business_staff'}<label class="account-active"><input type="checkbox" bind:checked={accountViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={accountViewSubscriptions}/><span>View subscriptions (read only)</span></label>{/if}
             <button class="primary" type="submit">Add access</button>
           </form>
           {#if accounts.some((account) => isPlatform || account.roles.includes('business_staff'))}
@@ -1199,6 +1227,7 @@
               <label>Account<select value={selectedAccountId} on:change={(event) => selectManagedAccount(event.currentTarget.value)}>{#each accounts.filter((account) => isPlatform || account.roles.includes('business_staff')) as account}<option value={account.id}>{account.email}</option>{/each}</select></label>
               <label>New password <span>Optional</span><input bind:value={selectedAccountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" /></label>
               <label class="account-active"><input bind:checked={selectedAccountActive} type="checkbox" /><span>Account active</span></label>
+              {#if accounts.find(account=>account.id===selectedAccountId)?.roles.includes('business_staff')}<label class="account-active"><input type="checkbox" bind:checked={selectedViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={selectedViewSubscriptions}/><span>View subscriptions (read only)</span></label>{/if}
               <button class="secondary" type="submit">Update access</button>
             </form>
           {/if}
@@ -1422,9 +1451,9 @@
       </section>
       {/if}
 
-      {#if section === 'companies' && isPlatform}
+      {#if section === 'companies' && (isPlatform || isOwner)}
         <section class="surface workspace-section"><div class="surface-head"><h2>Your companies</h2></div>
-          {#each tenants as company}<div class="company-row"><strong>{company.name}</strong><span>{company.valid ? 'Data valid' : 'Data needs attention'}</span><button class="secondary" type="button" on:click={() => selectTenant(company.key)}>Select {company.key}</button></div>{/each}
+          {#each tenants as company}<div class="company-row"><strong>{company.name}</strong><span>{company.activation?.active?'Active':'Awaiting subscription and implementation payments'}</span><button class="secondary" type="button" on:click={() => openCompanyWorkspace(company.key,'profile')}>Manage {company.key}</button></div>{/each}
         </section>
       {/if}
       {#if section === 'errors'}

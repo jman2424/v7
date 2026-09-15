@@ -135,8 +135,9 @@ Platform administrators signing in at `/console/` land on `/console/platform`,
 which lists companies, recorded activity and issues, with company-specific links
 to workspaces, statistics and owner/staff accounts. The existing platform-only
 `/admin/api/platform` supplies this overview. Company owners retain their own
-workspace and a fixed company label; changing tenant query parameters or signing
-in against another company does not grant access. Use Team access as a platform
+workspace and may create additional businesses on the Companies page. The server
+records ownership and allows switching only among those businesses. Staff remain
+restricted to their assigned company. Use Team access as a platform
 administrator to create a `business_owner` for the selected company. Owner-created
 accounts are restricted to staff within their own company.
 
@@ -300,9 +301,15 @@ The `/console/subscription` page shows the £400 monthly platform subscription,
 £200 one-time implementation and optional £200 monthly WhatsApp add-on. Each has
 20% exclusive VAT: £480/month, £240 once and £240/month respectively. Only platform
 administrators create tenants and see the all-company subscription list. Owners
-see their own billing; staff cannot see billing. API billing requires explicit
+see their own billing; staff need explicit view permission. API billing requires explicit
 platform approval of a completed month's amount; usage estimates are not charged
-automatically. No real Stripe charge is taken by tests or by deploying the code.
+automatically. Staff need explicit view_costs and/or view_subscriptions permissions;
+subscription access is read-only. All accounts require authenticator 2FA. New
+businesses can be configured before launch, but only activate after both the
+platform subscription invoice and implementation payment are confirmed. Existing
+businesses keep their current operation. Ownership and activation records live in
+SECURITY_DB_PATH and need persistent storage along with account and billing data.
+No real Stripe charge is taken by tests or by deploying the code.
 
 Stripe setup (server-side only):
 - Set `BILLING_PROVIDER=stripe`, `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and

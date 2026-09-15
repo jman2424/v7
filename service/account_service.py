@@ -12,6 +12,13 @@ from retrieval.storage import Storage
 
 ACCOUNT_FILE = "owner_accounts.json"
 MANAGED_ROLES = {"business_owner", "business_staff"}
+STAFF_PERMISSIONS = {'view_costs', 'view_subscriptions'}
+
+
+def validated_permissions(value):
+    if not isinstance(value, list) or any(not isinstance(item, str) or item not in STAFF_PERMISSIONS for item in value):
+        raise ValueError('invalid_account_permissions')
+    return sorted(set(value))
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
@@ -44,6 +51,7 @@ class AccountService:
             "password_hash": hash_password(password),
             "roles": roles,
             "active": True,
+            "permissions": validated_permissions(payload.get('permissions', [])),
         }
         self.storage.write_json(tenant, ACCOUNT_FILE, [*accounts, account])
         return self._public_account(account)
@@ -67,7 +75,7 @@ class AccountService:
 
         has_active = "active" in payload
         password = str(payload.get("password") or "")
-        if not has_active and not password:
+        if not has_active and not password and 'permissions' not in payload:
             raise ValueError("account_update_required")
         if has_active and not isinstance(payload.get("active"), bool):
             raise ValueError("invalid_account_active")
@@ -79,6 +87,8 @@ class AccountService:
             if not secrets.compare_digest(str(stored.get("id") or ""), wanted):
                 continue
             updated = dict(stored)
+            if 'permissions' in payload:
+                updated['permissions'] = validated_permissions(payload['permissions'])
             if has_active:
                 updated["active"] = payload["active"]
             if password:
@@ -113,4 +123,5 @@ class AccountService:
             "email": str(account.get("email") or ""),
             "roles": [str(role) for role in account.get("roles") or []],
             "active": account.get("active") is not False,
+            "permissions": [permission for permission in account.get('permissions', []) if permission in STAFF_PERMISSIONS],
         }

@@ -30,6 +30,7 @@ def test_api_login_replaces_anonymous_session_and_excludes_server_secrets(client
         "email": "owner@example.test",
         "roles": ["platform_admin"],
         "tenant": "EXAMPLE",
+        "permissions": ["view_costs", "view_subscriptions"],
     }
     with client.session_transaction() as sess:
         assert sess["_csrf"] != "csrf_before_login"

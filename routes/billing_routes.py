@@ -2,7 +2,7 @@
 import json
 from flask import Blueprint, abort, jsonify, request, session
 from routes import get_container
-from service.security import management_user, authorized_tenant, is_platform_admin
+from service.security import management_user, authorized_tenant, is_platform_admin, require_permission, account_permissions
 from service import subscriptions
 
 bp = Blueprint('billing', __name__, url_prefix='/billing')
@@ -15,8 +15,11 @@ def _owner():
     return user
 
 
-def _tenant():
-    _owner()
+def _tenant(read_only=False):
+    if read_only:
+        require_permission('view_subscriptions')
+    else:
+        _owner()
     tenant = authorized_tenant(request.args.get('tenant'))
     if not get_container().storage.tenant_dir(tenant).is_dir():
         abort(404, description='unknown_tenant')
@@ -32,7 +35,13 @@ def _body():
 
 @bp.get('/subscription')
 def subscription_get():
-    return jsonify(subscriptions.report(_tenant()))
+    tenant = _tenant(read_only=True)
+    user = management_user()
+    report = subscriptions.report(tenant, include_api='view_costs' in account_permissions(user))
+    if not is_platform_admin(user) and 'business_owner' not in user['roles']:
+        for invoice in report['invoices']:
+            invoice['url'] = None
+    return jsonify(report)
 
 
 @bp.get('/companies')

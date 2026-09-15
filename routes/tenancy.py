@@ -33,26 +33,8 @@ def is_platform_operator(user: dict[str, Any] | None = None) -> bool:
 
 def resolve_admin_tenant(requested: str, default_tenant: str) -> str:
     """Resolve an admin tenant while preventing owner/staff tenant hopping."""
-    user = session.get("user") or {}
-    if not isinstance(user, dict):
-        abort(401, description="unauthorized")
-
-    requested_value = (requested or "").strip()
-    assigned_value = str(user.get("tenant") or "").strip()
-
-    if is_platform_operator(user):
-        selected = requested_value or assigned_value or default_tenant
-    else:
-        if not assigned_value:
-            abort(403, description="tenant_assignment_required")
-        if requested_value and requested_value != assigned_value:
-            abort(403, description="tenant_forbidden")
-        selected = assigned_value
-
-    try:
-        return Storage.validate_tenant_key(selected)
-    except ValueError:
-        abort(400, description="invalid_tenant")
+    from service.security import authorized_tenant
+    return authorized_tenant(requested, default_tenant)
 
 
 def require_admin_role() -> None:

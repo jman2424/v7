@@ -63,8 +63,8 @@ def test_mfa_challenge_expires_and_cannot_be_replayed(client, monkeypatch):
     assert client.get('/auth/session').json['user'] is None
 
 
-@pytest.mark.parametrize('role', ['business_owner','business_staff'])
-def test_only_platform_can_create_tenants(client, role):
+@pytest.mark.parametrize('role', ['business_staff'])
+def test_staff_cannot_create_tenants(client, role):
     from tests.conftest import set_test_identity
     with client.session_transaction() as state:
         set_test_identity(client, state, {'id':'owner','roles':[role],'tenant':'EXAMPLE'})

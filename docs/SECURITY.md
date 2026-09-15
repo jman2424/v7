@@ -8,9 +8,29 @@ security need deployment-specific review.
 
 Management routes require a server-configured account. The implemented roles are
 platform_admin, business_owner and business_staff; the legacy admin role retains
-platform access. Owners and staff are restricted server-side to their assigned
-company. Owners can manage staff; only platform operators can manage owners.
+platform access. Staff are restricted server-side to their assigned company.
+Owners can manage their assigned company and additional businesses they create.
+Ownership is recorded by account ID, email and home tenant in the private security
+database; clients cannot assign ownership or activate a business. Owners can
+manage staff in those businesses; only platform operators can manage owners.
 There is no public registration.
+
+Staff have no API cost or subscription access by default. Owners grant the
+independent `view_costs` and `view_subscriptions` permissions through Team access.
+Subscription access for staff is read-only; checkout, customer portal, invoice
+payment links and subscription changes remain owner/operator-only. Subscription
+reports omit API invoices, usage and their totals without `view_costs`.
+Permission changes revoke existing sessions and require a fresh sign-in with 2FA.
+
+New businesses are editable while awaiting activation. The agent, public widget
+and WhatsApp processing require an active platform subscription, a confirmed paid
+platform invoice, and confirmed implementation payment. Only verified Stripe
+events and canonical Stripe responses update that ledger. Test-agent requests
+also respect activation. Existing businesses without an onboarding record retain
+their previous operation. An inactive/past-due subscription stops a managed
+business again. Test Stripe payments satisfy these checks in a test deployment.
+Ownership, activation and billing use `SECURITY_DB_PATH`; preserve it with the
+business files on durable storage. Never delete it to reset onboarding.
 
 Run from the repository root:
 ```bash
@@ -76,7 +96,8 @@ per observed client IP. Ordinary request limits are process-local.
 
 Management APIs, file access, analytics, CSV exports and diagnostics require
 authentication and enforce the account's tenant scope. The platform company
-inventory requires platform-admin access. Writes require CSRF tokens, except
+inventory is filtered to the owner's businesses; the all-company operational
+overview requires platform-admin access. Writes require CSRF tokens, except
 public chat and separately signed integration webhooks. Business files use
 allowlisted names, path containment checks, validation and pre-edit snapshots.
 CSV exports neutralize formula-leading values.

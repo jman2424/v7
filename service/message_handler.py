@@ -183,6 +183,9 @@ class MessageHandler:
         channel: str = "web",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        from service.tenant_access import activation
+        if not activation(tenant)['active']:
+            return {'reply': 'This business is awaiting activation.', 'intent': 'business_inactive'}
         ctx = MessageContext(
             tenant=tenant,
             session_id=session_id,

@@ -5,6 +5,7 @@ from flask import Blueprint, abort, current_app, jsonify, request, session
 from routes import get_container
 from routes.session_auth import clear_authenticated_session, establish_authenticated_session, is_authenticated_account_active
 from retrieval.storage import Storage
+from service.security import public_identity
 
 # Unique blueprint name to avoid: "auth already registered"
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
@@ -56,7 +57,7 @@ def login_post():
 
     limiter.reset(attempt_key)
     identity = establish_authenticated_session(user, tenant, mfa_verified=True)
-    return jsonify({"ok": True, "user": identity, "csrf_token": session.get("_csrf", "")})
+    return jsonify({"ok": True, "user": public_identity(identity), "csrf_token": session.get("_csrf", "")})
 
 
 @bp.get("/session")
@@ -68,7 +69,7 @@ def session_get():
     if not is_authenticated_account_active(get_container().storage):
         clear_authenticated_session()
         abort(401, description="unauthorized")
-    return jsonify({"ok": True, "user": user, "csrf_token": session.get("_csrf", "")})
+    return jsonify({"ok": True, "user": public_identity(user), "csrf_token": session.get("_csrf", "")})
 
 
 @bp.post("/logout")
@@ -88,4 +89,4 @@ def mfa_confirm():
     except ValueError as exc:
         return jsonify(error=str(exc)), 401
     identity = establish_authenticated_session(user, user['tenant'], mfa_verified=True)
-    return jsonify(ok=True, user=identity, csrf_token=session['_csrf'])
+    return jsonify(ok=True, user=public_identity(identity), csrf_token=session['_csrf'])
