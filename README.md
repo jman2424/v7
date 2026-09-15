@@ -27,7 +27,8 @@ agent for its own niche.
 - JSON-backed tenant configuration under `business/`
 - V5/V6/V7 AI mode strategies under `ai_modes/`
 - Web and WhatsApp routes under `routes/`
-- Admin and widget assets under `dashboard/`
+- Svelte management console under `frontend/`
+- Public homepage and widget assets under `dashboard/`
 - Pytest test suite under `tests/`
 
 ## Common Commands
@@ -127,8 +128,11 @@ conversations immediately.
 The owner console has separate URLs under `/console/`: `pipeline`, `test`, `conversations`, `agent`,
 `website`, `integrations`, `catalog`, `offers`, `faqs`, `delivery`,
 `profile`, `branches`, and `team`. Platform operators also have `companies`
-and `errors` pages. The Flask dashboard at `/admin` provides separate overview,
-company monitoring, conversation, error, knowledge and integration pages.
+and `errors` pages. The old Flask dashboard and login UI have been removed.
+Legacy dashboard URLs redirect to the matching same-origin console page.
+`/admin/login` redirects to `/console/` without processing credentials.
+Errors & health loads recorded errors, fallbacks and business data checks in place.
+Failed requests show retry messages. Checks do not test external providers.
 Permissions are enforced by the APIs as well as the navigation.
 
 Platform administrators signing in at `/console/` land on `/console/platform`,
@@ -278,7 +282,7 @@ from actual card charges. No extra API key or dependency is required.
 
 For an isolated localhost preview, run `python scripts/run_local.py`. It writes
 temporary login details to the ignored `logs/local-preview-access.txt`; test at
-`http://127.0.0.1:10000/admin/login` and `http://127.0.0.1:10000/chat_ui?tenant=TARIQ`.
+`http://127.0.0.1:10000/console/` and `http://127.0.0.1:10000/chat_ui?tenant=TARIQ`.
 Build the console first with `cd frontend && npm ci && npm run build`, setting
 `V7_CONSOLE_BASE_PATH=/console` in the build environment. The preview disables
 AI-provider and WhatsApp calls and stores edits in its own data directory.

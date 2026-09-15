@@ -1,7 +1,0 @@
-{% extends 'dashboard.html' %}
-{% block content %}
-<section class="kpi-grid"><div class="kpi"><span>Errors</span><strong id="kpi-err">—</strong><small>Recorded failures</small></div><div class="kpi"><span>Fallbacks</span><strong id="kpi-fb">—</strong><small>Unresolved questions</small></div></section>
-<div class="chart-grid"><section class="card"><h2>Errors by cause</h2><div id="chart-errors" class="metric-chart" role="img" aria-label="Errors by cause"></div></section><section class="card"><h2>Fallbacks by topic</h2><div id="chart-fallbacks" class="metric-chart" role="img" aria-label="Fallbacks by topic"></div></section></div>
-<section class="card"><h2>Business data check</h2><p>Check whether this company's saved information can be read and matches its expected format.</p><button id="check-health" class="btn btn-quiet" type="button">Run data check</button><div id="health-results" role="status"></div></section>
-<p id="dbg-status" class="status" role="status"></p>
-{% endblock %}

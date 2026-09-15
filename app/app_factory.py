@@ -120,8 +120,8 @@ def _install_error_handlers(app: Flask) -> None:
             return jsonify({"error": key, "status": err.code}), err.code
 
         if reason:
-            return render_template("login.html", tenant="", error=login_messages[reason],
-                                   csrf_token=session.get("_csrf", "")), err.code
+            return (f"<h1>Sign-in required</h1><p>{escape(login_messages[reason])}</p>"
+                    '<a href="/console/">Open console sign-in</a>', err.code)
         return (
             f"<h1>{err.code} {escape(err.name)}</h1>"
             f"<p>{escape(err.description)}</p>",

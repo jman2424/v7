@@ -14,6 +14,10 @@ def validate_all():
     c = get_container()
     tenant = authorized_tenant(request.args.get("tenant"))
     report = c.storage.validate_tenant(tenant)
+    # Schema errors can contain the rejected document. Return status, not data.
+    for item in report["files"].values():
+        if item.get("error"):
+            item["error"] = "Saved data could not be read or did not match its schema."
     return jsonify(ok=all(item["valid"] is not False for item in report["files"].values()),
                    validation=report)
 

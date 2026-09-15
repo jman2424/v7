@@ -1,8 +1,0 @@
-{% extends 'dashboard.html' %}
-{% block content %}
-<div class="section-tabs"><a href="#messages">Messages</a><a href="#leads">Leads</a><a href="#questions">Common questions</a></div>
-<section id="messages" class="card"><h2>Recent messages</h2><div id="conversation-list" class="message-list"></div><button id="messages-more" class="btn btn-quiet" type="button">Load more</button></section>
-<section id="leads" class="card"><h2>Latest leads</h2><div class="table-scroll"><table><thead><tr><th>Updated</th><th>Name</th><th>Phone</th><th>Status</th><th>Tags</th></tr></thead><tbody id="tbl-leads"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
-<section id="questions" class="card"><h2>Common questions</h2><div class="table-scroll"><table><thead><tr><th>Question</th><th>Count</th></tr></thead><tbody id="tbl-questions"><tr><td colspan="2">Loading…</td></tr></tbody></table></div></section>
-<p id="dbg-status" class="status" role="status"></p>
-{% endblock %}

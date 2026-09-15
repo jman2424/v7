@@ -52,8 +52,10 @@ complete password and authenticator verification in every environment. A correct
 password with no enrolled authenticator starts a five-minute enrollment challenge
 and returns a locally generated QR code. Until a valid code is confirmed, no
 management session or tenant data is available. Existing configured TOTP secrets
-are preserved; they never appear in setup responses. Legacy `/admin/login` sends
-accounts to `/console/` for enrollment or verification when needed.
+are preserved; they never appear in setup responses. The retired `/admin/login` endpoint redirects
+to `/console/` without processing or forwarding credentials. The console uses
+the CSRF-protected `/auth` endpoints for enrollment and verification. Old dashboard
+URLs preserve account and tenant authorization before redirecting signed-in users.
 
 Only an opaque challenge token and CSRF token enter the signed cookie. Pending
 secrets and enrolled authenticators live in the private `SECURITY_DB_PATH` SQLite

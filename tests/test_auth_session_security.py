@@ -39,7 +39,7 @@ def test_api_login_replaces_anonymous_session_and_excludes_server_secrets(client
         assert sess.permanent is True
 
 
-def test_legacy_admin_login_never_serializes_totp_secret(client, monkeypatch):
+def test_retired_admin_login_does_not_process_credentials(client, monkeypatch):
     secret = generate_totp_secret()
     monkeypatch.setenv("ADMIN_USERNAME", "owner@example.test")
     monkeypatch.setenv("ADMIN_PASSWORD", "strong-test-password")
@@ -54,10 +54,11 @@ def test_legacy_admin_login_never_serializes_totp_secret(client, monkeypatch):
         },
     )
 
-    assert response.status_code == 302
+    assert response.status_code == 303
     with client.session_transaction() as sess:
-        assert sess["user"]["email"] == "owner@example.test"
-        assert "totp_secret" not in sess["user"]
+        assert "user" not in sess
+    assert response.headers["Location"] == "/console/"
+    assert secret not in response.text
 
 
 def test_login_throttle_blocks_repeated_failures(client):
@@ -85,6 +86,6 @@ def test_logout_clears_the_full_authenticated_session(client):
 
     response = client.post("/admin/logout?tenant=EXAMPLE")
 
-    assert response.status_code == 302
+    assert response.status_code == 303
     with client.session_transaction() as sess:
         assert not sess

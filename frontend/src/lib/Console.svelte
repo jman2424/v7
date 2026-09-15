@@ -10,18 +10,10 @@
   import Implementation from './Implementation.svelte';
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
+  import ErrorsHealth from './ErrorsHealth.svelte';
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
-  let errors: {error_code?: string; error_type?: string; count?: number}[] = [];
-  let errorStatus = '';
-  async function loadErrors() {
-    errorStatus = 'Loading…';
-    const response = await fetch(apiPath('/admin/api/errors?tenant='+encodeURIComponent(tenant)+'&minutes=10080'), {credentials:'same-origin'});
-    const data = await readJson(response);
-    errors = response.ok && Array.isArray(data) ? data : [];
-    errorStatus = response.ok ? (errors.length ? 'Recorded failures in the last 7 days.' : 'No recorded errors in the last 7 days.') : 'Unable to load errors. Please sign in again.';
-  }
 
 
   type User = {
@@ -1263,7 +1255,7 @@
           <div class="surface-body">
           <p><a href={base+'/implementation'}>Open the step-by-step Implementation guide</a> for your website builder, installation code and launch checks.</p>
           <p>Place this once before the closing body tag on an approved website.</p>
-          <p><a href={`/admin/integrations?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup and connection status</a>. Web chat works while WhatsApp is awaiting setup.</p>
+          <p><a href={`${base}/integrations?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup and connection status</a>. Web chat works while WhatsApp is awaiting setup.</p>
           <textarea class="code" readonly value={snippet} aria-label="Website install script"></textarea>
           {#if formStatus}<p role="status" class:error={formError}>{formStatus}</p>{/if}
           <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
@@ -1457,9 +1449,7 @@
         </section>
       {/if}
       {#if section === 'errors'}
-        <section class="surface workspace-section"><div class="surface-head"><h2>Agent errors</h2><button class="secondary" type="button" on:click={loadErrors}>Check errors</button></div><div class="surface-body"><p role="status">{errorStatus || 'Check for recorded errors for this company.'}</p>
-        {#each errors as error}<p>{error.error_code || error.error_type || 'Agent error'}: {error.count ?? 0}</p>{/each}
-        <a class="text-link" href={apiPath('/admin/errors?tenant='+encodeURIComponent(tenant))}>Open data health checks</a></div></section>
+        <ErrorsHealth {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
       {/if}
     </main>
   </div>
@@ -1603,7 +1593,6 @@
   .surface-body { padding: 20px; }
   .surface-body > :last-child { margin-bottom: 0; }
   .surface-body > .empty-state { padding: 0; }
-  .text-link { color: #007d70; text-underline-offset: 3px; }
   .row-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
   .empty-state { margin: 0; padding: 14px 0; color: #667085; font-size: 14px; line-height: 1.5; }
   .delivery-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }

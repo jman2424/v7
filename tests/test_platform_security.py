@@ -79,7 +79,7 @@ def test_public_homepage_does_not_expose_business_data(platform):
     assert "Alpha laptop" not in response.text
     assert "Beta tablet" not in response.text
     assert "admin@example.test" not in response.text
-    assert client.get("/admin/").status_code == 302
+    assert client.get("/admin/").status_code == 303
     assert client.get("/admin/api/conversations").status_code == 401
     assert client.get("/healthz").json == {"ok": True}
     for asset in ("css/home.css", "js/home.js", "img/vertex-seven.svg"):
@@ -117,15 +117,18 @@ def test_platform_only_companies_and_pages(platform):
     login(client)
     assert client.get("/admin/companies").status_code == 403
     assert client.get("/admin/api/platform").status_code == 403
-    resources = {"business", "settings", "products", "faqs", "branches", "delivery"}
-    for page in ["overview", "business", "settings", "errors", "integrations", "conversations", "products", "faqs", "branches", "delivery"]:
+    pages = {"overview": "pipeline", "business": "profile", "settings": "agent",
+             "errors": "errors", "integrations": "integrations", "conversations": "conversations",
+             "products": "catalog", "faqs": "faqs", "branches": "branches", "delivery": "delivery",
+             "widget": "website"}
+    for page, section in pages.items():
         response = client.get("/admin/" + page)
-        assert response.status_code == 200, response.data
-        assert (b'id="resource-json"' in response.data) == (page in resources)
-        assert b'aria-current="page"' in response.data
+        assert response.status_code == 303
+        assert response.headers["Location"] == "/console/" + section + "?tenant=ALPHA"
+    assert client.get("/admin/unknown").status_code == 404
     other = platform[0].test_client()
     login(other, "admin@example.test")
-    assert other.get("/admin/companies").status_code == 200
+    assert other.get("/admin/companies").status_code == 303
     assert {row["tenant"] for row in other.get("/admin/api/platform").json["companies"]} == {"ALPHA", "BETA"}
     assert "Beta tablet" in other.get("/files/raw/catalog.json?tenant=BETA").text
 
@@ -285,7 +288,7 @@ def test_mfa_setup_message_is_only_shown_after_correct_password(platform):
     assert response.json["error"] == "invalid_credentials"
     response = client.post("/admin/login", data={"email": "admin@example.test", "password": platform[2],
                                                 "csrf_token": csrf})
-    assert response.status_code == 302
+    assert response.status_code == 303
     assert response.headers["Location"] == "/console/"
     assert platform[2] not in response.text
     assert client.get("/admin/api/platform").status_code == 401
@@ -315,7 +318,7 @@ def test_production_admin_keeps_password_after_authenticator_configuration(platf
         assert secret not in str(dict(state))
 
 
-def test_login_csrf_failure_has_recovery_message_and_fresh_form(platform):
+def test_login_csrf_failure_has_recovery_message_and_console_link(platform):
     client = platform[0].test_client()
     response = client.post("/auth/login", json={"email": "owner@example.test", "password": platform[2]})
     assert response.status_code == 403
@@ -324,7 +327,8 @@ def test_login_csrf_failure_has_recovery_message_and_fresh_form(platform):
     assert client.get("/admin/api/insights").status_code == 401
     form = client.post("/admin/login", data={"email": "owner@example.test", "password": platform[2]})
     assert form.status_code == 403
-    assert 'name="csrf_token"' in form.text
+    assert 'href="/console/"' in form.text
+    assert 'name="password"' not in form.text
     assert "Reload the page" in form.text
 
 

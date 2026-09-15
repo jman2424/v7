@@ -62,7 +62,7 @@
   <article class="panel">
     <h2>Connecting the agent</h2>
     <p>This creates a WhatsApp link; it does not register the number or enable automatic replies. To let the agent reply, connect that same business number through Meta or Twilio and map it to this company.</p>
-    <div class="actions"><a href={'/admin/integrations?tenant='+encodeURIComponent(tenant)}>WhatsApp setup &amp; status</a><a href={base+'/implementation'}>Implementation guide</a></div>
+    <div class="actions"><a href={base+'/integrations?tenant='+encodeURIComponent(tenant)}>WhatsApp setup &amp; status</a><a href={base+'/implementation'}>Implementation guide</a></div>
     <p class="hint">The number must have an active WhatsApp account. We generate the QR on this server without sending your number or message to an external QR service. Creating a code does not change your integration settings.</p>
   </article>
 </section>
