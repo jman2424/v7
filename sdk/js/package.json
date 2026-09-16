@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "lint": "echo \"(add lint if you want)\"",
-    "test": "node --check index.js",
+    "test": "node --check index.js && node --test security.test.js",
     "prepublishOnly": "npm run test"
   }
 }

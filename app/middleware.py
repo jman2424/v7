@@ -4,9 +4,47 @@ from __future__ import annotations
 import hmac
 import secrets
 import time
+import os
+from urllib.parse import urlsplit
 from threading import Lock
 
 from flask import abort, g, request, session
+from werkzeug.wsgi import get_host
+
+
+def install_request_boundaries(app, settings):
+    """Reject hostile hosts and cross-origin management writes before parsing data."""
+    production = settings.ENVIRONMENT == "production" or os.getenv("RENDER") == "true"
+    base = urlsplit(settings.BASE_URL)
+    hosts = [base.hostname] if base.hostname else []
+    render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+    if render_host:
+        hosts.append(render_host)
+    if production and not hosts:
+        raise RuntimeError("Set BASE_URL or RENDER_EXTERNAL_HOSTNAME for production host validation")
+    # Check after request identity is initialized so rejected hosts still get
+    # safe response headers. Never trust caller-supplied forwarded host headers.
+    app.config["V7_TRUSTED_HOSTS"] = hosts if production else []
+    origins = {f"{base.scheme}://{base.netloc}"} if base.scheme in {"http", "https"} and base.netloc else set()
+    if render_host:
+        origins.add("https://" + render_host)
+
+    @app.before_request
+    def boundaries():
+        trusted = app.config["V7_TRUSTED_HOSTS"]
+        if trusted:
+            get_host(request.environ, trusted_hosts=trusted)
+        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            return
+        management = request.path.startswith(("/admin/", "/auth/", "/files/", "/analytics/", "/__diag/", "/billing/")) or request.path == "/mode"
+        if not management or request.path == "/billing/stripe/webhook":
+            return
+        if request.headers.get("Sec-Fetch-Site") == "cross-site":
+            abort(403, description="cross_origin_write")
+        origin = request.headers.get("Origin")
+        allowed = origins if production else {request.host_url.rstrip("/")}
+        if origin is not None and origin not in allowed:
+            abort(403, description="cross_origin_write")
 
 
 def install_request_id(app):

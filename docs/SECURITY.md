@@ -171,3 +171,29 @@ validation, session revocation, webhook signatures and duplicate handling.
 The full regression suite also covers existing sales, account-management,
 tenant configuration and console asset routes. Run it with `python -m pytest`.
 Frontend checking and a production console build are separate release checks.
+
+
+## September 2026 hardening
+
+- The standalone widget SDK restricts outbound messages to the configured chat origin
+  and accepts incoming events only from that origin and the current iframe window.
+  HTTP(S) URLs with no embedded credentials are required. Run `npm test` in `sdk/js`.
+- Production requests accept the hostname from BASE_URL and, on Render, the platform's
+  RENDER_EXTERNAL_HOSTNAME. Keep BASE_URL set to the actual public console origin;
+  other custom domains must not be used as console entry points without configuration.
+  Development localhost previews retain their existing host behavior.
+- Management writes reject cross-site Fetch Metadata and foreign/null Origin headers,
+  even with a CSRF token. This adds a browser boundary; CSRF tokens, authentication,
+  roles and tenant checks remain mandatory. Signed provider webhooks and public chat
+  keep their separate signature/origin controls.
+- Sign-in field sizes are bounded before expensive password verification. Missing MFA
+  secrets fail verification. Password plus authenticator remains the login method;
+  Google/OAuth login was not added.
+- Raw-file offer writes now enforce the same business constraints as the Offers API.
+- Python security updates: Flask 3.1.3, Requests 2.33.0, python-dotenv 1.2.2,
+  PyJWT 2.13.0 and pytest 9.0.3, based on the local pip-audit findings.
+
+Use `pytest tests/test_request_hardening.py` alongside the existing security suites.
+Dependency and static scans supplement these tests; they do not establish that every
+possible attack is prevented. Hosting access, backups and provider secrets remain
+operator responsibilities.

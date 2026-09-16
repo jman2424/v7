@@ -21,6 +21,8 @@ def login_post():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict) or any(not isinstance(data.get(key, ""), str) for key in ("email", "password", "totp", "tenant")):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
+    if any(len(data.get(key, "")) > limit for key, limit in {"email": 320, "password": 1024, "totp": 32, "tenant": 64}.items()):
+        return jsonify({"ok": False, "error": "invalid_credentials"}), 400
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     totp = (data.get("totp") or None)
@@ -82,7 +84,7 @@ def logout_post():
 def mfa_confirm():
     from service.account_mfa import confirm
     data = request.get_json(silent=True)
-    if not isinstance(data, dict) or not isinstance(data.get('code'), str):
+    if not isinstance(data, dict) or not isinstance(data.get('code'), str) or len(data['code']) > 32:
         return jsonify(error='invalid_authenticator_code'), 400
     try:
         user = confirm(data['code'])

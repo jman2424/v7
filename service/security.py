@@ -393,7 +393,7 @@ def _authenticate_user(
 def verify_totp(secret: str, code: str) -> bool:
     """Verify a six-digit TOTP, allowing one time step for clock skew."""
     if not secret:
-        return True
+        return False
     if not isinstance(secret, str) or not isinstance(code, str):
         return False
     code = code.strip()

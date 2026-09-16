@@ -64,6 +64,9 @@ def put_file(filename: str):
         if filename in {"branding.json", "overrides.json", "store_info.json", "synonyms.json"} and not isinstance(payload, dict):
             abort(400)
         validate_settings(filename, payload)
+        if filename == "offers.json":
+            from retrieval.offer_store import OfferStore
+            OfferStore.validate(payload)
         snap = container.storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
     except (ValidationError, ValueError):
         abort(400, description="invalid_business_data")

@@ -40,6 +40,11 @@ export class AssistantWidget {
     this.chatUiPath = this.opts.chatUiPath || DEFAULTS.chatUiPath;
     this.tenantKey = this.opts.tenantKey || null;
     this.sessionId = this.opts.sessionId || _uuid();
+    const chatUrl = new URL(this.chatUiPath, this.baseUrl);
+    if (!['https:', 'http:'].includes(chatUrl.protocol) || chatUrl.username || chatUrl.password) {
+      throw new Error('Widget URL must be an HTTP(S) URL without credentials');
+    }
+    this.frameOrigin = chatUrl.origin;
 
     /** @type {HTMLIFrameElement|null} */
     this.iframe = null;
@@ -148,10 +153,11 @@ export class AssistantWidget {
 
   _post(payload) {
     if (!this.iframe || !this.iframe.contentWindow) return;
-    this.iframe.contentWindow.postMessage({ __asa: EVT_TO_IFRAME, payload }, "*");
+    this.iframe.contentWindow.postMessage({ __asa: EVT_TO_IFRAME, payload }, this.frameOrigin);
   }
 
   _onMessage(ev) {
+    if (!this.iframe || ev?.source !== this.iframe.contentWindow || ev?.origin !== this.frameOrigin) return;
     const msg = ev?.data;
     if (!msg || msg.__asa !== EVT_FROM_IFRAME) return;
 

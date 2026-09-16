@@ -202,6 +202,7 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
 
     # Middleware
     middleware.install_request_id(app)
+    middleware.install_request_boundaries(app, settings)
     middleware.install_rate_limit(app, settings)
     middleware.install_csrf(app, settings)
     middleware.install_timing_metrics(app, container)
