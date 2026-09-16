@@ -36,11 +36,11 @@ def test_owner_can_configure_only_their_additional_businesses(client):
     assert client.get('/admin/api/catalog?tenant=SHOP').status_code == 200
     profile = client.get('/admin/api/profile?tenant=SHOP').json
     profile['about'] = 'Fresh groceries'
-    assert client.put('/admin/api/profile?tenant=SHOP', json=profile).status_code == 200
+    assert client.put('/admin/api/profile?tenant=SHOP', json=profile).status_code == 403
     assert client.get('/billing/subscription?tenant=SHOP').status_code == 200
     assert client.get('/files/raw/catalog.json?tenant=SHOP').status_code == 200
     assert client.get('/admin/api/platform').status_code == 403
-    assert client.post('/admin/api/accounts?tenant=SHOP', json={'email':'staff@shop.test','password':'Test-password-only-123','roles':['business_staff']}).status_code == 201
+    assert client.post('/admin/api/accounts?tenant=SHOP', json={'email':'staff@shop.test','password':'Test-password-only-123','roles':['business_staff']}).status_code == 403
     owner(client, 'other-owner')
     for path in ['/admin/api/catalog','/billing/subscription','/files/raw/catalog.json','/admin/api/activation','/admin/api/accounts']:
         assert client.get(path+'?tenant=SHOP').status_code == 403
@@ -116,6 +116,9 @@ def test_activation_requires_both_verified_payments_and_blocks_all_agent_paths(c
     assert client.post('/billing/stripe/webhook',data=body,content_type='application/json',headers={'Stripe-Signature':signature(body)}).status_code==200
     assert tenant_access.activation('SHOP')['active'] is True
     assert client.get('/admin/api/activation?tenant=SHOP').json['active'] is True
+    profile = client.get('/admin/api/profile?tenant=SHOP').json
+    profile['about'] = 'Paid business can now add its data'
+    assert client.put('/admin/api/profile?tenant=SHOP', json=profile).status_code == 200
     assert client.get('/chat_ui?tenant=SHOP').status_code==200
     sub['status']='past_due'
     subscriptions.sync_subscription('sub_shop')

@@ -52,7 +52,7 @@ class TenantService:
         from service.tenant_access import activation
         return activation(key)
 
-    def create_tenant(self, key: str, name: str, owner=None) -> Dict[str, Any]:
+    def create_tenant(self, key: str, name: str, owner=None, initial_account=None) -> Dict[str, Any]:
         tenant_key = Storage.validate_tenant_key(key)
         business_name = str(name or "").strip()
         if not business_name or len(business_name) > 120:
@@ -68,6 +68,9 @@ class TenantService:
         registered = False
         try:
             self._write_starter_files(staging, business_name)
+            if initial_account is not None:
+                from service.account_service import ACCOUNT_FILE
+                self._write_json(staging / ACCOUNT_FILE, [initial_account])
             from service.tenant_access import register
             register(tenant_key, owner)
             registered = True

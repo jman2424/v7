@@ -11,6 +11,42 @@ from service.security import public_identity
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
 
 
+@bp.get('/registration')
+def registration_status():
+    from service import registration, registration_mail
+    return jsonify(enabled=registration_mail.configured(), request=registration.status())
+
+
+@bp.post('/register')
+def register_post():
+    from service import registration
+    if session.get('user'):
+        return jsonify(error='Use Companies or Team access from your signed-in account.'), 400
+    try:
+        result = registration.start(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+    return jsonify(request=result), 202
+
+
+@bp.post('/register/confirm')
+def register_confirm():
+    from service import registration
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error='Enter your verification code.'), 400
+    try:
+        result = registration.confirm(data.get('code'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    from service.audit import AuditService
+    AuditService().record(user=result['email'], role='registration', ip=request.remote_addr or '',
+                         action='registration.verified', target=result['tenant'], extra={'status': result['status']})
+    return jsonify(request=result)
+
+
 @bp.post("/login")
 def login_post():
     c = get_container()

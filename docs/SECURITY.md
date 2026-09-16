@@ -6,14 +6,15 @@ security need deployment-specific review.
 
 ## Accounts and sessions
 
-Management routes require a server-configured account. The implemented roles are
+Management routes require an authenticated account. The implemented roles are
 platform_admin, business_owner and business_staff; the legacy admin role retains
 platform access. Staff are restricted server-side to their assigned company.
 Owners can manage their assigned company and additional businesses they create.
 Ownership is recorded by account ID, email and home tenant in the private security
 database; clients cannot assign ownership or activate a business. Owners can
 manage staff in those businesses; only platform operators can manage owners.
-There is no public registration.
+Public registration requires email verification; tenant join requests additionally
+require owner approval. See [Registration](REGISTRATION.md) for SMTP setup.
 
 Staff have no API cost or subscription access by default. Owners grant the
 independent `view_costs` and `view_subscriptions` permissions through Team access.
@@ -22,7 +23,7 @@ payment links and subscription changes remain owner/operator-only. Subscription
 reports omit API invoices, usage and their totals without `view_costs`.
 Permission changes revoke existing sessions and require a fresh sign-in with 2FA.
 
-New businesses are editable while awaiting activation. The agent, public widget
+New business data editing, team changes, the agent, public widget
 and WhatsApp processing require an active platform subscription, a confirmed paid
 platform invoice, and confirmed implementation payment. Only verified Stripe
 events and canonical Stripe responses update that ledger. Test-agent requests
@@ -67,7 +68,7 @@ existing authenticator. Existing sessions must sign in again after this policy
 upgrade. A TOTP permits one time step of clock skew; reuse within that short
 window is not currently prevented for the legacy combined password/code login.
 
-There is no public registration or unauthenticated MFA reset. Losing an existing
+There is no unauthenticated MFA reset. Losing an existing
 authenticator requires operator recovery through the server's protected account
 configuration. Do not delete the security database as an account recovery method.
 

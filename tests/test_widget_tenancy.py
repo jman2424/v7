@@ -307,9 +307,9 @@ def test_platform_operator_can_create_a_clean_starter_tenant(client, app):
     assert overrides["sales_playbook"]["offering_type"] == "mixed"
 
 
-def test_business_owner_cannot_onboard_tenants(client):
+def test_business_staff_cannot_onboard_tenants(client):
     with client.session_transaction() as sess:
-        set_test_identity(client, sess, {"id": "owner", "roles": ["business_owner"], "tenant": "EXAMPLE"})
+        set_test_identity(client, sess, {"id": "staff", "roles": ["business_staff"], "tenant": "EXAMPLE"})
 
     response = client.post("/admin/api/tenants", json={"key": "OTHER", "name": "Other Company"})
     assert response.status_code == 403

@@ -45,8 +45,10 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a plaintext password against a bcrypt hash."""
+    """Verify a plaintext password against a bcrypt or scrypt hash."""
     try:
+        if password_hash.startswith("scrypt:"):
+            return _verify_password(password, password_hash)
         return bcrypt.checkpw((password or "").encode("utf-8"), password_hash.encode("utf-8"))
     except Exception:
         return False

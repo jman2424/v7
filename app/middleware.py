@@ -83,7 +83,7 @@ def install_rate_limit(app, settings):
     def limit():
         # Do not trust caller-supplied forwarded IP headers.
         ip = request.remote_addr or "unknown"
-        login = request.method == "POST" and request.path in {"/auth/login", "/admin/login", "/auth/mfa/confirm"}
+        login = request.method == "POST" and request.path in {"/auth/login", "/admin/login", "/auth/mfa/confirm", "/auth/register", "/auth/register/confirm"}
         if login:
             from service.session_store import allow_login
             if not allow_login(ip):

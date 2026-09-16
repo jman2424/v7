@@ -60,6 +60,10 @@ def put_file(filename: str):
     }
     tenant = _tenant()
     container = get_container()
+    from service.security import is_platform_admin
+    if not is_platform_admin():
+        from service.tenant_access import require_active
+        require_active(tenant)
     try:
         if filename in {"branding.json", "overrides.json", "store_info.json", "synonyms.json"} and not isinstance(payload, dict):
             abort(400)

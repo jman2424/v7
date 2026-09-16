@@ -11,6 +11,9 @@
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
   import ErrorsHealth from './ErrorsHealth.svelte';
+  import Registration from './Registration.svelte';
+  import JoinRequests from './JoinRequests.svelte';
+  let signupOpen = false;
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
@@ -1073,6 +1076,9 @@
   <main class="loading" aria-live="polite">Loading owner console...</main>
 {:else if !user}
   <main class="login-shell">
+    {#if signupOpen && !mfa}
+      <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>Back to sign in</button></div>
+    {:else}
     <form class="login" on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="product-mark">V7</div>
       <h1>{mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7'}</h1>
@@ -1094,7 +1100,9 @@
       {/if}
       {#if loginError}<div class="notice error">{loginError}</div>{/if}
       <button class="primary" type="submit">{mfa ? 'Verify and sign in' : 'Continue'}</button>
+      {#if !mfa}<button class="secondary" type="button" on:click={() => signupOpen = true}>Create an account or request to join</button>{/if}
     </form>
+    {/if}
   </main>
 {:else}
   <div class="app-shell">
@@ -1127,9 +1135,12 @@
       </header>
 
       {#if activation && !activation.active}
-        <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>You can complete your business information now. The agent starts automatically after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
+        <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
       {/if}
 
+      {#if !isPlatform && activation && !activation.active && !['subscription','companies'].includes(section)}
+        <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
+      {:else}
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
@@ -1216,6 +1227,7 @@
 
       {#if canManageAccounts}
         {#if section === 'team'}
+      {#key tenant}<JoinRequests {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
       <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
           <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
@@ -1474,6 +1486,7 @@
       {/if}
       {#if section === 'errors'}
         <ErrorsHealth {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
+      {/if}
       {/if}
     </main>
   </div>

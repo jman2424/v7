@@ -30,6 +30,10 @@ def _require_admin_session() -> None:
         clear_authenticated_session()
         abort(401, description="unauthorized")
     require_admin_role()
+    if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.path not in {'/admin/api/tenants'}:
+        if not is_platform_operator():
+            from service.tenant_access import require_active
+            require_active(_tenant())
 
 
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
@@ -277,6 +281,31 @@ def api_accounts_get():
     from service.account_service import AccountService
 
     return jsonify({"accounts": AccountService(_storage()).list_accounts(_tenant())})
+
+
+@bp.get('/join-requests')
+def api_join_requests():
+    if not _may_manage_accounts():
+        abort(403)
+    from service.registration import pending
+    return jsonify(requests=pending(_tenant()))
+
+
+@bp.post('/join-requests/<request_id>')
+def api_join_request_decision(request_id):
+    if not _may_manage_accounts():
+        abort(403)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or data.get('decision') not in ('approve', 'reject'):
+        return jsonify(error='Choose approve or reject.'), 400
+    tenant = _tenant()
+    from service.registration import decide
+    try:
+        decide(tenant, request_id, data['decision'] == 'approve', session['user']['email'])
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 409
+    _audit('join_request.'+data['decision'],tenant,after={'request_id':request_id,'role':'business_staff'})
+    return jsonify(ok=True)
 
 
 @bp.post("/accounts")
