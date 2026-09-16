@@ -160,7 +160,7 @@ class MessageHandlerV7:
         "about the business",
     )
     _OFFER_REQUEST = re.compile(
-        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?)\b",
+        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?|bogo|buy\s+(?:1|one)\s+get\s+(?:1|one))\b",
         re.I,
     )
     _PRICE_REQUEST = re.compile(r"\b(?:price|prices|cost|how much)\b", re.I)

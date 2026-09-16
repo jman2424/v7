@@ -447,6 +447,7 @@ def chat_api():
 
     # ✅ KPI outbound row (dedup if retried)
     from service.product_metrics import matched_products
+    from service.offer_metrics import shown_offers
     _safe_log_message(
         tenant=tenant,
         channel=channel,
@@ -462,6 +463,7 @@ def chat_api():
         error_type="",
         message_id=out_message_id,
         products=matched_products(result),
+        offers=shown_offers(result),
     )
 
     # ✅ error row (separate event_type='error' in analytics_db)

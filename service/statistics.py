@@ -20,7 +20,7 @@ _SUMMARY = f"""
 """
 
 
-def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetime | None = None, catalog: dict | None = None) -> dict:
+def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetime | None = None, catalog: dict | None = None, offers: list | None = None) -> dict:
     if not 1 <= days <= 365 or channel not in {"all", "web", "whatsapp"}:
         raise ValueError("invalid_statistics_filter")
     analytics_db._ensure_ready()
@@ -55,6 +55,8 @@ def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetim
         previous_replies = reply_report(db, tenant, previous_start, start, channel)
         hours = [dict(row) for row in db.execute(f"SELECT substr(ts_utc,12,2) AS hour, SUM(event_type='msg_in') AS inbound, SUM(event_type='msg_out') AS outbound FROM events WHERE {condition} GROUP BY hour ORDER BY hour", current_params)]
         topics_daily = [dict(row) for row in db.execute(f"SELECT substr(ts_utc,1,10) AS day,COALESCE(NULLIF(intent,''),'unknown') AS topic,COUNT(*) AS count FROM events WHERE {condition} AND event_type='msg_out' GROUP BY day,topic", current_params)]
+        from service.offer_metrics import offer_report
+        promotions = offer_report(db, tenant, start, end, channel, offers or [])
         from service.product_metrics import product_report
         commerce = product_report(db, tenant, start.isoformat(), end.isoformat(), channel, catalog or {})
     daily_map = {row['day']: dict(row) for row in daily_rows}
@@ -69,7 +71,7 @@ def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetim
             "current": current, "previous": previous, "daily": daily, "channels": channels,
             "intents": intents, "errors": errors, "fallbacks": fallbacks, "pipeline": pipeline,
             "replies":replies, "previous_replies":previous_replies, "hours":hours,
-            "topics_daily":topics_daily, "commerce":commerce}
+            "topics_daily":topics_daily, "commerce":commerce, "offers":promotions}
 
 
 def reply_report(db, tenant, start, end, channel):

@@ -795,7 +795,11 @@ def api_statistics():
     channel = request.args.get("channel", "all")
     if channel not in {"all", "web", "whatsapp"}:
         return jsonify(error="invalid_statistics_channel"), 400
-    response = jsonify(get_statistics(tenant=tenant, days=days, channel=channel,
+    try:
+        offers = _storage().read_json(tenant, "offers.json")
+    except FileNotFoundError:
+        offers = []
+    response = jsonify(get_statistics(tenant=tenant, days=days, channel=channel, offers=offers,
                                       catalog=_storage().read_json(tenant, 'catalog.json')))
     response.headers["Cache-Control"] = "no-store"
     return response

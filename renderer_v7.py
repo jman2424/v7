@@ -454,7 +454,9 @@ class RendererV7:
             # Keep terms, code, and expiry in one sentence so a tenant's
             # configured reply-length setting cannot hide a material condition.
             description = re.sub(r"[.!?]+", ",", description).strip(" ,")
-            detail = f"{title}: {description}"
+            from service.offer_metrics import deal_terms
+            terms = deal_terms(offer)
+            detail = f"{title}: {terms}; {description}" if terms else f"{title}: {description}"
             code = str(offer.get("code") or "").strip()
             ends_on = str(offer.get("ends_on") or "").strip()
             if code:

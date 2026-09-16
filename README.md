@@ -361,3 +361,27 @@ provider or read tenant data. Management pages still require authentication.
 The former root status JSON is replaced by HTML; use `/healthz` for health checks.
 Homepage assets live in `dashboard/templates/home.html`, `dashboard/static/css/home.css`,
 `dashboard/static/js/home.js`, and `dashboard/static/img/vertex-seven.svg`.
+
+## Offer history, deal types and engagement
+
+The Offers screen keeps expired and archived promotions in Previous offers. Archive
+and save instead of deleting; reuse creates a new offer key so campaign counts stay
+separate. Up to 50 unarchived offers and 500 total entries are supported. Data removed
+before this feature cannot be reconstructed automatically.
+
+Deal types are custom promotions, buy-one-get-one-free (the same eligible item), and
+minimum-spend GBP deals with a fixed GBP or percentage discount. Eligible references
+restrict the qualifying spend and discount; an empty list means the whole order.
+BOGO requires eligible references. Dates use UTC and the end date is inclusive.
+These terms guide assistant replies; V7 does not apply discounts at an external checkout.
+
+Statistics > Offer overview shows current offer status and recorded offer replies
+and distinct conversations, filtered by period/channel. Per-offer attribution starts
+with this release, uses server-generated response facts and excludes private tests.
+It is not redemption, revenue or conversion tracking. Missing historical attribution
+is not inferred from message text.
+
+The existing authenticated /admin/api/offers GET/PUT contract adds optional archived,
+deal_type, minimum_spend, discount_type and discount_value fields. Existing custom
+offers remain compatible. /admin/api/statistics adds an offers object. Tenant checks,
+CSRF and auditing remain in force.

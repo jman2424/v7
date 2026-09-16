@@ -17,6 +17,100 @@ tags:
   - name: Webhooks
 
 paths:
+  /admin/api/offers:
+    parameters:
+      - in: query
+        name: tenant
+        schema: { type: string }
+        description: Must be a company authorized for the signed-in account.
+    get:
+      tags: [Admin]
+      summary: Read current and archived company offers
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Offer array, including archived entries; see offers.schema.json for fields.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 500
+                items: { type: object }
+        "401": { description: Authentication required }
+        "403": { description: Company access denied }
+    put:
+      tags: [Admin]
+      summary: Replace company offers with validated and audited data
+      description: >-
+        Up to 50 unarchived and 500 total entries. Existing custom offers remain valid.
+        New optional fields are archived, deal_type (custom, buy_one_get_one, minimum_spend),
+        minimum_spend, discount_type (percentage, fixed) and discount_value.
+        BOGO requires product_skus and means one free item of the same SKU per purchased item.
+        Minimum-spend deals require a positive GBP threshold and discount, up to two decimals.
+        Percentage discounts cannot exceed 100; fixed discounts cannot exceed the threshold.
+        Set archived=true and keep the entry to preserve history. Details are defined in offers.schema.json.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 500
+              items: { type: object }
+      responses:
+        "200": { description: Saved, with ok and snapshot fields }
+        "400": { description: Invalid schema or deal constraints; no save }
+        "401": { description: Authentication required }
+        "403": { description: Company access denied or invalid CSRF token }
+  /admin/api/statistics:
+    get:
+      tags: [Admin]
+      summary: Company statistics including offer engagement
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - in: query
+          name: tenant
+          schema: { type: string }
+        - in: query
+          name: days
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        - in: query
+          name: channel
+          schema: { type: string, enum: [all, web, whatsapp], default: all }
+      responses:
+        "200":
+          description: Existing statistics plus the additive offers report. No redemption or revenue attribution.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offers:
+                    type: object
+                    properties:
+                      offer_replies: { type: integer, minimum: 0 }
+                      conversations: { type: integer, minimum: 0 }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            title: { type: string }
+                            status: { type: string, enum: [active, paused, scheduled, expired, archived, removed] }
+                            deal_type: { type: string }
+                            terms: { type: string }
+                            replies: { type: integer, minimum: 0 }
+                            conversations: { type: integer, minimum: 0 }
+        "400": { description: Invalid date or channel filter }
+        "401": { description: Authentication required }
+        "403": { description: Company access denied }
   /health:
     get:
       tags: [Health]
@@ -160,6 +254,10 @@ paths:
 
 components:
   securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
     bearerAuth:
       type: http
       scheme: bearer

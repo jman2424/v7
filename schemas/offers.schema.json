@@ -2,24 +2,151 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Tenant Offers Schema",
   "type": "array",
-  "maxItems": 50,
+  "maxItems": 500,
   "items": {
     "type": "object",
-    "required": ["id", "title", "description", "active"],
+    "required": [
+      "id",
+      "title",
+      "description",
+      "active"
+    ],
     "properties": {
-      "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
-      "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-      "description": { "type": "string", "minLength": 1, "maxLength": 600 },
-      "code": { "type": "string", "maxLength": 64 },
-      "active": { "type": "boolean" },
-      "starts_on": { "type": "string", "maxLength": 10 },
-      "ends_on": { "type": "string", "maxLength": 10 },
+      "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "description": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 600
+      },
+      "code": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "active": {
+        "type": "boolean"
+      },
+      "starts_on": {
+        "type": "string",
+        "maxLength": 10
+      },
+      "ends_on": {
+        "type": "string",
+        "maxLength": 10
+      },
       "product_skus": {
         "type": "array",
         "maxItems": 30,
-        "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "archived": {
+        "type": "boolean"
+      },
+      "deal_type": {
+        "enum": [
+          "custom",
+          "buy_one_get_one",
+          "minimum_spend"
+        ]
+      },
+      "minimum_spend": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1000000
+      },
+      "discount_type": {
+        "enum": [
+          "percentage",
+          "fixed"
+        ]
+      },
+      "discount_value": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1000000
       }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": {
+          "required": [
+            "deal_type"
+          ],
+          "properties": {
+            "deal_type": {
+              "const": "buy_one_get_one"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "product_skus"
+          ],
+          "properties": {
+            "product_skus": {
+              "minItems": 1
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "required": [
+            "deal_type"
+          ],
+          "properties": {
+            "deal_type": {
+              "const": "minimum_spend"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "minimum_spend",
+            "discount_type",
+            "discount_value"
+          ],
+          "properties": {
+            "minimum_spend": {
+              "minimum": 0.01
+            },
+            "discount_value": {
+              "minimum": 0.01
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "required": [
+            "discount_type"
+          ],
+          "properties": {
+            "discount_type": {
+              "const": "percentage"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "discount_value": {
+              "maximum": 100
+            }
+          }
+        }
+      }
+    ]
   }
 }
