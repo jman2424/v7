@@ -1,0 +1,1831 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Vertex Seven REST API",
+    "version": "1.0.0",
+    "description": "REST transport for the existing MCP operations. Uses the same owner OAuth grant, canonical resource /mcp, S256 PKCE, scopes, tenant and quotas. Cookie authentication is not accepted."
+  },
+  "paths": {
+    "/api/v1/business-overview": {
+      "get": {
+        "operationId": "get_business_overview",
+        "summary": "Get catalogue totals and recorded business activity. No revenue or sales conversion claims.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/statistics": {
+      "get": {
+        "operationId": "get_statistics",
+        "summary": "Get message, session and lead statistics plus daily activity for the last minutes (up to 30 days). For comparisons, call separately with explicit start_at/end_at time zones; each window is at most 30 days and end_at is exclusive.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_at",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_at",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/conversation-stats": {
+      "get": {
+        "operationId": "get_conversation_stats",
+        "summary": "Get conversation totals and channel split without private transcripts.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/popular-queries": {
+      "get": {
+        "operationId": "get_popular_queries",
+        "summary": "Get common query intent categories and fallback categories; raw customer messages are withheld.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/catalog": {
+      "get": {
+        "operationId": "get_catalog",
+        "summary": "Read catalogue items with exact category/name selectors and revision for safe edits.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/catalog/search": {
+      "get": {
+        "operationId": "search_catalog",
+        "summary": "Search catalogue item names; results include the current revision.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/catalog/stats": {
+      "get": {
+        "operationId": "get_catalog_stats",
+        "summary": "Get counts of catalogue items and unavailable items.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/items": {
+      "post": {
+        "operationId": "add_catalog_item",
+        "summary": "Add a catalogue item to an existing category. Use price for numeric catalogues or price_str for legacy catalogues.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "item": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "\\S"
+                      },
+                      "price": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000000
+                      },
+                      "price_str": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[^\\d\\-\\n\\r]{0,12}\\d+(?:[.,]\\d{1,2})?(?:[^\\d\\n\\r].*)?$"
+                      },
+                      "in_stock": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "oneOf": [
+                      {
+                        "required": [
+                          "price"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "price_str"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "category",
+                  "expected_revision",
+                  "item"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_catalog_item",
+        "summary": "Update one exact catalogue item. Read the catalogue first and use its revision; price_str preserves legacy currency/unit text.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "changes": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "\\S"
+                      },
+                      "price": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000000
+                      },
+                      "price_str": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[^\\d\\-\\n\\r]{0,12}\\d+(?:[.,]\\d{1,2})?(?:[^\\d\\n\\r].*)?$"
+                      },
+                      "in_stock": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false,
+                    "minProperties": 1
+                  }
+                },
+                "required": [
+                  "category",
+                  "name",
+                  "expected_revision",
+                  "changes"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/items/disable": {
+      "post": {
+        "operationId": "disable_catalog_item",
+        "summary": "Mark one exact catalogue item out of stock; retain its record.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "\\S"
+                  },
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "category",
+                  "name",
+                  "expected_revision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/offers": {
+      "get": {
+        "operationId": "get_offers",
+        "summary": "Read offers and their effective active status. Offers are informational; they do not change checkout prices.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "create_offer",
+        "summary": "Create a dated informational offer; does not apply automatic discounts. Read offers first for its revision.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "offer": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      "starts_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "maxLength": 40
+                      },
+                      "ends_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "maxLength": 40
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "code": {
+                        "type": "string",
+                        "maxLength": 64
+                      },
+                      "active": {
+                        "type": "boolean"
+                      },
+                      "starts_on": {
+                        "type": "string",
+                        "maxLength": 10
+                      },
+                      "ends_on": {
+                        "type": "string",
+                        "maxLength": 10
+                      },
+                      "product_skus": {
+                        "type": "array",
+                        "maxItems": 30,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        }
+                      },
+                      "archived": {
+                        "type": "boolean"
+                      },
+                      "deal_type": {
+                        "enum": [
+                          "custom",
+                          "buy_one_get_one",
+                          "minimum_spend"
+                        ]
+                      },
+                      "minimum_spend": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      },
+                      "discount_type": {
+                        "enum": [
+                          "percentage",
+                          "fixed"
+                        ]
+                      },
+                      "discount_value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "description"
+                    ],
+                    "additionalProperties": false,
+                    "minProperties": 1
+                  }
+                },
+                "required": [
+                  "expected_revision",
+                  "offer"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/offers/{offer_id}": {
+      "patch": {
+        "operationId": "update_offer",
+        "summary": "Update one offer using its ID and current offers revision.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "changes": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      "starts_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "maxLength": 40
+                      },
+                      "ends_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "maxLength": 40
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "code": {
+                        "type": "string",
+                        "maxLength": 64
+                      },
+                      "active": {
+                        "type": "boolean"
+                      },
+                      "starts_on": {
+                        "type": "string",
+                        "maxLength": 10
+                      },
+                      "ends_on": {
+                        "type": "string",
+                        "maxLength": 10
+                      },
+                      "product_skus": {
+                        "type": "array",
+                        "maxItems": 30,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        }
+                      },
+                      "archived": {
+                        "type": "boolean"
+                      },
+                      "deal_type": {
+                        "enum": [
+                          "custom",
+                          "buy_one_get_one",
+                          "minimum_spend"
+                        ]
+                      },
+                      "minimum_spend": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      },
+                      "discount_type": {
+                        "enum": [
+                          "percentage",
+                          "fixed"
+                        ]
+                      },
+                      "discount_value": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false,
+                    "minProperties": 1
+                  }
+                },
+                "required": [
+                  "expected_revision",
+                  "changes"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "offer_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/offers/{offer_id}/disable": {
+      "post": {
+        "operationId": "disable_offer",
+        "summary": "Disable one offer while retaining its record.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read",
+              "business:write"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "expected_revision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "offer_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "\\S"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "operationId": "get_roles",
+        "summary": "Read the existing management role definitions and the caller's MCP permissions.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "get_users",
+        "summary": "Read tenant-assigned management accounts only, without credentials or global administrators.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/users/role": {
+      "get": {
+        "operationId": "get_user_role",
+        "summary": "Read the role of an account assigned to this business.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 254
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "get_agent_health",
+        "summary": "Get tenant data availability and recent recorded channel activity. External provider health is unknown.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/errors": {
+      "get": {
+        "operationId": "get_error_summary",
+        "summary": "Get recorded error counts. Raw messages, stack traces and credentials are never returned.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/errors/recent": {
+      "get": {
+        "operationId": "get_recent_errors",
+        "summary": "Get recent tenant error timestamps and channels, without raw error text.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/service-status": {
+      "get": {
+        "operationId": "get_service_status",
+        "summary": "Get observed API/data availability. WhatsApp activity does not prove provider health.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "operationId": "get_usage",
+        "summary": "Get recorded message usage, not token spend or billing estimates.",
+        "security": [
+          {
+            "vertexOAuth": [
+              "business:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Same structured result as the corresponding MCP tool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments"
+          },
+          "401": {
+            "description": "Missing, expired or revoked bearer token"
+          },
+          "403": {
+            "description": "Role, scope, origin or activation denied"
+          },
+          "404": {
+            "description": "Business item not found"
+          },
+          "409": {
+            "description": "Revision conflict"
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB"
+          },
+          "415": {
+            "description": "JSON content type required"
+          },
+          "429": {
+            "description": "Shared MCP/REST quota exceeded"
+          },
+          "503": {
+            "description": "Integration not configured or storage unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minutes",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "vertexOAuth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/oauth/authorize",
+            "tokenUrl": "/oauth/token",
+            "scopes": {
+              "business:read": "Read the assigned business",
+              "business:write": "Edit its catalog and offers"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect Vertex Seven</title><link rel="stylesheet" href="{{ url_for('static', filename='css/mcp-consent.css') }}"></head>
+<body><main>
+<h1>Connect your business to ChatGPT</h1>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% if not identity %}
+<p>Sign in through the existing console with your password and authenticator, then return here.</p>
+<p><a href="/console/platform" target="_blank" rel="noopener">Open console sign-in</a></p>
+<form method="get">
+{% for key, value in data.items() %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+<button type="submit">Continue after signing in</button></form>
+{% else %}
+<p>Account: {{ identity.email }}. Business: {{ identity.tenant }}.</p>
+<p>Client: {{ data.client_id }}</p>
+<p>This connection can read your catalogue, offers, business statistics and account access information.</p>
+{% if 'business:write' in data.scope %}<p>It can also add, update and disable catalogue items and offers.</p>{% endif %}
+<p>Users and roles are read-only. You can revoke this connection from your business account.</p>
+<form method="post">
+<input type="hidden" name="csrf_token" value="{{ session['_csrf'] }}">
+<button name="decision" value="allow">Allow connection</button>
+<button name="decision" value="deny">Cancel</button>
+</form>
+{% endif %}
+</main></body></html>

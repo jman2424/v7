@@ -38,6 +38,9 @@ def _wants_json_response() -> bool:
 
     if p.startswith((
         "/admin/api",
+        "/api/v1",
+        "/mcp",
+        "/oauth",
         "/analytics",
         "/chat_api",
         "/chat_ui",
@@ -96,6 +99,12 @@ def _register_blueprints(app: Flask) -> None:
 
     from routes.admin_api_routes import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
+    from routes.mcp_routes import bp as mcp_bp
+    from routes.mcp_oauth_routes import bp as mcp_oauth_bp
+    from routes.vertex_api_routes import bp as vertex_api_bp
+    app.register_blueprint(mcp_bp)
+    app.register_blueprint(mcp_oauth_bp)
+    app.register_blueprint(vertex_api_bp)
 
 
 # ---------------------------------------------------------------------

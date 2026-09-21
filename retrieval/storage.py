@@ -23,9 +23,11 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import tempfile
 from dataclasses import dataclass
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -196,6 +198,23 @@ class Storage:
 
         :returns: snapshot path (str) for the written file within the daily snapshot dir.
         """
+        with self.write_lock():
+            return self._write_json(tenant, filename, data, schema=schema, snapshot=snapshot)
+
+    @contextmanager
+    def write_lock(self):
+        """Serialize revision-checked MCP/API writes with existing JSON writers."""
+        self.business_root.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(self.business_root / '.write-lock.sqlite3', timeout=10)
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            yield
+            db.commit()
+        finally:
+            db.close()
+
+    def _write_json(self, tenant, filename, data, *, schema=None, snapshot=True):
+        """Internal writer; callers hold write_lock across read/check/write."""
         tkey = tenant or self.tenant_key
         # schema may be provided as "schemas/catalog.schema.json" or just "catalog.schema.json"
         if filename == "catalog.json" and isinstance(data, dict) and "product_catalog" in data and "categories" not in data:

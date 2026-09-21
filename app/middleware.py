@@ -36,7 +36,7 @@ def install_request_boundaries(app, settings):
             get_host(request.environ, trusted_hosts=trusted)
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return
-        management = request.path.startswith(("/admin/", "/auth/", "/files/", "/analytics/", "/__diag/", "/billing/")) or request.path == "/mode"
+        management = request.path.startswith(("/admin/", "/auth/", "/files/", "/analytics/", "/__diag/", "/billing/")) or request.path in {"/mode", "/oauth/authorize"}
         if not management or request.path == "/billing/stripe/webhook":
             return
         if request.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -63,7 +63,7 @@ def install_request_id(app):
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
-        if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console")):
+        if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console", "/mcp", "/oauth", "/api/v1")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] += "; frame-ancestors 'none'"
@@ -110,7 +110,7 @@ def install_csrf(app, settings):
     @app.before_request
     def csrf():
         # Webhooks and chat have separate authentication.
-        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook"}:
+        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
             return
         if "_csrf" not in session:
             session["_csrf"] = secrets.token_urlsafe(32)

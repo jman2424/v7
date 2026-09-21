@@ -506,10 +506,10 @@ def log_event(*args: Any, **kwargs: Any) -> None:
 # ---------------------------------------------------------------------
 # Reads (Dashboard API)
 # ---------------------------------------------------------------------
-def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
+def get_kpis(*, tenant: str, minutes: int = 1440, start_at=None, end_at=None) -> dict[str, Any]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
-    since = _since(minutes)
+    since, until, minutes = _statistics_window(minutes, start_at, end_at)
 
     with _conn() as con:
         row = con.execute(
@@ -521,16 +521,16 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
               SUM(CASE WHEN event_type='msg_out' AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
-            WHERE tenant=? AND ts_utc>=?;
+            WHERE tenant=? AND ts_utc>=? AND ts_utc<?;
             """,
-            (tenant_n, since),
+            (tenant_n, since, until),
         ).fetchone()
 
         leads_cols = _table_columns(con, "leads")
         if "tenant" in leads_cols:
             leads = con.execute(
-                "SELECT COUNT(*) AS n FROM leads WHERE tenant=? AND updated_utc>=?;",
-                (tenant_n, since),
+                "SELECT COUNT(*) AS n FROM leads WHERE tenant=? AND updated_utc>=? AND updated_utc<?;",
+                (tenant_n, since, until),
             ).fetchone()["n"]
         else:
             raise RuntimeError("Legacy leads require tenant migration before access")
@@ -553,6 +553,7 @@ def get_kpis(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
         "fallbacks": fallbacks,
         "errors": errors,
     }
+
 
 
 def get_sales_funnel(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
@@ -876,10 +877,10 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
     return out
 
 
-def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45) -> list[dict[str, Any]]:
+def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45, start_at=None, end_at=None) -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
-    since = _since(minutes)
+    since, until, minutes = _statistics_window(minutes, start_at, end_at)
     limit_days = max(1, min(_safe_int(limit_days, 45), 365))
 
     with _conn() as con:
@@ -892,12 +893,12 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
               SUM(CASE WHEN event_type='msg_out' AND json_extract(COALESCE(meta_json,'{}'),'$.fallback') = 1 THEN 1 ELSE 0 END) AS fallbacks,
               SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END) AS errors
             FROM events
-            WHERE tenant=? AND ts_utc>=?
+            WHERE tenant=? AND ts_utc>=? AND ts_utc<?
             GROUP BY d
             ORDER BY d DESC
             LIMIT ?;
             """,
-            (tenant_n, since, limit_days),
+            (tenant_n, since, until, limit_days),
         ).fetchall()
 
     out: list[dict[str, Any]] = []
@@ -918,6 +919,7 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
             }
         )
     return out
+
 
 
 def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict[str, int]]:
@@ -981,3 +983,26 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
         ).fetchall()
 
     return [{"store": r["store"], "count": int(r["n"] or 0)} for r in rows]
+
+
+def _statistics_window(minutes, start_at=None, end_at=None):
+    if start_at is None and end_at is None:
+        return _since(minutes), "9999-12-31", minutes
+    start = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+    end = datetime.fromisoformat(end_at.replace("Z", "+00:00"))
+    if start.tzinfo is None or end.tzinfo is None or not 0 < (end - start).total_seconds() <= 30 * 86400:
+        raise ValueError("Invalid statistics window")
+    return (start.astimezone(timezone.utc).replace(microsecond=0).isoformat(),
+            end.astimezone(timezone.utc).replace(microsecond=0).isoformat(), (end - start).total_seconds() / 60)
+
+
+
+def get_safe_recent_errors(*, tenant: str, minutes: int = 1440) -> list[dict[str, Any]]:
+    """Tenant-scoped error observations without text, identifiers or metadata."""
+    _ensure_ready()
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT ts_utc, channel FROM events WHERE tenant=? AND ts_utc>=? AND event_type='error' ORDER BY ts_utc DESC, id DESC LIMIT 50",
+            (_norm_tenant(tenant), _since(minutes)),
+        ).fetchall()
+    return [{"timestamp": row["ts_utc"], "channel": _norm_channel(row["channel"]), "type": "recorded_error"} for row in rows]
