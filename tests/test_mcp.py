@@ -334,3 +334,36 @@ def test_write_notification_is_not_executed(mcp):
         headers={"Authorization": "Bearer " + token, "Accept": "application/json, text/event-stream"})
     assert response.status_code == 400
     assert data(client, token, "get_catalog")["revision"] == catalogue["revision"]
+
+def test_connection_settings_and_revocation(mcp):
+    client = mcp[0].test_client()
+    assert client.get('/auth/mcp/connections').status_code == 401
+    tokens, _ = issue(client)
+    response = client.get('/auth/mcp/connections')
+    assert response.status_code == 200
+    assert response.json['configured'] is True
+    assert response.json['mcp_url'] == 'https://vertex.example/mcp'
+    assert response.json['api_url'] == 'https://vertex.example/api/v1'
+    assert response.json['connected_clients'] == ['test-client']
+    assert tokens['access_token'] not in response.text
+    assert tokens['refresh_token'] not in response.text
+    assert client.post('/auth/mcp/revoke', json={}).status_code == 403
+    csrf = client.get('/auth/session').json['csrf_token']
+    assert client.post('/auth/mcp/revoke', json={}, headers={'X-CSRF-Token':csrf}).status_code == 200
+    assert client.get('/auth/mcp/connections').json['connected_clients'] == []
+    assert rpc(client, tokens['access_token'], 'ping').status_code == 401
+
+
+def test_connection_settings_unconfigured_and_owner_scoped(mcp, monkeypatch):
+    client = mcp[0].test_client()
+    issue(client)
+    admin = mcp[0].test_client()
+    login(admin, email='admin@example.test')
+    settings = admin.get('/auth/mcp/connections').json
+    assert settings['owner_access'] is False
+    assert settings['connected_clients'] == []
+    monkeypatch.setenv('MCP_PUBLIC_URL','')
+    settings = client.get('/auth/mcp/connections').json
+    assert settings['configured'] is False
+    assert settings['mcp_url'] == ''
+    assert settings['api_url'] == ''

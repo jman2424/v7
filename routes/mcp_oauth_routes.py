@@ -77,3 +77,10 @@ def revoke():
     if not request.is_json:
         return redirect(url_for('owner_console.owner_console_asset', asset_path='integrations'), 303)
     return jsonify(ok=True)
+
+
+@bp.get('/auth/mcp/connections')
+def connections():
+    """Public connection settings and this owner's grants, never tokens or secrets."""
+    identity = management_user()
+    return jsonify(mcp_auth.connection_settings(identity))

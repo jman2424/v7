@@ -100,3 +100,7 @@ python -m pytest tests/test_vertex_api.py tests/test_mcp.py -o addopts='' -q
 The tests cover shared dispatch/results, OAuth scope enforcement, tenant isolation,
 revocation, revision conflicts, invalid arguments, audit records and activation.
 Live OAuth client linking requires deployment-specific configuration and validation.
+
+## Console setup
+
+Open **Integrations → MCP & API connections** for server URLs, registered client IDs, OAuth details and a copyable request. Owners can view their connected apps and revoke their own MCP/REST grants together. Configuration status is not a live connection test; server OAuth configuration is still required.

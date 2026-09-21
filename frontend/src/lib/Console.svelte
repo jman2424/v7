@@ -8,6 +8,7 @@
   import AgentTest from './AgentTest.svelte';
   import ApiUsage from './ApiUsage.svelte';
   import Implementation from './Implementation.svelte';
+  import ConnectionSettings from './ConnectionSettings.svelte';
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
   import ErrorsHealth from './ErrorsHealth.svelte';
@@ -1278,6 +1279,7 @@
       {/if}
 
         {#if section === 'integrations'}
+      <ConnectionSettings {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
       <section id="install" class="surface install" aria-labelledby="install-heading">
           <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet} disabled={!snippet}>Copy</button></div>
           <div class="surface-body">

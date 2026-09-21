@@ -195,3 +195,32 @@ def revoke_owner(identity):
         # Payload is trusted server-created JSON; scope revocation to this owner.
         db.execute("DELETE FROM mcp_grants WHERE json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?",
                    (identity["id"], identity.get("tenant")))
+
+
+def connection_settings(identity):
+    from werkzeug.exceptions import HTTPException
+    base = ''
+    clients = []
+    configured = False
+    try:
+        base = issuer()
+        entries = json.loads(os.getenv('MCP_OAUTH_CLIENTS', '{}'))
+        if isinstance(entries, dict):
+            for client_id in entries:
+                client_config(client_id)
+                clients.append(client_id)
+        configured = bool(clients)
+    except (HTTPException, ValueError, TypeError):
+        clients = []
+    owner = identity.get('roles') == ['business_owner']
+    connected = []
+    if owner:
+        with database() as db:
+            rows = db.execute("SELECT payload FROM mcp_grants WHERE kind IN ('access','refresh') AND expires>? AND json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?",
+                              (time.time(), identity['id'], identity.get('tenant'))).fetchall()
+        connected = sorted({json.loads(row[0])['client_id'] for row in rows} & set(clients))
+    return dict(configured=configured, owner_access=owner, clients=clients,
+                connected_clients=connected, mcp_url=base+'/mcp' if base else '',
+                api_url=base+'/api/v1' if base else '',
+                authorization_url=base+'/oauth/authorize' if base else '',
+                token_url=base+'/oauth/token' if base else '')
