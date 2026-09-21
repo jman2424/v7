@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "offerings": [
+    {
+      "id": "viewing",
+      "name": "Arrange a property viewing",
+      "type": "service",
+      "price_type": "quote",
+      "active": true
+    }
+  ],
+  "locations": [
+    {
+      "id": "office",
+      "name": "Agency office",
+      "type": "office",
+      "active": true
+    }
+  ],
+  "business_rules": [],
+  "work": [],
+  "industry": "property",
+  "operation_types": [
+    "viewing"
+  ]
+}

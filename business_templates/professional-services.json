@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "offerings": [
+    {
+      "id": "translation",
+      "name": "Document Translation",
+      "type": "service",
+      "price_type": "per_word",
+      "active": true
+    }
+  ],
+  "locations": [
+    {
+      "id": "remote",
+      "name": "Remote service",
+      "type": "remote_only",
+      "service_area": "UK / international",
+      "active": true
+    }
+  ],
+  "business_rules": [
+    {
+      "id": "manual-quote",
+      "title": "Large translations",
+      "description": "Translation projects over 10,000 words require a manual quote.",
+      "active": true,
+      "requires_manual_review": true
+    }
+  ],
+  "work": [],
+  "industry": "professional_services",
+  "operation_types": [
+    "project"
+  ]
+}

@@ -176,3 +176,7 @@ Tests cover tenant isolation, cookie rejection, consent CSRF, PKCE, redirects,
 code replay, refresh rotation, expiry, revocation, write scopes, audit failures,
 stale revisions, current offers and transport parity. Live ChatGPT linking and
 production OAuth configuration require the deployed account and registered client.
+
+## Generic business records
+
+[Generic business core](GENERIC_BUSINESS_CORE.md) adds offerings, locations, service areas, rules and typed work records while retaining all retail operations. These operations share the same owner authorization and tenant boundaries.

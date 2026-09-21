@@ -104,3 +104,7 @@ Live OAuth client linking requires deployment-specific configuration and validat
 ## Console setup
 
 Open **Integrations → MCP & API connections** for server URLs, registered client IDs, OAuth details and a copyable request. Owners can view their connected apps and revoke their own MCP/REST grants together. Configuration status is not a live connection test; server OAuth configuration is still required.
+
+## Generic business records
+
+[Generic business core](GENERIC_BUSINESS_CORE.md) adds offerings, locations, service areas, rules and typed work records while retaining all retail operations. These operations share the same owner authorization and tenant boundaries.

@@ -85,6 +85,21 @@ spec("create_offer", "Create a dated informational offer; does not apply automat
 offer_selector = {"offer_id": TEXT, "expected_revision": REVISION}
 spec("update_offer", "Update one offer using its ID and current offers revision.", obj({**offer_selector, "changes": OFFER}, [*offer_selector, "changes"]), True)
 spec("disable_offer", "Disable one offer while retaining its record.", obj(offer_selector, offer_selector), True)
+# Generic vocabulary is additive; existing retail contracts remain unchanged.
+from service.business_core import OFFERING
+import copy
+GENERIC_OFFERING = copy.deepcopy(OFFERING)
+GENERIC_OFFERING['properties'].pop('id')
+GENERIC_OFFERING['required'].remove('id')
+GENERIC_CHANGES = obj(GENERIC_OFFERING['properties'])
+GENERIC_CHANGES['minProperties'] = 1
+for tool in ('get_offerings','get_locations','get_service_areas','get_business_rules',
+             'get_jobs','get_bookings','get_orders','get_projects','get_viewings','get_appointments','get_tickets'):
+    spec(tool, 'Read tenant-scoped business records. Work records do not imply live scheduling or payment.', obj(PAGE))
+spec('get_offering','Read an offering by ID, with its source document revision.',obj({'offering_id':TEXT},['offering_id']))
+spec('create_offering','Create a generic offering using the business-core revision from get_offerings.',obj({'expected_revision':REVISION,'offering':GENERIC_OFFERING},['expected_revision','offering']),True)
+spec('update_offering','Update an offering using its ID and source revision. Retail records retain their original catalog format.',obj({'expected_revision':REVISION,'offering_id':TEXT,'changes':GENERIC_CHANGES},['expected_revision','offering_id','changes']),True)
+spec('get_business_health','Read tenant data availability and channel observations.',obj(WINDOW))
 WRITES = {name for name, tool in SPECS.items() if not tool["annotations"]["readOnlyHint"]}
 
 
@@ -105,7 +120,7 @@ def validate(name, args):
         raise BusinessError("invalid_arguments", "Arguments do not match this tool's schema. Check required fields, types and allowed ranges.")
     for key in ("item", "changes"):
         changes = args.get(key, {})
-        if "price" in changes and Decimal(str(changes["price"])) % Decimal("0.01"):
+        if name not in {"create_offering", "update_offering"} and "price" in changes and Decimal(str(changes["price"])) % Decimal("0.01"):
             raise BusinessError("invalid_arguments", "Price must have at most two decimal places.")
     if name == "get_statistics" and "start_at" in args:
         try:
@@ -152,6 +167,18 @@ def execute(container, identity, scopes, name, args, *, source='ChatGPT MCP'):
                                   target=identity["tenant"], extra={"tenant": identity["tenant"], "source": source, "result": "rejected"})
         raise
     business = BusinessManagement(container.storage, identity["tenant"], identity, source)
+    if name == 'get_business_health':
+        from service.business_core import BusinessCore
+        core = BusinessCore(container.storage, identity['tenant'])
+        return sanitize({'api':'responding','offerings':len(core.offerings()),'locations':len(core.locations()),
+                         'provider_health':'unknown','coverage':'Saved tenant records; not a provider probe'}, container)
+    if name == 'update_offering' and args['offering_id'].startswith('retail:'):
+        from service.business_core import BusinessCore
+        item = BusinessCore(container.storage, identity['tenant']).get('get_offering', {'offering_id':args['offering_id']})
+        if set(args['changes']) - {'name','price'}:
+            raise BusinessError('invalid_arguments','Retail aliases support name and price edits. Use existing catalog tools for stock and legacy display prices.')
+        args = {'category':item['category'],'name':item['name'],'expected_revision':args['expected_revision'],'changes':args['changes']}
+        name = 'update_catalog_item'
     if name in WRITES:
         result = business.mutate(name, args)
         container.invalidate_tenant(identity['tenant'])
@@ -160,7 +187,11 @@ def execute(container, identity, scopes, name, args, *, source='ChatGPT MCP'):
     window = {"tenant": tenant, "minutes": args.get("minutes", 10080)}
     if name == "get_statistics" and "start_at" in args:
         window.update(start_at=args["start_at"], end_at=args["end_at"])
-    if name in {"get_catalog", "search_catalog"}:
+    if name in {'get_offerings','get_offering','get_locations','get_service_areas','get_business_rules',
+                'get_jobs','get_bookings','get_orders','get_projects','get_viewings','get_appointments','get_tickets'}:
+        from service.business_core import BusinessCore
+        result = BusinessCore(container.storage, tenant).get(name,args)
+    elif name in {"get_catalog", "search_catalog"}:
         result = business.catalog(**args)
     elif name == "get_offers":
         result = business.offers(**args)

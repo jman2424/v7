@@ -49,6 +49,7 @@ _TENANT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 # Known tenant files and their schemas (if any)
 KNOWN_FILES: Dict[str, Optional[str]] = {
+    "business_core.json": "business-core.schema.json",
     "catalog.json": "catalog.schema.json",
     "delivery.json": "delivery.schema.json",
     "branches.json": "branches.schema.json",
@@ -219,6 +220,10 @@ class Storage:
         # schema may be provided as "schemas/catalog.schema.json" or just "catalog.schema.json"
         if filename == "catalog.json" and isinstance(data, dict) and "product_catalog" in data and "categories" not in data:
             schema = "catalog-sheet.schema.json"
+        if filename == 'business_core.json':
+            from service.business_core import validate_core
+            validate_core(data)
+            schema = 'business-core.schema.json'
         if schema:
             schema_path = self._schema_path(schema)
             self._validate_json(data, schema_path)

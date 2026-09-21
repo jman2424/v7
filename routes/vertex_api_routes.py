@@ -14,6 +14,21 @@ bp = Blueprint('vertex_api', __name__, url_prefix='/api/v1')
 
 # These are transport mappings, not separate business implementations.
 ENDPOINTS = (
+    ('GET','/offerings','get_offerings'),
+    ('GET','/offerings/<offering_id>','get_offering'),
+    ('POST','/offerings','create_offering'),
+    ('PATCH','/offerings/<offering_id>','update_offering'),
+    ('GET','/locations','get_locations'),
+    ('GET','/service-areas','get_service_areas'),
+    ('GET','/business-rules','get_business_rules'),
+    ('GET','/business-health','get_business_health'),
+    ('GET','/jobs','get_jobs'),
+    ('GET','/bookings','get_bookings'),
+    ('GET','/orders','get_orders'),
+    ('GET','/projects','get_projects'),
+    ('GET','/viewings','get_viewings'),
+    ('GET','/appointments','get_appointments'),
+    ('GET','/tickets','get_tickets'),
     ('GET','/business-overview','get_business_overview'),
     ('GET','/statistics','get_statistics'),
     ('GET','/conversation-stats','get_conversation_stats'),
@@ -72,6 +87,9 @@ def endpoint(tool):
                 if any(len(request.args.getlist(key)) != 1 for key in request.args):
                     abort(400)
                 arguments = request.args.to_dict()
+                if set(selectors).intersection(arguments):
+                    abort(400)
+                arguments.update(selectors)
                 properties = mcp_tools.SPECS[tool]['inputSchema']['properties']
                 for key, value in list(arguments.items()):
                     if properties.get(key, {}).get('type') == 'integer':

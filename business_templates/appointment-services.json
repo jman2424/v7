@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "offerings": [
+    {
+      "id": "detail",
+      "name": "Full Interior Detail",
+      "type": "service",
+      "price_type": "from",
+      "price": 120,
+      "currency": "GBP",
+      "duration_minutes": 180,
+      "active": true
+    }
+  ],
+  "locations": [
+    {
+      "id": "mobile",
+      "name": "Mobile detailing",
+      "type": "mobile_service_area",
+      "service_area": "Within the agreed radius of the workshop",
+      "radius_miles": 12,
+      "active": true
+    }
+  ],
+  "business_rules": [
+    {
+      "id": "inspection",
+      "title": "Ceramic coating inspection",
+      "description": "Ceramic coating requires an inspection before a quote is confirmed.",
+      "active": true,
+      "requires_manual_review": true
+    }
+  ],
+  "work": [],
+  "industry": "appointment_services",
+  "operation_types": [
+    "booking",
+    "job",
+    "appointment"
+  ]
+}

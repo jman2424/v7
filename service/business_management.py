@@ -44,6 +44,9 @@ class BusinessManagement:
         try:
             return self.storage.read_json(self.tenant, filename)
         except FileNotFoundError:
+            if filename == "business_core.json":
+                from service.business_core import empty_core
+                return empty_core()
             if filename == "offers.json":
                 return []
             raise BusinessError("not_found", "Catalogue is not configured.") from None
@@ -77,7 +80,7 @@ class BusinessManagement:
         from service.tenant_access import activation
         if not activation(self.tenant)['active']:
             raise BusinessError('forbidden', 'Business activation is required before editing.')
-        filename = "offers.json" if "offer" in action else "catalog.json"
+        filename = "business_core.json" if action in {"create_offering", "update_offering"} else "offers.json" if "offer" in action else "catalog.json"
         operation_id = uuid.uuid4().hex
         audit = AuditService()
         common = {"user": self.identity["id"], "role": "business_owner", "ip": "",
@@ -91,7 +94,23 @@ class BusinessManagement:
                 if args["expected_revision"] != revision(doc):
                     raise BusinessError("conflict", "Data changed. Read the current revision before trying again.")
                 updated = copy.deepcopy(doc)
-                if filename == "catalog.json":
+                if filename == 'business_core.json':
+                    from service.business_core import validate_core
+                    validate_core(updated)
+                    if action == 'create_offering':
+                        before = None
+                        after = {'id':uuid.uuid4().hex, **args['offering']}
+                        updated['offerings'].append(after)
+                    else:
+                        matches = [row for row in updated['offerings'] if row['id'] == args['offering_id']]
+                        if len(matches) != 1:
+                            raise BusinessError('not_found','Offering does not exist.')
+                        after = matches[0]
+                        before = copy.deepcopy(after)
+                        after.update(args['changes'])
+                    validate_core(updated)
+                    schema = 'business-core.schema.json'
+                elif filename == "catalog.json":
                     before, after, schema = self._catalog_change(updated, action, args)
                 else:
                     before, after = self._offer_change(updated, action, args)
@@ -119,7 +138,7 @@ class BusinessManagement:
                     record_inventory(self.tenant, doc, updated)
                 audit.record(**common, extra={**extra, "result": "success"})
                 return {"ok": True, "operation_id": operation_id, "revision": revision(updated),
-                        "item": project(after, OFFER_FIELDS if filename == "offers.json" else CATALOG_FIELDS)}
+                        "item": after if filename == "business_core.json" else project(after, OFFER_FIELDS if filename == "offers.json" else CATALOG_FIELDS)}
         except BusinessError:
             audit.record(**common, extra={**extra, "result": "rejected"})
             raise

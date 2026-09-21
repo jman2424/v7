@@ -191,6 +191,13 @@ class MessageHandlerV7:
             self._catalog_categories(),
         )
 
+        self.business_core = None
+        storage = getattr(self.catalog, 'storage', None)
+        if storage is not None and storage.file_path(storage.tenant_key, 'business_core.json').is_file():
+            from service.business_core import BusinessCore
+            self.business_core = BusinessCore(storage, storage.tenant_key)
+            self.sales_context['business_core'] = self.business_core.public_context()
+
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         tone_style, max_sentences = self._tone_settings()
         self.renderer = RendererV7(
@@ -239,6 +246,12 @@ class MessageHandlerV7:
         )
 
         try:
+            # Generic public facts stay local; private work records never enter chat.
+            if self.business_core:
+                generic_reply = self.business_core.answer(user_text)
+                if generic_reply:
+                    return self._wrap_reply(request_id=request_id, t0=t0, reply=generic_reply,
+                                            intent='business_knowledge', plan=None, facts={}, entities={}, items=[])
             # 0) Greeting only
             if self._is_greeting(user_text):
                 reply_text = self._greeting_reply()

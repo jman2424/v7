@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "offerings": [],
+  "locations": [],
+  "business_rules": [],
+  "work": [],
+  "industry": "retail",
+  "operation_types": [
+    "order"
+  ]
+}

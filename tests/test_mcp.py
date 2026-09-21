@@ -76,7 +76,7 @@ def test_metadata_authentication_and_transport(mcp):
     initialized = rpc(client, token, "initialize", {"protocolVersion": "2025-06-18", "clientInfo": {"name": "test", "version": "1"}, "capabilities": {}})
     assert initialized.json["result"]["protocolVersion"] == "2025-06-18"
     tools = rpc(client, token, "tools/list").json["result"]["tools"]
-    assert len(tools) == 22
+    assert len(tools) == 37
     assert all(t["inputSchema"]["additionalProperties"] is False for t in tools)
     assert rpc(client, token, "unknown").json["error"]["code"] == -32601
     assert rpc(client, token, headers={"Origin": "https://evil.test"}).status_code == 403
