@@ -2,15 +2,35 @@
   import { onMount, onDestroy } from 'svelte';
   export let tenant: string;
   export let isPlatform = false;
+  export let csrf = '';
   export let apiPrefix = '';
   type Totals = { calls: number; failed_calls: number; missing_usage_calls: number; unpriced_calls: number;
     input_tokens: number; cached_tokens: number; output_tokens: number; total_tokens: number; estimated_cost_gbp: number | null };
   type Row = Totals & { tenant: string; model: string; requested_model: string; channel: string; purpose: string };
   type Usage = { totals: Totals; breakdown: Row[]; breakdown_truncated: boolean; first_recorded_at: string | null;
     price_version: string; exchange_rate: { rate: number; date: string; source: string; stale: boolean } | null; configuration: { mode: string; planning_model: string; planning_enabled: boolean;
-      rewriting_model: string; rewriting_enabled: boolean } };
+      rewriting_model: string; rewriting_enabled: boolean; can_change_model:boolean; model_options:{id:string;input_usd_per_million:number;cached_usd_per_million:number;output_usd_per_million:number}[] } };
   let data: Usage | null = null;
   let scope = 'company';
+  let selectedModel = '';
+  let step = 0;
+  let changeToken = '';
+  let changeBusy = false;
+  let accepted = false;
+  let savedMessage = '';
+  function cancelChange() { step=0; changeToken=''; accepted=false; }
+  async function changeModel(action:'review'|'confirm'|'save') {
+    changeBusy=true; error=''; savedMessage='';
+    try {
+      const payload = action==='review' ? {model:selectedModel} : action==='confirm' ? {token:changeToken,acknowledge_cost_and_responses:accepted} : {token:changeToken,confirm_and_save:accepted};
+      const response = await fetch(apiPrefix+'/admin/api/ai-model'+(action==='save'?'':'/'+action)+'?tenant='+encodeURIComponent(tenant), {method:action==='save'?'PUT':'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)});
+      if(!response.ok)throw new Error('Model change could not be saved. Refresh and review it again.');
+      const result=await response.json();
+      if(action==='save'){cancelChange();await refresh(tenant,scope,days);savedMessage='Model saved. New AI calls use this model. Test your agent to check its responses.';}
+      else {selectedModel=result.model;changeToken=result.token;step=action==='review'?1:2;accepted=false;}
+    } catch(failure) {cancelChange();error=failure instanceof Error?failure.message:'Could not change model.';}
+    finally {changeBusy=false;}
+  }
   let days = 30;
   let busy = false;
   let error = '';
@@ -25,6 +45,7 @@
   }).format(value);
 
   async function refresh(company: string, selectedScope: string, period: number) {
+    cancelChange();
     controller?.abort();
     const request = new AbortController();
     controller = request;
@@ -39,7 +60,7 @@
       });
       if (!response.ok) throw new Error(response.status === 401 ? 'Your session expired. Sign in again.' : 'Could not load API usage. Try refreshing.');
       const result: Usage = await response.json();
-      if (controller === request && !request.signal.aborted) data = result;
+      if (controller === request && !request.signal.aborted) { data = result; selectedModel=result.configuration.planning_model; }
     } catch (failure) {
       if (controller === request) error = request.signal.aborted ? 'The request timed out. Try refreshing.' : failure instanceof Error ? failure.message : 'Unable to load usage.';
     } finally {
@@ -53,12 +74,13 @@
   <div class="toolbar">
     <div><h2>API usage &amp; cost</h2><p>Track the agent's OpenAI calls, including Test agent conversations.</p></div>
     <div class="controls">
-      {#if isPlatform}<label>View<select bind:value={scope}><option value="company">Selected company</option><option value="all">All companies</option></select></label>{/if}
-      <label>Time period<select bind:value={days}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
-      <button type="button" disabled={busy} on:click={() => refresh(tenant, scope, days)}>Refresh</button>
+      {#if isPlatform}<label>View<select bind:value={scope} disabled={changeBusy}><option value="company">Selected company</option><option value="all">All companies</option></select></label>{/if}
+      <label>Time period<select bind:value={days} disabled={changeBusy}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
+      <button type="button" disabled={busy||changeBusy} on:click={() => refresh(tenant, scope, days)}>Refresh</button>
     </div>
   </div>
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
+  {#if savedMessage}<p class="notice" role="status">{savedMessage}</p>{/if}
   {#if busy}<p class="notice" role="status">Loading API usage…</p>{/if}
   {#if data}
     <article class="panel">
@@ -69,6 +91,23 @@
         <div><span>Reply rewriting model</span><strong>{data.configuration.rewriting_model}</strong><small>{data.configuration.rewriting_enabled ? 'Available when rewriting is needed' : 'AI rewriting inactive'}</small></div>
       </div>
       <p>Some answers use saved business information directly and need no API call. Actual response models appear below.</p>
+      {#if scope==='company' && data.configuration.can_change_model}
+        <h3>Change this business’s AI model</h3>
+        <p>This changes both planning and reply rewriting. It can affect response wording, accuracy, speed and token usage. API costs can increase or decrease and are billed separately from your platform subscription.</p>
+        <label>AI model<select bind:value={selectedModel} disabled={step>0||changeBusy}>
+          {#if !data.configuration.model_options.some(option=>option.id===selectedModel)}<option value={selectedModel} disabled>{selectedModel} (current server configuration)</option>{/if}
+          {#each data.configuration.model_options as option}<option value={option.id}>{option.id}</option>{/each}
+        </select></label>
+        {#each data.configuration.model_options.filter(option=>option.id===selectedModel) as option}
+          <p>Standard text rates per 1 million tokens: input ${option.input_usd_per_million}, cached input ${option.cached_usd_per_million}, output ${option.output_usd_per_million} USD. These are estimates, not a fixed per-message price. Actual costs depend on usage, exchange rates and provider pricing.</p>
+        {/each}
+        {#if step===0}<button type="button" disabled={changeBusy||!data.configuration.model_options.some(option=>option.id===selectedModel)} on:click={()=>changeModel('review')}>Review model change</button>
+        {:else if step===1}
+          <div class="notice" role="region" aria-label="First confirmation"><h4>Confirmation 1 of 2</h4><p>Switch {tenant} from {data.configuration.planning_model} to {selectedModel}. Response quality, behaviour and API charges may change. Availability depends on the platform’s provider account.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I understand that API usage, costs and responses may change.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('confirm')}>Confirm and continue</button><button type="button" disabled={changeBusy} on:click={cancelChange}>Cancel</button></div>
+        {:else}
+          <div class="notice" role="region" aria-label="Final confirmation"><h4>Confirmation 2 of 2 — save</h4><p>Save {selectedModel} for {tenant}? This takes effect for new AI calls and may affect your charges and customer responses. You can change it again later using this same confirmation process.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I confirm this model and accept the possible cost and response changes.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('save')}>{changeBusy?'Saving…':'Confirm again and save'}</button><button type="button" disabled={changeBusy} on:click={cancelChange}>Cancel</button></div>
+        {/if}
+      {/if}
     </article>
     <div class="metrics">
       <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.calls === 0 ? 'No API calls recorded in this period' : data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>

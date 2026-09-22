@@ -203,14 +203,18 @@ def api_usage_get():
         row["estimated_cost_gbp"] = (0.0 if usd == 0 else round(usd * exchange["rate"], 9)
                                      if usd is not None and exchange else None)
     result.update(currency="GBP", exchange_rate=exchange)
+    from service import model_settings
+    chosen_model = model_settings.selected(tenant,container.storage)
     brain = container.handler.h_v7.brain
     mode = str(container.overrides.get("ai.mode") or "v7").lower()
     mode = mode if mode in {"v5", "v6"} else "v7"
     result.update(scope=scope, tenant=tenant, configuration={
         "mode": mode.upper(),
-        "planning_model": brain.config.model,
+        "planning_model": chosen_model or brain.config.model,
+        "model_options": model_settings.options(),
+        "can_change_model": bool(is_platform_operator() or user_roles() == {"business_owner"}),
         "planning_enabled": mode == "v7" and brain.client is not None,
-        "rewriting_model": container.rewriter._model,
+        "rewriting_model": chosen_model or container.rewriter._model,
         "rewriting_enabled": container.rewriter._client is not None,
     })
     return jsonify(result)

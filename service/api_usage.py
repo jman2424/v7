@@ -26,7 +26,7 @@ RATES = {
 
 @contextmanager
 def usage_context(tenant: str, channel: str):
-    token = _context.set((tenant.upper(), channel))
+    token = _context.set((tenant, channel))
     try:
         yield
     finally:
@@ -76,7 +76,7 @@ def _record(response, requested_model: str, purpose: str, status: str) -> None:
             (ts_utc, tenant, channel, purpose, requested_model, model, status,
              input_tokens, cached_tokens, output_tokens, cost_nano_usd, price_version)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
-            datetime.now(timezone.utc).isoformat(), *context, purpose, requested_model,
+            datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], purpose, requested_model,
             model, status, input_tokens, cached, output_tokens, cost, PRICE_VERSION,
         ))
 
@@ -86,6 +86,14 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     response = None
     status = "failed"
     try:
+        context = _context.get()
+        if context:
+            from service.model_settings import selected
+            from flask import current_app, has_app_context
+            storage = current_app.container.storage if has_app_context() and hasattr(current_app,'container') else None
+            model = selected(context[0],storage)
+            if model:
+                kwargs['model'] = model
         response = client.chat.completions.create(**kwargs)
         status = "completed"
         return response

@@ -1157,7 +1157,7 @@
       {/if}
       {#if section === 'usage'}
         {#if canViewCosts}
-          {#key tenant}<ApiUsage {tenant} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+          {#key tenant}<ApiUsage {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
         {:else}
           <section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view API usage and costs.</p></div></section>
         {/if}

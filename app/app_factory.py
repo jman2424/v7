@@ -99,6 +99,8 @@ def _register_blueprints(app: Flask) -> None:
 
     from routes.admin_api_routes import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
+    from routes.model_settings_routes import bp as model_settings_bp
+    app.register_blueprint(model_settings_bp)
     from routes.mcp_routes import bp as mcp_bp
     from routes.mcp_oauth_routes import bp as mcp_oauth_bp
     from routes.vertex_api_routes import bp as vertex_api_bp
