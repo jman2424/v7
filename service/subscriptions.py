@@ -1,5 +1,7 @@
 """Stripe-backed subscription and invoice ledger, isolated by company."""
 import json
+import hashlib
+import hmac
 import re
 import secrets
 import sqlite3
@@ -16,10 +18,27 @@ VAT_PERCENT = 20
 PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
 
 
+# Store only a verifier; the private redemption code is never sent to the browser.
+_PLATFORM_DISCOUNT_DIGEST = '5b88cf8922d8d9074123ded1c69cde02e49dc05106694f1bec8eb8b067c0603e'
+_PLATFORM_CAMPAIGN = 'platform-recurring-half-v1'
+
+
+def _discount_campaign(kind, code):
+    if not isinstance(code, str) or len(code) > 100:
+        raise ValueError('invalid_discount_code')
+    if not code.strip():
+        return ''
+    digest = hashlib.sha256(code.strip().upper().encode()).hexdigest()
+    if kind not in {'platform','implementation'} or not hmac.compare_digest(digest, _PLATFORM_DISCOUNT_DIGEST):
+        raise ValueError('invalid_discount_code')
+    return _PLATFORM_CAMPAIGN
+
+
 @contextmanager
 def connection():
     with session_store.connection() as db:
         db.row_factory = sqlite3.Row
+        db.execute('CREATE TABLE IF NOT EXISTS billing_discounts (tenant TEXT PRIMARY KEY, campaign TEXT NOT NULL)')
         db.execute('CREATE TABLE IF NOT EXISTS billing_contracts (tenant TEXT NOT NULL, kind TEXT NOT NULL, ref TEXT UNIQUE NOT NULL, subscription TEXT, customer TEXT, status TEXT NOT NULL DEFAULT \'not_started\', next_due INTEGER, paused INTEGER NOT NULL DEFAULT 0, cancel_at_end INTEGER NOT NULL DEFAULT 0, checkout TEXT, checkout_url TEXT, checkout_expires INTEGER, implementation_paid INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(tenant,kind))')
         db.execute('CREATE TABLE IF NOT EXISTS billing_invoices (id TEXT PRIMARY KEY, tenant TEXT NOT NULL, kind TEXT NOT NULL, month TEXT NOT NULL, issued INTEGER NOT NULL, due INTEGER, total INTEGER NOT NULL, paid INTEGER NOT NULL, remaining INTEGER NOT NULL, status TEXT NOT NULL, lines TEXT NOT NULL, url TEXT)')
         db.execute('CREATE INDEX IF NOT EXISTS billing_invoice_tenant ON billing_invoices(tenant,issued)')
@@ -62,9 +81,51 @@ def _tax():
     return rate
 
 
-def checkout(tenant, email, kind, base_url, month=''):
+def saved_campaign(tenant):
+    with connection() as db:
+        row = db.execute('SELECT campaign FROM billing_discounts WHERE tenant=?',(tenant,)).fetchone()
+    return _PLATFORM_CAMPAIGN if row and row['campaign'] == _PLATFORM_CAMPAIGN else ''
+
+
+def _discount_coupon(stripe, key):
+    coupon = stripe.stripe_request('POST','/v1/coupons',
+        {'percent_off':50,'duration':'forever','name':'Business subscription discount'},
+        idempotency_key='v7-discount-'+key)
+    if not isinstance(coupon.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]+',coupon['id']) or coupon.get('percent_off') != 50 or coupon.get('duration') != 'forever' or coupon.get('valid') is not True:
+        raise ValueError('stripe_discount_invalid')
+    return coupon['id']
+
+
+def redeem_discount(tenant, code):
+    campaign = _discount_campaign('platform', code)
+    if not campaign:
+        raise ValueError('invalid_discount_code')
+    contract = _contract(tenant,'platform')
+    if contract.get('subscription'):
+        sync_subscription(contract['subscription'])
+        contract = _contract(tenant,'platform')
+        if contract['status'] not in {'canceled','incomplete_expired'}:
+            stripe = client()
+            coupon = _discount_coupon(stripe, contract['ref']+'-renewal')
+            # Discount future invoices without creating a proration charge/refund.
+            result = stripe.stripe_request('POST','/v1/subscriptions/'+contract['subscription'],
+                {'discounts[0][coupon]':coupon,'proration_behavior':'none',
+                 'metadata[discount_campaign]':campaign},
+                idempotency_key='v7-discount-renewal-'+contract['ref'])
+            if result.get('id') != contract['subscription'] or (result.get('metadata') or {}).get('discount_campaign') != campaign:
+                raise ValueError('stripe_discount_invalid')
+    with connection() as db:
+        db.execute('INSERT INTO billing_discounts VALUES (?,?) ON CONFLICT(tenant) DO UPDATE SET campaign=excluded.campaign',(tenant,campaign))
+    return {'ok':True,'discount_percent':50}
+
+
+def checkout(tenant, email, kind, base_url, month='', discount_code=''):
     if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
+    entered_campaign = _discount_campaign(kind, discount_code)
+    if entered_campaign:
+        redeem_discount(tenant, discount_code)
+    campaign = saved_campaign(tenant) if kind in {'platform','implementation'} else ''
     one_time = kind in {'implementation','api'}
     if kind=='implementation' and (_contract(tenant,'platform')['implementation_paid'] or _contract(tenant,kind)['status']=='paid'):
         raise ValueError('implementation_already_paid')
@@ -91,7 +152,7 @@ def checkout(tenant, email, kind, base_url, month=''):
     if contract.get('checkout'):
         previous = stripe.stripe_request('GET','/v1/checkout/sessions/'+contract['checkout'])
         if previous.get('status') == 'open':
-            if kind=='platform' and (previous.get('metadata') or {}).get('billing_version')!='separate_implementation':
+            if (kind=='platform' and (previous.get('metadata') or {}).get('billing_version')!='separate_implementation') or (kind in {'platform','implementation'} and (previous.get('metadata') or {}).get('discount_campaign','') != campaign):
                 # Retire old combined checkouts before replacing them with the monthly plan.
                 stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
             else:
@@ -139,6 +200,9 @@ def checkout(tenant, email, kind, base_url, month=''):
                      prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name,prefix+'[tax_rates][0]':tax})
         if recurring:
             data[prefix+'[price_data][recurring][interval]'] = 'month'
+    if campaign:
+        data['discounts[0][coupon]'] = _discount_coupon(stripe, ref)
+        data['metadata[discount_campaign]'] = campaign
     result = stripe.stripe_request('POST','/v1/checkout/sessions',data,idempotency_key='v7-checkout-'+ref)
     url = _safe_url(result.get('url'),'checkout.stripe.com')
     if not url or not re.fullmatch(r'cs_[A-Za-z0-9_]+', result.get('id','')):
@@ -264,4 +328,4 @@ def report(tenant, include_api=True):
             totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=? AND kind!='api'", (tenant,)).fetchone())
         totals['approved_api_due'] = 0
         usage, rate, approved = [], None, []
-    return {'tenant':tenant,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant)}
+    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant)}

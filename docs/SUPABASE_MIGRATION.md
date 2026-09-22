@@ -14,7 +14,7 @@ Supabase Auth and Google login are not part of this database migration.
 
 ## Destination design
 
-`supabase/migrations/202609160001_v7_private.sql` creates 27 tables in
+The SQL files in `supabase/migrations/`, applied in filename order, create 28 tables in
 `v7_private`, separate from the public Data API schema:
 
 | Existing source | Destination |
@@ -58,7 +58,7 @@ superuser or the migration-owner connection for normal application requests.
    project-specific certificate is needed. The importer enforces `verify-full`,
    even if a weaker SSL mode is present in the connection string. Never paste
    credentials into chat, shell arguments, source files, or browser bundles.
-5. Run the SQL migration in the Supabase SQL editor as the migration owner.
+5. Run both SQL migrations in filename order in the Supabase SQL editor as the migration owner.
    Review it first; it changes only the new `v7_private` schema and `v7_backend` role.
 
 Official references: [database connections](https://supabase.com/docs/guides/database/connecting-to-postgres),
@@ -133,3 +133,5 @@ python -m pytest tests/test_supabase_preparation.py -q
 Set `V7_TEST_POSTGRES_DSN` only to an **empty disposable test database** to include
 the PostgreSQL integration test. It creates a schema and test roles and refuses an
 existing `v7_private` schema. Without that variable, the integration test is skipped.
+
+Apply all files in `supabase/migrations/` in filename order, including the additive billing-discounts migration (schema version 2). The importer preserves saved tenant discounts and requires both versions.

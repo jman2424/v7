@@ -66,11 +66,23 @@ def companies_get():
 def checkout_post():
     tenant, data = _tenant(), _body()
     try:
-        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''))
+        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
     _audit('billing.checkout',tenant,after={'kind':data.get('kind')})
+    return jsonify(result)
+
+
+@bp.post('/discount')
+def discount_post():
+    tenant, data = _tenant(), _body()
+    try:
+        result = subscriptions.redeem_discount(tenant,data.get('code'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)),400
+    from routes.admin_api_routes import _audit
+    _audit('billing.discount',tenant,after={'percent':50})
     return jsonify(result)
 
 

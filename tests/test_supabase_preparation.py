@@ -15,6 +15,8 @@ def source(tmp_path):
     logs = tmp_path / 'logs'
     logs.mkdir()
     with closing(sqlite3.connect(logs / 'security.db')) as db, db:
+        db.execute('CREATE TABLE billing_discounts (tenant TEXT PRIMARY KEY, campaign TEXT NOT NULL)')
+        db.execute("INSERT INTO billing_discounts VALUES ('ALPHA','platform-recurring-half-v1')")
         db.execute('CREATE TABLE managed_businesses (tenant TEXT PRIMARY KEY, owner TEXT)')
         db.execute('INSERT INTO managed_businesses VALUES (?,?)', ('ALPHA','owner-identity'))
         db.execute('CREATE TABLE management_sessions (token_hash TEXT PRIMARY KEY, identity TEXT, revision TEXT, expires REAL)')
@@ -95,8 +97,8 @@ def pg():
         for role in ['anon','authenticated','service_role']:
             if not conn.execute('SELECT 1 FROM pg_roles WHERE rolname=%s',(role,)).fetchone():
                 conn.execute('CREATE ROLE '+role+' NOLOGIN')
-        migration = Path(__file__).resolve().parents[1] / 'supabase/migrations/202609160001_v7_private.sql'
-        conn.execute(migration.read_text(), prepare=False)
+        for migration in sorted((Path(__file__).resolve().parents[1] / 'supabase/migrations').glob('*.sql')):
+            conn.execute(migration.read_text(encoding='utf-8-sig'), prepare=False)
         yield conn
 
 
@@ -126,8 +128,10 @@ def test_postgres_copy_verification_and_row_security(pg, source, monkeypatch):
     with pg.transaction():
         pg.execute('SET LOCAL ROLE v7_backend')
         assert pg.execute('SELECT count(*) FROM v7_private.business_documents').fetchone()[0] == 0
+        assert pg.execute('SELECT count(*) FROM v7_private.billing_discounts').fetchone()[0] == 0
         pg.execute("SELECT set_config('v7.tenant','ALPHA',true)")
         assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.business_documents')} == {'ALPHA'}
+        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.billing_discounts')} == {'ALPHA'}
         assert pg.execute("UPDATE v7_private.business_documents SET payload='{}' WHERE tenant='BETA'").rowcount == 0
         assert pg.execute('SELECT count(*) FROM v7_private.account_authenticators').fetchone()[0] == 1
     with pytest.raises(psycopg.errors.InsufficientPrivilege):

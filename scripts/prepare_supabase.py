@@ -21,7 +21,7 @@ from pathlib import Path
 SECURITY_TABLES = {
     'management_sessions', 'login_attempts', 'account_authenticators', 'mfa_challenges',
     'managed_businesses', 'registration_requests', 'billing_contracts', 'billing_invoices',
-    'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate',
+    'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate',
 }
 ANALYTICS_TABLES = {'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history', 'usage_exchange_rate'}
 EXTRA_TABLES = {'tenants', 'business_documents', 'document_versions', 'operator_accounts', 'crm_records', 'audit_records'}
@@ -195,8 +195,8 @@ def import_bundle(conn, bundle):
     from psycopg.types.json import Jsonb
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(71616001)')
-        version = conn.execute('SELECT version FROM v7_private.schema_version').fetchall()
-        if version != [(1,)]:
+        version = conn.execute('SELECT version FROM v7_private.schema_version ORDER BY version').fetchall()
+        if version != [(1,), (2,)]:
             raise ValueError('Apply the reviewed V7 schema migration first')
         for table in sorted(DATA_TABLES | {'migration_runs'}):
             query = sql.SQL('SELECT EXISTS(SELECT 1 FROM v7_private.{})').format(sql.Identifier(table))

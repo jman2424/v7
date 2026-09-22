@@ -199,3 +199,120 @@ def test_whatsapp_deactivation_stops_agent_before_it_runs(client,stripe,monkeypa
 def test_csrf_cannot_be_skipped_for_checkout(client):
     identity(client,'business_owner')
     assert client.post('/billing/checkout',json={'kind':'platform'},headers={'X-CSRF-Token':'wrong'}).status_code==403
+
+@pytest.fixture
+def private_discount(monkeypatch):
+    code = 'PRIVATE-TEST-DISCOUNT'
+    monkeypatch.setattr(subscriptions,'_PLATFORM_DISCOUNT_DIGEST',hashlib.sha256(code.encode()).hexdigest())
+    return code
+
+
+def discount_stripe(method,path,data=None,**kwargs):
+    if path.startswith('/v1/tax_rates/'):
+        return {'active':True,'inclusive':False,'percentage':20}
+    if path == '/v1/coupons':
+        return {'id':'coupon_test','percent_off':50,'duration':'forever','valid':True}
+    if path == '/v1/checkout/sessions':
+        return {'id':'cs_discount','url':'https://checkout.stripe.com/c/pay/discount'}
+    raise AssertionError('Unexpected Stripe request: '+path)
+
+
+def test_discount_is_saved_and_applies_to_implementation_and_every_platform_renewal(client,stripe,private_discount):
+    identity(client,'business_owner')
+    response = client.post('/billing/discount',json={'code':private_discount.lower()})
+    assert response.status_code == 200
+    assert response.json == {'ok':True,'discount_percent':50}
+    stripe.assert_not_called()
+    stripe.side_effect = discount_stripe
+    for kind in ['implementation','platform']:
+        response = client.post('/billing/checkout',json={'kind':kind})
+        assert response.status_code == 200, response.json
+        body = stripe.call_args.args[2]
+        assert body['discounts[0][coupon]'] == 'coupon_test'
+        assert body['line_items[0][price_data][unit_amount]'] == subscriptions.PRICES[kind]
+        assert body['mode'] == ('payment' if kind=='implementation' else 'subscription')
+        assert private_discount not in json.dumps(body)
+        coupon = [call for call in stripe.call_args_list if call.args[1]=='/v1/coupons'][-1]
+        assert coupon.args[2]['percent_off'] == 50
+        assert coupon.args[2]['duration'] == 'forever'
+    report = client.get('/billing/subscription').json
+    assert report['discount_percent'] == 50
+    assert private_discount not in json.dumps(report)
+    assert subscriptions.saved_campaign('OTHER') == ''
+
+
+def test_discount_rejects_invalid_codes_staff_and_other_tenants(client,stripe,private_discount):
+    identity(client,'business_owner')
+    for code in ['WRONG',None,{},'', 'x'*101]:
+        assert client.post('/billing/discount',json={'code':code}).status_code == 400
+    assert client.post('/billing/discount?tenant=OTHER',json={'code':private_discount}).status_code == 403
+    identity(client,'business_staff')
+    assert client.post('/billing/discount',json={'code':private_discount}).status_code == 403
+    stripe.assert_not_called()
+    assert subscriptions.saved_campaign('EXAMPLE') == ''
+
+
+def test_discount_updates_existing_subscription_without_proration(client,stripe,private_discount):
+    identity(client,'business_owner')
+    contract = subscriptions._contract('EXAMPLE','platform')
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET subscription='sub_test',status='active' WHERE tenant='EXAMPLE' AND kind='platform'")
+    metadata = {'tenant':'EXAMPLE','kind':'platform','billing_ref':contract['ref']}
+    def response(method,path,data=None,**kwargs):
+        if path == '/v1/subscriptions/sub_test':
+            return {'id':'sub_test','status':'active','customer':'cus_test','metadata':{**metadata,**({'discount_campaign':subscriptions._PLATFORM_CAMPAIGN} if method=='POST' else {})}}
+        return discount_stripe(method,path,data,**kwargs)
+    stripe.side_effect = response
+    assert client.post('/billing/discount',json={'code':private_discount}).status_code == 200
+    update = stripe.call_args.args
+    assert update[:2] == ('POST','/v1/subscriptions/sub_test')
+    assert update[2]['proration_behavior'] == 'none'
+    assert update[2]['discounts[0][coupon]'] == 'coupon_test'
+    assert subscriptions.saved_campaign('EXAMPLE')
+
+
+@pytest.mark.parametrize('kind',['platform','implementation'])
+def test_saved_discount_replaces_open_full_price_checkout(client,stripe,private_discount,kind):
+    identity(client,'business_owner')
+    assert client.post('/billing/discount',json={'code':private_discount}).status_code == 200
+    subscriptions._contract('EXAMPLE',kind)
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET checkout='cs_old' WHERE tenant='EXAMPLE' AND kind=?",(kind,))
+    def response(method,path,data=None,**kwargs):
+        if path == '/v1/checkout/sessions/cs_old':
+            return {'status':'open','metadata':{'billing_version':'separate_implementation'},'url':'https://checkout.stripe.com/c/pay/old'}
+        if path.endswith('/expire'): return {'status':'expired'}
+        return discount_stripe(method,path,data,**kwargs)
+    stripe.side_effect = response
+    assert client.post('/billing/checkout',json={'kind':kind}).status_code == 200
+    assert any(call.args[:2]==('POST','/v1/checkout/sessions/cs_old/expire') for call in stripe.call_args_list)
+    assert stripe.call_args.args[2]['discounts[0][coupon]'] == 'coupon_test'
+
+
+def test_discount_does_not_extend_to_whatsapp_or_invalid_stripe_coupon(client,stripe,private_discount):
+    identity(client,'business_owner')
+    assert client.post('/billing/discount',json={'code':private_discount}).status_code == 200
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET status='active' WHERE tenant='EXAMPLE' AND kind='platform'")
+    stripe.side_effect = discount_stripe
+    assert client.post('/billing/checkout',json={'kind':'whatsapp'}).status_code == 200
+    assert 'discounts[0][coupon]' not in stripe.call_args.args[2]
+    stripe.reset_mock()
+    stripe.side_effect = [discount_stripe('GET','/v1/tax_rates/txr_test'),{'id':'bad','percent_off':50,'duration':'once','valid':True}]
+    response = client.post('/billing/checkout',json={'kind':'implementation'})
+    assert response.status_code == 400 and response.json['error'] == 'stripe_discount_invalid'
+    assert not any(call.args[1]=='/v1/checkout/sessions' for call in stripe.call_args_list)
+
+def test_failed_existing_subscription_update_does_not_claim_discount_saved(client,stripe,private_discount):
+    identity(client,'business_owner')
+    contract = subscriptions._contract('EXAMPLE','platform')
+    with subscriptions.connection() as db:
+        db.execute("UPDATE billing_contracts SET subscription='sub_test',status='active' WHERE tenant='EXAMPLE' AND kind='platform'")
+    def response(method,path,data=None,**kwargs):
+        if path == '/v1/subscriptions/sub_test':
+            if method == 'POST': raise ValueError('stripe_request_failed')
+            return {'id':'sub_test','status':'active','metadata':{'tenant':'EXAMPLE','kind':'platform','billing_ref':contract['ref']}}
+        return discount_stripe(method,path,data,**kwargs)
+    stripe.side_effect = response
+    assert client.post('/billing/discount',json={'code':private_discount}).status_code == 400
+    assert subscriptions.saved_campaign('EXAMPLE') == ''
