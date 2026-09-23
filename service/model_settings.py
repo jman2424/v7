@@ -25,10 +25,11 @@ def selected(tenant, storage=None):
 
 
 def options():
-    from service.api_usage import RATES
+    from service.api_usage import RATES, _CACHE_WRITE_RATES
     return [{'id': model,
              'input_usd_per_million': RATES[model][0] / 1000 if model in RATES else None,
              'cached_usd_per_million': RATES[model][1] / 1000 if model in RATES else None,
+             'cache_write_usd_per_million': _CACHE_WRITE_RATES[model] / 1000 if model in _CACHE_WRITE_RATES else None,
              'output_usd_per_million': RATES[model][2] / 1000 if model in RATES else None}
             for model in MODELS]
 

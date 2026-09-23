@@ -5,11 +5,11 @@
   export let csrf = '';
   export let apiPrefix = '';
   type Totals = { calls: number; failed_calls: number; missing_usage_calls: number; unpriced_calls: number;
-    input_tokens: number; cached_tokens: number; output_tokens: number; total_tokens: number; estimated_cost_gbp: number | null };
-  type Row = Totals & { tenant: string; model: string; requested_model: string; channel: string; purpose: string };
-  type Usage = { totals: Totals; breakdown: Row[]; breakdown_truncated: boolean; first_recorded_at: string | null;
+    input_tokens: number; cached_tokens: number; cache_write_tokens: number; output_tokens: number; total_tokens: number; estimated_cost_gbp: number | null };
+  type Row = Totals & { tenant: string; mode: string; model: string; requested_model: string; channel: string; purpose: string };
+  type Usage = { totals: Totals; mode_totals: (Totals & {mode:string})[]; breakdown: Row[]; breakdown_truncated: boolean; first_recorded_at: string | null;
     price_version: string; exchange_rate: { rate: number; date: string; source: string; stale: boolean } | null; configuration: { mode: string; planning_model: string; planning_enabled: boolean;
-      rewriting_model: string; rewriting_enabled: boolean; can_change_model:boolean; model_options:{id:string;input_usd_per_million:number|null;cached_usd_per_million:number|null;output_usd_per_million:number|null}[] } };
+      rewriting_model: string; rewriting_enabled: boolean; can_change_model:boolean; model_options:{id:string;input_usd_per_million:number|null;cached_usd_per_million:number|null;cache_write_usd_per_million:number|null;output_usd_per_million:number|null}[] } };
   let data: Usage | null = null;
   let scope = 'company';
   let selectedModel = '';
@@ -100,7 +100,7 @@
         </select></label>
         {#each data.configuration.model_options.filter(option=>option.id===selectedModel) as option}
           {#if option.input_usd_per_million !== null}
-            <p>Standard text rates per 1 million tokens: input ${option.input_usd_per_million}, cached input ${option.cached_usd_per_million}, output ${option.output_usd_per_million} USD. These are estimates, not a fixed per-message price. Actual costs depend on usage, exchange rates and provider pricing.</p>
+            <p>Standard short-context text rates per 1 million tokens: input ${option.input_usd_per_million}, cached input ${option.cached_usd_per_million}{option.cache_write_usd_per_million !== null ? `, cache writes $${option.cache_write_usd_per_million}` : ''}, output ${option.output_usd_per_million} USD. Long-context and other processing rates can differ. These are estimates, not a fixed per-message price.</p>
           {:else}
             <p>Current pricing is not tracked for this model. Its calls and tokens will be recorded, but the API cost estimate will be unavailable. Check your provider billing before selecting it.</p>
           {/if}
@@ -116,21 +116,33 @@
     <div class="metrics">
       <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.calls === 0 ? 'No API calls recorded in this period' : data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>
       <article class="panel"><span>Recorded tokens</span><strong class="value">{number(data.totals.total_tokens)}</strong><small>{number(data.totals.input_tokens)} input · {number(data.totals.output_tokens)} output</small></article>
-      <article class="panel"><span>Cached input tokens</span><strong class="value">{number(data.totals.cached_tokens)}</strong><small>Included in input tokens; discounted where priced</small></article>
+      <article class="panel"><span>Cached input tokens</span><strong class="value">{number(data.totals.cached_tokens)}</strong><small>{number(data.totals.cache_write_tokens)} cache-write tokens · both included in input tokens</small></article>
       <article class="panel"><span>API calls</span><strong class="value">{number(data.totals.calls)}</strong><small>{number(data.totals.failed_calls)} failed · {number(data.totals.missing_usage_calls)} without token counts</small></article>
     </div>
+    <article class="panel">
+      <h3>Estimated cost by agent mode</h3>
+      {#if data.mode_totals.length}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
+        <div class="table-wrap" role="region" aria-label="Usage by agent mode" tabindex="0">
+          <table><thead><tr><th>Mode</th><th>Calls</th><th>Input</th><th>Output</th><th>Est. GBP</th></tr></thead>
+            <tbody>{#each data.mode_totals as row}<tr><td><strong>{row.mode === 'unknown' ? 'Earlier or direct calls' : row.mode.toUpperCase()}</strong></td><td>{number(row.calls)}</td><td>{number(row.input_tokens)}</td><td>{number(row.output_tokens)}</td><td>{money(row.estimated_cost_gbp)}{#if row.unpriced_calls}<small>{row.unpriced_calls} without an estimate</small>{/if}</td></tr>{/each}</tbody></table>
+        </div>
+      {:else}<p class="empty">No paid API calls recorded for any agent mode in this period.</p>{/if}
+      <p>Modes that answer from saved business data without an OpenAI call have no API cost entry.</p>
+    </article>
     <article class="panel">
       <h3>Usage breakdown {scope === 'all' ? '· all companies' : '· selected company'}</h3>
       {#if data.breakdown.length}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
         <div class="table-wrap" role="region" aria-label="Usage by model and channel" tabindex="0">
-          <table><thead><tr>{#if scope === 'all'}<th>Company</th>{/if}<th>Response model</th><th>Use</th><th>Calls</th><th>Input</th><th>Cached</th><th>Output</th><th>Est. GBP</th></tr></thead>
+          <table><thead><tr>{#if scope === 'all'}<th>Company</th>{/if}<th>Mode</th><th>Response model</th><th>Use</th><th>Calls</th><th>Input</th><th>Cached</th><th>Cache writes</th><th>Output</th><th>Est. GBP</th></tr></thead>
             <tbody>{#each data.breakdown as row}<tr>
               {#if scope === 'all'}<td>{row.tenant}</td>{/if}
+              <td>{row.mode === 'unknown' ? 'Earlier / direct' : row.mode.toUpperCase()}</td>
               <td><strong>{row.model === 'unknown' ? 'Model not returned' : row.model}</strong><small>Requested: {row.requested_model}</small></td>
               <td>{row.purpose}<small>{row.channel === 'test' ? 'Test agent' : row.channel}</small></td>
               <td>{number(row.calls)}{#if row.failed_calls}<small>{row.failed_calls} failed</small>{/if}</td>
-              <td>{number(row.input_tokens)}</td><td>{number(row.cached_tokens)}</td><td>{number(row.output_tokens)}</td>
+              <td>{number(row.input_tokens)}</td><td>{number(row.cached_tokens)}</td><td>{number(row.cache_write_tokens)}</td><td>{number(row.output_tokens)}</td>
               <td>{money(row.estimated_cost_gbp)}{#if row.unpriced_calls}<small>{row.unpriced_calls} unpriced</small>{/if}</td>
             </tr>{/each}</tbody></table>
         </div>
@@ -140,8 +152,8 @@
     {#if !data.exchange_rate}<p class="notice error" role="status">The pound conversion rate is unavailable. Token counts are still shown; refresh to retry the cost estimate.</p>
     {:else}<p class="footnote">Pound estimates use £{data.exchange_rate.rate} per US dollar · {data.exchange_rate.source}, {data.exchange_rate.date}.{data.exchange_rate.stale ? ' A newer rate is unavailable; the last saved reference rate is being used.' : ''} This reference conversion may differ from your card charge. <a href="https://frankfurter.dev/" target="_blank" rel="noreferrer">Rate source</a></p>{/if}
     <p class="footnote">Tracking starts with this feature; earlier spending is not imported. {#if data.first_recorded_at}Earliest retained call: {new Date(data.first_recorded_at).toLocaleString()}.{/if}
-      Estimates use standard text prices checked on {data.price_version}, including cached-input discounts. Unknown models, missing usage and nonstandard service tiers are excluded, not counted as free.
-      This is V7 usage, not your provider invoice; taxes, credits, other apps and unreported retries are not included.
+      Estimates use standard text prices checked on {data.price_version}, including reported cache reads and writes. Long-context rates apply when reported input exceeds 272,000 tokens. Unknown models, missing usage and nonstandard service tiers are excluded, not counted as free. Cache-write premiums may be omitted if the provider does not report write tokens.
+      This app's recorded API usage is not your provider invoice; taxes, credits, other apps and unreported retries are not included.
       <a href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noreferrer">OpenAI pricing</a></p>
   {/if}
 </section>

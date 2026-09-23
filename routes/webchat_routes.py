@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, abort, current_app, g, jsonify, make_response, render_template, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -21,14 +22,59 @@ from service.analytics_db import log_error, log_message, set_lead_session, upser
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
+
+_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"}
+
+
+def _public_widget_branding(branding: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep tenant-managed widget values bounded before public rendering."""
+    public = dict(branding)
+    widget = branding.get("widget")
+    widget = dict(widget) if isinstance(widget, dict) else {}
+    title = widget.get("chat_title")
+    title = title.strip() if isinstance(title, str) and len(title) <= 80 and not any(ord(character) < 32 for character in title) else "Sales Assistant"
+    name = widget.get("assistant_name") or title
+    name = name.strip() if isinstance(name, str) and len(name) <= 80 and not any(ord(character) < 32 for character in name) else "Sales Assistant"
+    logo = widget.get("company_logo_url")
+    if isinstance(logo, str) and len(logo) <= 500 and not any(
+        character.isspace() or ord(character) < 32 for character in logo
+    ) and "\\" not in logo:
+        if logo.startswith("/"):
+            logo = logo if not logo.startswith("//") else ""
+        elif logo:
+            try:
+                parsed = urlsplit(logo)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.port == 0 or parsed.fragment:
+                    logo = ""
+            except ValueError:
+                logo = ""
+    else:
+        logo = ""
+    widget["chat_title"] = title or "Sales Assistant"
+    widget["assistant_name"] = name or "Sales Assistant"
+    widget["company_logo_url"] = logo
+    stored_style = widget.get("style")
+    widget["style"] = stored_style if isinstance(stored_style, str) and stored_style in _WIDGET_STYLES else "midnight"
+    public["widget"] = widget
+    return public
+
+
 def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
+    branding = _public_widget_branding(branding)
     widget = branding.get("widget") if isinstance(branding, dict) else {}
     widget = widget if isinstance(widget, dict) else {}
-    title = str(widget.get("chat_title") or "Sales assistant")
-    primary = str(widget.get("accent_color") or (branding.get("theme") or {}).get("primary_color") or "#0f9d58")
+    title = str(widget.get("assistant_name") or "Sales Assistant")
+    logo = str(widget.get("company_logo_url") or "")
+    style = str(widget.get("style") or "midnight")
+    theme = branding.get("theme")
+    theme = theme if isinstance(theme, dict) else {}
+    primary = str(widget.get("accent_color") or theme.get("primary_color") or "#0f9d58")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", primary):
         primary = "#0f9d58"
-    config = json.dumps({"tenant": tenant, "title": title, "primary": primary})
+    red, green, blue = (int(primary[index:index + 2], 16) for index in (1, 3, 5))
+    on_primary = "#102019" if (0.2126 * red + 0.7152 * green + 0.0722 * blue) > 150 else "#ffffff"
+    config = json.dumps({"tenant": tenant, "title": title, "logo": logo, "style": style,
+                         "primary": primary, "onPrimary": on_primary})
 
     return f"""(function () {{
   var config = {config};
@@ -47,8 +93,26 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   launcher.type = 'button';
   launcher.setAttribute('aria-expanded', 'false');
   launcher.setAttribute('aria-controls', frameId);
-  launcher.textContent = config.title;
-  launcher.style.cssText = 'border:0;border-radius:8px;background:' + config.primary + ';color:#fff;min-height:44px;padding:0 16px;font:600 14px system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.24);cursor:pointer;';
+  var launcherStyles = {{
+    midnight: 'border-radius:14px;box-shadow:0 12px 32px rgba(15,23,42,.32);',
+    daylight: 'border-radius:12px;background:#fff;color:#172033;border:2px solid ' + config.primary + ';box-shadow:0 8px 24px rgba(15,23,42,.14);',
+    minimal: 'border-radius:3px;background:#fff;color:#172033;border:1px solid #9aa6b2;box-shadow:none;',
+    editorial: 'border-radius:2px;background:#f8f2e8;color:#302b26;border:1px solid #c9bba5;font-family:Georgia,serif;box-shadow:0 6px 20px rgba(48,43,38,.18);',
+    neon: 'border-radius:16px;background:#101322;color:' + config.primary + ';border:1px solid ' + config.primary + ';box-shadow:0 0 20px ' + config.primary + ';',
+    warm: 'border-radius:28px;background:#493228;color:#fff;border:1px solid #a88161;box-shadow:0 8px 24px rgba(73,50,40,.25);',
+    glass: 'border-radius:18px;background:rgba(24,38,52,.82);color:#fff;border:1px solid rgba(255,255,255,.48);backdrop-filter:blur(14px);box-shadow:0 12px 32px rgba(15,23,42,.24);'
+  }};
+  launcher.style.cssText = 'display:inline-flex;align-items:center;gap:9px;border:0;background:' + config.primary + ';color:' + config.onPrimary + ';min-height:44px;padding:0 16px;font:600 14px system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;' + (launcherStyles[config.style] || launcherStyles.midnight);
+  if (config.logo) {{
+    var logo = document.createElement('img');
+    logo.src = new URL(config.logo, host).href;
+    logo.alt = '';
+    logo.style.cssText = 'width:22px;height:22px;object-fit:contain;flex:none;';
+    launcher.appendChild(logo);
+  }}
+  var launcherLabel = document.createElement('span');
+  launcherLabel.textContent = config.title;
+  launcher.appendChild(launcherLabel);
   frame.id = frameId;
   frame.title = config.title;
   frame.loading = 'lazy';
@@ -56,7 +120,8 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
   frame.setAttribute('allow', 'microphone');
   frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
-  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:8px;box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
+  var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px'}};
+  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
   launcher.addEventListener('click', function () {{
     var open = frame.style.display !== 'none';
     frame.style.display = open ? 'none' : 'block';
@@ -330,7 +395,7 @@ def chat_ui():
                 parsed = urlsplit(origin)
                 if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path and not parsed.username:
                     g.chat_origins.append(origin)
-    return render_template("chatbot.html", tenant=tenant, branding=_branding(c), embedded=request.args.get("embed") == "1")
+    return render_template("chatbot.html", tenant=tenant, branding=_public_widget_branding(branding), embedded=request.args.get("embed") == "1")
 
 
 @bp.get("/widget.js")
@@ -338,7 +403,7 @@ def widget_embed():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     c = _tenant_container(tenant)
     response = Response(_embed_javascript(tenant, _branding(c)), mimetype="application/javascript")
-    response.headers["Cache-Control"] = "public, max-age=300"
+    response.headers["Cache-Control"] = "no-cache, max-age=0"
     return response
 
 

@@ -202,7 +202,7 @@ def api_usage_get():
     container = get_container().for_tenant(tenant)
     result = summary(None if scope == "all" else tenant, days)
     exchange = gbp_rate()
-    for row in [result["totals"], *result["breakdown"]]:
+    for row in [result["totals"], *result["mode_totals"], *result["breakdown"]]:
         usd = row.pop("estimated_cost_usd")
         row["estimated_cost_gbp"] = (0.0 if usd == 0 else round(usd * exchange["rate"], 9)
                                      if usd is not None and exchange else None)
@@ -646,6 +646,46 @@ def _clean_widget_avatar(value: Any) -> str:
 
 
 _WIDGET_ACCENTS = {"#3EEA8C", "#5BC6FF", "#F9C74F", "#D8A4FF"}
+_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"}
+
+
+def _clean_assistant_name(value: Any) -> str:
+    if not isinstance(value, str):
+        abort(400, description="invalid_assistant_name")
+    name = value.strip()
+    if len(name) > 80 or any(ord(character) < 32 for character in name):
+        abort(400, description="invalid_assistant_name")
+    return name or "Sales Assistant"
+
+
+def _valid_widget_logo(value: str) -> bool:
+    if not value:
+        return True
+    if len(value) > 500 or any(character.isspace() or ord(character) < 32 for character in value) or "\\" in value:
+        return False
+    if value.startswith("/"):
+        return not value.startswith("//")
+    try:
+        parsed = urlsplit(value)
+        return bool(parsed.scheme == "https" and parsed.hostname and parsed.username is None
+                    and parsed.password is None and parsed.port != 0 and not parsed.fragment)
+    except ValueError:
+        return False
+
+
+def _clean_widget_logo(value: Any) -> str:
+    if value is not None and not isinstance(value, str):
+        abort(400, description="invalid_company_logo_url")
+    logo = (value or "").strip()
+    if not _valid_widget_logo(logo):
+        abort(400, description="company_logo_must_be_https_or_relative")
+    return logo
+
+
+def _clean_widget_style(value: Any) -> str:
+    if not isinstance(value, str) or value not in _WIDGET_STYLES:
+        abort(400, description="invalid_widget_style")
+    return value
 
 
 def _clean_widget_accent(value: Any) -> str:
@@ -683,6 +723,15 @@ def _clean_allowed_origins(value: Any) -> List[str]:
 def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
     widget = branding.get("widget") or {}
     widget = widget if isinstance(widget, dict) else {}
+    assistant_name = widget.get("assistant_name") or widget.get("chat_title") or "Sales Assistant"
+    if not isinstance(assistant_name, str) or len(assistant_name) > 80 or any(ord(character) < 32 for character in assistant_name):
+        assistant_name = "Sales Assistant"
+    logo = widget.get("company_logo_url")
+    logo = logo if isinstance(logo, str) and _valid_widget_logo(logo) else ""
+    stored_style = widget.get("style")
+    style = stored_style if isinstance(stored_style, str) and stored_style in _WIDGET_STYLES else "midnight"
+    frame_radius = {"midnight": 16, "daylight": 12, "minimal": 3, "editorial": 2,
+                    "neon": 16, "warm": 24, "glass": 18}[style]
     script_url = f"{request.url_root.rstrip('/')}/widget.js?tenant={quote(tenant)}"
     chat_url = f"{request.url_root.rstrip('/')}/chat_ui?tenant={quote(tenant)}"
     return {
@@ -691,6 +740,9 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
             "chat_title": str(widget.get("chat_title") or "Sales assistant"),
             "greeting": str(widget.get("greeting") or "Hi! How can I help you today?"),
             "avatar": str(widget.get("avatar") or ""),
+            "assistant_name": assistant_name,
+            "company_logo_url": logo,
+            "style": style,
             "accent_color": (str(widget.get("accent_color") or "").upper()
                              if str(widget.get("accent_color") or "").upper() in _WIDGET_ACCENTS
                              else "#3EEA8C"),
@@ -702,8 +754,8 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
             "chat_url": chat_url,
             "iframe_snippet": (
                 f'<iframe src="{escape(chat_url + "&embed=1", quote=True)}" '
-                'title="Sales assistant" width="100%" height="640" '
-                'style="max-width:100%;border:0;border-radius:8px" loading="lazy" '
+                f'title="{escape(assistant_name, quote=True)}" width="100%" height="640" '
+                f'style="max-width:100%;border:0;border-radius:{frame_radius}px" loading="lazy" '
                 'allow="microphone" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>'
             ),
         },
@@ -811,6 +863,11 @@ def api_widget_put():
         "chat_title": _clean_widget_text(data.get("chat_title"), "chat_title", 80) or "Sales assistant",
         "greeting": _clean_widget_text(data.get("greeting"), "greeting", 240) or "Hi! How can I help you today?",
         "avatar": _clean_widget_avatar(data.get("avatar")),
+        "assistant_name": _clean_assistant_name(
+            data.get("assistant_name", existing.get("assistant_name") or existing.get("chat_title") or "Sales Assistant")
+        ),
+        "company_logo_url": _clean_widget_logo(data.get("company_logo_url", existing.get("company_logo_url", ""))),
+        "style": _clean_widget_style(data.get("style", existing.get("style", "midnight"))),
         "accent_color": _clean_widget_accent(data.get("accent_color", existing.get("accent_color"))),
         "allowed_origins": _clean_allowed_origins(data.get("allowed_origins", [])),
     }

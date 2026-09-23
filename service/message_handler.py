@@ -240,10 +240,11 @@ class MessageHandler:
             meta={"mode": mode, "rid": rid, "text_len": len(user_text)},
         )
 
-        with usage_context(ctx.tenant, ctx.channel):
-            if mode == "v5":
+        dispatch_mode = mode if mode in {"v5", "v6"} else "v7"
+        with usage_context(ctx.tenant, ctx.channel, dispatch_mode):
+            if dispatch_mode == "v5":
                 reply = self.h_v5.handle(user_text, ctx, sess)
-            elif mode == "v6":
+            elif dispatch_mode == "v6":
                 reply = self.h_v6.handle(user_text, ctx, sess)
             else:
                 reply = self.h_v7.handle(user_text, ctx, sess)

@@ -27,11 +27,18 @@ provider or promise access on every OpenAI account. No keys are changed and no l
 provider request is made by the settings flow. Owners should use Test AI & widget afterward.
 
 Warnings explain that wording, accuracy, speed, token usage and API charges can change.
-The built-in cost estimator has rates for GPT-4o Mini and GPT-4o only. Newer
-models remain unpriced in this dashboard: calls and tokens are recorded, but
-owners must check provider billing for their actual cost. See the
-[OpenAI model catalog](https://developers.openai.com/api/docs/models) for
-current model availability and rates.
+The cost view estimates standard text charges for every selectable model from
+reported input, cached-input, cache-write, and output token counts. For GPT-5.6
+and GPT-6, it applies the documented long-context multiplier when the provider
+reports more than 272,000 input tokens. Cost history is grouped by the V5, V6,
+or V7 agent mode and by response model; calls made before mode tracking appear
+as earlier/direct calls. Existing cost records are not retrospectively repriced.
+Missing usage, unknown models, and nonstandard processing tiers remain unpriced.
+Cache-write premiums can be omitted from an estimate if the provider does not
+report write tokens. Currency conversion is a reference estimate, not a bill.
+Rates were checked on 23 September 2026 against the
+[OpenAI pricing page](https://developers.openai.com/api/docs/pricing) and the
+[model catalog](https://developers.openai.com/api/docs/models).
 
 Checks: `pytest tests/test_model_settings.py tests/test_api_usage.py -o addopts='' -q`,
 plus `npm --prefix frontend run check` and `npm --prefix frontend run build`.

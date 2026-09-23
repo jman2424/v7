@@ -55,9 +55,11 @@ bulk import or controlled deployment change. The schemas accept both the
 existing postcode-prefix delivery format and the zone format used by the owner
 console.
 
-Open **Test AI & widget** to adjust the title, welcome message, avatar, and accent
-colour, then try a conversation with the tenant agent. The appearance preview
-updates while you edit; save the widget before checking the public chat. Save the
+Open **Test AI & widget** to name the assistant, set its chat title and welcome
+message, add an assistant avatar and company logo URL, choose an accent colour,
+and select one of seven widget styles. Company logos can use an HTTPS image URL
+or an image path already hosted by V7. The appearance preview updates while you
+edit; save the widget before checking the public chat or embed launcher. Save the
 website URL in Business profile and import its public pages in Test AI & widget. The importer
 fetches up to six HTTPS pages on the same host without redirects or private
 network access. Import again after the website changes. General answers copied
