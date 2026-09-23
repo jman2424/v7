@@ -15,6 +15,15 @@ The server validates TLS certificates and authenticates before sending. Configur
 the sender domain with your email provider. SMTP delivery has not been verified
 until real provider configuration is supplied. There is no development-code fallback.
 
+For an existing Render service, add the four required `SMTP_*` settings in
+the service's Environment settings and redeploy. The `render.yaml` entries prompt
+for secrets when creating a new Blueprint, but Render does not add `sync: false`
+values to an existing service during a Blueprint update. Use a verified sender
+address or domain accepted by your mail provider. If sending fails, the signup
+endpoint returns 503 and the server log records the exception type without the
+email address, password, or code. A failed send can be retried without waiting
+for the email cooldown; an accepted send still has the normal 60-second limit.
+
 ## Access model
 
 1. An applicant submits email, password, company key and either owner or join.

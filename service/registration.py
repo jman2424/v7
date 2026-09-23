@@ -65,10 +65,11 @@ def start(data):
                    (request_id,email,generate_password_hash(password),kind,tenant,name,_code_hash(request_id,code),now+600,'verification',now))
     try:
         registration_mail.send_code(email, code)
-    except Exception:
+    except Exception as exc:
         with session_store.connection() as db:
-            db.execute("UPDATE registration_requests SET password_hash='',code_hash='',status='expired' WHERE id=?", (request_id,))
-        current_app.logger.warning('Registration verification mail could not be sent')
+            # Failed deliveries must not consume the email cooldown or daily quota.
+            db.execute("DELETE FROM registration_requests WHERE id=? AND status='verification'", (request_id,))
+        current_app.logger.warning('Registration verification mail could not be sent (%s)', type(exc).__name__)
         raise RuntimeError('Verification email could not be sent. Try later or contact the operator.') from None
     session['registration_request'] = request_id
     return {'status': 'verification', 'email': email, 'tenant': tenant}
