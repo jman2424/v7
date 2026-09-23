@@ -4,7 +4,7 @@
   export let apiPrefix = '';
   const dispatch = createEventDispatcher<{login: {tenant:string;email:string}}>();
   type RequestState = {status:string;email:string;tenant:string};
-  let enabled = false, loaded = false, busy = false;
+  let enabled = false, loaded = false, busy = false, sender = '';
   let error = '', email = '', password = '', tenant = '', businessName = '', code = '';
   let kind = 'owner';
   let state:RequestState|null = null;
@@ -12,7 +12,7 @@
     try {
       const response=await fetch(apiPrefix+'/auth/registration',{credentials:'same-origin'});
       if(!response.ok)throw new Error();
-      const data=await response.json(); enabled=data.enabled; state=data.request; loaded=true;
+      const data=await response.json(); enabled=data.enabled; sender=typeof data.sender==='string'?data.sender:''; state=data.request; loaded=true;
     } catch {error='Signup status could not be loaded. Try again.';}
   }
   onMount(refresh);
@@ -53,7 +53,7 @@
   {:else}
     <form on:submit|preventDefault={submit}>
       {#if state?.status==='verification'}
-        <p>Enter the code sent to <strong>{state.email}</strong>. It expires after 10 minutes. Verification does not grant access to an existing business.</p>
+        <p>Enter the code sent to <strong>{state.email}</strong>{sender ? ` from ${sender}` : ''}. It expires after 10 minutes. If it has not arrived, check spam or start again after one minute. Verification does not grant access to an existing business.</p>
         <label>Email verification code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required/></label>
         <button disabled={busy} type="submit">{busy?'Verifying…':'Verify email'}</button>
         <button disabled={busy} type="button" on:click={()=>{state=null;code='';}}>Start again</button>
@@ -61,6 +61,7 @@
         {#if state}<p>Your previous request could not be completed or has expired. Start a new request.</p>{/if}
         <label>I want to<select bind:value={kind}><option value="owner">Create my business workspace</option><option value="join">Request to join an existing business</option></select></label>
         <label>Email<input type="email" maxlength="254" autocomplete="email" bind:value={email} required/></label>
+        {#if sender}<p>Verification codes are sent from <strong>{sender}</strong>.</p>{/if}
         <label>Password<input type="password" minlength="12" maxlength="256" autocomplete="new-password" bind:value={password} required/><small>At least 12 characters. An authenticator is also required at sign-in.</small></label>
         <label>{kind==='owner'?'New company key':'Company key from your business owner'}<input bind:value={tenant} maxlength="64" pattern={'[A-Za-z0-9][A-Za-z0-9_\\-]{0,63}'} required/></label>
         {#if kind==='owner'}<label>Business name<input bind:value={businessName} maxlength="120" required/></label><p>After email verification, sign in and pay the platform subscription and implementation fee. Business data and the agent unlock only after payment is confirmed.</p>

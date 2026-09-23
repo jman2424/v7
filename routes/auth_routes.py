@@ -14,7 +14,8 @@ bp = Blueprint("auth_api", __name__, url_prefix="/auth")
 @bp.get('/registration')
 def registration_status():
     from service import registration, registration_mail
-    return jsonify(enabled=registration_mail.configured(), request=registration.status())
+    return jsonify(enabled=registration_mail.configured(), sender=registration_mail.sender_address(),
+                   request=registration.status())
 
 
 @bp.post('/register')

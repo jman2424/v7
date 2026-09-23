@@ -14,6 +14,8 @@ Set these as deployment secrets; never commit credentials:
 The server validates TLS certificates and authenticates before sending. Configure
 the sender domain with your email provider. SMTP delivery has not been verified
 until real provider configuration is supplied. There is no development-code fallback.
+The public signup status returns only the configured From address so applicants
+can identify the message in their inbox; it never returns SMTP credentials.
 
 For an existing Render service, add the four required `SMTP_*` settings in
 the service's Environment settings and redeploy. The `render.yaml` entries prompt

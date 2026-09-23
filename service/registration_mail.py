@@ -1,12 +1,22 @@
 """Verification mail over authenticated TLS; never log codes or credentials."""
 import os
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 
 def configured():
     return all(os.getenv(key, '').strip() for key in ('SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM'))
+
+
+def sender_address():
+    """Expose only the public From address, never SMTP credentials."""
+    if not configured():
+        return None
+    address = parseaddr(os.environ['SMTP_FROM'])[1]
+    return address if re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', address) else None
 
 
 def send_code(email, code):
