@@ -3,19 +3,13 @@
     "style": "friendly",
     "max_sentences": 2
   },
-  "recommendations": {
-    "related_count": 3,
-    "show_out_of_stock": false
-  },
-  "thresholds": {
-    "search_confidence": 0.82,
-    "geo_radius_km": 15
-  },
-  "filters": {
-    "exclude_tags": ["test", "placeholder"]
-  },
-  "self_repair": {
-    "auto_suggest_synonyms": true,
-    "log_issues_only": true
+  "sales_playbook": {
+    "business_focus": "",
+    "ideal_customer": "",
+    "value_propositions": [],
+    "offering_type": "mixed",
+    "primary_goal": "answer_questions",
+    "qualification_questions": [],
+    "handoff_message": ""
   }
 }

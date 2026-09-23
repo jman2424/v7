@@ -13,8 +13,8 @@ Example request:
 }
 ```
 
-The new tenant is intentionally not launch-ready: its starter catalog is marked
-out of stock and its widget has no allowed website origins. Complete the setup
+The new tenant is intentionally not launch-ready: its starter catalogue is empty,
+customer actions are disabled, and its widget has no allowed website origins. Complete the setup
 before sharing the embed code.
 
 ## Configure the sales agent
@@ -45,12 +45,30 @@ endpoints are:
 | `GET/PUT /admin/api/profile` | Business identity, contact paths, and certifications |
 | `GET/PUT /admin/api/branches` | Branch addresses, coordinates, and daily opening hours |
 | `GET/PUT /admin/api/agent-settings` | Grounded V7 tone, business focus, sales goal, qualification flow, and handoff wording |
+| `GET /admin/api/website-knowledge`, `POST /admin/api/website-knowledge/import` | Import bounded public pages from the saved HTTPS business website |
+| `GET/PUT /admin/api/sales-actions` | Enable consultation slots, quote requests, and callback requests |
+| `GET /admin/api/action-requests` | Owner view of tenant customer requests and confirmed consultation slots |
 | `PUT /admin/api/leads/<lead_id>` | Move a tenant lead through its sales status |
 
 `catalog.json`, `faq.json`, and `delivery.json` remain useful for an audited
 bulk import or controlled deployment change. The schemas accept both the
 existing postcode-prefix delivery format and the zone format used by the owner
 console.
+
+Open **Test AI & widget** to adjust the title, welcome message, avatar, and accent
+colour, then try a conversation with the tenant agent. The appearance preview
+updates while you edit; save the widget before checking the public chat. Save the
+website URL in Business profile and import its public pages in Test AI & widget. The importer
+fetches up to six HTTPS pages on the same host without redirects or private
+network access. Import again after the website changes. General answers copied
+from these pages are checked against the retrieved text; prices, stock, delivery,
+and bookings continue to use structured business settings.
+
+Enable customer next steps only when the business can fulfil them. Consultation
+slots use timezone-aware times and are reserved once; the customer receives a
+confirmation only after the form succeeds. A request without a slot, a quote
+request, or a callback request requires staff follow-up. The system does not
+send calendar invitations or outbound notifications automatically.
 
 ## Link Google Sheets (optional)
 

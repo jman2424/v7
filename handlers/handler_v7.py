@@ -183,6 +183,7 @@ class MessageHandlerV7:
         self.business_name = str(getattr(deps, "business_name", "") or "").strip()
         profile = getattr(deps, "business_profile", None)
         self.business_profile = profile if isinstance(profile, dict) else {}
+        self.rewriter = getattr(deps, "rewriter", None)
         self.sales_playbook = load_sales_playbook(self.overrides)
         self.offering_singular, self.offering_plural = offering_terms(self.sales_playbook)
         self.sales_context = build_tenant_sales_context(
@@ -193,6 +194,20 @@ class MessageHandlerV7:
 
         self.business_core = None
         storage = getattr(self.catalog, 'storage', None)
+        self.website_knowledge = {}
+        self.sales_actions = {}
+        if storage is not None:
+            try:
+                knowledge = storage.read_json(storage.tenant_key, 'website_knowledge.json')
+                if isinstance(knowledge, dict):
+                    self.website_knowledge = knowledge
+            except (FileNotFoundError, ValueError):
+                pass
+            from service.conversion_actions import ActionError, load_actions
+            try:
+                self.sales_actions = load_actions(storage, storage.tenant_key)
+            except ActionError:
+                pass
         if storage is not None and storage.file_path(storage.tenant_key, 'business_core.json').is_file():
             from service.business_core import BusinessCore
             self.business_core = BusinessCore(storage, storage.tenant_key)
@@ -246,6 +261,19 @@ class MessageHandlerV7:
         )
 
         try:
+            conversion = self._conversion_action(user_text, channel)
+            if conversion:
+                action_type, reply_text = conversion
+                return self._wrap_reply(
+                    request_id=request_id, t0=t0, reply=reply_text,
+                    intent=f"{action_type}_request", plan=None,
+                    facts={}, entities={}, items=[],
+                    actions=[{"type": action_type, "label": {
+                        "consultation": "Book consultation", "quote": "Request quote",
+                        "callback": "Request callback",
+                    }[action_type]}],
+                )
+
             # Generic public facts stay local; private work records never enter chat.
             if self.business_core:
                 generic_reply = self.business_core.answer(user_text)
@@ -542,6 +570,16 @@ class MessageHandlerV7:
                     items=[],
                 )
 
+            if not re.search(r"\b(price|cost|stock|available|book|schedule|order|buy|purchase|deliver|delivery)\b",
+                             user_text, re.I):
+                website_answer = self._answer_from_website(user_text)
+                if website_answer:
+                    return self._wrap_reply(
+                        request_id=request_id, t0=t0, reply=website_answer,
+                        intent="website_answer", plan=None,
+                        facts={"source": "imported_website"}, entities={}, items=[],
+                    )
+
             if product_query:
                 plan = self._heuristic_plan(user_text, request_id=request_id)
 
@@ -636,6 +674,47 @@ class MessageHandlerV7:
             return f"I'm ready to help with {self._business_scope()}."
 
         return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
+
+    def _answer_from_website(self, question: str) -> Optional[str]:
+        if not self.website_knowledge or not self.rewriter:
+            return None
+        answer = getattr(self.rewriter, "answer_from_website", None)
+        if not callable(answer):
+            return None
+        from service.website_knowledge import relevant_passages
+
+        passages = relevant_passages(self.website_knowledge, question)
+        return answer(question, passages) if passages else None
+
+    def _conversion_action(self, user_text: str, channel: str) -> Optional[Tuple[str, str]]:
+        if channel != "web" or not isinstance(self.sales_actions, dict):
+            return None
+        text = self._clean_text(user_text)
+        if (re.search(r"\b(cancel|cancellation|reschedule|change|move|refund|existing|already booked)\b", text)
+                or re.search(r"\bmy (consultation|appointment|demo|meeting|quote|callback)\b", text)):
+            return None
+        if re.search(r"\b(what|which|when|where|how much|price|cost|tell me about)\b", text):
+            return None
+        intent = re.search(r"\b(book|schedule|arrange|request|need|want|get|set up|sign up for)\b", text)
+        requests = (
+            ("consultation", r"\b(consultation|appointment|demo|meeting)\b"),
+            ("quote", r"\b(quote|quotation|estimate|bulk order|custom pricing)\b"),
+            ("callback", r"\b(call me|call back|callback|speak to (someone|a person|sales|the team)|talk to a human)\b"),
+        )
+        for action_type, pattern in requests:
+            settings = self.sales_actions.get(action_type)
+            if (not isinstance(settings, dict) or settings.get("enabled") is not True
+                    or not re.search(pattern, text) or (action_type != "callback" and not intent)):
+                continue
+            if action_type == "consultation":
+                return action_type, (
+                    "Use the form below to choose an available consultation time, or send a request for the team to review. "
+                    "A booking is confirmed only after the form succeeds."
+                )
+            if action_type == "quote":
+                return action_type, "Use the form below to describe what you need and request a quote from the team."
+            return action_type, "Use the form below to request a callback from the team."
+        return None
 
     def _business_label(self) -> str:
         return self.business_name or "this business"
@@ -786,15 +865,7 @@ class MessageHandlerV7:
         t = self._clean_text(text)
         if not t:
             return False
-
-        for s in self._SMALLTALK:
-            if s in t:
-                return True
-
-        if ("ai" in t or "bot" in t or "real" in t) and any(w in t for w in ("where", "were", "what", "is", "are", "you")):
-            return True
-
-        return False
+        return t in self._SMALLTALK
 
     def _looks_like_product_query(self, user_text: str) -> bool:
         t = self._normalize_text(user_text)
@@ -1277,6 +1348,7 @@ class MessageHandlerV7:
         facts: Dict[str, Any],
         entities: Dict[str, Any],
         items: List[Dict[str, Any]],
+        actions: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         dt_ms = int((time.perf_counter() - t0) * 1000)
         safe_facts = dict(facts or {})
@@ -1291,7 +1363,7 @@ class MessageHandlerV7:
             "has_catalog": bool(items),
             "catalog_items": self._format_items_for_ui(items or []),
         }
-        return {
+        result = {
             "reply": reply,
             "mode": "v7",
             "intent": intent or "unknown",
@@ -1300,6 +1372,9 @@ class MessageHandlerV7:
             "ui": ui,
             "meta": {"request_id": request_id, "latency_ms": dt_ms},
         }
+        if actions:
+            result["actions"] = actions
+        return result
 
     def _catalog_categories(self) -> List[Dict[str, Any]]:
         if not self.catalog:

@@ -94,10 +94,10 @@ def tenant_key() -> str:
 @pytest.fixture()
 def tmp_business(tmp_path: Path, tenant_key: str, root_dir: Path):
     """
-    Copies business/EXAMPLE/* into tempdir for destructive tests.
+    Copies the explicit retail test fixture into a temporary tenant.
     Returns the new path.
     """
-    src = root_dir / "business" / tenant_key
+    src = root_dir / "tests" / "fixtures" / "retail_business"
     dst = tmp_path / "business" / tenant_key
     dst.mkdir(parents=True, exist_ok=True)
     for f in src.glob("*.json"):

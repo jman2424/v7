@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import secrets
 from typing import Any, Dict, Optional
 
@@ -24,7 +25,9 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     widget = branding.get("widget") if isinstance(branding, dict) else {}
     widget = widget if isinstance(widget, dict) else {}
     title = str(widget.get("chat_title") or "Sales assistant")
-    primary = str((branding.get("theme") or {}).get("primary_color") or "#0f9d58")
+    primary = str(widget.get("accent_color") or (branding.get("theme") or {}).get("primary_color") or "#0f9d58")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", primary):
+        primary = "#0f9d58"
     config = json.dumps({"tenant": tenant, "title": title, "primary": primary})
 
     return f"""(function () {{
@@ -94,6 +97,19 @@ def _public_agent_payload(result: Dict[str, Any]) -> Dict[str, list[str]]:
         if len(suggestions) == 3:
             break
     return {"suggested_replies": suggestions} if suggestions else {}
+
+
+def _public_action_payload(result: Dict[str, Any]) -> list[dict[str, str]]:
+    actions = result.get("actions")
+    if not isinstance(actions, list):
+        return []
+    labels = {"consultation": "Book consultation", "quote": "Request quote", "callback": "Request callback"}
+    selected: list[dict[str, str]] = []
+    for action in actions[:3]:
+        action_type = action.get("type") if isinstance(action, dict) else None
+        if action_type in labels and not any(item["type"] == action_type for item in selected):
+            selected.append({"type": action_type, "label": labels[action_type]})
+    return selected
 
 
 
@@ -480,4 +496,5 @@ def chat_api():
         )
 
     return _cors(jsonify(reply=reply, conversation_token=token, session_id=session_id,
-                         error=error_code or None, agent=_public_agent_payload(result))), 503 if is_error else 200
+                         error=error_code or None, agent=_public_agent_payload(result),
+                         actions=_public_action_payload(result))), 503 if is_error else 200

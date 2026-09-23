@@ -63,12 +63,9 @@ class RendererV7:
         intent = (plan.get("intent") or "unknown").strip()
         action = (plan.get("action") or "").strip().upper()
         needs_clarification = bool(plan.get("needs_clarification", False))
-        clarification_question = (plan.get("clarification_question") or "").strip()
 
         # 1) Brain explicitly asked for a clarifier
         if needs_clarification:
-            if clarification_question:
-                return clarification_question
             return self._fallback_clarifier(intent, plan, session)
 
         # 2) Simple / cheap actions that don't depend much on facts
@@ -94,15 +91,15 @@ class RendererV7:
         # 3) Data-backed actions
         if action == "SHOW_OFFERS" or intent == "offers":
             msg = self._offers_reply(facts)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action == "COMPARE_PRODUCTS" or intent == "compare_products":
             msg = self._comparison_reply(facts)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action == "SHOW_ALTERNATIVES" or intent == "unavailable_product":
             msg = self._alternatives_reply(facts)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             msg = self._delivery_reply(plan, facts, session)
@@ -110,11 +107,11 @@ class RendererV7:
 
         if action == "SEARCH_PRODUCTS" or intent in {"search_product", "browse_category"}:
             msg = self._products_reply(plan, facts, user_text, session)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action == "PRICE_CHECK" or intent == "price_check":
             msg = self._price_reply(plan, facts)
-            return self._polish(msg, facts)
+            return self._polish(msg, facts, preserve_facts=True)
 
         if action in {"STORE_INFO", "FAQ_LOOKUP"} or intent in {"store_info", "faq", "unknown"}:
             msg = self._faq_reply(plan, facts, user_text, session)
@@ -503,7 +500,7 @@ class RendererV7:
             return self._append_cta(f"For {postcode}: {summary}")
 
         return (
-            "I’m not fully sure about that from my data. "
+            "I do not have verified information about that from this business. Please check with the team. "
             f"You can ask about {self.offering_plural}, pricing, or business details."
         )
 

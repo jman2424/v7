@@ -20,16 +20,18 @@ including planning and reply rewriting, and records the actual requested/returne
 models in usage accounting. This works across workers sharing the existing data volume.
 Already-running calls are not interrupted. Saved-data replies may use no provider call.
 
-The initial allowlist contains GPT-4o Mini and GPT-4o, compatible with the existing
-Chat Completions request settings and pricing table. It does not enable an inactive
+The allowlist includes GPT-4o, GPT-4.1, GPT-5.6, and GPT-6 text models. The
+completion wrapper removes temperature for reasoning models, which reject that
+setting at their default reasoning effort. It does not enable an inactive
 provider or promise access on every OpenAI account. No keys are changed and no live
-provider request is made by the settings flow. Owners should use Test agent afterward.
+provider request is made by the settings flow. Owners should use Test AI & widget afterward.
 
 Warnings explain that wording, accuracy, speed, token usage and API charges can change.
-Shown rates are per-million-token USD estimates; they do not promise a per-message
-price or alter the platform subscription. Official model rates checked September 22,
-2026: [GPT-4o Mini](https://developers.openai.com/api/docs/models/gpt-4o-mini) and
-[GPT-4o](https://developers.openai.com/api/docs/models/gpt-4o).
+The built-in cost estimator has rates for GPT-4o Mini and GPT-4o only. Newer
+models remain unpriced in this dashboard: calls and tokens are recorded, but
+owners must check provider billing for their actual cost. See the
+[OpenAI model catalog](https://developers.openai.com/api/docs/models) for
+current model availability and rates.
 
 Checks: `pytest tests/test_model_settings.py tests/test_api_usage.py -o addopts='' -q`,
 plus `npm --prefix frontend run check` and `npm --prefix frontend run build`.

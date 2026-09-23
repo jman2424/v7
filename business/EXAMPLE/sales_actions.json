@@ -1,0 +1,5 @@
+{
+  "consultation": { "enabled": false, "slots": [] },
+  "quote": { "enabled": false },
+  "callback": { "enabled": false }
+}

@@ -8,7 +8,7 @@
   <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg') }}" />
   <meta name="theme-color" content="{{ branding.theme.primary_color if branding and branding.theme and branding.theme.primary_color else '#127A32' }}" />
 </head>
-<body data-tenant="{{ tenant }}" class="{{ 'widget-page--embedded' if embedded else '' }}">
+<body data-tenant="{{ tenant }}" class="{{ 'widget-page--embedded' if embedded else '' }}" style="--waccent: {{ branding.widget.accent_color if branding and branding.widget and branding.widget.accent_color in ['#3EEA8C', '#5BC6FF', '#F9C74F', '#D8A4FF'] else '#3EEA8C' }}">
   <div id="chat-widget" class="widget">
     <header class="widget__header">
       <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg') }}" alt="Avatar" />
@@ -21,6 +21,22 @@
     <main id="chat-log" class="widget__log" role="log" aria-live="polite">
       <!-- messages injected by widget.js -->
     </main>
+
+    <section id="chat-actions" class="widget__actions" aria-label="Ways to continue" hidden>
+      <div id="chat-action-buttons" class="widget__action-buttons"></div>
+      <button id="chat-action-retry" type="button" class="widget__link-button" hidden>Try loading options again</button>
+      <form id="chat-action-form" class="widget__action-form" hidden>
+        <h2 id="chat-action-title" class="widget__action-title"></h2>
+        <div id="chat-action-slot-row" class="widget__field" hidden><label for="chat-action-slot">Preferred time</label><select id="chat-action-slot" name="slot_id"></select></div>
+        <p id="chat-action-slot-note" class="widget__field-note" hidden>No times are available to book. You can send a request for the business to follow up.</p>
+        <div class="widget__field"><label for="chat-action-name">Your name</label><input id="chat-action-name" name="name" type="text" autocomplete="name" maxlength="120" required /></div>
+        <div class="widget__field"><label id="chat-action-contact-label" for="chat-action-contact">Email or phone</label><input id="chat-action-contact" name="contact" type="text" autocomplete="email" maxlength="200" required /></div>
+        <div class="widget__field"><label for="chat-action-details">Anything we should know? (optional)</label><textarea id="chat-action-details" name="details" rows="2" maxlength="2000"></textarea></div>
+        <label class="widget__consent"><input id="chat-action-consent" name="consent" type="checkbox" required /> I agree to be contacted about this request.</label>
+        <div class="widget__form-buttons"><button id="chat-action-submit" type="submit" class="widget__primary-button">Send request</button><button id="chat-action-cancel" type="button" class="widget__secondary-button">Cancel</button></div>
+      </form>
+      <p id="chat-action-status" class="widget__action-status" role="status" aria-live="polite"></p>
+    </section>
 
     <footer class="widget__composer">
       <form id="chat-form" autocomplete="off">
@@ -38,6 +54,9 @@
     window.__WIDGET__ = {
       tenant: document.body.dataset.tenant,
       endpoint: {{ url_for('webchat.chat_api', tenant=tenant)|tojson }},
+      actionsEndpoint: {{ url_for('conversion.get_chat_actions')|tojson }},
+      theme: {{ (branding.theme if branding and branding.theme else {})|tojson }},
+      accentColor: {{ (branding.widget.accent_color if branding and branding.widget and branding.widget.accent_color in ['#3EEA8C', '#5BC6FF', '#F9C74F', '#D8A4FF'] else '#3EEA8C')|tojson }},
       channel: "web",
       sessionId: ""
     };

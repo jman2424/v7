@@ -110,7 +110,7 @@ def install_csrf(app, settings):
     @app.before_request
     def csrf():
         # Webhooks and chat have separate authentication.
-        if request.path in {"/chat_api", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
+        if request.path in {"/chat_api", "/chat/actions", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
             return
         if "_csrf" not in session:
             session["_csrf"] = secrets.token_urlsafe(32)

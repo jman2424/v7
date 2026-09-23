@@ -17,6 +17,10 @@ from routes import get_container
 from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
 from service.sales_playbook import SalesPlaybookValidationError, load_sales_playbook, validate_sales_playbook
+from service.website_knowledge import WebsiteImportError, import_website
+from service.conversion_actions import (
+    ActionError, list_action_requests, load_actions, validate_actions_config,
+)
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
@@ -641,6 +645,16 @@ def _clean_widget_avatar(value: Any) -> str:
     return avatar
 
 
+_WIDGET_ACCENTS = {"#3EEA8C", "#5BC6FF", "#F9C74F", "#D8A4FF"}
+
+
+def _clean_widget_accent(value: Any) -> str:
+    accent = str(value or "#3EEA8C").strip().upper()
+    if accent not in _WIDGET_ACCENTS:
+        abort(400, description="invalid_widget_accent")
+    return accent
+
+
 def _clean_allowed_origins(value: Any) -> List[str]:
     if not isinstance(value, list):
         abort(400, description="allowed_origins_must_be_array")
@@ -677,6 +691,9 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
             "chat_title": str(widget.get("chat_title") or "Sales assistant"),
             "greeting": str(widget.get("greeting") or "Hi! How can I help you today?"),
             "avatar": str(widget.get("avatar") or ""),
+            "accent_color": (str(widget.get("accent_color") or "").upper()
+                             if str(widget.get("accent_color") or "").upper() in _WIDGET_ACCENTS
+                             else "#3EEA8C"),
             "allowed_origins": allowed_origins_from_branding(branding),
         },
         "embed": {
@@ -702,6 +719,80 @@ def api_widget_get():
     return jsonify(_widget_response(tenant, branding))
 
 
+@bp.get("/website-knowledge")
+def api_website_knowledge_get():
+    tenant = _tenant()
+    try:
+        knowledge = _storage().read_json(tenant, "website_knowledge.json")
+    except FileNotFoundError:
+        knowledge = {}
+    pages = knowledge.get("pages", []) if isinstance(knowledge, dict) else []
+    return jsonify(source_url=knowledge.get("source_url", "") if isinstance(knowledge, dict) else "",
+                   fetched_at=knowledge.get("fetched_at", "") if isinstance(knowledge, dict) else "",
+                   page_count=len(pages) if isinstance(pages, list) else 0)
+
+
+@bp.post("/website-knowledge/import")
+def api_website_knowledge_import():
+    tenant = _tenant()
+    storage = _storage()
+    if not storage.tenant_dir(tenant).is_dir():
+        abort(404)
+    profile = storage.read_json(tenant, "store_info.json")
+    website = profile.get("website") if isinstance(profile, dict) else None
+    try:
+        knowledge = import_website(website or "")
+    except WebsiteImportError as exc:
+        return jsonify(error=str(exc)), 422
+    snapshot = storage.write_json(tenant, "website_knowledge.json", knowledge)
+    _invalidate_tenant(tenant)
+    _audit("website.knowledge.import", f"{tenant}/website_knowledge.json",
+           after={"snapshot": snapshot, "page_count": len(knowledge["pages"])})
+    return jsonify(source_url=knowledge["source_url"], fetched_at=knowledge["fetched_at"],
+                   page_count=len(knowledge["pages"]))
+
+
+@bp.get("/sales-actions")
+def api_sales_actions_get():
+    if not (is_platform_operator() or "business_owner" in user_roles()):
+        abort(403)
+    try:
+        settings = load_actions(_storage(), _tenant())
+    except ActionError as exc:
+        return jsonify(error=exc.code), exc.status
+    response = jsonify(settings)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.put("/sales-actions")
+def api_sales_actions_put():
+    if not (is_platform_operator() or "business_owner" in user_roles()):
+        abort(403)
+    data = request.get_json(silent=True)
+    try:
+        settings = validate_actions_config(data)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    tenant = _tenant()
+    storage = _storage()
+    snapshot = storage.write_json(tenant, "sales_actions.json", settings)
+    _invalidate_tenant(tenant)
+    _audit("sales.actions.update", f"{tenant}/sales_actions.json",
+           after={"snapshot": snapshot, "enabled": [name for name, value in settings.items() if value["enabled"]]})
+    return jsonify(ok=True, settings=settings)
+
+
+@bp.get("/action-requests")
+def api_action_requests_get():
+    if not (is_platform_operator() or "business_owner" in user_roles()):
+        abort(403)
+    limit = _int_arg("limit", 50, maximum=100)
+    response = jsonify(requests=list_action_requests(_tenant(), limit))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.put("/widget")
 def api_widget_put():
     data = request.get_json(silent=True) or {}
@@ -720,6 +811,7 @@ def api_widget_put():
         "chat_title": _clean_widget_text(data.get("chat_title"), "chat_title", 80) or "Sales assistant",
         "greeting": _clean_widget_text(data.get("greeting"), "greeting", 240) or "Hi! How can I help you today?",
         "avatar": _clean_widget_avatar(data.get("avatar")),
+        "accent_color": _clean_widget_accent(data.get("accent_color", existing.get("accent_color"))),
         "allowed_origins": _clean_allowed_origins(data.get("allowed_origins", [])),
     }
     branding["widget"] = widget

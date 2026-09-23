@@ -94,6 +94,8 @@ def tracked_completion(client, *, purpose: str, **kwargs):
             model = selected(context[0],storage)
             if model:
                 kwargs['model'] = model
+        from service.model_settings import compatible_completion_kwargs
+        kwargs = compatible_completion_kwargs(kwargs)
         response = client.chat.completions.create(**kwargs)
         status = "completed"
         return response

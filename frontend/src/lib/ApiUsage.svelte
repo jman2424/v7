@@ -9,7 +9,7 @@
   type Row = Totals & { tenant: string; model: string; requested_model: string; channel: string; purpose: string };
   type Usage = { totals: Totals; breakdown: Row[]; breakdown_truncated: boolean; first_recorded_at: string | null;
     price_version: string; exchange_rate: { rate: number; date: string; source: string; stale: boolean } | null; configuration: { mode: string; planning_model: string; planning_enabled: boolean;
-      rewriting_model: string; rewriting_enabled: boolean; can_change_model:boolean; model_options:{id:string;input_usd_per_million:number;cached_usd_per_million:number;output_usd_per_million:number}[] } };
+      rewriting_model: string; rewriting_enabled: boolean; can_change_model:boolean; model_options:{id:string;input_usd_per_million:number|null;cached_usd_per_million:number|null;output_usd_per_million:number|null}[] } };
   let data: Usage | null = null;
   let scope = 'company';
   let selectedModel = '';
@@ -99,7 +99,11 @@
           {#each data.configuration.model_options as option}<option value={option.id}>{option.id}</option>{/each}
         </select></label>
         {#each data.configuration.model_options.filter(option=>option.id===selectedModel) as option}
-          <p>Standard text rates per 1 million tokens: input ${option.input_usd_per_million}, cached input ${option.cached_usd_per_million}, output ${option.output_usd_per_million} USD. These are estimates, not a fixed per-message price. Actual costs depend on usage, exchange rates and provider pricing.</p>
+          {#if option.input_usd_per_million !== null}
+            <p>Standard text rates per 1 million tokens: input ${option.input_usd_per_million}, cached input ${option.cached_usd_per_million}, output ${option.output_usd_per_million} USD. These are estimates, not a fixed per-message price. Actual costs depend on usage, exchange rates and provider pricing.</p>
+          {:else}
+            <p>Current pricing is not tracked for this model. Its calls and tokens will be recorded, but the API cost estimate will be unavailable. Check your provider billing before selecting it.</p>
+          {/if}
         {/each}
         {#if step===0}<button type="button" disabled={changeBusy||!data.configuration.model_options.some(option=>option.id===selectedModel)} on:click={()=>changeModel('review')}>Review model change</button>
         {:else if step===1}

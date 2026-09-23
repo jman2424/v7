@@ -43,6 +43,7 @@ def _wants_json_response() -> bool:
         "/oauth",
         "/analytics",
         "/chat_api",
+        "/chat/actions",
         "/chat_ui",
         "/webchat",
         "/whatsapp",
@@ -80,6 +81,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.auth_routes import bp as auth_bp
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
+    from routes.conversion_routes import bp as conversion_bp
     from routes.mode_routes import bp as mode_bp
     from routes.owner_console_routes import bp as owner_console_bp
 
@@ -92,6 +94,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
+    app.register_blueprint(conversion_bp)
     app.register_blueprint(mode_bp)
     app.register_blueprint(owner_console_bp)
     from routes.billing_routes import bp as billing_bp

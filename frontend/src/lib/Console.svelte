@@ -6,6 +6,8 @@
   import Subscription from './Subscription.svelte';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
+  import WebsiteKnowledge from './WebsiteKnowledge.svelte';
+  import ConversionSettings from './ConversionSettings.svelte';
   import ApiUsage from './ApiUsage.svelte';
   import Implementation from './Implementation.svelte';
   import ConnectionSettings from './ConnectionSettings.svelte';
@@ -16,7 +18,7 @@
   import JoinRequests from './JoinRequests.svelte';
   let signupOpen = false;
   export let section = 'pipeline';
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test agent',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
   $: pageTitle = sections[section] || 'Sales workspace';
 
 
@@ -31,6 +33,7 @@
     chat_title: string;
     greeting: string;
     avatar: string;
+    accent_color: string;
     allowed_origins: string[];
   };
 
@@ -130,7 +133,7 @@
     email: string;
     phone: string;
     website: string;
-    legacyHalalCertified: boolean;
+    legacyHalalCertified?: boolean;
     certifications: string[];
     social: Record<string, string>;
   };
@@ -211,12 +214,12 @@
 
   let user: User | null = null;
   let csrf = '';
-  let widget: Widget = { chat_title: '', greeting: '', avatar: '', allowed_origins: [] };
+  let widget: Widget = { chat_title: '', greeting: '', avatar: '', accent_color: '#3EEA8C', allowed_origins: [] };
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
   let offers: Offer[] = [];
   let delivery: Delivery = { source: {}, preservedExceptions: [], mode: 'zones', rules: [], click_and_collect: true, notes: '', exceptions: [] };
-  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', legacyHalalCertified: false, certifications: [], social: {} };
+  let profile: Profile = { name: '', about: '', email: '', phone: '', website: '', certifications: [], social: {} };
   let branches: Branch[] = [];
   let agentSettings: AgentSettings = {
     tone: { style: 'friendly', max_sentences: 2 },
@@ -377,7 +380,8 @@
     const social = Object.fromEntries(Object.entries(socialSource).filter(([, item]) => typeof item === 'string').map(([key, item]) => [key, String(item)]));
     return {
       name: String(source.name || ''), about: String(source.about || ''), email: String(source.email || ''), phone: String(source.phone || ''), website: String(source.website || ''),
-      legacyHalalCertified: source.halal_certified === true, certifications: stringList(source.certifications), social
+      legacyHalalCertified: typeof source.halal_certified === 'boolean' ? source.halal_certified : undefined,
+      certifications: stringList(source.certifications), social
     };
   }
 
@@ -686,6 +690,7 @@
       chat_title: widget.chat_title,
       greeting: widget.greeting,
       avatar: widget.avatar,
+      accent_color: widget.accent_color,
       allowed_origins: originText.split('\n').map((value) => value.trim()).filter(Boolean)
     };
     const response = await fetch(apiPath(`/admin/api/widget?tenant=${encodeURIComponent(tenant)}`), {
@@ -995,7 +1000,8 @@
     profileError = false;
     const payload = {
       name: profile.name.trim(), about: profile.about.trim(), email: profile.email.trim(), phone: profile.phone.trim(), website: profile.website.trim(),
-      halal_certified: profile.legacyHalalCertified, certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
+      ...(profile.legacyHalalCertified !== undefined ? { halal_certified: profile.legacyHalalCertified } : {}),
+      certifications: profile.certifications.map((item) => item.trim()).filter(Boolean),
       social: Object.fromEntries(Object.entries(profile.social).map(([key, value]) => [key, value.trim()]).filter(([, value]) => Boolean(value)))
     };
     if (!payload.name) {
@@ -1163,6 +1169,30 @@
         {/if}
       {/if}
       {#if section === 'test'}
+        <section class="surface widget-studio" aria-labelledby="studio-heading">
+          <div class="surface-head"><div><p class="eyebrow">Preview and configure</p><h2 id="studio-heading">Test AI &amp; widget</h2><p>Changes in this preview are saved for this company only. The conversation below uses the real agent with test memory.</p></div></div>
+          <div class="widget-studio-grid">
+            <form class="settings-form" on:submit|preventDefault={saveWidget}>
+              <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
+              <label>Welcome message<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
+              <label>Avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /></label>
+              <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
+              <div class="form-footer"><span class:error={formError} class="form-status" role="status">{formStatus}</span><button class="primary" type="submit">Save widget</button></div>
+              <p class="field-note">Approved website origins and install code are in <a href={base+'/website?tenant='+encodeURIComponent(tenant)}>Website widget</a>.</p>
+            </form>
+            <div class="widget-stage" aria-label="Widget appearance preview">
+              <p class="widget-stage-label">Appearance preview</p>
+              <div class="widget-preview" style={`--preview-accent: ${widget.accent_color}`}>
+                <header><span class="widget-preview-avatar">{#if widget.avatar}<img src={widget.avatar} alt="" />{:else}✦{/if}</span><span><strong>{widget.chat_title || 'Sales assistant'}</strong><small>{tenant}</small></span></header>
+                <div class="widget-preview-body"><p>{widget.greeting || 'Hi! How can I help you today?'}</p></div>
+                <div class="widget-preview-composer"><span>Type your message…</span><span class="widget-preview-send">Send</span></div>
+              </div>
+              <a href={`/chat_ui?tenant=${encodeURIComponent(tenant)}`} target="_blank" rel="noopener noreferrer">Open the live customer widget ↗</a>
+            </div>
+          </div>
+        </section>
+        {#key tenant}<WebsiteKnowledge {tenant} {csrf} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#if isPlatform || isOwner}{#key tenant}<ConversionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}{/if}
         {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'implementation'}
@@ -1178,7 +1208,7 @@
 
       {#if section === 'companies' && (isPlatform || isOwner)}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
-          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Fill in its information and configure the agent before launch. Each new business activates automatically after its subscription and implementation are paid. It starts with no approved websites and an unavailable setup item.</p></div>
+          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Fill in its information and configure the agent before launch. Each new business activates automatically after its subscription and implementation are paid. It starts with empty business knowledge and no approved websites. Add only information belonging to this business.</p></div>
           <form class="tenant-form" on:submit|preventDefault={createTenant}>
             <label>Tenant key<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /></label>
             <label>Business name<input bind:value={newTenantName} placeholder="Northstar Homewares" required /></label>
@@ -1272,6 +1302,7 @@
             <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
             <label>Greeting<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
             <label>Avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
+            <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
             <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development. Leave blank to prevent embedding on external websites.</small></label>
             <div class="form-footer"><span class:error={formError} class="form-status">{formStatus}</span><button class="primary" type="submit">Save changes</button></div>
           </form>
@@ -1418,9 +1449,9 @@
           <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">Business profile</h2></div></div>
           <form class="profile-form" on:submit|preventDefault={saveProfile}>
             <label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
-            <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What do you sell and why do customers choose you?"></textarea></label>
+            <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What does your business do, and how do you help customers?"></textarea></label>
             <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
-            <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /></label>
+            <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Test AI &amp; widget. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
             <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">Save profile</button></div>
@@ -1682,5 +1713,22 @@
     .form-footer { flex-wrap: wrap; }
   }
   @media (max-width: 420px) { .delivery-rule { grid-template-columns: minmax(0, 1fr); } }
+  .widget-studio-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(290px,.85fr); gap:24px; padding:20px; }
+  .widget-studio .settings-form { padding:0; }
+  .widget-studio .surface-head p:last-child { color:#667085; font-size:13px; margin:8px 0 0; }
+  .widget-stage { display:grid; align-content:start; justify-items:center; gap:12px; padding:16px; border:1px solid #e2e7ee; border-radius:10px; background:#f3f5f2; }
+  .widget-stage-label { justify-self:start; margin:0; color:#667085; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+  .widget-preview { width:min(100%,360px); min-height:315px; display:grid; grid-template-rows:auto 1fr auto; overflow:hidden; color:#eaf0ff; background:#131826; border:1px solid #242b3b; border-radius:16px; box-shadow:0 12px 24px #10182824; }
+  .widget-preview header { display:flex; align-items:center; gap:10px; padding:14px; border-bottom:1px solid #242b3b; }
+  .widget-preview header span:last-child { display:grid; gap:2px; }
+  .widget-preview header small { color:#92a0c1; }
+  .widget-preview-avatar { width:34px; height:34px; display:grid; place-items:center; overflow:hidden; border-radius:50%; color:#091018; background:var(--preview-accent); font-weight:800; }
+  .widget-preview-avatar img { width:100%; height:100%; object-fit:cover; }
+  .widget-preview-body { padding:16px; }
+  .widget-preview-body p { width:fit-content; max-width:85%; margin:0; padding:10px 12px; border:1px solid #242b3b; border-radius:12px; background:#0f1422; line-height:1.45; }
+  .widget-preview-composer { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px; border-top:1px solid #242b3b; color:#92a0c1; font-size:13px; }
+  .widget-preview-send { padding:9px 13px; border-radius:10px; color:#091018; background:var(--preview-accent); font-weight:700; }
+  .widget-stage > a { font-size:13px; }
+  @media (max-width:900px) { .widget-studio-grid { grid-template-columns:1fr; } }
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
 </style>

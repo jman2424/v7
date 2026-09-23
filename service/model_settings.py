@@ -2,7 +2,11 @@
 from retrieval.storage import Storage
 from service.business_management import revision
 
-MODELS = ('gpt-4o-mini','gpt-4o')
+MODELS = (
+    'gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1',
+    'gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol',
+    'gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra',
+)
 FILENAME = 'ai_model.json'
 
 
@@ -22,6 +26,17 @@ def selected(tenant, storage=None):
 
 def options():
     from service.api_usage import RATES
-    return [{'id':model,'input_usd_per_million':RATES[model][0]/1000,
-             'cached_usd_per_million':RATES[model][1]/1000,
-             'output_usd_per_million':RATES[model][2]/1000} for model in MODELS]
+    return [{'id': model,
+             'input_usd_per_million': RATES[model][0] / 1000 if model in RATES else None,
+             'cached_usd_per_million': RATES[model][1] / 1000 if model in RATES else None,
+             'output_usd_per_million': RATES[model][2] / 1000 if model in RATES else None}
+            for model in MODELS]
+
+
+def compatible_completion_kwargs(kwargs):
+    """Remove sampling options unsupported by reasoning models at default effort."""
+    options = dict(kwargs)
+    model = str(options.get('model') or '')
+    if not model.startswith(('gpt-4o', 'gpt-4.1')):
+        options.pop('temperature', None)
+    return options

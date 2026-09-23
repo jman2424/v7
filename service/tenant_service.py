@@ -112,35 +112,19 @@ class TenantService:
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
     def _write_starter_files(self, target: Path, business_name: str) -> None:
-        self._write_json(
-            target / "catalog.json",
-            {
-                "version": 1,
-                "categories": [
-                    {
-                        "id": "setup",
-                        "name": "Setup required",
-                        "items": [
-                            {
-                                "sku": "REPLACE_BEFORE_LAUNCH",
-                                "name": "Replace this starter item before launch",
-                                "price": 0,
-                                "unit": "each",
-                                "tags": ["setup"],
-                                "in_stock": False,
-                            }
-                        ],
-                    }
-                ],
-            },
-        )
+        from service.business_core import empty_core
+        self._write_json(target / "catalog.json", {"version": 1, "categories": []})
+        self._write_json(target / "business_core.json", empty_core())
         self._write_json(target / "delivery.json", {"areas": [], "click_and_collect": False, "notes": "Delivery has not been configured."})
         self._write_json(target / "branches.json", [])
         self._write_json(target / "faq.json", [])
         self._write_json(target / "offers.json", [])
         self._write_json(target / "synonyms.json", {})
+        from service.conversion_actions import DEFAULT_ACTIONS
+        self._write_json(target / "sales_actions.json", DEFAULT_ACTIONS)
         playbook = default_sales_playbook()
         playbook["offering_type"] = "mixed"
+        playbook["primary_goal"] = "answer_questions"
         self._write_json(
             target / "overrides.json",
             {
@@ -172,7 +156,7 @@ class TenantService:
             target / "store_info.json",
             {
                 "name": business_name,
-                "about": "Complete this company profile before launching the sales assistant.",
+                "about": "",
                 "email": "",
                 "phone": "",
                 "website": "",

@@ -105,7 +105,7 @@ class Container:
         self.analytics = AnalyticsService(self.settings)
         self.crm = CRMService()
         self.memory = Memory()
-        self.rewriter = Rewriter(self.settings)
+        self.rewriter = Rewriter()
         self.sales = SalesFlows(self.catalog)
 
         # ---------- Router (with geo prefixes) ----------
