@@ -40,9 +40,7 @@ def tenant_key(value):
     return value
 
 
-def json_file(path):
-    if path.is_symlink() or not path.is_file():
-        raise ValueError('Source must be a regular file')
+def strict_json(text):
     # Reject NaN/Infinity and duplicate object keys rather than silently changing data.
     def pairs(items):
         result = {}
@@ -53,7 +51,19 @@ def json_file(path):
         return result
     def invalid_constant(_value):
         raise ValueError('Non-finite JSON value in source')
-    return json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=pairs, parse_constant=invalid_constant)
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant)
+
+
+def json_file(path):
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('Source must be a regular file')
+    return strict_json(path.read_text(encoding='utf-8-sig'))
+
+
+def json_lines(path):
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('Source must be a regular file')
+    return [strict_json(line) for line in path.read_text(encoding='utf-8-sig').splitlines() if line.strip()]
 
 
 def canonical(value):
@@ -122,6 +132,11 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
         seen.add(tenant.casefold())
         bundle.rows['tenants'].append({'tenant': tenant})
         for path in sorted(directory.iterdir()):
+            if path.name == 'audit.log.jsonl':
+                bundle.rows['business_documents'].append({
+                    'tenant': tenant, 'filename': path.name, 'payload': json_lines(path),
+                })
+                continue
             if path.is_symlink() or path.suffix != '.json' or not FILENAME.fullmatch(path.name):
                 raise ValueError('Unexpected business file requires review before migration')
             bundle.rows['business_documents'].append({'tenant':tenant, 'filename':path.name, 'payload':json_file(path)})
@@ -160,11 +175,8 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
             bundle.rows['crm_records'].append({'tenant':tenant_key(row['tenant']), 'id':row['id'], 'payload':row})
     audit_path = data_dir / 'logs/selfrepair.log'
     if audit_path.exists():
-        if audit_path.is_symlink():
-            raise ValueError('Unsafe audit file')
-        for line in audit_path.read_text(encoding='utf-8').splitlines():
-            if line.strip():
-                bundle.rows['audit_records'].append({'payload':json.loads(line)})
+        for entry in json_lines(audit_path):
+            bundle.rows['audit_records'].append({'payload':entry})
     return bundle
 
 

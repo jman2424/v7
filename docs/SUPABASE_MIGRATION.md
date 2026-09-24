@@ -6,9 +6,19 @@
 This package creates and tests the destination schema and provides a verified,
 non-destructive import. It does not replace the application's storage adapter or
 switch the live deployment. The offline preparation does not contact Supabase.
-Do not remove Render's disk or set a database URL expecting Flask to switch over.
+Do not set a database URL expecting Flask to switch over or remove any existing
+persistent disk before the data has been independently backed up.
 
-The remaining cutover work is listed below explicitly. Keep existing sign-in,
+`service/postgres_business_documents.py` is an unwired tenant-scoped document
+repository; existing path-based callers still use local JSON. Management
+session and login-throttling methods now have a PostgreSQL path that
+will use server-only `V7_POSTGRES_DSN` and optional `V7_SUPABASE_CA_FILE`.
+`create_app` still rejects `V7_STORAGE_BACKEND=postgres`, and the shared
+security connection fails closed in that mode, because MFA, registration,
+billing, tenant access, MCP and webhook callers still use SQLite SQL. The
+runtime PostgreSQL dependency belongs in `requirements.txt` when the full
+adapter is ready. **Do not enable this setting on Render yet.** The remaining
+cutover work is listed below explicitly. Keep existing sign-in,
 authenticator verification, tenant permissions and Stripe activation checks.
 Supabase Auth and Google login are not part of this database migration.
 
@@ -21,11 +31,11 @@ The SQL files in `supabase/migrations/`, applied in filename order, create priva
 | --- | --- |
 | `logs/security.db` | Sessions, MFA, signup, ownership, billing and webhook tables |
 | `logs/analytics.db` | Events, leads, usage, sales, sales requests, inventory and exchange-rate tables |
-| `business/COMPANY/*.json` | `tenants` and `business_documents` (JSONB) |
+| `business/COMPANY/*.json` and tenant `audit.log.jsonl` | `tenants` and tenant-scoped `business_documents` (JSONB) |
 | Dated business snapshots | `document_versions` |
 | Optional protected account registry | `operator_accounts` |
 | Optional CRM snapshot | `crm_records` |
-| Optional audit log | `audit_records` |
+| Optional `logs/selfrepair.log` | `audit_records` |
 
 Passwords remain existing hashes. Enrolled authenticator secrets and ownership
 identifiers are preserved. Active management sessions and unfinished MFA challenges
@@ -88,7 +98,7 @@ python scripts/prepare_supabase.py --data-dir /protected/v7-backup --accounts /p
 
 Omit `--accounts` only if the app does not use `ADMIN_USERS_FILE`; environment-managed
 accounts remain environment-managed and are not exported. Unknown SQLite tables,
-unexpected business files, malformed JSON and missing security data stop the tool
+unexpected business files, malformed JSON or JSONL and missing security data stop the tool
 instead of silently discarding data. Review custom deployment files before proceeding.
 
 Import into an **empty** destination, using the protected migration connection:
