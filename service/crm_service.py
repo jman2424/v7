@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -70,20 +71,16 @@ class CRMService:
     _session_index: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Try to load an existing snapshot on startup (best-effort).
         if not self.snapshot_path or not os.path.exists(self.snapshot_path):
             return
         try:
             with open(self.snapshot_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
-            return
-
-        if not isinstance(data, list):
-            return
-
-        for item in data:
-            try:
+            if not isinstance(data, list):
+                raise ValueError("invalid_crm_snapshot")
+            for item in data:
+                if not isinstance(item, dict):
+                    raise ValueError("invalid_crm_snapshot")
                 lead = Lead(
                     id=item["id"],
                     tenant=item.get("tenant", "DEFAULT"),
@@ -97,15 +94,13 @@ class CRMService:
                     conversations=item.get("conversations", []) or [],
                     session_id=item.get("session_id"),
                 )
-            except Exception:
-                continue
-
-            self._leads[lead.id] = lead
-
-            if lead.phone:
-                self._phone_index[self._phone_key(lead.tenant, lead.phone)] = lead.id
-            if lead.session_id:
-                self._session_index[self._session_key(lead.tenant, lead.session_id)] = lead.id
+                self._leads[lead.id] = lead
+                if lead.phone:
+                    self._phone_index[self._phone_key(lead.tenant, lead.phone)] = lead.id
+                if lead.session_id:
+                    self._session_index[self._session_key(lead.tenant, lead.session_id)] = lead.id
+        except (OSError, json.JSONDecodeError, ValueError, KeyError, TypeError, AttributeError):
+            raise RuntimeError("CRM snapshot is unreadable") from None
 
     # -------- public API --------
 
@@ -242,11 +237,16 @@ class CRMService:
     def _maybe_snapshot(self) -> None:
         if not self.snapshot_path:
             return
+        payload = [self._to_dict(l) for l in self._leads.values()]
+        directory = os.path.dirname(self.snapshot_path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".crm-", suffix=".tmp", dir=directory)
         try:
-            payload = [self._to_dict(l) for l in self._leads.values()]
-            os.makedirs(os.path.dirname(self.snapshot_path), exist_ok=True)
-            with open(self.snapshot_path, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
-        except Exception:
-            # best-effort; do not crash chat flow
-            pass
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, self.snapshot_path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)

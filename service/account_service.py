@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import secrets
 from typing import Any, Dict, List
@@ -104,9 +103,11 @@ class AccountService:
     def _accounts(self, tenant: str) -> List[Dict[str, Any]]:
         try:
             raw = self.storage.read_json(tenant, ACCOUNT_FILE)
-        except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError):
+        except FileNotFoundError:
             return []
-        return [dict(account) for account in raw if isinstance(account, dict)] if isinstance(raw, list) else []
+        if not isinstance(raw, list) or any(not isinstance(account, dict) for account in raw):
+            raise ValueError("invalid_account_store")
+        return [dict(account) for account in raw]
 
     @staticmethod
     def _roles(value: Any) -> List[str]:
