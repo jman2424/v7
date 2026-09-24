@@ -8,15 +8,26 @@ from email.utils import parseaddr
 
 
 def configured():
-    return all(os.getenv(key, '').strip() for key in ('SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM'))
+    if not all(os.getenv(key, '').strip() for key in ('SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM')):
+        return False
+    address = parseaddr(os.environ['SMTP_FROM'])[1]
+    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', address):
+        return False
+    mode = os.getenv('SMTP_TLS_MODE', 'starttls')
+    if mode not in {'starttls', 'ssl'}:
+        return False
+    try:
+        port = int(os.getenv('SMTP_PORT', '465' if mode == 'ssl' else '587'))
+    except ValueError:
+        return False
+    return 1 <= port <= 65535
 
 
 def sender_address():
     """Expose only the public From address, never SMTP credentials."""
     if not configured():
         return None
-    address = parseaddr(os.environ['SMTP_FROM'])[1]
-    return address if re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', address) else None
+    return parseaddr(os.environ['SMTP_FROM'])[1]
 
 
 def send_code(email, code):

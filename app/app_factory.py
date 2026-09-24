@@ -1,7 +1,6 @@
 # app/app_factory.py
 from __future__ import annotations
 
-import logging
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -17,11 +16,7 @@ from app.logging_setup import configure_logging
 from app.container import Container
 from app import middleware
 
-# Analytics DB init (safe)
-try:
-    from service.analytics_db import init_db as init_analytics_db
-except Exception:
-    init_analytics_db = None
+from service.analytics_db import init_db as init_analytics_db
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -160,17 +155,17 @@ def _install_error_handlers(app: Flask) -> None:
 # App factory
 # ---------------------------------------------------------------------
 def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
+    # A partial database switch would split account, tenant and analytics writes
+    # across PostgreSQL and Render's temporary filesystem.
+    storage_backend = os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower()
+    if storage_backend != "sqlite":
+        raise RuntimeError("V7_STORAGE_BACKEND is not ready for live PostgreSQL cutover")
     settings: Settings = load_settings(config_override)
     configure_logging(settings)
 
-    # Init analytics DB early (safe if missing)
-    if init_analytics_db:
-        try:
-            init_analytics_db()
-        except Exception:
-            logging.getLogger("APP.Factory").exception(
-                "Analytics DB init failed (continuing)"
-            )
+    # Analytics is used for leads, usage and sales. Do not serve writes when
+    # its database failed to initialize.
+    init_analytics_db()
 
     app = Flask(
         __name__,

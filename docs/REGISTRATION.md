@@ -21,7 +21,8 @@ in Resend. `onboarding@resend.dev` is for testing, not customer signup.
 The server validates TLS certificates and authenticates before sending. Configure
 the sender domain with your email provider. SMTP delivery has not been verified
 until real provider configuration is supplied. There is no development-code fallback.
-The public signup status returns only the configured From address so applicants
+The public signup status is enabled only when the sender address, TLS mode and
+port are valid. It returns only the configured From address so applicants
 can identify the message in their inbox; it never returns SMTP credentials.
 
 For an existing Render service, add the four required `SMTP_*` settings in
