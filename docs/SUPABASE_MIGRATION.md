@@ -116,6 +116,11 @@ rejected records. A failed import rolls back; schema preparation remains in plac
 
 ## Required before live cutover
 
+- Keep source-only pushes from deploying the current Render Free service while
+  its local account and business data remains unbacked. The service tracks
+  `main` with auto-deploy enabled; a database schema alone does not make its
+  local files durable. Obtain and verify a complete independent backup before
+  the first deployment that changes the storage backend.
 - Implement and test PostgreSQL connections in `session_store`, `analytics_db`,
   and `analytics_service`; port SQLite-specific SQL and transaction locks explicitly.
 - Route `Storage` reads/writes/versioning, tenant creation/listing, account registry,
