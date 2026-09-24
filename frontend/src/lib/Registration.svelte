@@ -49,7 +49,7 @@
   {:else if state?.status==='creating'}
     <p>Your workspace is being created. Refresh shortly, or contact the operator if this continues.</p><button on:click={refresh}>Refresh status</button>
   {:else if !enabled}
-    <p>Account creation is not available yet. The platform operator must configure verification email first. Existing accounts can still sign in.</p>
+    <p>Account creation is not available yet. The platform operator must configure a verified sender email first. Existing accounts can still sign in.</p>
   {:else}
     <form on:submit|preventDefault={submit}>
       {#if state?.status==='verification'}

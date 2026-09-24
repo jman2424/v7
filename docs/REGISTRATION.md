@@ -1,29 +1,34 @@
 # Verified account creation
 
 The console sign-in page offers **Create an account or request to join**.
-Public signup is disabled until SMTP is configured. Existing sign-in is unaffected.
+Public signup is disabled until verification mail is configured. Existing sign-in is unaffected.
 
 ## Server configuration
 
 Set these as deployment secrets; never commit credentials:
 
 - `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`: required.
-- `SMTP_TLS_MODE`: `starttls` (default) or `ssl`. Plaintext SMTP is unsupported.
-- `SMTP_PORT`: default 587 for STARTTLS, 465 for TLS.
+- `SMTP_TLS_MODE`: `starttls` (default) or `ssl` for SMTP providers. Plaintext SMTP is unsupported.
+- `SMTP_PORT`: default 587 for STARTTLS, 465 for TLS with SMTP providers.
 
-For Resend on a free Render web service, use `smtp.resend.com`, username
-`resend`, `SMTP_TLS_MODE=starttls` and `SMTP_PORT=2587`. Render blocks outbound
-ports 25, 465 and 587 on free web services. Keep the Resend SMTP credential in
-`SMTP_PASSWORD`; the Codex MCP OAuth connection does not authenticate Flask's
-SMTP connection. A public signup sender must use a domain verified for sending
-in Resend. `onboarding@resend.dev` is for testing, not customer signup.
+For Resend, set `SMTP_HOST=smtp.resend.com` and `SMTP_USERNAME=resend`. Verification
+mail then uses Resend's HTTPS Email API, which works on Render Free without outbound
+SMTP ports. Set `SMTP_PASSWORD` to the Resend API key; this is also the password
+Resend specifies for SMTP. `SMTP_TLS_MODE` and `SMTP_PORT` do not apply to this
+Resend path. The Codex MCP OAuth connection does not authenticate Flask's email
+requests. A public signup sender must use a domain verified for sending in Resend.
+`SMTP_FROM=onboarding@resend.dev` disables public signup because that test sender
+can only deliver to the Resend account owner. See Resend's
+[Email API](https://resend.com/docs/api-reference/emails/send-email) and
+[SMTP settings](https://resend.com/docs/send-with-smtp).
 
 The server validates TLS certificates and authenticates before sending. Configure
-the sender domain with your email provider. SMTP delivery has not been verified
+the sender domain with your email provider. Live delivery has not been verified
 until real provider configuration is supplied. There is no development-code fallback.
-The public signup status is enabled only when the sender address, TLS mode and
-port are valid. It returns only the configured From address so applicants
-can identify the message in their inbox; it never returns SMTP credentials.
+The public signup status checks the required settings and sender address; for SMTP
+providers, it also checks the TLS mode and port. It cannot verify provider domain
+status until sending. It returns only the configured From address so applicants
+can identify the message in their inbox; it never returns credentials.
 
 For an existing Render service, add the four required `SMTP_*` settings in
 the service's Environment settings and redeploy. The `render.yaml` entries prompt
@@ -31,8 +36,10 @@ for secrets when creating a new Blueprint, but Render does not add `sync: false`
 values to an existing service during a Blueprint update. Use a verified sender
 address or domain accepted by your mail provider. If sending fails, the signup
 endpoint returns 503 and the server log records the exception type without the
-email address, password, or code. A failed send can be retried without waiting
-for the email cooldown; an accepted send still has the normal 60-second limit.
+email address, password, or code. For Resend, the request succeeds only after its
+HTTPS API returns an email ID; this confirms acceptance, not inbox delivery. A
+failed send can be retried without waiting for the email cooldown; an accepted
+send still has the normal 60-second limit.
 
 ## Access model
 
