@@ -11,6 +11,13 @@ Set these as deployment secrets; never commit credentials:
 - `SMTP_TLS_MODE`: `starttls` (default) or `ssl`. Plaintext SMTP is unsupported.
 - `SMTP_PORT`: default 587 for STARTTLS, 465 for TLS.
 
+For Resend on a free Render web service, use `smtp.resend.com`, username
+`resend`, `SMTP_TLS_MODE=starttls` and `SMTP_PORT=2587`. Render blocks outbound
+ports 25, 465 and 587 on free web services. Keep the Resend SMTP credential in
+`SMTP_PASSWORD`; the Codex MCP OAuth connection does not authenticate Flask's
+SMTP connection. A public signup sender must use a domain verified for sending
+in Resend. `onboarding@resend.dev` is for testing, not customer signup.
+
 The server validates TLS certificates and authenticates before sending. Configure
 the sender domain with your email provider. SMTP delivery has not been verified
 until real provider configuration is supplied. There is no development-code fallback.

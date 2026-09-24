@@ -23,10 +23,13 @@ SECURITY_TABLES = {
     'managed_businesses', 'registration_requests', 'billing_contracts', 'billing_invoices',
     'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate',
 }
-ANALYTICS_TABLES = {'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history', 'usage_exchange_rate'}
+ANALYTICS_TABLES = {
+    'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history',
+    'usage_exchange_rate', 'sales_action_requests', 'sales_action_attempts',
+}
 EXTRA_TABLES = {'tenants', 'business_documents', 'document_versions', 'operator_accounts', 'crm_records', 'audit_records'}
 DATA_TABLES = SECURITY_TABLES | ANALYTICS_TABLES | EXTRA_TABLES
-TRANSIENT_TABLES = {'management_sessions', 'mfa_challenges', 'mcp_grants'}
+TRANSIENT_TABLES = {'management_sessions', 'mfa_challenges', 'mcp_grants', 'sales_action_attempts'}
 TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}')
 FILENAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,100}')
 
@@ -196,7 +199,7 @@ def import_bundle(conn, bundle):
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(71616001)')
         version = conn.execute('SELECT version FROM v7_private.schema_version ORDER BY version').fetchall()
-        if version != [(1,), (2,)]:
+        if version != [(1,), (2,), (3,)]:
             raise ValueError('Apply the reviewed V7 schema migration first')
         for table in sorted(DATA_TABLES | {'migration_runs'}):
             query = sql.SQL('SELECT EXISTS(SELECT 1 FROM v7_private.{})').format(sql.Identifier(table))

@@ -5,7 +5,7 @@
 **Preparation only: the running application still uses SQLite and JSON files.**
 This package creates and tests the destination schema and provides a verified,
 non-destructive import. It does not replace the application's storage adapter or
-switch the live deployment. No Supabase project has been created or contacted.
+switch the live deployment. The offline preparation does not contact Supabase.
 Do not remove Render's disk or set a database URL expecting Flask to switch over.
 
 The remaining cutover work is listed below explicitly. Keep existing sign-in,
@@ -14,13 +14,13 @@ Supabase Auth and Google login are not part of this database migration.
 
 ## Destination design
 
-The SQL files in `supabase/migrations/`, applied in filename order, create 28 tables in
+The SQL files in `supabase/migrations/`, applied in filename order, create private tables in
 `v7_private`, separate from the public Data API schema:
 
 | Existing source | Destination |
 | --- | --- |
 | `logs/security.db` | Sessions, MFA, signup, ownership, billing and webhook tables |
-| `logs/analytics.db` | Events, leads, usage, sales, inventory and exchange-rate tables |
+| `logs/analytics.db` | Events, leads, usage, sales, sales requests, inventory and exchange-rate tables |
 | `business/COMPANY/*.json` | `tenants` and `business_documents` (JSONB) |
 | Dated business snapshots | `document_versions` |
 | Optional protected account registry | `operator_accounts` |
@@ -58,7 +58,7 @@ superuser or the migration-owner connection for normal application requests.
    project-specific certificate is needed. The importer enforces `verify-full`,
    even if a weaker SSL mode is present in the connection string. Never paste
    credentials into chat, shell arguments, source files, or browser bundles.
-5. Run both SQL migrations in filename order in the Supabase SQL editor as the migration owner.
+5. Run all SQL migrations in filename order in the Supabase SQL editor as the migration owner.
    Review it first; it changes only the new `v7_private` schema and `v7_backend` role.
 
 Official references: [database connections](https://supabase.com/docs/guides/database/connecting-to-postgres),
@@ -134,4 +134,4 @@ Set `V7_TEST_POSTGRES_DSN` only to an **empty disposable test database** to incl
 the PostgreSQL integration test. It creates a schema and test roles and refuses an
 existing `v7_private` schema. Without that variable, the integration test is skipped.
 
-Apply all files in `supabase/migrations/` in filename order, including the additive billing-discounts migration (schema version 2). The importer preserves saved tenant discounts and requires both versions.
+Apply all files in `supabase/migrations/` in filename order, including the additive billing-discounts migration (schema version 2) and sales-actions/usage migration (schema version 3). The importer preserves saved tenant discounts and sales requests, skips short-lived sales rate-limit attempts, and requires all three versions.
