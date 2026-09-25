@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from service import analytics_db
+from service import analytics_db, session_store
 
 
 DEFAULT_ACTIONS = {
@@ -87,6 +87,8 @@ def load_actions(storage: Any, tenant: str) -> dict[str, Any]:
 
 
 def _database() -> sqlite3.Connection:
+    if session_store._using_postgres():
+        raise RuntimeError("Sales action caller requires PostgreSQL port")
     db = analytics_db._conn()
     try:
         db.execute(
@@ -144,17 +146,27 @@ def public_availability(storage: Any, tenant: str) -> dict[str, Any]:
     config = load_actions(storage, tenant)
     available: list[dict[str, str]] = []
     if config["consultation"]["enabled"]:
-        db = _database()
-        try:
-            reserved = {
-                row[0] for row in db.execute(
-                    """SELECT slot_id FROM sales_action_requests
-                       WHERE tenant=? AND action='consultation' AND slot_id IS NOT NULL""",
-                    (tenant,),
-                )
-            }
-        finally:
-            db.close()
+        if session_store._using_postgres():
+            with session_store.postgres_connection(tenant) as db:
+                reserved = {
+                    row[0] for row in db.execute(
+                        "SELECT slot_id FROM v7_private.sales_action_requests "
+                        "WHERE tenant=%s AND action='consultation' AND slot_id IS NOT NULL",
+                        (tenant,),
+                    ).fetchall()
+                }
+        else:
+            db = _database()
+            try:
+                reserved = {
+                    row[0] for row in db.execute(
+                        """SELECT slot_id FROM sales_action_requests
+                           WHERE tenant=? AND action='consultation' AND slot_id IS NOT NULL""",
+                        (tenant,),
+                    )
+                }
+            finally:
+                db.close()
         now = datetime.now(timezone.utc)
         available = [
             dict(slot) for slot in config["consultation"]["slots"]
@@ -206,6 +218,74 @@ def _consume_rate(db: sqlite3.Connection, ip_digest: str) -> None:
         raise
 
 
+def _consume_rate_postgres(ip_digest: str) -> None:
+    lock_key = int.from_bytes(hashlib.sha256(ip_digest.encode()).digest()[:8], "big", signed=True)
+    now = time.time()
+    with session_store.postgres_connection() as db:
+        db.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
+        db.execute("DELETE FROM v7_private.sales_action_attempts WHERE attempted < %s", (now - 600,))
+        count = db.execute(
+            "SELECT COUNT(*) FROM v7_private.sales_action_attempts "
+            "WHERE ip_digest=%s AND attempted>%s", (ip_digest, now - 600),
+        ).fetchone()[0]
+        if count >= 8:
+            raise ActionError("rate_limited", 429)
+        db.execute(
+            "INSERT INTO v7_private.sales_action_attempts (ip_digest, attempted) VALUES (%s, %s)",
+            (ip_digest, now),
+        )
+
+
+def _submit_action_postgres(storage, tenant, *, action, name, contact, details,
+                            slot_id, key, fingerprint, ip_digest):
+    _consume_rate_postgres(ip_digest)
+    with session_store.postgres_connection(tenant) as db:
+        # This also serializes idempotency checks and bookings against the
+        # same tenant while preserving the slot's unique database constraint.
+        tenant_row = db.execute(
+            "SELECT tenant FROM v7_private.tenants WHERE tenant=%s FOR UPDATE", (tenant,),
+        ).fetchone()
+        if tenant_row is None:
+            raise ActionError("action_unavailable", 409)
+        if key:
+            existing = db.execute(
+                "SELECT reference, status, request_hash FROM v7_private.sales_action_requests "
+                "WHERE tenant=%s AND idempotency_key=%s", (tenant, key),
+            ).fetchone()
+            if existing:
+                if existing[2] != fingerprint:
+                    raise ActionError("idempotency_conflict", 409)
+                return {"ok": True, "status": existing[1], "reference": existing[0]}
+        config = load_actions(storage, tenant)
+        if not config[action]["enabled"]:
+            raise ActionError("action_unavailable", 409)
+        status, slot_start_at, slot_label = "requested", None, None
+        if slot_id:
+            slot = next((entry for entry in config["consultation"]["slots"]
+                         if entry["id"] == slot_id), None)
+            if slot is None or _start_time(slot["start_at"]) <= datetime.now(timezone.utc):
+                raise ActionError("slot_unavailable", 409)
+            booked = db.execute(
+                "SELECT 1 FROM v7_private.sales_action_requests "
+                "WHERE tenant=%s AND action='consultation' AND slot_id=%s",
+                (tenant, slot_id),
+            ).fetchone()
+            if booked:
+                raise ActionError("slot_unavailable", 409)
+            status, slot_start_at, slot_label = "confirmed", slot["start_at"], slot["label"]
+        reference = secrets.token_urlsafe(12)
+        db.execute(
+            "INSERT INTO v7_private.sales_action_requests "
+            "(reference, tenant, action, slot_id, slot_start_at, slot_label, "
+            "name, contact, details, status, created_at, idempotency_key, request_hash) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (reference, tenant, action, slot_id, slot_start_at, slot_label,
+             name, contact, details, status, datetime.now(timezone.utc).isoformat(),
+             key, fingerprint),
+        )
+    return {"ok": True, "status": status, "reference": reference}
+
+
 def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest: str) -> dict[str, Any]:
     action = payload.get("action")
     if not isinstance(action, str) or action not in _ACTIONS:
@@ -226,6 +306,13 @@ def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest:
     fingerprint = hashlib.sha256(
         json.dumps([action, slot_id, name, contact, details], ensure_ascii=False).encode("utf-8")
     ).hexdigest()
+
+    if session_store._using_postgres():
+        return _submit_action_postgres(
+            storage, tenant, action=action, name=name, contact=contact,
+            details=details, slot_id=slot_id, key=key,
+            fingerprint=fingerprint, ip_digest=ip_digest,
+        )
 
     db = _database()
     try:
@@ -288,6 +375,18 @@ def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest:
 
 
 def list_action_requests(tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+    if session_store._using_postgres():
+        from psycopg.rows import dict_row
+        with session_store.postgres_connection(tenant) as db:
+            with db.cursor(row_factory=dict_row) as cursor:
+                rows = cursor.execute(
+                    "SELECT reference, action, slot_id, slot_start_at, slot_label, "
+                    "name, contact, details, status, created_at "
+                    "FROM v7_private.sales_action_requests WHERE tenant=%s "
+                    "ORDER BY created_at DESC, reference DESC LIMIT %s",
+                    (tenant, limit),
+                ).fetchall()
+        return rows
     db = _database()
     try:
         rows = db.execute(

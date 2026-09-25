@@ -1097,6 +1097,7 @@ def api_lead_status_put(lead_id: str):
 @bp.get("/conversations")
 def api_conversations():
     from service.analytics_db import _conn, _ensure_ready, _since
+    from service import session_store
     tenant = _tenant().upper()
     since = _since(_int_arg("minutes", 1440, maximum=43200))
     try:
@@ -1106,6 +1107,18 @@ def api_conversations():
     if not 1 <= before <= 9223372036854775807:
         abort(400)
     _ensure_ready()
+    if session_store._using_postgres():
+        from psycopg.rows import dict_row
+        with session_store.postgres_connection(tenant) as db:
+            with db.cursor(row_factory=dict_row) as cursor:
+                rows = cursor.execute(
+                    "SELECT id, ts_utc, channel, event_type, text FROM v7_private.events "
+                    "WHERE tenant=%s AND id<%s AND ts_utc>=%s "
+                    "AND event_type IN ('msg_in','msg_out') ORDER BY id DESC LIMIT 51",
+                    (tenant, before, since),
+                ).fetchall()
+        return jsonify(messages=rows[:50], has_more=len(rows) > 50,
+                       next_before=rows[49]["id"] if len(rows) > 50 else None)
     with _conn() as db:
         rows = db.execute(
             "SELECT id, ts_utc, channel, event_type, text FROM events "

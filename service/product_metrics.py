@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
 
-from service import analytics_db
+from service import analytics_db, session_store
 
 
 def catalogue_items(catalog: dict) -> list[dict]:
@@ -40,6 +40,26 @@ def record_inventory(tenant: str, before: dict, after: dict) -> None:
     """Snapshot changed quantities only; never fabricate earlier inventory levels."""
     analytics_db._ensure_ready()
     previous = {item['sku']: item for item in catalogue_items(before)}
+    if session_store._using_postgres():
+        tenant_key = tenant.upper()
+        with session_store.postgres_connection(tenant_key) as db:
+            for item in catalogue_items(after):
+                old = previous.get(item['sku'], {})
+                fields = ('stock_quantity', 'low_stock_threshold', 'in_stock')
+                recorded = db.execute(
+                    'SELECT 1 FROM v7_private.inventory_history WHERE tenant=%s AND sku=%s LIMIT 1',
+                    (tenant_key, item['sku']),
+                ).fetchone()
+                if recorded and all(old.get(key) == item.get(key) for key in fields):
+                    continue
+                db.execute(
+                    'INSERT INTO v7_private.inventory_history '
+                    '(tenant,sku,ts_utc,quantity,threshold,in_stock) VALUES (%s,%s,%s,%s,%s,%s)',
+                    (tenant_key, item['sku'], analytics_db._utc_now(),
+                     item.get('stock_quantity'), item.get('low_stock_threshold', 5),
+                     int(item.get('in_stock', True))),
+                )
+        return
     with analytics_db._conn() as db:
         init_tables(db)
         for item in catalogue_items(after):
@@ -79,6 +99,27 @@ def record_sale(tenant: str, data: dict, catalog: dict) -> dict:
     row = (tenant.upper(), sale_id, item['sku'], item['name'], float(quantity), int(amount * 100),
            occurred.astimezone(timezone.utc).isoformat(), channel)
     analytics_db._ensure_ready()
+    if session_store._using_postgres():
+        from psycopg.rows import dict_row
+        with session_store.postgres_connection(row[0]) as db:
+            inserted = db.execute(
+                'INSERT INTO v7_private.recorded_sales '
+                '(tenant,id,sku,name,quantity,amount_pence,occurred_utc,channel,created_utc) '
+                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) '
+                'ON CONFLICT (tenant,id) DO NOTHING RETURNING id',
+                (*row, analytics_db._utc_now()),
+            ).fetchone()
+            if inserted:
+                return {'id': sale_id, 'duplicate': False}
+            with db.cursor(row_factory=dict_row) as cursor:
+                previous = cursor.execute(
+                    'SELECT * FROM v7_private.recorded_sales WHERE tenant=%s AND id=%s',
+                    row[:2],
+                ).fetchone()
+            fields = ('tenant','id','sku','name','quantity','amount_pence','occurred_utc','channel')
+            if previous is None or tuple(previous[key] for key in fields) != row or previous['voided_utc']:
+                raise ValueError('This sale reference was already used. Refresh before recording another sale.')
+            return {'id': sale_id, 'duplicate': True}
     with analytics_db._conn() as db:
         init_tables(db)
         db.execute('BEGIN IMMEDIATE')
@@ -95,6 +136,13 @@ def record_sale(tenant: str, data: dict, catalog: dict) -> dict:
 
 def void_sale(tenant: str, sale_id: str) -> bool:
     analytics_db._ensure_ready()
+    if session_store._using_postgres():
+        with session_store.postgres_connection(tenant.upper()) as db:
+            return db.execute(
+                'UPDATE v7_private.recorded_sales SET voided_utc=COALESCE(voided_utc,%s) '
+                'WHERE tenant=%s AND id=%s',
+                (analytics_db._utc_now(), tenant.upper(), sale_id),
+            ).rowcount == 1
     with analytics_db._conn() as db:
         init_tables(db)
         return db.execute('UPDATE recorded_sales SET voided_utc=COALESCE(voided_utc,?) WHERE tenant=? AND id=?',
