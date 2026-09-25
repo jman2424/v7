@@ -38,7 +38,7 @@ def sender_address():
     """Expose only the public From address, never SMTP credentials."""
     if not configured():
         return None
-    return parseaddr(os.environ['SMTP_FROM'])[1]
+    return parseaddr(os.getenv('SMTP_FROM', ''))[1] or None
 
 
 def send_code(email, code):
