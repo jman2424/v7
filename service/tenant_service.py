@@ -20,6 +20,8 @@ class TenantService:
         self.storage = storage
 
     def list_tenants(self) -> List[Dict[str, Any]]:
+        if self.storage._using_postgres():
+            raise RuntimeError("PostgreSQL tenant inventory requires a scoped design")
         tenants: List[Dict[str, Any]] = []
         if not self.storage.business_root.exists():
             return tenants
@@ -57,6 +59,24 @@ class TenantService:
         business_name = str(name or "").strip()
         if not business_name or len(business_name) > 120:
             raise ValueError("invalid_business_name")
+
+        if self.storage._using_postgres():
+            from service.postgres_business_documents import PostgresBusinessDocuments
+            from service.tenant_access import owner_key
+            documents = self._starter_documents(business_name)
+            if initial_account is not None:
+                from service.account_service import ACCOUNT_FILE
+                documents[ACCOUNT_FILE] = [initial_account]
+            PostgresBusinessDocuments(tenant_key).create_tenant(
+                documents, owner_key=owner_key(owner) if owner else None
+            )
+            return {
+                "key": tenant_key,
+                "name": business_name,
+                "widget_configured": False,
+                "valid": self._is_valid(tenant_key),
+                "activation": self.activation(tenant_key),
+            }
 
         target = self.storage.tenant_dir(tenant_key)
         if target.exists():
@@ -112,29 +132,30 @@ class TenantService:
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
     def _write_starter_files(self, target: Path, business_name: str) -> None:
+        for filename, payload in self._starter_documents(business_name).items():
+            self._write_json(target / filename, payload)
+
+    @staticmethod
+    def _starter_documents(business_name: str) -> Dict[str, Any]:
         from service.business_core import empty_core
-        self._write_json(target / "catalog.json", {"version": 1, "categories": []})
-        self._write_json(target / "business_core.json", empty_core())
-        self._write_json(target / "delivery.json", {"areas": [], "click_and_collect": False, "notes": "Delivery has not been configured."})
-        self._write_json(target / "branches.json", [])
-        self._write_json(target / "faq.json", [])
-        self._write_json(target / "offers.json", [])
-        self._write_json(target / "synonyms.json", {})
         from service.conversion_actions import DEFAULT_ACTIONS
-        self._write_json(target / "sales_actions.json", DEFAULT_ACTIONS)
         playbook = default_sales_playbook()
         playbook["offering_type"] = "mixed"
         playbook["primary_goal"] = "answer_questions"
-        self._write_json(
-            target / "overrides.json",
-            {
+        return {
+            "catalog.json": {"version": 1, "categories": []},
+            "business_core.json": empty_core(),
+            "delivery.json": {"areas": [], "click_and_collect": False, "notes": "Delivery has not been configured."},
+            "branches.json": [],
+            "faq.json": [],
+            "offers.json": [],
+            "synonyms.json": {},
+            "sales_actions.json": DEFAULT_ACTIONS,
+            "overrides.json": {
                 "tone": {"style": "friendly", "max_sentences": 2},
                 "sales_playbook": playbook,
             },
-        )
-        self._write_json(
-            target / "branding.json",
-            {
+            "branding.json": {
                 "theme": {
                     "primary_color": "#0f9d58",
                     "secondary_color": "#ffffff",
@@ -151,10 +172,7 @@ class TenantService:
                     "allowed_origins": [],
                 },
             },
-        )
-        self._write_json(
-            target / "store_info.json",
-            {
+            "store_info.json": {
                 "name": business_name,
                 "about": "",
                 "email": "",
@@ -163,4 +181,4 @@ class TenantService:
                 "certifications": [],
                 "social": {},
             },
-        )
+        }

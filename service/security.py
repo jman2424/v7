@@ -294,6 +294,16 @@ def _verify_password(password: str, password_hash: str) -> bool:
 
 
 def _registry_users(c: Any) -> list[dict[str, Any]]:
+    from service import session_store
+    if session_store._using_postgres():
+        with session_store.postgres_connection() as db:
+            rows = db.execute(
+                "SELECT payload FROM v7_private.operator_accounts ORDER BY email"
+            ).fetchall()
+        users = [row[0] for row in rows]
+        if not all(isinstance(user, dict) for user in users):
+            raise ValueError("Invalid account record")
+        return users
     registry = (os.getenv("ADMIN_USERS_FILE") or "").strip()
     if not registry:
         return []

@@ -21,7 +21,7 @@ def _tenant(read_only=False):
     else:
         _owner()
     tenant = authorized_tenant(request.args.get('tenant'))
-    if not get_container().storage.tenant_dir(tenant).is_dir():
+    if not get_container().storage.tenant_exists(tenant):
         abort(404, description='unknown_tenant')
     return tenant
 

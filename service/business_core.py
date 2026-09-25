@@ -28,7 +28,7 @@ def validate_core(document):
 class BusinessCore:
     def __init__(self, storage, tenant):
         self.storage, self.tenant = storage, tenant
-        if not storage.tenant_dir(tenant).is_dir():
+        if not storage.tenant_exists(tenant):
             raise BusinessError('not_found','Business does not exist.')
 
     def read(self, filename, default):

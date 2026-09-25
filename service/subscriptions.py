@@ -35,7 +35,15 @@ def _discount_campaign(kind, code):
 
 
 @contextmanager
-def connection():
+def connection(tenant=None):
+    if session_store._using_postgres():
+        if tenant is None:
+            raise ValueError('tenant_required')
+        from psycopg.rows import dict_row
+        with session_store.postgres_connection(tenant) as db:
+            with db.cursor(row_factory=dict_row) as cursor:
+                yield _PostgresBillingCursor(cursor)
+        return
     with session_store.connection() as db:
         db.row_factory = sqlite3.Row
         db.execute('CREATE TABLE IF NOT EXISTS billing_discounts (tenant TEXT PRIMARY KEY, campaign TEXT NOT NULL)')
@@ -45,6 +53,18 @@ def connection():
         db.execute('CREATE TABLE IF NOT EXISTS billing_api_charges (tenant TEXT NOT NULL, month TEXT NOT NULL, amount INTEGER NOT NULL, ref TEXT UNIQUE NOT NULL, checkout TEXT, checkout_url TEXT, checkout_expires INTEGER, PRIMARY KEY(tenant,month))')
         db.execute('CREATE TABLE IF NOT EXISTS billing_references (ref TEXT PRIMARY KEY, tenant TEXT NOT NULL, kind TEXT NOT NULL)')
         yield db
+
+
+class _PostgresBillingCursor:
+    """Adapt this module's fixed qmark queries to psycopg parameters."""
+
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def execute(self, statement, params=()):
+        if statement.count('?') != len(params):
+            raise RuntimeError('Invalid billing SQL parameters')
+        return self.cursor.execute(statement.replace('?', '%s'), params)
 
 
 def client():
@@ -64,9 +84,17 @@ def _safe_url(value, host):
 
 
 def _contract(tenant, kind):
-    with connection() as db:
-        db.execute('INSERT OR IGNORE INTO billing_contracts (tenant,kind,ref) VALUES (?,?,?)', (tenant,kind,secrets.token_urlsafe(24)))
-        db.execute('INSERT OR IGNORE INTO billing_references SELECT ref,tenant,kind FROM billing_contracts WHERE tenant=? AND kind=?',(tenant,kind))
+    with connection(tenant) as db:
+        contract_insert = ('INSERT INTO billing_contracts (tenant,kind,ref) VALUES (?,?,?) ON CONFLICT DO NOTHING'
+                           if session_store._using_postgres() else
+                           'INSERT OR IGNORE INTO billing_contracts (tenant,kind,ref) VALUES (?,?,?)')
+        reference_insert = ('INSERT INTO billing_references SELECT ref,tenant,kind FROM billing_contracts '
+                            'WHERE tenant=? AND kind=? ON CONFLICT DO NOTHING'
+                            if session_store._using_postgres() else
+                            'INSERT OR IGNORE INTO billing_references SELECT ref,tenant,kind FROM billing_contracts '
+                            'WHERE tenant=? AND kind=?')
+        db.execute(contract_insert, (tenant,kind,secrets.token_urlsafe(24)))
+        db.execute(reference_insert,(tenant,kind))
         return dict(db.execute('SELECT * FROM billing_contracts WHERE tenant=? AND kind=?', (tenant,kind)).fetchone())
 
 
@@ -82,7 +110,7 @@ def _tax():
 
 
 def saved_campaign(tenant):
-    with connection() as db:
+    with connection(tenant) as db:
         row = db.execute('SELECT campaign FROM billing_discounts WHERE tenant=?',(tenant,)).fetchone()
     return _PLATFORM_CAMPAIGN if row and row['campaign'] == _PLATFORM_CAMPAIGN else ''
 
@@ -114,7 +142,7 @@ def redeem_discount(tenant, code):
                 idempotency_key='v7-discount-renewal-'+contract['ref'])
             if result.get('id') != contract['subscription'] or (result.get('metadata') or {}).get('discount_campaign') != campaign:
                 raise ValueError('stripe_discount_invalid')
-    with connection() as db:
+    with connection(tenant) as db:
         db.execute('INSERT INTO billing_discounts VALUES (?,?) ON CONFLICT(tenant) DO UPDATE SET campaign=excluded.campaign',(tenant,campaign))
     return {'ok':True,'discount_percent':50}
 
@@ -134,7 +162,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
     tax = _tax()
     stripe = client()
     if kind == 'api':
-        with connection() as db:
+        with connection(tenant) as db:
             row = db.execute('SELECT * FROM billing_api_charges WHERE tenant=? AND month=?', (tenant,month)).fetchone()
         if not row:
             raise ValueError('api_charge_not_approved')
@@ -146,7 +174,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
             contract = _contract(tenant,kind)
             if contract['status'] not in {'canceled','incomplete_expired'}:
                 raise ValueError('subscription_already_exists')
-            with connection() as db:
+            with connection(tenant) as db:
                 db.execute('UPDATE billing_contracts SET ref=?,subscription=NULL,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=?', (secrets.token_urlsafe(24),contract['ref']))
             contract = _contract(tenant,kind)
     if contract.get('checkout'):
@@ -160,16 +188,19 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
         if previous.get('status') == 'complete':
             raise ValueError('payment_processing_refresh_soon')
         # Serialize the new generation; simultaneous requests use one Stripe idempotency key.
-        with connection() as db:
+        with connection(tenant) as db:
             table = 'billing_api_charges' if kind == 'api' else 'billing_contracts'
             db.execute(f'UPDATE {table} SET ref=?,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=?', (secrets.token_urlsafe(24),contract['ref']))
             row = db.execute(f'SELECT * FROM {table} WHERE tenant=? AND '+('month=?' if kind=='api' else 'kind=?'),(tenant,month if kind=='api' else kind)).fetchone()
             contract = dict(row)
-    with connection() as db:
+    with connection(tenant) as db:
         table = 'billing_api_charges' if kind=='api' else 'billing_contracts'
         db.execute(f'UPDATE {table} SET checkout_expires=? WHERE ref=? AND checkout_expires IS NULL',(int(time.time())+3600,contract['ref']))
-        contract['checkout_expires'] = db.execute(f'SELECT checkout_expires FROM {table} WHERE ref=?',(contract['ref'],)).fetchone()[0]
-        db.execute('INSERT OR IGNORE INTO billing_references VALUES (?,?,?)',(contract['ref'],tenant,kind))
+        contract['checkout_expires'] = db.execute(f'SELECT checkout_expires FROM {table} WHERE ref=?',(contract['ref'],)).fetchone()['checkout_expires']
+        reference_insert = ('INSERT INTO billing_references VALUES (?,?,?) ON CONFLICT DO NOTHING'
+                            if session_store._using_postgres() else
+                            'INSERT OR IGNORE INTO billing_references VALUES (?,?,?)')
+        db.execute(reference_insert,(contract['ref'],tenant,kind))
     ref = contract['ref']
     return_url = base_url+'/console/subscription?'+urlencode({'tenant':tenant})
     data = {'mode':'payment' if one_time else 'subscription','success_url':return_url+'&payment=processing','cancel_url':return_url,
@@ -207,7 +238,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
     url = _safe_url(result.get('url'),'checkout.stripe.com')
     if not url or not re.fullmatch(r'cs_[A-Za-z0-9_]+', result.get('id','')):
         raise ValueError('stripe_response_invalid')
-    with connection() as db:
+    with connection(tenant) as db:
         table = 'billing_api_charges' if kind=='api' else 'billing_contracts'
         db.execute(f'UPDATE {table} SET checkout=?,checkout_url=?,checkout_expires=? WHERE ref=?', (result['id'],url,result.get('expires_at'),ref))
     return {'url':url}
@@ -218,7 +249,10 @@ def sync_subscription(subscription_id):
         raise ValueError('invalid_subscription')
     data = client().stripe_request('GET','/v1/subscriptions/'+subscription_id)
     metadata = data.get('metadata') or {}
-    with connection() as db:
+    tenant = metadata.get('tenant')
+    if not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant):
+        raise ValueError('unknown_billing_reference')
+    with connection(tenant) as db:
         row = db.execute('SELECT tenant,kind FROM billing_references WHERE ref=?', (metadata.get('billing_ref',''),)).fetchone()
         if not row or row['tenant'] != metadata.get('tenant') or row['kind'] != metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
@@ -241,14 +275,17 @@ def sync_invoice(invoice_id):
         month = datetime.fromtimestamp(invoice.get('period_start') or invoice['created'],timezone.utc).strftime('%Y-%m')
     else:
         metadata = invoice.get('metadata') or {}
-        with connection() as db:
+        tenant = metadata.get('tenant')
+        if not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant):
+            raise ValueError('unknown_billing_reference')
+        with connection(tenant) as db:
             row = db.execute("SELECT tenant,kind FROM billing_references WHERE ref=? AND kind IN ('api','implementation')", (metadata.get('billing_ref',''),)).fetchone()
         if not row or row['tenant']!=metadata.get('tenant') or row['kind']!=metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
         identity = dict(row)
         month = metadata.get('month') if row['kind']=='api' else datetime.fromtimestamp(invoice['created'],timezone.utc).strftime('%Y-%m')
     lines = [{'description':str(line.get('description') or '')[:300], 'amount':line.get('amount',0)} for line in invoice.get('lines',{}).get('data',[])]
-    with connection() as db:
+    with connection(identity['tenant']) as db:
         db.execute("INSERT INTO billing_invoices VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET total=excluded.total,paid=excluded.paid,remaining=excluded.remaining,status=excluded.status,lines=excluded.lines,url=excluded.url WHERE billing_invoices.status!='paid' OR excluded.status='paid'",
                    (invoice_id,identity['tenant'],identity['kind'],month,invoice['created'],invoice.get('due_date'),invoice['total'],invoice['amount_paid'],invoice['amount_remaining'],invoice['status'],json.dumps(lines),_safe_url(invoice.get('hosted_invoice_url'),'invoice.stripe.com')))
         legacy_implementation = identity['kind']=='platform' and invoice.get('billing_reason')=='subscription_create' and any('V7 implementation' in line['description'] for line in lines)
@@ -266,7 +303,7 @@ def change_whatsapp(tenant, enabled):
     client().stripe_request('POST','/v1/subscriptions/'+contract['subscription'],{'cancel_at_period_end':'false' if enabled else 'true'},
                             idempotency_key='v7-wa-'+contract['ref']+'-'+str(enabled)+'-'+str(int(time.time())//30))
     sync_subscription(contract['subscription'])
-    with connection() as db:
+    with connection(tenant) as db:
         db.execute("UPDATE billing_contracts SET paused=? WHERE tenant=? AND kind='whatsapp'",(int(not enabled),tenant))
 
 
@@ -282,7 +319,7 @@ def portal(tenant, base_url):
 
 
 def whatsapp_enabled(tenant):
-    with connection() as db:
+    with connection(tenant) as db:
         row = db.execute("SELECT paused,status,next_due FROM billing_contracts WHERE tenant=? AND kind='whatsapp'",(tenant,)).fetchone()
     # Enforce purchased access when a billing contract exists. Preserve legacy integrations until migrated.
     return (not configured() if row is None else not row['paused'] and row['status'] in {'active','trialing'} and (row['next_due'] or 0)>time.time())
@@ -294,17 +331,35 @@ def approve_api_charge(tenant, month, amount):
         raise ValueError('choose_a_completed_month')
     if type(amount) is not int or not 1<=amount<=10_000_000:
         raise ValueError('invalid_api_charge')
-    with connection() as db:
-        try:
-            db.execute('INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?)',(tenant,month,amount,secrets.token_urlsafe(24)))
-        except sqlite3.IntegrityError as exc:
-            raise ValueError('month_already_approved') from exc
+    with connection(tenant) as db:
+        if session_store._using_postgres():
+            inserted = db.execute(
+                'INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?) '
+                'ON CONFLICT DO NOTHING RETURNING tenant',
+                (tenant, month, amount, secrets.token_urlsafe(24)),
+            ).fetchone()
+            if not inserted:
+                raise ValueError('month_already_approved')
+        else:
+            try:
+                db.execute('INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?)',(tenant,month,amount,secrets.token_urlsafe(24)))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError('month_already_approved') from exc
 
 
 def usage_months(tenant):
-    with closing(analytics_db._conn()) as db:
-        api_usage._schema(db)
-        rows = db.execute("SELECT substr(ts_utc,1,7) month,COUNT(*) calls,SUM(cost_nano_usd) cost,SUM(cost_nano_usd IS NULL) unpriced FROM api_usage WHERE tenant=? GROUP BY month ORDER BY month DESC LIMIT 24",(tenant.upper(),)).fetchall()
+    if session_store._using_postgres():
+        with connection(tenant) as db:
+            rows = db.execute(
+                "SELECT LEFT(ts_utc,7) month, COUNT(*) calls, SUM(cost_nano_usd) cost, "
+                "SUM(CASE WHEN cost_nano_usd IS NULL THEN 1 ELSE 0 END) unpriced "
+                "FROM api_usage WHERE tenant=? GROUP BY month ORDER BY month DESC LIMIT 24",
+                (tenant.upper(),),
+            ).fetchall()
+    else:
+        with closing(analytics_db._conn()) as db:
+            api_usage._schema(db)
+            rows = db.execute("SELECT substr(ts_utc,1,7) month,COUNT(*) calls,SUM(cost_nano_usd) cost,SUM(cost_nano_usd IS NULL) unpriced FROM api_usage WHERE tenant=? GROUP BY month ORDER BY month DESC LIMIT 24",(tenant.upper(),)).fetchall()
     from service.usage_currency import gbp_rate
     rate = gbp_rate() if rows else None
     return [{'month':row['month'],'calls':row['calls'],'unpriced':row['unpriced'],
@@ -312,19 +367,19 @@ def usage_months(tenant):
 
 
 def report(tenant, include_api=True):
-    with connection() as db:
+    with connection(tenant) as db:
         contracts = [dict(row) for row in db.execute('SELECT kind,status,next_due,paused,cancel_at_end,implementation_paid FROM billing_contracts WHERE tenant=?',(tenant,))]
         invoices = [dict(row) for row in db.execute('SELECT * FROM billing_invoices WHERE tenant=? ORDER BY issued DESC LIMIT 120',(tenant,))]
         approved = [dict(row) for row in db.execute('SELECT month,amount FROM billing_api_charges WHERE tenant=? ORDER BY month DESC LIMIT 24',(tenant,))]
         totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=?",(tenant,)).fetchone())
-        totals['approved_api_due'] = db.execute("SELECT COALESCE(SUM((amount*120+50)/100),0) FROM billing_api_charges a WHERE tenant=? AND NOT EXISTS (SELECT 1 FROM billing_invoices i WHERE i.tenant=a.tenant AND i.kind='api' AND i.month=a.month)",(tenant,)).fetchone()[0]
+        totals['approved_api_due'] = db.execute("SELECT COALESCE(SUM((amount*120+50)/100),0) AS due FROM billing_api_charges a WHERE tenant=? AND NOT EXISTS (SELECT 1 FROM billing_invoices i WHERE i.tenant=a.tenant AND i.kind='api' AND i.month=a.month)",(tenant,)).fetchone()['due']
     for invoice in invoices:
         invoice['lines'] = json.loads(invoice['lines'])
     if include_api:
         usage, rate = usage_months(tenant)
     else:
         invoices = [row for row in invoices if row['kind']!='api']
-        with connection() as db:
+        with connection(tenant) as db:
             totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=? AND kind!='api'", (tenant,)).fetchone())
         totals['approved_api_due'] = 0
         usage, rate, approved = [], None, []

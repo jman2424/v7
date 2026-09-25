@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from service import analytics_db
+
 SettingsLike = Any
 
 
@@ -91,6 +93,8 @@ class AnalyticsService:
     # SQLite
     # -----------------------
     def _conn(self) -> sqlite3.Connection:
+        if analytics_db._using_postgres():
+            raise RuntimeError("Analytics database caller requires PostgreSQL port")
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         con = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
         con.row_factory = sqlite3.Row
@@ -114,6 +118,9 @@ class AnalyticsService:
         - tenant MUST be stored consistently (we normalize to UPPERCASE at write + read)
         - leads must be UNIQUE(tenant, lead_id)
         """
+        if analytics_db._using_postgres():
+            analytics_db.init_db()
+            return
         with self._conn() as con:
             con.execute(
                 """
@@ -201,6 +208,9 @@ class AnalyticsService:
         phone: Optional[str] = None,
         name: Optional[str] = None,
     ) -> None:
+        if analytics_db._using_postgres():
+            analytics_db.upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone, name=name)
+            return
         tenant_n = _norm_tenant(tenant)
         lead_id_n = (lead_id or "unknown").strip() or "unknown"
         now = _utc_now_iso()
@@ -225,6 +235,9 @@ class AnalyticsService:
         lead_id: str,
         session_id: str,
     ) -> None:
+        if analytics_db._using_postgres():
+            analytics_db.set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+            return
         tenant_n = _norm_tenant(tenant)
         lead_id_n = (lead_id or "unknown").strip() or "unknown"
         session_id_n = _norm_session_id(session_id)
@@ -270,6 +283,19 @@ class AnalyticsService:
         error_type: str = "",
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if analytics_db._using_postgres():
+            event_type = "msg_in" if (direction or "inbound").strip().lower() == "inbound" else "msg_out"
+            meta = {"store": store, "products": products or [], "fallback": bool(is_fallback),
+                    "error": bool(is_error)}
+            if extra and isinstance(extra, dict):
+                meta["extra"] = extra
+            analytics_db._insert_event(
+                tenant=tenant, channel=channel, session_id=session_id,
+                event_type=event_type, intent=intent or "unknown", text=text,
+                lead_id=lead_id or "", error_code=error_code, error_type=error_type,
+                meta_json=json.dumps(meta, ensure_ascii=False),
+            )
+            return
         tenant_n = _norm_tenant(tenant)
         ch = _norm_channel(channel)
         sid = _norm_session_id(session_id)
@@ -317,6 +343,11 @@ class AnalyticsService:
         error_type: str = "",
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if analytics_db._using_postgres():
+            analytics_db.log_error(tenant=tenant, channel=channel, session_id=session_id,
+                                   lead_id=lead_id, error_code=error_code,
+                                   error_type=error_type, meta=meta)
+            return
         tenant_n = _norm_tenant(tenant)
         ch = _norm_channel(channel)
         sid = _norm_session_id(session_id)
@@ -345,6 +376,9 @@ class AnalyticsService:
     # Back-compat
     def log_event(self, *args: Any, **kwargs: Any) -> None:
         # Very old code path support
+        if analytics_db._using_postgres():
+            analytics_db.log_event(*args, **kwargs)
+            return
         try:
             tenant = _norm_tenant(kwargs.get("tenant") or (args[0] if args else "default"))
             channel = _norm_channel(kwargs.get("channel") or (args[1] if len(args) > 1 else "web"))
@@ -368,6 +402,10 @@ class AnalyticsService:
     # Reads (dashboard)
     # -----------------------
     def get_kpis(self, *, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        if analytics_db._using_postgres():
+            result = analytics_db.get_kpis(tenant=tenant, minutes=minutes)
+            result["window_minutes"] = result.pop("minutes")
+            return result
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
 
@@ -411,6 +449,9 @@ class AnalyticsService:
         }
 
     def get_timeseries(self, *, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_timeseries(tenant=tenant, minutes=minutes,
+                                               bucket_minutes=bucket_minutes)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
 
@@ -432,6 +473,9 @@ class AnalyticsService:
         return [{"t": r["t"], "inbound": int(r["inbound"] or 0), "outbound": int(r["outbound"] or 0)} for r in rows]
 
     def get_sessions_timeseries(self, *, tenant: str, minutes: int = 1440, bucket_minutes: int = 60) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_sessions_timeseries(tenant=tenant, minutes=minutes,
+                                                        bucket_minutes=bucket_minutes)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
 
@@ -452,6 +496,8 @@ class AnalyticsService:
         return [{"t": r["t"], "sessions": int(r["sessions"] or 0)} for r in rows]
 
     def get_channels_split(self, *, tenant: str, minutes: int = 1440) -> Dict[str, Any]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_channels_split(tenant=tenant, minutes=minutes)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
 
@@ -478,6 +524,8 @@ class AnalyticsService:
         return out
 
     def get_top_intents(self, *, tenant: str, minutes: int = 1440, top: int = 10) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_top_intents(tenant=tenant, minutes=minutes, top=top)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
         top = max(1, min(_clamp_int(top, 10, 1, 50), 50))
@@ -500,6 +548,8 @@ class AnalyticsService:
         return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
 
     def get_fallbacks(self, *, tenant: str, minutes: int = 1440, top: int = 10) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_fallbacks(tenant=tenant, minutes=minutes, top=top)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
         top = max(1, min(_clamp_int(top, 10, 1, 50), 50))
@@ -523,6 +573,8 @@ class AnalyticsService:
         return [{"label": r["intent"], "count": int(r["n"] or 0)} for r in rows]
 
     def get_errors(self, *, tenant: str, minutes: int = 1440, top: int = 10) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_errors(tenant=tenant, minutes=minutes, top=top)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
         top = max(1, min(_clamp_int(top, 10, 1, 50), 50))
@@ -545,6 +597,8 @@ class AnalyticsService:
         return [{"label": r["code"], "count": int(r["n"] or 0)} for r in rows]
 
     def get_common_questions(self, *, tenant: str, minutes: int = 1440, top: int = 10) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_common_questions(tenant=tenant, minutes=minutes, top=top)
         tenant_n = _norm_tenant(tenant)
         since = _since_iso(minutes)
         top = max(1, min(_clamp_int(top, 10, 1, 50), 50))
@@ -568,6 +622,8 @@ class AnalyticsService:
         return [{"question": r["q"], "count": int(r["n"] or 0)} for r in rows]
 
     def get_leads(self, *, tenant: str, limit: int = 50) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_leads(tenant=tenant, limit=limit)
         tenant_n = _norm_tenant(tenant)
         limit = max(1, min(_clamp_int(limit, 50, 1, 500), 500))
 
@@ -610,6 +666,9 @@ class AnalyticsService:
     # Daily overview series (dashboard expects minutes + limit_days)
     # -----------------------
     def get_overview_daily(self, *, tenant: str, minutes: int = 1440, limit_days: int = 45) -> List[Dict[str, Any]]:
+        if analytics_db._using_postgres():
+            return analytics_db.get_overview_daily(tenant=tenant, minutes=minutes,
+                                                   limit_days=limit_days)
         """
         Returns per-day totals:
           inbound, outbound, fallbacks, errors, outbound_net

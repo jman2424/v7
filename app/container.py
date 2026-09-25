@@ -89,7 +89,8 @@ class Container:
 
     def __post_init__(self):
         # ---------- Retrieval layer ----------
-        _bootstrap_persistent_business_data()
+        if os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower() != "postgres":
+            _bootstrap_persistent_business_data()
         self.storage = Storage(self.settings.BUSINESS_KEY)
         self.catalog = CatalogStore(self.storage)
         self.policy = PolicyStore(self.storage)
@@ -169,7 +170,7 @@ class Container:
         if tenant_key == self.settings.BUSINESS_KEY:
             return self
 
-        if not self.storage.tenant_dir(tenant_key).is_dir():
+        if not self.storage.tenant_exists(tenant_key):
             raise ValueError("unknown_tenant")
 
         cached = self._tenant_containers.get(tenant_key)

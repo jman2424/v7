@@ -66,7 +66,7 @@ def login_post():
     tenant = str(data.get("tenant") or c.settings.BUSINESS_KEY).strip()
     try:
         tenant = Storage.validate_tenant_key(tenant)
-        if not c.storage.tenant_dir(tenant).is_dir():
+        if not c.storage.tenant_exists(tenant):
             return jsonify({"ok": False, "error": "unknown_tenant"}), 404
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_tenant"}), 400

@@ -18,6 +18,8 @@ KNOWLEDGE_FILES = ("catalog.json", "faq.json", "branches.json", "delivery.json",
 
 
 def get_platform_overview(container: Any, *, minutes: int = 1440, page: int = 1) -> dict:
+    if container.storage._using_postgres():
+        raise RuntimeError("PostgreSQL platform overview requires a scoped tenant inventory")
     root = Path(container.storage.business_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     tenants = sorted(

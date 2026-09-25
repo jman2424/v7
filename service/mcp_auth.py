@@ -68,23 +68,30 @@ def client_config(client_id):
 
 @contextmanager
 def database():
-    with session_store.connection() as db:
-        db.execute("CREATE TABLE IF NOT EXISTS mcp_grants (digest TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, expires REAL NOT NULL)")
-        db.execute("CREATE TABLE IF NOT EXISTS mcp_rate (identity TEXT PRIMARY KEY, window INTEGER NOT NULL, count INTEGER NOT NULL)")
+    source = session_store.postgres_connection() if session_store._using_postgres() else session_store.connection()
+    with source as db:
+        if not session_store._using_postgres():
+            db.execute("CREATE TABLE IF NOT EXISTS mcp_grants (digest TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, expires REAL NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS mcp_rate (identity TEXT PRIMARY KEY, window INTEGER NOT NULL, count INTEGER NOT NULL)")
         yield db
+
+
+def _execute(db, sql, params=()):
+    return db.execute(sql.replace('?', '%s') if session_store._using_postgres() else sql, params)
 
 
 def _put(db, kind, payload, ttl):
     token = secrets.token_urlsafe(32)
-    db.execute("INSERT INTO mcp_grants VALUES (?, ?, ?, ?)",
+    _execute(db, "INSERT INTO mcp_grants VALUES (?, ?, ?, ?)",
                (session_store._digest(token), kind, json.dumps(payload), time.time() + ttl))
     return token
 
 
-def _get(db, token, kind):
+def _get(db, token, kind, *, lock=False):
     if not isinstance(token, str) or not 20 <= len(token) <= 128:
         return None
-    row = db.execute("SELECT payload FROM mcp_grants WHERE digest=? AND kind=? AND expires>?",
+    suffix = ' FOR UPDATE' if lock and session_store._using_postgres() else ''
+    row = _execute(db, "SELECT payload FROM mcp_grants WHERE digest=? AND kind=? AND expires>?" + suffix,
                      (session_store._digest(token), kind, time.time())).fetchone()
     return json.loads(row[0]) if row else None
 
@@ -96,8 +103,7 @@ def live_identity(payload):
             or not hmac.compare_digest(revision, payload["revision"])
             or payload["resource"] != resource()):
         abort(401, description="invalid_token")
-    directory = current_app.container.storage.tenant_dir(identity["tenant"])
-    if not directory.is_dir():
+    if not current_app.container.storage.tenant_exists(identity["tenant"]):
         abort(403)
     return identity
 
@@ -129,7 +135,7 @@ def authorize(data, identity):
     payload = {**data, "identity": identity, "revision": _revision(identity)}
     live_identity(payload)
     with database() as db:
-        db.execute("DELETE FROM mcp_grants WHERE expires<?", (time.time(),))
+        _execute(db, "DELETE FROM mcp_grants WHERE expires<?", (time.time(),))
         return _put(db, "code", payload, 120)
 
 
@@ -146,8 +152,9 @@ def exchange(form):
         abort(400, description="unsupported_grant_type")
     token = form.get("code" if kind == "code" else "refresh_token", "")
     with database() as db:
-        db.execute("BEGIN IMMEDIATE")
-        payload = _get(db, token, kind)
+        if not session_store._using_postgres():
+            db.execute("BEGIN IMMEDIATE")
+        payload = _get(db, token, kind, lock=True)
         if (not payload or payload["client_id"] != client_id
                 or form.get("resource") != payload["resource"]):
             abort(400, description="invalid_grant")
@@ -162,7 +169,7 @@ def exchange(form):
         live_identity(payload)
         if form.get("scope") and form["scope"] != payload["scope"]:
             abort(400, description="invalid_scope")
-        db.execute("DELETE FROM mcp_grants WHERE digest=?", (session_store._digest(token),))
+        _execute(db, "DELETE FROM mcp_grants WHERE digest=?", (session_store._digest(token),))
         return {"access_token": _put(db, "access", payload, 900),
                 "refresh_token": _put(db, "refresh", payload, 30 * 86400),
                 "token_type": "Bearer", "expires_in": 900, "scope": payload["scope"]}
@@ -179,21 +186,28 @@ def authenticate(header):
     identity = live_identity(payload)
     client_config(payload["client_id"])  # Removing a registered client revokes access.
     with database() as db:
-        db.execute("BEGIN IMMEDIATE")
+        if session_store._using_postgres():
+            lock = int.from_bytes(bytes.fromhex(session_store._digest(identity["id"] + ":" + identity["tenant"]))[:8], "big", signed=True)
+            db.execute("SELECT pg_advisory_xact_lock(%s)", (lock,))
+        else:
+            db.execute("BEGIN IMMEDIATE")
         window = int(time.time() // 60)
         key = session_store._digest(identity["id"] + ":" + identity["tenant"])
-        db.execute("DELETE FROM mcp_rate WHERE window<?", (window,))
-        row = db.execute("SELECT count FROM mcp_rate WHERE identity=? AND window=?", (key, window)).fetchone()
+        _execute(db, 'DELETE FROM mcp_rate WHERE "window"<?', (window,))
+        row = _execute(db, 'SELECT count FROM mcp_rate WHERE identity=? AND "window"=?', (key, window)).fetchone()
         if row and row[0] >= 60:
             abort(429)
-        db.execute("INSERT INTO mcp_rate VALUES (?, ?, 1) ON CONFLICT(identity) DO UPDATE SET count=count+1", (key, window))
+        _execute(db, "INSERT INTO mcp_rate VALUES (?, ?, 1) ON CONFLICT(identity) DO UPDATE SET count=count+1", (key, window))
     return identity, set(payload["scope"].split())
 
 
 def revoke_owner(identity):
     with database() as db:
         # Payload is trusted server-created JSON; scope revocation to this owner.
-        db.execute("DELETE FROM mcp_grants WHERE json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?",
+        predicate = ("payload::jsonb #>> '{identity,id}'=? AND payload::jsonb #>> '{identity,tenant}'=?"
+                     if session_store._using_postgres() else
+                     "json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?")
+        _execute(db, "DELETE FROM mcp_grants WHERE " + predicate,
                    (identity["id"], identity.get("tenant")))
 
 
@@ -216,7 +230,10 @@ def connection_settings(identity):
     connected = []
     if owner:
         with database() as db:
-            rows = db.execute("SELECT payload FROM mcp_grants WHERE kind IN ('access','refresh') AND expires>? AND json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?",
+            predicate = ("payload::jsonb #>> '{identity,id}'=? AND payload::jsonb #>> '{identity,tenant}'=?"
+                         if session_store._using_postgres() else
+                         "json_extract(payload, '$.identity.id')=? AND json_extract(payload, '$.identity.tenant')=?")
+            rows = _execute(db, "SELECT payload FROM mcp_grants WHERE kind IN ('access','refresh') AND expires>? AND " + predicate,
                               (time.time(), identity['id'], identity.get('tenant'))).fetchall()
         connected = sorted({json.loads(row[0])['client_id'] for row in rows} & set(clients))
     return dict(configured=configured, owner_access=owner, clients=clients,

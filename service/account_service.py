@@ -38,10 +38,6 @@ class AccountService:
         if len(password) < 12 or len(password) > 256:
             raise ValueError("password_must_be_at_least_12_characters")
 
-        accounts = self._accounts(tenant)
-        if any(secrets.compare_digest(str(account.get("email") or "").lower(), email) for account in accounts):
-            raise ValueError("account_already_exists")
-
         from service.security import hash_password
 
         account = {
@@ -52,7 +48,11 @@ class AccountService:
             "active": True,
             "permissions": validated_permissions(payload.get('permissions', [])),
         }
-        self.storage.write_json(tenant, ACCOUNT_FILE, [*accounts, account])
+        with self.storage.write_lock(tenant):
+            accounts = self._accounts(tenant)
+            if any(secrets.compare_digest(str(stored.get("email") or "").lower(), email) for stored in accounts):
+                raise ValueError("account_already_exists")
+            self.storage._write_json(tenant, ACCOUNT_FILE, [*accounts, account])
         return self._public_account(account)
 
     def get_account(self, tenant: str, account_id: str) -> Dict[str, Any] | None:
@@ -81,22 +81,23 @@ class AccountService:
         if password and (len(password) < 12 or len(password) > 256):
             raise ValueError("password_must_be_at_least_12_characters")
 
-        accounts = self._accounts(tenant)
-        for index, stored in enumerate(accounts):
-            if not secrets.compare_digest(str(stored.get("id") or ""), wanted):
-                continue
-            updated = dict(stored)
-            if 'permissions' in payload:
-                updated['permissions'] = validated_permissions(payload['permissions'])
-            if has_active:
-                updated["active"] = payload["active"]
-            if password:
-                from service.security import hash_password
+        with self.storage.write_lock(tenant):
+            accounts = self._accounts(tenant)
+            for index, stored in enumerate(accounts):
+                if not secrets.compare_digest(str(stored.get("id") or ""), wanted):
+                    continue
+                updated = dict(stored)
+                if 'permissions' in payload:
+                    updated['permissions'] = validated_permissions(payload['permissions'])
+                if has_active:
+                    updated["active"] = payload["active"]
+                if password:
+                    from service.security import hash_password
 
-                updated["password_hash"] = hash_password(password)
-            accounts[index] = updated
-            self.storage.write_json(tenant, ACCOUNT_FILE, accounts)
-            return self._public_account(updated)
+                    updated["password_hash"] = hash_password(password)
+                accounts[index] = updated
+                self.storage._write_json(tenant, ACCOUNT_FILE, accounts)
+                return self._public_account(updated)
 
         raise ValueError("account_not_found")
 

@@ -788,7 +788,7 @@ def api_website_knowledge_get():
 def api_website_knowledge_import():
     tenant = _tenant()
     storage = _storage()
-    if not storage.tenant_dir(tenant).is_dir():
+    if not storage.tenant_exists(tenant):
         abort(404)
     profile = storage.read_json(tenant, "store_info.json")
     website = profile.get("website") if isinstance(profile, dict) else None

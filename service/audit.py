@@ -44,7 +44,6 @@ class AuditService:
         after: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self._ensure_dir()
         evt = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "user": user,
@@ -56,5 +55,21 @@ class AuditService:
             "after": after,
             "extra": extra or {},
         }
+        from service import session_store
+
+        if session_store._using_postgres():
+            try:
+                from psycopg.types.json import Jsonb
+            except ImportError:
+                raise RuntimeError("PostgreSQL driver unavailable") from None
+            # The private audit table is append-only for the restricted backend
+            # login. Never make a second writable copy on the local filesystem.
+            with session_store.postgres_connection() as db:
+                db.execute(
+                    "INSERT INTO v7_private.audit_records (payload) VALUES (%s)",
+                    (Jsonb(evt, dumps=lambda value: json.dumps(value, ensure_ascii=False, allow_nan=False)),),
+                )
+            return
+        self._ensure_dir()
         with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(evt, ensure_ascii=False) + "\n")

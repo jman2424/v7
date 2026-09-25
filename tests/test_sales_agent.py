@@ -335,7 +335,7 @@ def test_v7_uses_tenant_profile_and_catalogue_for_discovery(app):
     assert greeting["agent"]["suggested_replies"] == ["Camping gear", "Hiking packs"]
 
 
-def test_brain_uses_local_fallback_and_does_not_export_tenant_hints():
+def test_brain_uses_bounded_business_context_and_local_fallback():
     class Completion:
         class choices:
             pass
@@ -360,14 +360,16 @@ def test_brain_uses_local_fallback_and_does_not_export_tenant_hints():
     plan = brain.plan(
         "Can you help me choose something?",
         hints={
-            "business": {"about": "Private tenant business profile", "categories": ["Camping gear"]},
+            "business": {"about": "Camping equipment specialist", "categories": ["Camping gear"],
+                         "private_staff_notes": "Never send this value"},
             "categories": [{"id": "camping", "name": "Camping gear"}],
         },
     )
 
     outbound_payload = completions.messages[-1]["content"]
-    assert "Private tenant business profile" not in outbound_payload
-    assert "Camping gear" not in outbound_payload
+    assert "Camping equipment specialist" in outbound_payload
+    assert "Camping gear" in outbound_payload
+    assert "Never send this value" not in outbound_payload
     assert plan["intent"] == "unknown"
 
     local_brain = BrainV7()

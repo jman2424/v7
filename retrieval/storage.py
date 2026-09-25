@@ -138,7 +138,48 @@ class Storage:
             raise ValueError("invalid_tenant")
         return value
 
+    @staticmethod
+    def _using_postgres() -> bool:
+        from service.session_store import _using_postgres
+        return _using_postgres()
+
+    def _postgres_repository(self, tenant: Optional[str] = None):
+        from service.postgres_business_documents import PostgresBusinessDocuments
+        key = self.validate_tenant_key(tenant or self.tenant_key)
+        # Reuse the same repository during revision-checked transactions. Its
+        # active connection is held in a ContextVar, not shared between requests.
+        repositories = getattr(self, "_postgres_repositories", None)
+        if repositories is None:
+            repositories = {}
+            object.__setattr__(self, "_postgres_repositories", repositories)
+        if key not in repositories:
+            repositories[key] = PostgresBusinessDocuments(key)
+        return repositories[key]
+
+    def tenant_exists(self, tenant: Optional[str] = None) -> bool:
+        key = self.validate_tenant_key(tenant or self.tenant_key)
+        if self._using_postgres():
+            return self._postgres_repository(key).exists()
+        return self.tenant_dir(key).is_dir()
+
+    def tenant_keys(self) -> List[str]:
+        if self._using_postgres():
+            raise RuntimeError("PostgreSQL tenant inventory requires a scoped design")
+        root = self.business_root
+        if not root.exists():
+            return []
+        keys = []
+        for directory in root.iterdir():
+            if directory.is_dir() and not directory.is_symlink():
+                try:
+                    keys.append(self.validate_tenant_key(directory.name))
+                except ValueError:
+                    continue
+        return sorted(keys, key=str.casefold)
+
     def tenant_dir(self, tenant: Optional[str] = None) -> Path:
+        if self._using_postgres():
+            raise RuntimeError("Tenant data has no filesystem path in PostgreSQL mode")
         key = self.validate_tenant_key(tenant or self.tenant_key)
         root = self.business_root.resolve()
         target = (root / key).resolve()
@@ -149,6 +190,8 @@ class Storage:
         return target
 
     def file_path(self, tenant: Optional[str], filename: str) -> Path:
+        if self._using_postgres():
+            raise RuntimeError("Tenant data has no filesystem path in PostgreSQL mode")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", filename):
             raise ValueError("invalid_filename")
         root = self.tenant_dir(tenant)
@@ -158,6 +201,8 @@ class Storage:
         return target
 
     def versions_day_dir(self, day: Optional[str] = None, tenant: Optional[str] = None) -> Path:
+        if self._using_postgres():
+            raise RuntimeError("Tenant versions have no filesystem path in PostgreSQL mode")
         date_str = day or datetime.utcnow().strftime("%Y-%m-%d")
         datetime.strptime(date_str, "%Y-%m-%d")
         root = self.versions_root.resolve()
@@ -172,6 +217,8 @@ class Storage:
         """
         Read a tenant JSON file. Raises FileNotFoundError if missing.
         """
+        if self._using_postgres():
+            return self._postgres_repository(tenant).read_document(filename)
         path = self.file_path(tenant, filename)
         return _read_json(path)
 
@@ -180,6 +227,10 @@ class Storage:
         Backwards-compatible loader for paths like ``EXAMPLE/catalog.json``.
         """
         rel = Path(path)
+        if self._using_postgres():
+            if rel.is_absolute() or len(rel.parts) != 2:
+                raise ValueError("invalid_document_path")
+            return self.read_json(rel.parts[0], rel.parts[1])
         if rel.is_absolute():
             return _read_json(rel)
         return _read_json(self.business_root / rel)
@@ -199,12 +250,16 @@ class Storage:
 
         :returns: snapshot path (str) for the written file within the daily snapshot dir.
         """
-        with self.write_lock():
+        with self.write_lock(tenant):
             return self._write_json(tenant, filename, data, schema=schema, snapshot=snapshot)
 
     @contextmanager
-    def write_lock(self):
+    def write_lock(self, tenant: Optional[str] = None):
         """Serialize revision-checked MCP/API writes with existing JSON writers."""
+        if self._using_postgres():
+            with self._postgres_repository(tenant).locked():
+                yield
+            return
         self.business_root.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.business_root / '.write-lock.sqlite3', timeout=10)
         try:
@@ -228,6 +283,9 @@ class Storage:
             schema_path = self._schema_path(schema)
             self._validate_json(data, schema_path)
 
+        if self._using_postgres():
+            return self._postgres_repository(tkey).write_document(filename, data, snapshot=snapshot)
+
         dest = self.file_path(tkey, filename)
         snap_path = ""
         if snapshot:
@@ -245,6 +303,8 @@ class Storage:
         Return list of YYYY-MM-DD version folders that contain this tenant.
         """
         tkey = tenant or self.tenant_key
+        if self._using_postgres():
+            return self._postgres_repository(tkey).list_version_days()
         if not self.versions_root.exists():
             return []
         days: List[str] = []
@@ -260,6 +320,14 @@ class Storage:
         Read audit log lines from business/{tenant}/audit.log.jsonl if present.
         """
         tkey = tenant or self.tenant_key
+        if self._using_postgres():
+            try:
+                entries = self._postgres_repository(tkey).read_document("audit.log.jsonl")
+            except FileNotFoundError:
+                return []
+            if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+                raise ValueError("invalid_audit_log")
+            return entries
         log_path = self.tenant_dir(tkey) / "audit.log.jsonl"
         if not log_path.exists():
             return []
@@ -283,12 +351,11 @@ class Storage:
         tkey = tenant or self.tenant_key
         results: Dict[str, Any] = {"tenant": tkey, "files": {}}
         for fname, schema in KNOWN_FILES.items():
-            path = self.file_path(tkey, fname)
-            if not path.exists():
+            try:
+                data = self.read_json(tkey, fname)
+            except FileNotFoundError:
                 results["files"][fname] = {"exists": False, "valid": None, "error": None}
                 continue
-            try:
-                data = _read_json(path)
             except (ValueError, OSError):
                 results["files"][fname] = {"exists": True, "valid": False, "error": "Invalid JSON"}
                 continue

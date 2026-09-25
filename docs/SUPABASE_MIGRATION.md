@@ -9,17 +9,16 @@ switch the live deployment. The offline preparation does not contact Supabase.
 Do not set a database URL expecting Flask to switch over or remove any existing
 persistent disk before the data has been independently backed up.
 
-`service/postgres_business_documents.py` is an unwired tenant-scoped document
-repository; existing path-based callers still use local JSON. Management
-session and login-throttling methods now have a PostgreSQL path that
-will use server-only `V7_POSTGRES_DSN` and optional `V7_SUPABASE_CA_FILE`.
-`create_app` still rejects `V7_STORAGE_BACKEND=postgres`, and the shared
-security connection fails closed in that mode, because MFA, registration,
-billing, tenant access, MCP and webhook callers still use SQLite SQL. The
+`service/postgres_business_documents.py` has a tenant-scoped document
+repository, and local adapter work covers several session, analytics, account,
+billing, registration, audit and webhook paths. The adapter is incomplete:
+platform-wide tenant inventory, some filesystem callers and full PostgreSQL
+integration checks remain unresolved. `create_app` still rejects
+`V7_STORAGE_BACKEND=postgres` so no writes can split between backends. The
 runtime PostgreSQL dependency belongs in `requirements.txt` when the full
-adapter is ready. **Do not enable this setting on Render yet.** The remaining
-cutover work is listed below explicitly. Keep existing sign-in,
-authenticator verification, tenant permissions and Stripe activation checks.
+adapter is ready. **Do not enable this setting on Render yet.** Keep existing
+sign-in, authenticator verification, tenant permissions and Stripe activation
+checks.
 Supabase Auth and Google login are not part of this database migration.
 
 ## Destination design
@@ -45,7 +44,9 @@ verification/workspace-creation requests are expired with their credentials clea
 Verified pending join requests are retained. No paid status is inferred or invented.
 
 All tables have row-level security (RLS) enabled and forced. Tenant tables require
-an exact transaction-local `v7.tenant` setting. `anon`, `authenticated` and
+an exact transaction-local `v7.tenant` setting. This also means the restricted
+backend cannot list every tenant for platform-wide views; that feature needs a
+separately reviewed design. `anon`, `authenticated` and
 `service_role` have no access to the private schema. The non-login `v7_backend`
 role cannot create schemas, bypass RLS or delete audit records. Global authentication
 tables are accessible to that trusted backend role; they are not user-facing APIs.
@@ -118,14 +119,17 @@ rejected records. A failed import rolls back; schema preparation remains in plac
 
 - Keep source-only pushes from deploying the current Render Free service while
   its local account and business data remains unbacked. The service tracks
-  `main` with auto-deploy enabled; a database schema alone does not make its
-  local files durable. Obtain and verify a complete independent backup before
-  the first deployment that changes the storage backend.
+  `main`; automatic deploys are currently off. A database schema alone does not
+  make its local files durable. Render Free does not provide Shell or SSH access
+  for exporting those files. Obtain and verify a complete independent backup
+  before the first deployment that changes the storage backend.
 - Implement and test PostgreSQL connections in `session_store`, `analytics_db`,
   and `analytics_service`; port SQLite-specific SQL and transaction locks explicitly.
-- Route `Storage` reads/writes/versioning, tenant creation/listing, account registry,
-  CRM and audit persistence through the new tables. Do not leave parallel writable
-  copies in SQLite/JSON or fall back to local storage on database errors.
+- Finish routing `Storage` reads/writes/versioning, tenant creation/listing,
+  account registry, CRM and audit persistence through the new tables. Platform
+  tenant listing must preserve RLS and include legacy businesses. Do not leave
+  parallel writable copies in SQLite/JSON or fall back to local storage on
+  database errors.
 - Create a separate, restricted server login that inherits `v7_backend`, with no
   owner, DDL, superuser or RLS-bypass powers. Configure it only as a server secret.
 - Test the existing auth/MFA/payment/tenant suite against Supabase, including

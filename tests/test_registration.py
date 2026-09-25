@@ -126,7 +126,8 @@ def test_mail_failure_never_creates_account(client, mailbox, monkeypatch):
     assert response.status_code == 503 and 'private SMTP error' not in response.text
     with session_store.connection() as db:
         row = db.execute('SELECT password_hash,code_hash FROM registration_requests').fetchone()
-    assert tuple(row) == ('','')
+    assert row is None
+    assert not AccountService(client.application.container.storage).list_accounts('EXAMPLE')
 
 
 @pytest.mark.parametrize('email', ['one,two@example.test', 'Name<one@example.test>', 'one@example.test\r\nBcc:other@example.test'])

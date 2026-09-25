@@ -2,11 +2,14 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
+_TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 
 
 def _using_postgres():
@@ -17,8 +20,21 @@ def _using_postgres():
 
 
 @contextmanager
-def _postgres_connection():
-    import psycopg
+def postgres_connection(authorized_tenant=None):
+    """Restricted server transaction; caller must authorize a tenant first.
+
+    Results use psycopg's default tuple rows. A normal exit commits, and an
+    exceptional exit rolls back. Tenant scope is transaction-local.
+    """
+    if authorized_tenant is not None and (
+            not isinstance(authorized_tenant, str)
+            or not _TENANT_KEY.fullmatch(authorized_tenant)
+            or authorized_tenant.lower() == "versions"):
+        raise ValueError("invalid_tenant")
+    try:
+        import psycopg
+    except ImportError:
+        raise RuntimeError("PostgreSQL driver unavailable") from None
 
     dsn = os.getenv("V7_POSTGRES_DSN", "")
     if not dsn:
@@ -59,6 +75,11 @@ def _postgres_connection():
                     or len(tables) != 2
                     or any(not row[1] or not row[2] or row[3] for row in tables)):
                 raise RuntimeError("PostgreSQL security role or tables are not restricted")
+            # Keep unqualified legacy table names in the private schema. Never
+            # search public schemas or a caller-controlled path.
+            db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
+            if authorized_tenant is not None:
+                db.execute("SELECT set_config('v7.tenant', %s, true)", (authorized_tenant,))
             yield db
     except psycopg.Error:
         # Driver errors can contain connection details or sensitive row values.
@@ -92,7 +113,7 @@ def create(identity, revision):
     token = secrets.token_urlsafe(32)
     if _using_postgres():
         now = time.time()
-        with _postgres_connection() as db:
+        with postgres_connection() as db:
             db.execute("DELETE FROM v7_private.management_sessions WHERE expires < %s", (now,))
             db.execute(
                 "INSERT INTO v7_private.management_sessions "
@@ -111,7 +132,7 @@ def read(token):
     if not isinstance(token, str) or len(token) > 128:
         return None
     if _using_postgres():
-        with _postgres_connection() as db:
+        with postgres_connection() as db:
             row = db.execute(
                 "SELECT identity, revision FROM v7_private.management_sessions "
                 "WHERE token_hash=%s AND expires>%s",
@@ -127,7 +148,7 @@ def read(token):
 def revoke(token):
     if isinstance(token, str):
         if _using_postgres():
-            with _postgres_connection() as db:
+            with postgres_connection() as db:
                 db.execute(
                     "DELETE FROM v7_private.management_sessions WHERE token_hash=%s",
                     (_digest(token),),
@@ -143,7 +164,7 @@ def allow_login(ip):
         # Serialize attempts for one address across all workers. A transaction
         # advisory lock is released on commit or rollback.
         lock_key = int.from_bytes(bytes.fromhex(ip_hash)[:8], "big", signed=True)
-        with _postgres_connection() as db:
+        with postgres_connection() as db:
             db.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
             now = time.time()
             db.execute("DELETE FROM v7_private.login_attempts WHERE attempted < %s", (now - 300,))

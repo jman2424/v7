@@ -8,10 +8,30 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from service import session_store
+
 DB_PATH = os.environ.get("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
 
 _INIT_LOCK = threading.Lock()
 _INIT_DONE = False
+
+
+def _using_postgres() -> bool:
+    return os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower() == "postgres"
+
+
+def _pg_rows(con: Any, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    cursor = con.execute(sql, params)
+    names = [column.name for column in cursor.description]
+    return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+
+def _pg_row(con: Any, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+    rows = _pg_rows(con, sql, params)
+    return rows[0] if rows else None
+
+
+_PG_FALLBACK = "(COALESCE(NULLIF(meta_json, ''), '{}')::jsonb ->> 'fallback') IN ('true', '1')"
 
 
 # ---------------------------------------------------------------------
@@ -46,6 +66,8 @@ def _safe_int(v: Any, default: int) -> int:
 
 
 def _conn() -> sqlite3.Connection:
+    if _using_postgres():
+        raise RuntimeError("Analytics database caller requires PostgreSQL port")
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
     con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -81,6 +103,12 @@ def _ensure_columns(con: sqlite3.Connection, table: str, wanted: dict[str, str])
 # Boot / Schema (migration-safe superset)
 # ---------------------------------------------------------------------
 def init_db() -> None:
+    if _using_postgres():
+        # Schema changes belong to the reviewed Supabase migrations, not app boot.
+        with session_store.postgres_connection("DEFAULT") as con:
+            con.execute("SELECT id FROM v7_private.events WHERE false")
+            con.execute("SELECT id FROM v7_private.leads WHERE false")
+        return
     with _conn() as con:
         from service.product_metrics import init_tables
         init_tables(con)
@@ -194,6 +222,18 @@ def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone:
     lead_id_n = (lead_id or "unknown").strip() or "unknown"
     now = _utc_now()
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            con.execute(
+                "INSERT INTO v7_private.leads (tenant, lead_id, name, phone, status, tags, updated_utc) "
+                "VALUES (%s, %s, %s, %s, 'Open', '[]', %s) "
+                "ON CONFLICT (tenant, lead_id) DO UPDATE SET "
+                "name=COALESCE(excluded.name, leads.name), "
+                "phone=COALESCE(excluded.phone, leads.phone), updated_utc=excluded.updated_utc",
+                (tenant_n, lead_id_n, name, phone, now),
+            )
+        return
+
     with _conn() as con:
         cols = _table_columns(con, "leads")
         if "tenant" in cols:
@@ -218,6 +258,16 @@ def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:
     lead_id_n = (lead_id or "unknown").strip() or "unknown"
     session_id_n = (session_id or "unknown").strip() or "unknown"
     now = _utc_now()
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            con.execute(
+                "INSERT INTO v7_private.leads (tenant, lead_id, last_session_id, updated_utc) "
+                "VALUES (%s, %s, %s, %s) ON CONFLICT (tenant, lead_id) DO UPDATE SET "
+                "last_session_id=excluded.last_session_id, updated_utc=excluded.updated_utc",
+                (tenant_n, lead_id_n, session_id_n, now),
+            )
+        return
 
     with _conn() as con:
         cols = _table_columns(con, "leads")
@@ -250,6 +300,15 @@ def update_lead_status(*, tenant: str, lead_id: str, status: str) -> bool:
     status_n = (status or "").strip()
     if not lead_id_n or not status_n:
         return False
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            result = con.execute(
+                "UPDATE v7_private.leads SET status=%s, updated_utc=%s "
+                "WHERE tenant=%s AND lead_id=%s",
+                (status_n, _utc_now(), tenant_n, lead_id_n),
+            )
+            return result.rowcount == 1
 
     with _conn() as con:
         result = con.execute(
@@ -288,6 +347,21 @@ def _insert_event(
     et = (event_type or "event").strip() or "event"
 
     msgid = (message_id or "").strip()
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            con.execute(
+                "INSERT INTO v7_private.events "
+                "(ts_utc, tenant, channel, session_id, event_type, intent, text, lead_id, "
+                "message_id, error_code, error_type, meta_json) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (tenant, event_type, message_id) "
+                "WHERE message_id IS NOT NULL AND message_id != '' DO NOTHING",
+                (_utc_now(), tenant_n, ch, sid, et, (intent or "").strip().lower(),
+                 text or "", (lead_id or "").strip(), msgid, error_code or "",
+                 error_type or "", meta_json or ""),
+            )
+        return
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -500,6 +574,8 @@ def log_event(*args: Any, **kwargs: Any) -> None:
             meta_json=str(meta_json),
         )
     except Exception:
+        if _using_postgres():
+            raise
         return
 
 
@@ -510,6 +586,32 @@ def get_kpis(*, tenant: str, minutes: int = 1440, start_at=None, end_at=None) ->
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
     since, until, minutes = _statistics_window(minutes, start_at, end_at)
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            row = _pg_row(
+                con,
+                "SELECT COUNT(*) FILTER (WHERE event_type='msg_in') AS inbound, "
+                "COUNT(*) FILTER (WHERE event_type='msg_out') AS outbound, "
+                "COUNT(DISTINCT session_id) FILTER "
+                "(WHERE event_type IN ('msg_in','msg_out')) AS sessions, "
+                f"COUNT(*) FILTER (WHERE event_type='msg_out' AND {_PG_FALLBACK}) AS fallbacks, "
+                "COUNT(*) FILTER (WHERE event_type='error') AS errors "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s AND ts_utc < %s",
+                (tenant_n, since, until),
+            )
+            leads = _pg_row(
+                con, "SELECT COUNT(*) AS n FROM v7_private.leads "
+                "WHERE tenant=%s AND updated_utc >= %s AND updated_utc < %s",
+                (tenant_n, since, until),
+            )
+        assert row is not None and leads is not None
+        inbound, outbound = int(row["inbound"]), int(row["outbound"])
+        fallbacks, errors = int(row["fallbacks"]), int(row["errors"])
+        return {"tenant": tenant_n, "minutes": int(minutes), "inbound": inbound,
+                "outbound": outbound, "outbound_net": max(0, outbound - fallbacks - errors),
+                "total": inbound + outbound, "sessions": int(row["sessions"]),
+                "leads": int(leads["n"]), "fallbacks": fallbacks, "errors": errors}
 
     with _conn() as con:
         row = con.execute(
@@ -568,6 +670,40 @@ def get_sales_funnel(*, tenant: str, minutes: int = 1440) -> dict[str, int]:
     since = _since(minutes)
     stages = {"Open": 0, "Contacted": 0, "Qualified": 0, "Won": 0, "Lost": 0}
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            lead_rows = _pg_rows(
+                con, "SELECT COALESCE(NULLIF(status, ''), 'Open') AS status, COUNT(*) AS n "
+                "FROM v7_private.leads WHERE tenant=%s "
+                "GROUP BY COALESCE(NULLIF(status, ''), 'Open')", (tenant_n,),
+            )
+            handoff_row = _pg_row(
+                con, "SELECT COUNT(DISTINCT session_id) AS n FROM v7_private.events "
+                "WHERE tenant=%s AND ts_utc >= %s AND event_type='msg_out' "
+                "AND intent='human_handoff'", (tenant_n, since),
+            )
+            contact_row = _pg_row(
+                con, "SELECT COUNT(DISTINCT lead_id) AS n FROM v7_private.events "
+                "WHERE tenant=%s AND ts_utc >= %s AND event_type='msg_out' "
+                "AND intent='handoff_contact_captured' AND COALESCE(lead_id, '') != ''",
+                (tenant_n, since),
+            )
+        assert handoff_row is not None and contact_row is not None
+        other = 0
+        for row in lead_rows:
+            status, count = str(row["status"] or "Open"), int(row["n"])
+            if status in stages:
+                stages[status] = count
+            else:
+                other += count
+        return {"total": sum(stages.values()) + other,
+                "active": stages["Open"] + stages["Contacted"] + stages["Qualified"],
+                "open": stages["Open"], "contacted": stages["Contacted"],
+                "qualified": stages["Qualified"], "won": stages["Won"],
+                "lost": stages["Lost"], "other": other,
+                "handoffs": int(handoff_row["n"]),
+                "contacts_captured": int(contact_row["n"])}
+
     with _conn() as con:
         lead_rows = con.execute(
             """
@@ -625,6 +761,19 @@ def get_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes: int = 60
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT substr(ts_utc, 1, 13) AS t, "
+                "COUNT(*) FILTER (WHERE event_type='msg_in') AS inbound, "
+                "COUNT(*) FILTER (WHERE event_type='msg_out') AS outbound "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type IN ('msg_in','msg_out') GROUP BY t ORDER BY t",
+                (tenant_n, since),
+            )
+        return [{"t": row["t"], "inbound": int(row["inbound"]),
+                 "outbound": int(row["outbound"])} for row in rows]
+
     with _conn() as con:
         rows = con.execute(
             """
@@ -648,6 +797,17 @@ def get_sessions_timeseries(*, tenant: str, minutes: int = 1440, bucket_minutes:
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT substr(ts_utc, 1, 13) AS t, "
+                "COUNT(DISTINCT session_id) AS sessions FROM v7_private.events "
+                "WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type IN ('msg_in','msg_out') GROUP BY t ORDER BY t",
+                (tenant_n, since),
+            )
+        return [{"t": row["t"], "sessions": int(row["sessions"])} for row in rows]
+
     with _conn() as con:
         rows = con.execute(
             """
@@ -669,6 +829,19 @@ def get_channels_split(*, tenant: str, minutes: int = 1440) -> dict[str, Any]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT channel, COUNT(*) FILTER (WHERE event_type='msg_in') AS inbound, "
+                "COUNT(*) FILTER (WHERE event_type='msg_out') AS outbound "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type IN ('msg_in','msg_out') GROUP BY channel",
+                (tenant_n, since),
+            )
+        return {str(row["channel"] or "unknown").strip().lower():
+                {"inbound": int(row["inbound"]), "outbound": int(row["outbound"]),
+                 "total": int(row["inbound"]) + int(row["outbound"])} for row in rows}
 
     with _conn() as con:
         rows = con.execute(
@@ -704,6 +877,18 @@ def get_sessions_by_channel(*, tenant: str, minutes: int = 1440) -> dict[str, in
 
     base = {"web": 0, "whatsapp": 0}
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT channel, COUNT(DISTINCT session_id) AS n "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type IN ('msg_in','msg_out') GROUP BY channel",
+                (tenant_n, since),
+            )
+        for row in rows:
+            base[str(row["channel"] or "web").strip().lower()] = int(row["n"])
+        return base
+
     with _conn() as con:
         rows = con.execute(
             """
@@ -730,6 +915,16 @@ def get_top_intents(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT COALESCE(NULLIF(intent, ''), 'unknown') AS intent, "
+                "COUNT(*) AS n FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type='msg_out' GROUP BY intent ORDER BY n DESC LIMIT %s",
+                (tenant_n, since, top),
+            )
+        return [{"label": row["intent"], "count": int(row["n"])} for row in rows]
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -758,6 +953,17 @@ def get_fallbacks(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[di
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT COALESCE(NULLIF(intent, ''), 'fallback') AS intent, "
+                "COUNT(*) AS n FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                f"AND event_type='msg_out' AND {_PG_FALLBACK} "
+                "GROUP BY intent ORDER BY n DESC LIMIT %s",
+                (tenant_n, since, top),
+            )
+        return [{"label": row["intent"], "count": int(row["n"])} for row in rows]
+
     with _conn() as con:
         rows = con.execute(
             """
@@ -782,6 +988,16 @@ def get_errors(*, tenant: str, minutes: int = 1440, top: int = 10) -> list[dict[
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT COALESCE(NULLIF(error_code, ''), 'error') AS code, "
+                "COUNT(*) AS n FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type='error' GROUP BY code ORDER BY n DESC LIMIT %s",
+                (tenant_n, since, top),
+            )
+        return [{"label": row["code"], "count": int(row["n"])} for row in rows]
 
     with _conn() as con:
         cols = _table_columns(con, "events")
@@ -809,6 +1025,17 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
     since = _since(minutes)
     top = max(1, min(_safe_int(top, 10), 50))
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT LOWER(TRIM(COALESCE(text, ''))) AS q, COUNT(*) AS n "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type='msg_in' AND TRIM(COALESCE(text, '')) != '' "
+                "GROUP BY q ORDER BY n DESC LIMIT %s",
+                (tenant_n, since, top),
+            )
+        return [{"question": row["q"], "count": int(row["n"])} for row in rows]
+
     with _conn() as con:
         cols = _table_columns(con, "events")
         if "text" not in cols:
@@ -835,6 +1062,27 @@ def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
     limit = max(1, min(_safe_int(limit, 50), 500))
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id "
+                "FROM v7_private.leads WHERE tenant=%s ORDER BY updated_utc DESC LIMIT %s",
+                (tenant_n, limit),
+            )
+        output = []
+        for row in rows:
+            try:
+                tags = json.loads(row["tags"] or "[]")
+                if not isinstance(tags, list):
+                    tags = []
+            except (TypeError, ValueError):
+                tags = []
+            output.append({"lead_id": row["lead_id"], "name": row["name"],
+                           "phone": row["phone"], "status": row["status"] or "Open",
+                           "tags": tags, "updated_utc": row["updated_utc"],
+                           "last_session_id": row["last_session_id"]})
+        return output
 
     with _conn() as con:
         cols = _table_columns(con, "leads")
@@ -882,6 +1130,27 @@ def get_overview_daily(*, tenant: str, minutes: int = 1440, limit_days: int = 45
     tenant_n = _norm_tenant(tenant)
     since, until, minutes = _statistics_window(minutes, start_at, end_at)
     limit_days = max(1, min(_safe_int(limit_days, 45), 365))
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT substr(ts_utc, 1, 10) AS d, "
+                "COUNT(*) FILTER (WHERE event_type='msg_in') AS inbound, "
+                "COUNT(*) FILTER (WHERE event_type='msg_out') AS outbound, "
+                f"COUNT(*) FILTER (WHERE event_type='msg_out' AND {_PG_FALLBACK}) AS fallbacks, "
+                "COUNT(*) FILTER (WHERE event_type='error') AS errors "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s AND ts_utc < %s "
+                "GROUP BY d ORDER BY d DESC LIMIT %s",
+                (tenant_n, since, until, limit_days),
+            )
+        output = []
+        for row in reversed(rows):
+            inbound, outbound = int(row["inbound"]), int(row["outbound"])
+            fallbacks, errors = int(row["fallbacks"]), int(row["errors"])
+            output.append({"d": row["d"], "inbound": inbound, "outbound": outbound,
+                           "fallbacks": fallbacks, "errors": errors,
+                           "outbound_net": max(0, outbound - fallbacks - errors)})
+        return output
 
     with _conn() as con:
         rows = con.execute(
@@ -932,6 +1201,23 @@ def get_channel_breakdown(*, tenant: str, minutes: int = 1440) -> dict[str, dict
         "whatsapp": {"inbound": 0, "outbound": 0, "fallbacks": 0},
     }
 
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT channel, COUNT(*) FILTER (WHERE event_type='msg_in') AS inbound, "
+                "COUNT(*) FILTER (WHERE event_type='msg_out') AS outbound, "
+                f"COUNT(*) FILTER (WHERE event_type='msg_out' AND {_PG_FALLBACK}) AS fallbacks "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND event_type IN ('msg_in','msg_out') GROUP BY channel",
+                (tenant_n, since),
+            )
+        for row in rows:
+            channel = str(row["channel"] or "web").strip().lower()
+            base[channel] = {"inbound": int(row["inbound"]),
+                             "outbound": int(row["outbound"]),
+                             "fallbacks": int(row["fallbacks"])}
+        return base
+
     with _conn() as con:
         rows = con.execute(
             """
@@ -964,6 +1250,18 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
     tenant_n = _norm_tenant(tenant)
     since = _since(minutes)
     limit = max(1, min(_safe_int(limit, 12), 50))
+
+    if _using_postgres():
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT COALESCE(NULLIF(COALESCE(NULLIF(meta_json, ''), '{}')::jsonb "
+                "->> 'store', ''), 'international') AS store, COUNT(*) AS n "
+                "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
+                "AND channel='whatsapp' AND event_type='msg_in' "
+                "GROUP BY store ORDER BY n DESC LIMIT %s",
+                (tenant_n, since, limit),
+            )
+        return [{"store": row["store"], "count": int(row["n"])} for row in rows]
 
     with _conn() as con:
         rows = con.execute(
@@ -1000,6 +1298,17 @@ def _statistics_window(minutes, start_at=None, end_at=None):
 def get_safe_recent_errors(*, tenant: str, minutes: int = 1440) -> list[dict[str, Any]]:
     """Tenant-scoped error observations without text, identifiers or metadata."""
     _ensure_ready()
+    if _using_postgres():
+        tenant_n = _norm_tenant(tenant)
+        with session_store.postgres_connection(tenant_n) as con:
+            rows = _pg_rows(
+                con, "SELECT ts_utc, channel FROM v7_private.events "
+                "WHERE tenant=%s AND ts_utc >= %s AND event_type='error' "
+                "ORDER BY ts_utc DESC, id DESC LIMIT 50",
+                (tenant_n, _since(minutes)),
+            )
+        return [{"timestamp": row["ts_utc"], "channel": _norm_channel(row["channel"]),
+                 "type": "recorded_error"} for row in rows]
     with _conn() as con:
         rows = con.execute(
             "SELECT ts_utc, channel FROM events WHERE tenant=? AND ts_utc>=? AND event_type='error' ORDER BY ts_utc DESC, id DESC LIMIT 50",

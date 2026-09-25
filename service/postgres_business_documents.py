@@ -1,8 +1,7 @@
-"""Dormant, tenant-scoped PostgreSQL repository for V7 business documents.
+"""Tenant-scoped PostgreSQL repository for V7 business documents.
 
 The caller must establish the account's tenant access before constructing this
 repository. A validated tenant key is a scope, not an authorization decision.
-This module is not wired into the current JSON-backed application.
 """
 
 from __future__ import annotations
@@ -10,8 +9,11 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from typing import Any, Iterator, Mapping
+
+from service.session_store import postgres_connection
 
 
 _TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
@@ -49,94 +51,100 @@ def _jsonb(value: Any) -> Any:
 class PostgresBusinessDocuments:
     """Access exactly one tenant with the restricted V7 database login.
 
-    ``dsn`` must be a server-only secret for a login inheriting ``v7_backend``.
     Passing a tenant key here never grants tenant access; callers must use their
-    existing server-side account and tenant authorization first.
+    existing server-side account and tenant authorization first. The connection
+    comes from the shared, restricted server transaction helper.
     """
 
-    __slots__ = ("_dsn", "_ca_file", "_tenant_key")
+    __slots__ = ("_tenant_key", "_active_connection")
 
-    def __init__(self, dsn: str, authorized_tenant_key: str, *, ca_file: str = "system") -> None:
-        if not isinstance(dsn, str) or not dsn:
-            raise ValueError("missing_database_dsn")
-        if not isinstance(ca_file, str) or not ca_file:
-            raise ValueError("missing_database_ca")
-        self._dsn = dsn
-        self._ca_file = ca_file
+    def __init__(self, authorized_tenant_key: str) -> None:
         self._tenant_key = _valid_tenant(authorized_tenant_key)
+        self._active_connection: ContextVar[Any | None] = ContextVar(
+            f"v7_business_documents_{id(self)}", default=None
+        )
 
     @property
     def tenant_key(self) -> str:
         return self._tenant_key
 
+    def exists(self) -> bool:
+        with self._connection() as connection:
+            return connection.execute(
+                "SELECT 1 FROM v7_private.tenants WHERE tenant = %s",
+                (self.tenant_key,),
+            ).fetchone() is not None
+
     @contextmanager
     def _transaction(self) -> Iterator[Any]:
-        try:
-            import psycopg
-        except ImportError:
-            raise TenantDocumentStorageError("PostgreSQL driver unavailable") from None
+        with postgres_connection(self.tenant_key) as connection:
+            tables = connection.execute(
+                "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
+                "c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) "
+                "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'v7_private' "
+                "AND c.relname IN ('tenants', 'business_documents', 'document_versions')"
+            ).fetchall()
+            if (len(tables) != 3 or
+                    any(not row[1] or not row[2] or row[3] for row in tables)):
+                raise TenantDocumentStorageError("Restricted V7 business tables required")
+            if any(connection.execute(
+                "SELECT has_table_privilege(current_user, %s, 'TRUNCATE')",
+                (f"v7_private.{table}",),
+            ).fetchone()[0] for table in ("tenants", "business_documents", "document_versions")):
+                raise TenantDocumentStorageError("Restricted V7 business tables required")
+            yield connection
 
-        try:
-            # Keyword arguments override weaker SSL options in a supplied DSN.
-            with psycopg.connect(
-                self._dsn,
-                sslmode="verify-full",
-                sslrootcert=self._ca_file,
-                connect_timeout=15,
-                autocommit=False,
-            ) as connection:
-                with connection.transaction():
-                    role = connection.execute(
-                        """SELECT current_user = session_user,
-                                  rolsuper, rolbypassrls, rolcreaterole, rolcreatedb,
-                                  pg_has_role(current_user, 'v7_backend', 'USAGE'),
-                                  has_schema_privilege(current_user, 'v7_private', 'CREATE'),
-                                  has_table_privilege(current_user, 'v7_private.tenants', 'TRUNCATE') OR
-                                  has_table_privilege(current_user, 'v7_private.business_documents', 'TRUNCATE') OR
-                                  has_table_privilege(current_user, 'v7_private.document_versions', 'TRUNCATE')
-                           FROM pg_roles WHERE rolname = current_user"""
-                    ).fetchone()
-                    memberships = connection.execute(
-                        "SELECT r.rolname FROM pg_auth_members m "
-                        "JOIN pg_roles r ON r.oid = m.roleid "
-                        "WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)"
-                    ).fetchall()
-                    tables = connection.execute(
-                        "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
-                        "c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) "
-                        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
-                        "WHERE n.nspname = 'v7_private' "
-                        "AND c.relname IN ('tenants', 'business_documents', 'document_versions')"
-                    ).fetchall()
-                    if (role is None or not role[0] or any(role[1:5]) or not role[5]
-                            or role[6] or role[7]
-                            or {row[0] for row in memberships} != {"v7_backend"}
-                            or len(tables) != 3
-                            or any(not row[1] or not row[2] or row[3] for row in tables)):
-                        raise TenantDocumentStorageError("Restricted V7 database login required")
-                    connection.execute("SELECT set_config('v7.tenant', %s, true)", (self.tenant_key,))
-                    yield connection
-        except psycopg.Error:
-            # Database exceptions can include the DSN or private document values.
-            raise TenantDocumentStorageError("Tenant document database unavailable") from None
+    @contextmanager
+    def _connection(self) -> Iterator[Any]:
+        active = self._active_connection.get()
+        if active is not None:
+            yield active
+        else:
+            with self._transaction() as connection:
+                yield connection
 
-    def create_tenant(self, documents: Mapping[str, Any]) -> None:
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        """Keep revision checks and writes in one tenant-locked transaction."""
+        if self._active_connection.get() is not None:
+            raise TenantDocumentStorageError("Nested tenant write lock")
+        with self._transaction() as connection:
+            tenant = connection.execute(
+                "SELECT tenant FROM v7_private.tenants WHERE tenant = %s FOR UPDATE",
+                (self.tenant_key,),
+            ).fetchone()
+            if tenant is None:
+                raise FileNotFoundError(self.tenant_key)
+            token = self._active_connection.set(connection)
+            try:
+                yield
+            finally:
+                self._active_connection.reset(token)
+
+    def create_tenant(self, documents: Mapping[str, Any], *, owner_key: str | None = None) -> None:
         """Create the tenant and its initial JSON documents in one transaction."""
         prepared = [(_valid_filename(name), _jsonb(value)) for name, value in documents.items()]
         # Reject non-JSON data before opening a transaction.
         for value in documents.values():
             _json_dumps(value)
-        with self._transaction() as connection:
+        with self._connection() as connection:
             connection.execute("INSERT INTO v7_private.tenants (tenant) VALUES (%s)", (self.tenant_key,))
             for filename, payload in prepared:
                 connection.execute(
                     "INSERT INTO v7_private.business_documents (tenant, filename, payload) VALUES (%s, %s, %s)",
                     (self.tenant_key, filename, payload),
                 )
+            # Workspace documents and ownership must appear together. A failed
+            # insert rolls back the whole PostgreSQL transaction.
+            connection.execute(
+                "INSERT INTO v7_private.managed_businesses (tenant, owner) VALUES (%s, %s)",
+                (self.tenant_key, owner_key),
+            )
 
     def read_document(self, filename: str) -> Any:
         filename = _valid_filename(filename)
-        with self._transaction() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT payload FROM v7_private.business_documents WHERE tenant = %s AND filename = %s",
                 (self.tenant_key, filename),
@@ -146,7 +154,7 @@ class PostgresBusinessDocuments:
         return row[0]
 
     def list_documents(self) -> list[str]:
-        with self._transaction() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT filename FROM v7_private.business_documents WHERE tenant = %s ORDER BY filename",
                 (self.tenant_key,),
@@ -164,7 +172,7 @@ class PostgresBusinessDocuments:
         now = datetime.now(timezone.utc)
         day = now.date()
         version_path = ""
-        with self._transaction() as connection:
+        with self._connection() as connection:
             # All writers for this tenant take the same row lock before checking
             # snapshots or updating a document, including concurrent workers.
             tenant = connection.execute(
@@ -223,7 +231,7 @@ class PostgresBusinessDocuments:
         return version_path
 
     def list_version_days(self) -> list[str]:
-        with self._transaction() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT DISTINCT day FROM v7_private.document_versions WHERE tenant = %s ORDER BY day",
                 (self.tenant_key,),

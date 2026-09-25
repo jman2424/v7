@@ -16,7 +16,7 @@ def identity():
         abort(403)
     tenant = authorized_tenant(request.args.get('tenant'))
     storage = get_container().storage
-    if not storage.tenant_dir(tenant).is_dir(): abort(404)
+    if not storage.tenant_exists(tenant): abort(404)
     if not is_platform_admin(user):
         from service.tenant_access import require_active
         require_active(tenant)
@@ -68,7 +68,7 @@ def save():
     data = body()
     change = pending(data,user,tenant,'save')
     if data.get('confirm_and_save') is not True: abort(400)
-    with storage.write_lock():
+    with storage.write_lock(tenant):
         before = model_settings.document(storage,tenant)
         if model_settings.revision(before) != change['revision']:
             abort(409,description='Settings changed. Review and confirm again.')

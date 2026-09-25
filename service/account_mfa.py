@@ -14,8 +14,18 @@ from service import session_store
 
 
 def _tables(db):
+    if session_store._using_postgres():
+        return
     db.execute("CREATE TABLE IF NOT EXISTS account_authenticators (account TEXT PRIMARY KEY, secret TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS mfa_challenges (token TEXT PRIMARY KEY, account TEXT NOT NULL, identity TEXT NOT NULL, revision TEXT NOT NULL, secret TEXT NOT NULL, enrollment INTEGER NOT NULL, expires REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)")
+
+
+def _database():
+    return session_store.postgres_connection() if session_store._using_postgres() else session_store.connection()
+
+
+def _execute(db, sql, params=()):
+    return db.execute(sql.replace('?', '%s') if session_store._using_postgres() else sql, params)
 
 
 def account_key(user):
@@ -24,9 +34,9 @@ def account_key(user):
 
 
 def enrolled_secret(user):
-    with session_store.connection() as db:
+    with _database() as db:
         _tables(db)
-        row = db.execute('SELECT secret FROM account_authenticators WHERE account=?', (account_key(user),)).fetchone()
+        row = _execute(db, 'SELECT secret FROM account_authenticators WHERE account=?', (account_key(user),)).fetchone()
     return row[0] if row else ''
 
 
@@ -45,10 +55,10 @@ def begin(user, tenant):
     session.clear()
     session['_csrf'] = secrets.token_urlsafe(32)
     session['mfa_challenge'] = token
-    with session_store.connection() as db:
+    with _database() as db:
         _tables(db)
-        db.execute('DELETE FROM mfa_challenges WHERE expires<? OR token=?', (time.time(), _digest(old)))
-        db.execute('INSERT INTO mfa_challenges (token,account,identity,revision,secret,enrollment,expires) VALUES (?,?,?,?,?,?,?)',
+        _execute(db, 'DELETE FROM mfa_challenges WHERE expires<? OR token=?', (time.time(), _digest(old)))
+        _execute(db, 'INSERT INTO mfa_challenges (token,account,identity,revision,secret,enrollment,expires) VALUES (?,?,?,?,?,?,?)',
                    (_digest(token), account_key(identity), json.dumps(identity), revision, secret, int(not existing), time.time()+300))
     return pending()
 
@@ -61,9 +71,9 @@ def pending():
     token = session.get('mfa_challenge')
     if not token:
         return None
-    with session_store.connection() as db:
+    with _database() as db:
         _tables(db)
-        row = db.execute('SELECT identity,secret,enrollment FROM mfa_challenges WHERE token=? AND expires>? AND attempts<5',
+        row = _execute(db, 'SELECT identity,secret,enrollment FROM mfa_challenges WHERE token=? AND expires>? AND attempts<5',
                          (_digest(token), time.time())).fetchone()
     if not row:
         session.pop('mfa_challenge', None)
@@ -81,29 +91,31 @@ def confirm(code):
     from service.security import _revision, verify_totp
     token = _digest(session.get('mfa_challenge', ''))
     # Read revision before the write transaction: it also opens the security DB.
-    with session_store.connection() as db:
+    with _database() as db:
         _tables(db)
-        row = db.execute('SELECT identity,revision FROM mfa_challenges WHERE token=?', (token,)).fetchone()
+        row = _execute(db, 'SELECT identity,revision FROM mfa_challenges WHERE token=?', (token,)).fetchone()
     if not row or _revision(json.loads(row[0])) != row[1]:
         raise ValueError('sign_in_again')
-    with session_store.connection() as db:
-        db.execute('BEGIN IMMEDIATE')
-        challenge = db.execute('SELECT account,identity,secret,enrollment FROM mfa_challenges WHERE token=? AND expires>? AND attempts<5',
+    with _database() as db:
+        if not session_store._using_postgres():
+            db.execute('BEGIN IMMEDIATE')
+        lock = ' FOR UPDATE' if session_store._using_postgres() else ''
+        challenge = _execute(db, 'SELECT account,identity,secret,enrollment FROM mfa_challenges WHERE token=? AND expires>? AND attempts<5' + lock,
                                (token, time.time())).fetchone()
         if not challenge:
             raise ValueError('sign_in_again')
         account, identity, secret, enrollment = challenge
         if not verify_totp(secret, code):
-            db.execute('UPDATE mfa_challenges SET attempts=attempts+1 WHERE token=?', (token,))
+            _execute(db, 'UPDATE mfa_challenges SET attempts=attempts+1 WHERE token=?', (token,))
             valid = False
         else:
             if enrollment:
                 # Another browser may have enrolled first. Never replace its authenticator.
-                present = db.execute('SELECT secret FROM account_authenticators WHERE account=?', (account,)).fetchone()
+                present = _execute(db, 'SELECT secret FROM account_authenticators WHERE account=?', (account,)).fetchone()
                 if present:
                     raise ValueError('sign_in_again')
-                db.execute('INSERT INTO account_authenticators VALUES (?,?)', (account, secret))
-            db.execute('DELETE FROM mfa_challenges WHERE token=?', (token,))
+                _execute(db, 'INSERT INTO account_authenticators VALUES (?,?)', (account, secret))
+            _execute(db, 'DELETE FROM mfa_challenges WHERE token=?', (token,))
             valid = True
     if not valid:
         raise ValueError('invalid_authenticator_code')

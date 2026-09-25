@@ -27,6 +27,13 @@ def _tenant(value: object) -> str:
         abort(400, description="invalid_tenant")
     storage = get_container().storage
     try:
+        if storage._using_postgres():
+            value = storage.validate_tenant_key(value)
+            if not storage.tenant_exists(value):
+                abort(404, description="tenant_not_found")
+            from service.tenant_access import require_active
+            require_active(value)
+            return value
         path = storage.tenant_dir(value)
     except ValueError:
         abort(400, description="invalid_tenant")

@@ -37,7 +37,7 @@ class BusinessManagement:
         self.tenant = tenant
         self.identity = identity
         self.source = source
-        if not storage.tenant_dir(tenant).is_dir():
+        if not storage.tenant_exists(tenant):
             raise BusinessError("not_found", "Business does not exist.")
 
     def document(self, filename):
@@ -89,7 +89,7 @@ class BusinessManagement:
         # Record the attempt before any data mutation; no caller text in logs.
         audit.record(**common, extra={**extra, "result": "attempted"})
         try:
-            with self.storage.write_lock():
+            with self.storage.write_lock(self.tenant):
                 doc = self.document(filename)
                 if args["expected_revision"] != revision(doc):
                     raise BusinessError("conflict", "Data changed. Read the current revision before trying again.")
