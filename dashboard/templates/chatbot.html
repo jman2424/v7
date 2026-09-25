@@ -51,7 +51,7 @@
       </form>
       <label><input id="read-aloud" type="checkbox" /> Read replies aloud</label>
       <p id="voice-status" role="status"></p>
-      <small>Dictation depends on your browser and may use its speech service. Review text before sending.</small>
+      <small>{% if transcription_enabled %}Dictation uses your browser speech service or sends a short recording to V7 for transcription.{% else %}Dictation depends on your browser and may use its speech service.{% endif %} Review text before sending.</small>
     </footer>
   </div>
 
@@ -59,6 +59,9 @@
     window.__WIDGET__ = {
       tenant: document.body.dataset.tenant,
       endpoint: {{ url_for('webchat.chat_api', tenant=tenant)|tojson }},
+      transcriptionEndpoint: {{ url_for('webchat.transcribe_api', tenant=tenant)|tojson }},
+      transcriptionEnabled: {{ transcription_enabled|tojson }},
+      transcriptionToken: {{ transcription_token|tojson }},
       actionsEndpoint: {{ url_for('conversion.get_chat_actions')|tojson }},
       theme: {{ (branding.theme if branding and branding.theme else {})|tojson }},
       accentColor: {{ (branding.widget.accent_color if branding and branding.widget and branding.widget.accent_color in ['#3EEA8C', '#5BC6FF', '#F9C74F', '#D8A4FF'] else '#3EEA8C')|tojson }},

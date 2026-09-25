@@ -52,6 +52,25 @@ def test_cached_input_is_not_double_counted_and_cost_is_stored(ledger, monkeypat
     assert result["breakdown"][0]["model"] == "gpt-4o-mini-2024-07-18"
 
 
+def test_transcription_duration_and_tokens_are_attributed_without_audio(ledger):
+    with api_usage.usage_context("EXAMPLE", "whatsapp"):
+        api_usage.record_transcription(
+            SimpleNamespace(usage=SimpleNamespace(type="duration", seconds=30)),
+            "gpt-transcribe", "completed",
+        )
+        api_usage.record_transcription(
+            SimpleNamespace(usage=SimpleNamespace(type="tokens", input_tokens=100,
+                                                  output_tokens=20)),
+            "gpt-4o-mini-transcribe", "completed",
+        )
+    result = api_usage.summary("EXAMPLE", 30)
+    assert result["totals"]["calls"] == 2
+    assert result["totals"]["audio_seconds"] == 30
+    assert result["totals"]["missing_usage_calls"] == 0
+    assert result["totals"]["estimated_cost_usd"] == pytest.approx(0.002475)
+    assert {item["purpose"] for item in result["breakdown"]} == {"transcription"}
+
+
 def test_empty_period_has_zero_recorded_cost_but_unpriced_calls_remain_unknown(ledger):
     empty = api_usage.summary("EXAMPLE", 30)
     assert empty["totals"]["calls"] == 0

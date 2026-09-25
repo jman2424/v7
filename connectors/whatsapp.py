@@ -60,13 +60,21 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 frm = frm[len("whatsapp:") :]
             wa_id = frm
 
-        if body and wa_id:
+        audio = None
+        if not body and str(form.get("NumMedia") or "0") == "1":
+            media_type = str(form.get("MediaContentType0") or "").split(";", 1)[0].lower()
+            if media_type.startswith("audio/"):
+                audio = {"url": form.get("MediaUrl0"), "mime_type": media_type,
+                         "account_sid": form.get("AccountSid"), "message_sid": form.get("MessageSid")}
+
+        if (body or audio) and wa_id:
             events.append(
                 {
                     "from": wa_id,
                     "session_id": wa_id,  # 1 session per number
                     "tenant": None,
                     "text": body,
+                    "audio": audio,
                     "raw": form,
                     "metadata": {
                         "twilio_message_sid": form.get("MessageSid"),
@@ -93,14 +101,19 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             messages = value.get("messages", []) or []
 
             for msg in messages:
-                # Only handle text messages for now
-                if msg.get("type") != "text":
+                if msg.get("type") not in {"text", "audio"}:
                     continue
 
                 wa_id = msg.get("from")
-                text = (msg.get("text", {}) or {}).get("body", "") or ""
+                text = ((msg.get("text", {}) or {}).get("body", "") or "") if msg.get("type") == "text" else ""
+                audio = None
+                if msg.get("type") == "audio":
+                    item = msg.get("audio") or {}
+                    if isinstance(item, dict):
+                        audio = {"id": item.get("id"), "mime_type": item.get("mime_type"),
+                                 "phone_number_id": metadata.get("phone_number_id")}
 
-                if not wa_id or not text.strip():
+                if not wa_id or not (text.strip() or audio):
                     continue
 
                 events.append(
@@ -109,6 +122,7 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                         "session_id": wa_id,  # 1 session per number
                         "tenant": None,
                         "text": text,
+                        "audio": audio,
                         "raw": msg,
                         "metadata": {
                             "phone_number_id": metadata.get("phone_number_id"),
@@ -121,7 +135,7 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 )
 
     if not events:
-        logger.debug("parse_inbound: no text messages found in payload")
+        logger.debug("parse_inbound: no text or audio messages found in payload")
 
     return events
 

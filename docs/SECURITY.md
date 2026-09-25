@@ -141,6 +141,10 @@ Provider message IDs are deduplicated in SECURITY_DB_PATH for seven days.
 Completed Twilio replies can be replayed safely; failed processing can retry.
 This does not guarantee exactly-once external delivery if a process crashes
 after a provider accepts a send but before completion is recorded.
+Voice-note downloads are limited to authenticated provider media URLs and 10 MiB.
+The source webhook signature and recipient-to-tenant mapping are checked before
+audio is fetched. V7 keeps audio in memory for transcription and logs only the
+transcribed text under the existing conversation retention rules.
 
 ## Deployment requirements and limitations
 

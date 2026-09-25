@@ -12,6 +12,7 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
 from connectors.whatsapp import parse_inbound, send_reply
+from connectors.whatsapp_audio import download_audio
 from routes import get_container
 from service import webhook_inbox
 from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
@@ -52,10 +53,18 @@ def webhook_verify():
 def _reply(c, event, source):
     text = event.get("text")
     sender = event.get("from", "")
-    if not isinstance(text, str) or not text.strip() or len(text) > 4000 or not isinstance(sender, str):
+    if not isinstance(sender, str):
         abort(400)
     sender = sender.removeprefix("whatsapp:").lstrip("+")
     if not sender.isdigit() or len(sender) > 20:
+        abort(400)
+    voice = bool(event.get("audio")) and not text
+    if voice:
+        from service.speech_transcription import transcribe_audio
+        audio_bytes, mime_type = download_audio(event, settings=c.settings)
+        text = transcribe_audio(audio_bytes, mime_type,
+                                tenant=c.settings.BUSINESS_KEY, channel="whatsapp")
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
         abort(400)
     tenant = c.settings.BUSINESS_KEY
     sid = "wa:" + sender
@@ -68,6 +77,8 @@ def _reply(c, event, source):
                 text=text, lead_id=sid, message_id=mid)
     try:
         metadata = {"source": source, "wa_id": sender}
+        if voice:
+            metadata["input_method"] = "voice"
         if source == "cloud":
             metadata["phone_number_id"] = event.get("metadata", {}).get("phone_number_id")
         result = c.handler.handle(text, tenant=tenant, session_id=sid, channel="whatsapp",

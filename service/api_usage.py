@@ -2,17 +2,31 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from contextlib import contextmanager, closing
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from service import analytics_db
+from service import session_store
 
 logger = logging.getLogger(__name__)
 _context: ContextVar[tuple[str, str, str] | None] = ContextVar("api_usage_context", default=None)
 PRICE_VERSION = "2026-09-23"
 PRICE_SOURCE = "https://developers.openai.com/api/docs/pricing"
+AUDIO_PRICE_VERSION = "2026-09-25"
+# Estimated USD nanodollars per second for duration-billed file transcription.
+_AUDIO_DURATION_RATES = {
+    "gpt-transcribe": 75_000,
+    "gpt-4o-transcribe": 100_000,
+    "gpt-4o-mini-transcribe": 50_000,
+}
+# USD nanodollars per billed token for token-billed transcription responses.
+_AUDIO_TOKEN_RATES = {
+    "gpt-4o-transcribe": (2_500, 10_000),
+    "gpt-4o-mini-transcribe": (1_250, 5_000),
+}
 # USD nanodollars per token: exact integer arithmetic, standard text inference.
 # Explicit snapshots only: older, fine-tuned and unknown models are not guessed.
 RATES = {
@@ -57,7 +71,7 @@ def _schema(con):
         purpose TEXT NOT NULL, requested_model TEXT NOT NULL,
         model TEXT NOT NULL, status TEXT NOT NULL, input_tokens INTEGER,
         cached_tokens INTEGER, cache_write_tokens INTEGER,
-        output_tokens INTEGER, cost_nano_usd INTEGER,
+        output_tokens INTEGER, audio_seconds REAL, cost_nano_usd INTEGER,
         price_version TEXT NOT NULL
     )""")
     columns = {row["name"] for row in con.execute("PRAGMA table_info(api_usage)")}
@@ -65,6 +79,8 @@ def _schema(con):
         con.execute("ALTER TABLE api_usage ADD COLUMN mode TEXT NOT NULL DEFAULT 'unknown'")
     if "cache_write_tokens" not in columns:
         con.execute("ALTER TABLE api_usage ADD COLUMN cache_write_tokens INTEGER")
+    if "audio_seconds" not in columns:
+        con.execute("ALTER TABLE api_usage ADD COLUMN audio_seconds REAL")
     con.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_tenant_ts ON api_usage(tenant, ts_utc)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_ts ON api_usage(ts_utc)")
 
@@ -75,6 +91,29 @@ def _field(value: Any, key: str, default=None):
 
 def _count(value):
     return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
+
+
+_USAGE_COLUMNS = (
+    "ts_utc", "tenant", "channel", "mode", "purpose", "requested_model", "model", "status",
+    "input_tokens", "cached_tokens", "cache_write_tokens", "output_tokens",
+    "audio_seconds", "cost_nano_usd", "price_version",
+)
+
+
+def _write_usage(values: tuple) -> None:
+    if session_store._using_postgres():
+        with session_store.postgres_connection(values[1]) as con:
+            con.execute(
+                "INSERT INTO v7_private.api_usage (" + ", ".join(_USAGE_COLUMNS) + ") VALUES (" +
+                ", ".join(["%s"] * len(values)) + ")", values,
+            )
+        return
+    with closing(analytics_db._conn()) as con, con:
+        _schema(con)
+        con.execute(
+            "INSERT INTO api_usage (" + ", ".join(_USAGE_COLUMNS) + ") VALUES (" +
+            ", ".join(["?"] * len(values)) + ")", values,
+        )
 
 
 def _record(response, requested_model: str, purpose: str, status: str) -> None:
@@ -104,16 +143,43 @@ def _record(response, requested_model: str, purpose: str, status: str) -> None:
             input_cost *= 2
             output_cost = output_cost * 3 // 2
         cost = input_cost + output_cost
-    with closing(analytics_db._conn()) as con, con:
-        _schema(con)
-        con.execute("""INSERT INTO api_usage
-            (ts_utc, tenant, channel, mode, purpose, requested_model, model, status,
-             input_tokens, cached_tokens, cache_write_tokens, output_tokens, cost_nano_usd, price_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
-            datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], context[2],
-            purpose, requested_model, model, status, input_tokens, cached, cache_writes,
-            output_tokens, cost, PRICE_VERSION,
-        ))
+    _write_usage((
+        datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], context[2],
+        purpose, requested_model, model, status, input_tokens, cached, cache_writes,
+        output_tokens, None, cost, PRICE_VERSION,
+    ))
+
+
+def record_transcription(response, requested_model: str, status: str) -> None:
+    """Store provider usage for one transcript without storing audio or text."""
+    context = _context.get()
+    if context is None:
+        logger.error("Transcription usage not recorded: tenant context missing")
+        return
+    usage = _field(response, "usage")
+    usage_type = _field(usage, "type")
+    input_tokens = output_tokens = audio_seconds = cost = None
+    if usage_type == "duration":
+        try:
+            seconds = Decimal(str(_field(usage, "seconds")))
+            if seconds.is_finite() and 0 <= seconds <= 3600:
+                audio_seconds = float(seconds)
+                rate = _AUDIO_DURATION_RATES.get(requested_model)
+                if rate is not None:
+                    cost = int((seconds * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, TypeError, ValueError):
+            pass
+    elif usage_type == "tokens":
+        input_tokens = _count(_field(usage, "input_tokens"))
+        output_tokens = _count(_field(usage, "output_tokens"))
+        rate = _AUDIO_TOKEN_RATES.get(requested_model)
+        if rate and input_tokens is not None and output_tokens is not None:
+            cost = input_tokens * rate[0] + output_tokens * rate[1]
+    _write_usage((
+        datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], context[2],
+        "transcription", requested_model, requested_model, status,
+        input_tokens, None, None, output_tokens, audio_seconds, cost, AUDIO_PRICE_VERSION,
+    ))
 
 
 def tracked_completion(client, *, purpose: str, **kwargs):
@@ -148,12 +214,14 @@ def summary(tenant: str | None, days: int) -> dict:
     params = [since, tenant.upper()] if tenant else [since]
     totals_sql = """COUNT(*) AS calls,
         COALESCE(SUM(status = 'failed'), 0) AS failed_calls,
-        COALESCE(SUM(input_tokens IS NULL OR output_tokens IS NULL), 0) AS missing_usage_calls,
+        COALESCE(SUM((input_tokens IS NULL OR output_tokens IS NULL)
+                     AND audio_seconds IS NULL), 0) AS missing_usage_calls,
         COALESCE(SUM(cost_nano_usd IS NULL), 0) AS unpriced_calls,
         COALESCE(SUM(input_tokens), 0) AS input_tokens,
         COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
         COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
         COALESCE(SUM(output_tokens), 0) AS output_tokens,
+        COALESCE(SUM(audio_seconds), 0) AS audio_seconds,
         SUM(cost_nano_usd) AS cost_nano_usd"""
 
     def convert(row):

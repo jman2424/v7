@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE v7_private.api_usage
+  ADD COLUMN IF NOT EXISTS audio_seconds DOUBLE PRECISION;
+
+COMMIT;

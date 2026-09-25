@@ -70,6 +70,13 @@ Business owners configure their chat title, greeting, avatar, and approved
 website origins in `/admin/widget`. The page provides a tenant-specific script
 tag; the chat runs in an isolated iframe and each chat request resolves that
 tenant's own catalog, policies, FAQs, and analytics.
+The widget's Dictate button uses browser speech recognition where available.
+On other secure browsers, it can record up to 30 seconds and send at most 4 MiB
+to `/chat/transcribe`. Visitors review the transcript before sending it as a
+chat message. Server transcription requires `OPENAI_API_KEY`; without it,
+typed chat and browser-supported dictation continue to work. V7 does not save
+the raw recording. Transcription usage and estimated cost are recorded by
+tenant and channel when the provider returns usage metadata.
 
 ## WhatsApp Routing
 
@@ -82,6 +89,13 @@ Twilio WhatsApp webhooks require `TWILIO_AUTH_TOKEN` and a valid
 `X-Twilio-Signature`, plus an assigned recipient number. Unconfigured providers
 fail closed; website chat works independently. Both `/whatsapp/webhook` and
 `/whatsapp/status` remain available for later integration.
+Signed Meta and Twilio webhooks also accept compatible audio voice notes. V7
+downloads at most 10 MiB from the provider's authenticated media endpoint,
+transcribes the audio, and sends the transcript through the same tenant agent
+as text. Raw audio is not stored. `OPENAI_API_KEY` is required for voice notes.
+For Twilio media, set `TWILIO_API_KEY` and `TWILIO_API_SECRET` for API-key
+authentication; the existing Account SID and auth token can be used when those
+are unavailable. `TWILIO_ACCOUNT_SID` can pin the expected account.
 
 ## Owner Console
 

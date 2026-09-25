@@ -311,6 +311,8 @@
     if (busy || !text) return;
     busy = true; send.disabled = true; dictation.disabled = true;
     if (recognition) recognition.stop();
+    recordingRequestId++;
+    stopRecording(true);
     add(text, "me"); input.value = "";
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
@@ -340,10 +342,28 @@
       add("The message could not be completed. Please try again.", "bot");
       input.value = text;
     } finally {
-      clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = false; input.focus();
+      clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing; input.focus();
     }
   });
   let recognition = null;
+  let recorder = null;
+  let mediaStream = null;
+  let recordingTimer = null;
+  let discardRecording = false;
+  let transcribing = false;
+  let recordingRequestId = 0;
+  const stopRecording = discard => {
+    if (!recorder || recorder.state !== "recording") return;
+    discardRecording = !!discard;
+    dictation.disabled = true;
+    recorder.stop();
+  };
+  const releaseMicrophone = () => {
+    if (recordingTimer) clearTimeout(recordingTimer);
+    recordingTimer = null;
+    if (mediaStream) mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  };
   const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (Speech && window.isSecureContext) {
     recognition = new Speech();
@@ -358,8 +378,80 @@
     recognition.onresult = event => { input.value = (input.value + " " + event.results[0][0].transcript).trim().slice(0,4000); };
     recognition.onerror = event => { voice.textContent = event.error === "not-allowed" ? "Microphone permission denied. You can type your message." : "Dictation unavailable. Please type your message."; };
     recognition.onend = () => { dictation.setAttribute("aria-pressed", "false"); dictation.textContent = "Dictate"; if (voice.textContent === "Listening…") voice.textContent = "Review your message, then press Send."; };
+  } else if (window.isSecureContext && config.transcriptionEnabled && window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    dictation.hidden = false;
+    dictation.addEventListener("click", async () => {
+      if (recorder && recorder.state === "recording") { stopRecording(false); return; }
+      if (busy || transcribing) return;
+      dictation.disabled = true;
+      const requestId = ++recordingRequestId;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
+        if (busy || requestId !== recordingRequestId) { releaseMicrophone(); dictation.disabled = busy; return; }
+        const options = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"]
+          .find(type => MediaRecorder.isTypeSupported(type));
+        recorder = new MediaRecorder(mediaStream, options ? {mimeType: options} : undefined);
+        const activeRecorder = recorder;
+        const chunks = [];
+        discardRecording = false;
+        recorder.ondataavailable = event => { if (event.data && event.data.size) chunks.push(event.data); };
+        recorder.onerror = () => { voice.textContent = "Recording failed. You can type your message."; stopRecording(true); };
+        recorder.onstop = async () => {
+          releaseMicrophone();
+          dictation.setAttribute("aria-pressed", "false");
+          dictation.textContent = "Dictate";
+          if (discardRecording) { dictation.disabled = busy; return; }
+          const mimeType = activeRecorder.mimeType || (chunks[0] && chunks[0].type) || "";
+          const audio = new Blob(chunks, {type: mimeType});
+          if (!audio.size) { voice.textContent = "No audio was recorded. Please try again."; dictation.disabled = busy; return; }
+          if (audio.size > 4 * 1024 * 1024) { voice.textContent = "Recording is too large. Try a shorter message."; dictation.disabled = busy; return; }
+          transcribing = true;
+          dictation.disabled = true;
+          voice.textContent = "Turning speech into text…";
+          const payload = new FormData();
+          payload.append("audio", audio, mimeType.startsWith("audio/mp4") ? "message.m4a" : "message.webm");
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 35000);
+          try {
+            const response = await fetch(config.transcriptionEndpoint, {
+              method: "POST", credentials: "same-origin", body: payload,
+              headers: {"X-V7-Transcription-Token": config.transcriptionToken},
+              signal: controller.signal
+            });
+            const result = await response.json();
+            if (!response.ok || !result || typeof result.text !== "string") {
+              if (result && result.error === "rate_limited") throw new Error("Please wait before recording another message.");
+              if (result && result.error === "no_speech_detected") throw new Error("No speech was detected. Please try again.");
+              if (result && result.error === "invalid_transcription_token") throw new Error("Reload the chat to use Dictate again.");
+              throw new Error("Voice transcription is unavailable. You can type your message.");
+            }
+            input.value = (input.value + " " + result.text).trim().slice(0, 4000);
+            voice.textContent = "Review your message, then press Send.";
+            input.focus();
+          } catch (error) {
+            voice.textContent = error && error.name === "AbortError"
+              ? "Transcription timed out. Please try again or type your message."
+              : error instanceof Error ? error.message : "Voice transcription is unavailable. You can type your message.";
+          } finally {
+            clearTimeout(timer);
+            transcribing = false;
+            dictation.disabled = busy;
+          }
+        };
+        recorder.start();
+        dictation.disabled = false;
+        dictation.setAttribute("aria-pressed", "true");
+        dictation.textContent = "Stop";
+        voice.textContent = "Recording… Press Stop when finished (30 seconds maximum).";
+        recordingTimer = setTimeout(() => stopRecording(false), 30000);
+      } catch {
+        releaseMicrophone();
+        dictation.disabled = busy;
+        voice.textContent = "Microphone unavailable. You can type your message.";
+      }
+    });
   } else { voice.textContent = "Dictation is unavailable in this browser. You can type your message."; }
   if (!("speechSynthesis" in window)) { aloud.disabled = true; }
   aloud.addEventListener("change", () => { if (!aloud.checked && "speechSynthesis" in window) speechSynthesis.cancel(); });
-  window.addEventListener("pagehide", () => { if (recognition) recognition.stop(); if ("speechSynthesis" in window) speechSynthesis.cancel(); });
+  window.addEventListener("pagehide", () => { if (recognition) recognition.stop(); recordingRequestId++; stopRecording(true); releaseMicrophone(); if ("speechSynthesis" in window) speechSynthesis.cancel(); });
 })();

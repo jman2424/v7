@@ -15,6 +15,8 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from connectors.web_widget import parse_inbound, send_reply
 from routes import get_container
+from service.rate_limit import RateLimiter
+from service.speech_transcription import SpeechTranscriptionError, transcribe_audio
 
 # DB-backed analytics (same DB used by dashboard)
 from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
@@ -24,6 +26,8 @@ bp = Blueprint("webchat", __name__)
 
 
 _WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"}
+_WEB_AUDIO_BYTES = 4 * 1024 * 1024
+_transcription_limit = RateLimiter(capacity=3, refill_per_sec=3 / 60)
 
 
 def _public_widget_branding(branding: Dict[str, Any]) -> Dict[str, Any]:
@@ -229,6 +233,10 @@ def _signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="web-conversation-v1")
 
 
+def _transcription_signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="web-transcription-v1")
+
+
 # ---------------------------------------------------------------------
 # Handler access
 # ---------------------------------------------------------------------
@@ -395,7 +403,12 @@ def chat_ui():
                 parsed = urlsplit(origin)
                 if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path and not parsed.username:
                     g.chat_origins.append(origin)
-    return render_template("chatbot.html", tenant=tenant, branding=_public_widget_branding(branding), embedded=request.args.get("embed") == "1")
+    return render_template(
+        "chatbot.html", tenant=tenant, branding=_public_widget_branding(branding),
+        embedded=request.args.get("embed") == "1",
+        transcription_enabled=bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        transcription_token=_transcription_signer().dumps({"tenant": tenant}),
+    )
 
 
 @bp.get("/widget.js")
@@ -412,6 +425,43 @@ def chat_api_options():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     _check_origin(_tenant_container(tenant))
     return _cors(make_response("", 204))
+
+
+@bp.post("/chat/transcribe")
+def transcribe_api():
+    """Return only text for a short widget recording; the visitor chooses when to send it."""
+    tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    c = _tenant_container(tenant)
+    _check_origin(c)
+    signed = request.headers.get("X-V7-Transcription-Token", "")
+    if not signed or len(signed) > 2048:
+        return _cors(jsonify(error="invalid_transcription_token")), 403
+    try:
+        identity = _transcription_signer().loads(signed, max_age=86400)
+    except (BadSignature, SignatureExpired):
+        return _cors(jsonify(error="invalid_transcription_token")), 403
+    if not isinstance(identity, dict) or identity.get("tenant") != tenant:
+        return _cors(jsonify(error="invalid_transcription_token")), 403
+    if not _transcription_limit.allow(f"{tenant}:{request.remote_addr or 'unknown'}"):
+        return _cors(jsonify(error="rate_limited")), 429
+    # The app's default request cap stays at 1 MB for all other routes.
+    request.max_content_length = _WEB_AUDIO_BYTES + 64 * 1024
+    upload = request.files.get("audio")
+    if upload is None:
+        return _cors(jsonify(error="audio_required")), 400
+    audio = upload.stream.read(_WEB_AUDIO_BYTES + 1)
+    if len(audio) > _WEB_AUDIO_BYTES:
+        return _cors(jsonify(error="audio_too_large")), 413
+    try:
+        transcript = transcribe_audio(audio, upload.mimetype, tenant=tenant, channel="web")
+    except SpeechTranscriptionError as exc:
+        status = {
+            "audio_too_large": 413, "unsupported_audio": 415,
+            "invalid_audio": 400, "no_speech_detected": 422,
+            "transcript_too_long": 422, "transcription_unavailable": 503,
+        }.get(exc.code, 502)
+        return _cors(jsonify(error=exc.code)), status
+    return _cors(jsonify(text=transcript))
 
 
 @bp.route("/chat_api", methods=["POST"])
