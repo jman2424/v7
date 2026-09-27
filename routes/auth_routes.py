@@ -58,7 +58,7 @@ def login_post():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict) or any(not isinstance(data.get(key, ""), str) for key in ("email", "password", "totp", "tenant")):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
-    if any(len(data.get(key, "")) > limit for key, limit in {"email": 320, "password": 1024, "totp": 32, "tenant": 64}.items()):
+    if any(len(data.get(key, "")) > limit for key, limit in {"email": 254, "password": 1024, "totp": 32, "tenant": 64}.items()):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""

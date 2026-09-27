@@ -114,7 +114,9 @@ def confirm(code):
                 present = _execute(db, 'SELECT secret FROM account_authenticators WHERE account=?', (account,)).fetchone()
                 if present:
                     raise ValueError('sign_in_again')
-                _execute(db, 'INSERT INTO account_authenticators VALUES (?,?)', (account, secret))
+                inserted = _execute(db, 'INSERT INTO account_authenticators (account,secret) VALUES (?,?) ON CONFLICT(account) DO NOTHING', (account, secret))
+                if inserted.rowcount != 1:
+                    raise ValueError('sign_in_again')
             _execute(db, 'DELETE FROM mfa_challenges WHERE token=?', (token,))
             valid = True
     if not valid:

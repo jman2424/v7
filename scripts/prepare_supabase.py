@@ -6,15 +6,20 @@ server-only V7_SUPABASE_MIGRATION_DSN. See docs/SUPABASE_MIGRATION.md.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -76,38 +81,96 @@ def digest(rows):
     return hashlib.sha256('\n'.join(hashes).encode()).hexdigest()
 
 
+def _protect_directory(path: Path) -> None:
+    if os.name != 'nt':
+        path.chmod(0o700)
+        return
+    # Protect the empty staging/export directory before writing private files.
+    identity = subprocess.run(
+        ['whoami', '/user', '/fo', 'csv', '/nh'],
+        check=True, capture_output=True, text=True,
+    )
+    sid = next(csv.reader(io.StringIO(identity.stdout)))[1].strip()
+    if not sid.startswith('S-1-') or any(char not in 'S0123456789-' for char in sid):
+        raise ValueError('Cannot establish protected backup owner')
+    subprocess.run(
+        ['icacls', str(path), '/inheritance:r', '/grant:r',
+         '*' + sid + ':(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F'],
+        check=True, capture_output=True, text=True,
+    )
+
+
+def _file_digest(path):
+    checksum = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(256 * 1024), b''):
+            checksum.update(chunk)
+    return checksum.hexdigest()
+
+
+def _sqlite_source_state(path):
+    state = {}
+    for suffix in ('', '-wal', '-shm', '-journal'):
+        source = Path(str(path) + suffix)
+        if suffix and not source.exists() and not source.is_symlink():
+            continue
+        if (not source.is_file()
+                or any(part.is_symlink() or getattr(part, 'is_junction', lambda: False)()
+                       for part in [source.absolute(), *source.absolute().parents])):
+            raise ValueError('Required SQLite backup is missing or not a regular file')
+        state[suffix] = _file_digest(source)
+    return state
+
+
 @dataclass
 class Bundle:
     rows: dict = field(default_factory=lambda: {table: [] for table in DATA_TABLES})
     skipped: dict = field(default_factory=dict)
+    reconciled: dict = field(default_factory=dict)
 
     def counts(self):
         return {table: len(rows) for table, rows in sorted(self.rows.items())}
 
 
 def read_sqlite(path, allowed, bundle):
-    if path.is_symlink() or not path.is_file():
-        raise ValueError('Required SQLite backup is missing or not a regular file')
-    # Read-only connection plus backup API also captures a committed WAL snapshot.
-    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as source:
-        with closing(sqlite3.connect(':memory:')) as snapshot:
-            source.backup(snapshot)
-            if snapshot.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                raise ValueError('SQLite integrity check failed')
-            snapshot.row_factory = sqlite3.Row
-            tables = {row[0] for row in snapshot.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-            if tables - allowed:
-                raise ValueError('Unknown SQLite tables require review before migration')
-            for table in sorted(tables):
-                # Table identifiers are restricted to the static allowlist above.
-                rows = [dict(row) for row in snapshot.execute(f'SELECT * FROM "{table}"')]
-                if table in TRANSIENT_TABLES:
-                    bundle.skipped[table] = len(rows)
-                    continue
-                for row in rows:
-                    if table == 'registration_requests' and row['status'] in {'verification', 'creating'}:
-                        row.update(status='expired', code_hash='', password_hash='')
-                bundle.rows[table] = rows
+    # Even mode=ro may write/create SQLite SHM. Inspect only a private copy of
+    # the frozen database and its journals; never open the original with SQLite.
+    before = _sqlite_source_state(path)
+    with tempfile.TemporaryDirectory(prefix='v7-prepare-sqlite-') as temporary:
+        root = Path(temporary)
+        _protect_directory(root)
+        staged = root / 'source.db'
+        for suffix, checksum in before.items():
+            target = Path(str(staged) + suffix)
+            with Path(str(path) + suffix).open('rb') as incoming, target.open('xb') as outgoing:
+                if os.name != 'nt':
+                    os.fchmod(outgoing.fileno(), 0o600)
+                shutil.copyfileobj(incoming, outgoing, length=256 * 1024)
+            if _file_digest(target) != checksum:
+                raise ValueError('SQLite source changed during preparation; use a frozen export')
+        if _sqlite_source_state(path) != before:
+            raise ValueError('SQLite source changed during preparation; use a frozen export')
+        with closing(sqlite3.connect(staged)) as source:
+            with closing(sqlite3.connect(':memory:')) as snapshot:
+                source.backup(snapshot)
+                if snapshot.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise ValueError('SQLite integrity check failed')
+                snapshot.row_factory = sqlite3.Row
+                tables = {row[0] for row in snapshot.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+                if tables - allowed:
+                    raise ValueError('Unknown SQLite tables require review before migration')
+                for table in sorted(tables):
+                    # Table identifiers are restricted to the static allowlist above.
+                    rows = [dict(row) for row in snapshot.execute(f'SELECT * FROM "{table}"')]
+                    if table in TRANSIENT_TABLES:
+                        bundle.skipped[table] = len(rows)
+                        continue
+                    for row in rows:
+                        if table == 'registration_requests' and row['status'] in {'verification', 'creating'}:
+                            row.update(status='expired', code_hash='', password_hash='')
+                    bundle.rows[table] = rows
+        if _sqlite_source_state(path) != before:
+            raise ValueError('SQLite source changed during preparation; use a frozen export')
 
 
 def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
@@ -142,6 +205,24 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
             bundle.rows['business_documents'].append({'tenant':tenant, 'filename':path.name, 'payload':json_file(path)})
     if not seen:
         raise ValueError('No source businesses found')
+    canonical_tenants = {row['tenant'].casefold(): row['tenant'] for row in bundle.rows['tenants']}
+
+    def canonical_reference(value, table):
+        key = tenant_key(value)
+        canonical_key = canonical_tenants.get(key.casefold())
+        if canonical_key is None:
+            raise ValueError('Legacy tenant reference has no source business; stop and investigate')
+        if key != canonical_key:
+            bundle.reconciled[table] = bundle.reconciled.get(table, 0) + 1
+        return canonical_key
+
+    # Older SQLite analytics and CRM uppercase tenant IDs, while document
+    # directories preserve case. Reconcile only a unique existing business;
+    # never create a tenant or discard/merge rows to hide an orphan/collision.
+    for table in sorted(ANALYTICS_TABLES):
+        for row in bundle.rows[table]:
+            if 'tenant' in row:
+                row['tenant'] = canonical_reference(row['tenant'], table)
     for row in bundle.rows['managed_businesses']:
         if row['tenant'] not in {item['tenant'] for item in bundle.rows['tenants']}:
             raise ValueError('Managed business has no source documents; stop and investigate')
@@ -158,6 +239,28 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
                     raise ValueError('Unsafe version tenant')
                 tenant = tenant_key(directory.name)
                 for path in sorted(directory.iterdir()):
+                    if path.name == '_snapshot.json':
+                        # Storage generates this provenance file alongside daily
+                        # versions. Preserve it with an exact-name exception;
+                        # arbitrary underscore filenames remain forbidden.
+                        metadata = json_file(path)
+                        if (not isinstance(metadata, dict)
+                                or set(metadata) != {'tenant', 'created_at', 'source'}
+                                or metadata['tenant'] != tenant
+                                or not isinstance(metadata['created_at'], str)
+                                or not isinstance(metadata['source'], str)
+                                or not metadata['source'].strip()):
+                            raise ValueError('Unexpected snapshot metadata requires review')
+                        try:
+                            created = datetime.fromisoformat(metadata['created_at'].replace('Z', '+00:00'))
+                        except ValueError:
+                            raise ValueError('Unexpected snapshot metadata requires review') from None
+                        if created.utcoffset() != timedelta(0):
+                            raise ValueError('Unexpected snapshot metadata requires review')
+                        bundle.rows['document_versions'].append({
+                            'tenant': tenant, 'day': day.name, 'filename': path.name, 'payload': metadata,
+                        })
+                        continue
                     if path.is_symlink() or path.suffix != '.json' or not FILENAME.fullmatch(path.name):
                         raise ValueError('Unexpected version file')
                     bundle.rows['document_versions'].append({'tenant':tenant, 'day':day.name, 'filename':path.name, 'payload':json_file(path)})
@@ -172,7 +275,9 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
     crm_path = data_dir / 'logs/crm_snapshot.json'
     if crm_path.exists():
         for row in json_file(crm_path):
-            bundle.rows['crm_records'].append({'tenant':tenant_key(row['tenant']), 'id':row['id'], 'payload':row})
+            tenant = canonical_reference(row['tenant'], 'crm_records')
+            payload = {**row, 'tenant': tenant}
+            bundle.rows['crm_records'].append({'tenant':tenant, 'id':row['id'], 'payload':payload})
     audit_path = data_dir / 'logs/selfrepair.log'
     if audit_path.exists():
         for entry in json_lines(audit_path):
@@ -211,7 +316,7 @@ def import_bundle(conn, bundle):
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(71616001)')
         version = conn.execute('SELECT version FROM v7_private.schema_version ORDER BY version').fetchall()
-        if version != [(1,), (2,), (3,)]:
+        if version != [(1,), (2,), (3,), (4,), (5,)]:
             raise ValueError('Apply the reviewed V7 schema migration first')
         for table in sorted(DATA_TABLES | {'migration_runs'}):
             query = sql.SQL('SELECT EXISTS(SELECT 1 FROM v7_private.{})').format(sql.Identifier(table))
@@ -264,7 +369,8 @@ def main():
                 else:
                     verify(conn,bundle)
         print(json.dumps({'mode':'imported' if args.apply else 'verified' if args.verify_only else 'dry-run',
-                          'counts':bundle.counts(),'sessions_not_copied':bundle.skipped}, indent=2))
+                          'counts':bundle.counts(),'sessions_not_copied':bundle.skipped,
+                          'tenant_references_reconciled':bundle.reconciled}, indent=2))
     except Exception as exc:
         # Database errors can contain DSNs, credentials, email or entire rejected rows.
         # Never dump exception messages/tracebacks from this credential-handling tool.

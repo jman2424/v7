@@ -10,6 +10,7 @@ import hmac
 import os
 import time
 import pytest
+import bcrypt
 
 from services.security import (
     hash_password,
@@ -29,6 +30,21 @@ def test_password_hash_and_verify():
     assert hashed != password
     assert verify_password(password, hashed)
     assert not verify_password("wrongpass", hashed)
+
+
+@pytest.mark.parametrize("password", ["a" * 72 + "original", "🔐" * 25 + "original"])
+def test_new_password_hashes_preserve_the_full_password(password):
+    hashed = hash_password(password)
+    assert hashed.startswith("scrypt:")
+    assert verify_password(password, hashed)
+    assert not verify_password(password.removesuffix("original") + "different", hashed)
+
+
+def test_legacy_bcrypt_password_hashes_remain_valid():
+    password = "Legacy-account-password-123"
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    assert verify_password(password, hashed)
+    assert not verify_password("Wrong-password-123", hashed)
 
 def test_totp_setup_and_verify():
     secret = generate_totp_secret()

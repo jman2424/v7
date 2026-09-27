@@ -144,7 +144,7 @@ def _record(response, requested_model: str, purpose: str, status: str) -> None:
             output_cost = output_cost * 3 // 2
         cost = input_cost + output_cost
     _write_usage((
-        datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], context[2],
+        datetime.now(timezone.utc).isoformat(), analytics_db._norm_tenant(context[0]), context[1], context[2],
         purpose, requested_model, model, status, input_tokens, cached, cache_writes,
         output_tokens, None, cost, PRICE_VERSION,
     ))
@@ -176,7 +176,7 @@ def record_transcription(response, requested_model: str, status: str) -> None:
         if rate and input_tokens is not None and output_tokens is not None:
             cost = input_tokens * rate[0] + output_tokens * rate[1]
     _write_usage((
-        datetime.now(timezone.utc).isoformat(), context[0].upper(), context[1], context[2],
+        datetime.now(timezone.utc).isoformat(), analytics_db._norm_tenant(context[0]), context[1], context[2],
         "transcription", requested_model, requested_model, status,
         input_tokens, None, None, output_tokens, audio_seconds, cost, AUDIO_PRICE_VERSION,
     ))
@@ -210,6 +210,8 @@ def tracked_completion(client, *, purpose: str, **kwargs):
 
 def summary(tenant: str | None, days: int) -> dict:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    if session_store._using_postgres():
+        return _postgres_summary(tenant, days, since)
     where = "ts_utc >= ?" + (" AND tenant = ?" if tenant else "")
     params = [since, tenant.upper()] if tenant else [since]
     totals_sql = """COUNT(*) AS calls,
@@ -248,3 +250,67 @@ def summary(tenant: str | None, days: int) -> dict:
             "breakdown_truncated": len(rows) > 200, "first_recorded_at": first,
             "since": since, "days": days, "price_version": PRICE_VERSION,
             "price_source": PRICE_SOURCE, "currency": "USD"}
+
+
+def _postgres_summary(tenant: str | None, days: int, since: str) -> dict:
+    if tenant is None:
+        from flask import current_app
+        # tenant_keys revalidates the platform session and invokes the bounded
+        # inventory function. Every usage read still uses one tenant's RLS scope.
+        keys = current_app.container.storage.tenant_keys()
+    else:
+        keys = [tenant]
+    totals_sql = """COUNT(*) AS calls,
+        COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0) AS failed_calls,
+        COALESCE(SUM(CASE WHEN (input_tokens IS NULL OR output_tokens IS NULL)
+                     AND audio_seconds IS NULL THEN 1 ELSE 0 END),0) AS missing_usage_calls,
+        COALESCE(SUM(CASE WHEN cost_nano_usd IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls,
+        COALESCE(SUM(input_tokens),0) AS input_tokens,
+        COALESCE(SUM(cached_tokens),0) AS cached_tokens,
+        COALESCE(SUM(cache_write_tokens),0) AS cache_write_tokens,
+        COALESCE(SUM(output_tokens),0) AS output_tokens,
+        COALESCE(SUM(audio_seconds),0) AS audio_seconds,
+        SUM(cost_nano_usd) AS cost_nano_usd"""
+    aggregate_fields = ('calls', 'failed_calls', 'missing_usage_calls', 'unpriced_calls',
+                        'input_tokens', 'cached_tokens', 'cache_write_tokens', 'output_tokens', 'audio_seconds')
+    def empty():
+        return {**dict.fromkeys(aggregate_fields, 0), 'cost_nano_usd': None}
+    def accumulate(target, source):
+        for field in aggregate_fields:
+            target[field] += float(source[field]) if field == 'audio_seconds' else int(source[field])
+        if source['cost_nano_usd'] is not None:
+            target['cost_nano_usd'] = (target['cost_nano_usd'] or 0) + int(source['cost_nano_usd'])
+    def convert(row):
+        data = dict(row)
+        cost = data.pop('cost_nano_usd')
+        for field in aggregate_fields:
+            data[field] = float(data[field]) if field == 'audio_seconds' else int(data[field])
+        data['estimated_cost_usd'] = (int(cost) / 1_000_000_000 if cost is not None
+                                      else 0.0 if data['calls'] == 0 else None)
+        data['total_tokens'] = data['input_tokens'] + data['output_tokens']
+        return data
+    totals, modes, breakdown, first = empty(), {}, [], None
+    for key in keys:
+        with session_store.postgres_connection(key, repeatable_read=True) as con:
+            values = (since, key)
+            where = 'ts_utc >= %s AND tenant = %s'
+            aggregate = analytics_db._pg_rows(con,
+                f'SELECT {totals_sql} FROM v7_private.api_usage WHERE {where}', values)[0]
+            accumulate(totals, aggregate)
+            for row in analytics_db._pg_rows(con,
+                    f'SELECT mode, {totals_sql} FROM v7_private.api_usage WHERE {where} GROUP BY mode', values):
+                mode = modes.setdefault(row['mode'], {**empty(), 'mode': row['mode']})
+                accumulate(mode, row)
+            breakdown.extend(analytics_db._pg_rows(con, f'''SELECT tenant, mode, model, requested_model,
+                channel, purpose, {totals_sql} FROM v7_private.api_usage WHERE {where}
+                GROUP BY tenant, mode, model, requested_model, channel, purpose
+                ORDER BY COALESCE(SUM(cost_nano_usd),0) DESC, tenant, mode, model LIMIT 201''', values))
+            recorded = con.execute('SELECT MIN(ts_utc) FROM v7_private.api_usage WHERE tenant=%s', (key,)).fetchone()[0]
+            if recorded is not None and (first is None or recorded < first):
+                first = recorded
+    breakdown.sort(key=lambda row: (-(row['cost_nano_usd'] or 0), row['tenant'], row['mode'], row['model']))
+    return {'totals': convert(totals), 'mode_totals': [convert(modes[key]) for key in sorted(modes)],
+            'breakdown': [convert(row) for row in breakdown[:200]],
+            'breakdown_truncated': len(breakdown) > 200, 'first_recorded_at': first,
+            'since': since, 'days': days, 'price_version': PRICE_VERSION,
+            'price_source': PRICE_SOURCE, 'currency': 'USD'}

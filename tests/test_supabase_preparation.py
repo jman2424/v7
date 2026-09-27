@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import prepare_supabase as preparation
 from scripts.prepare_supabase import prepare, import_bundle, verify, connection
 
 
@@ -31,6 +32,12 @@ def source(tmp_path):
         folder.mkdir(parents=True)
         (folder / 'catalog.json').write_text(json.dumps({'products':[tenant]}))
         (folder / 'owner_accounts.json').write_text(json.dumps([{'id':tenant,'password_hash':'test-only-hash','roles':['business_owner']}]))
+    version = tmp_path / 'business/versions/2026-09-26/ALPHA'
+    version.mkdir(parents=True)
+    (version / 'catalog.json').write_text(json.dumps({'products': ['previous-alpha']}))
+    (version / '_snapshot.json').write_text(json.dumps({
+        'tenant': 'ALPHA', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/ALPHA',
+    }))
     (logs / 'selfrepair.log').write_text(json.dumps({'action':'test','target':'ALPHA'})+'\n')
     return tmp_path
 
@@ -40,10 +47,100 @@ def test_offline_inventory_preserves_sources_and_redacts_sessions(source):
     bundle = prepare(source)
     assert bundle.counts()['tenants'] == 2
     assert bundle.counts()['business_documents'] == 4
+    assert bundle.counts()['document_versions'] == 2
+    assert next(row for row in bundle.rows['document_versions']
+                if row['filename'] == '_snapshot.json')['payload'] == {
+        'tenant': 'ALPHA', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/ALPHA',
+    }
     assert bundle.rows['management_sessions'] == []
     assert bundle.skipped['management_sessions'] == 1
     assert bundle.rows['account_authenticators'][0]['secret'] == 'test-authenticator-secret'
     assert before == {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
+
+
+def test_preparation_captures_frozen_wal_without_changing_database_or_shm(source):
+    database = source / 'logs/analytics.db'
+    with closing(sqlite3.connect(database)) as writer:
+        writer.execute('PRAGMA journal_mode=WAL')
+        writer.execute('PRAGMA wal_autocheckpoint=0')
+        writer.execute("INSERT INTO events VALUES (8,'2026-09-26T00:00:00Z','ALPHA','web','chat-id','msg_out','{}')")
+        writer.commit()
+        before = {str(path): path.read_bytes() for path in source.rglob('*') if path.is_file()}
+        bundle = prepare(source)
+        assert bundle.counts()['events'] == 2
+        assert before == {str(path): path.read_bytes() for path in source.rglob('*') if path.is_file()}
+
+
+def test_preparation_stops_if_sqlite_source_changes_during_staging(source, monkeypatch):
+    original_copy = preparation.shutil.copyfileobj
+    changed = False
+    def change_after_copy(incoming, outgoing, length):
+        nonlocal changed
+        original_copy(incoming, outgoing, length)
+        if not changed:
+            with (source / 'logs/security.db').open('ab') as handle:
+                handle.write(b'changed-source')
+            changed = True
+    monkeypatch.setattr(preparation.shutil, 'copyfileobj', change_after_copy)
+    with pytest.raises(ValueError, match='source changed'):
+        prepare(source)
+
+
+@pytest.fixture
+def mixed_source(source):
+    (source / 'business/ALPHA').rename(source / 'business/Alpha')
+    version = source / 'business/versions/2026-09-26'
+    (version / 'ALPHA').rename(version / 'Alpha')
+    marker = version / 'Alpha/_snapshot.json'
+    payload = json.loads(marker.read_text())
+    payload.update(tenant='Alpha', source='business/Alpha')
+    marker.write_text(json.dumps(payload))
+    with closing(sqlite3.connect(source / 'logs/security.db')) as db, db:
+        db.execute("UPDATE managed_businesses SET tenant='Alpha' WHERE tenant='ALPHA'")
+        db.execute("UPDATE billing_discounts SET tenant='Alpha' WHERE tenant='ALPHA'")
+    with closing(sqlite3.connect(source / 'logs/analytics.db')) as db, db:
+        db.execute('CREATE TABLE api_usage (id INTEGER PRIMARY KEY, ts_utc TEXT NOT NULL, tenant TEXT NOT NULL, channel TEXT NOT NULL, purpose TEXT NOT NULL, requested_model TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL, cost_nano_usd INTEGER, price_version TEXT NOT NULL)')
+        db.execute("INSERT INTO api_usage VALUES (2,'2026-09-26T00:00:00Z','ALPHA','web','chat','test-model','test-model','ok',200000,'test-price')")
+    (source / 'logs/crm_snapshot.json').write_text(json.dumps([
+        {'id': 'example-lead', 'tenant': 'ALPHA', 'conversations': [{'text': 'Preserved conversation'}]},
+    ]))
+    return source
+
+
+def test_unique_casefold_reconciliation_preserves_rows_and_source_hashes(mixed_source):
+    before = {str(path): path.read_bytes() for path in mixed_source.rglob('*') if path.is_file()}
+    bundle = prepare(mixed_source)
+    assert bundle.rows['events'][0]['tenant'] == 'Alpha'
+    assert bundle.rows['api_usage'][0]['tenant'] == 'Alpha'
+    assert bundle.rows['api_usage'][0]['cost_nano_usd'] == 200000
+    assert bundle.rows['crm_records'][0]['tenant'] == 'Alpha'
+    assert bundle.rows['crm_records'][0]['payload']['tenant'] == 'Alpha'
+    assert bundle.rows['crm_records'][0]['payload']['conversations'] == [{'text': 'Preserved conversation'}]
+    assert bundle.reconciled == {'events': 1, 'api_usage': 1, 'crm_records': 1}
+    assert before == {str(path): path.read_bytes() for path in mixed_source.rglob('*') if path.is_file()}
+
+
+@pytest.mark.parametrize('table', ['events', 'api_usage', 'crm_records'])
+def test_orphan_analytics_or_crm_tenant_references_stop_preparation(mixed_source, table):
+    if table == 'crm_records':
+        path = mixed_source / 'logs/crm_snapshot.json'
+        rows = json.loads(path.read_text())
+        rows[0]['tenant'] = 'MISSING'
+        path.write_text(json.dumps(rows))
+    else:
+        with closing(sqlite3.connect(mixed_source / 'logs/analytics.db')) as db, db:
+            db.execute('UPDATE '+table+" SET tenant='MISSING'")
+    with pytest.raises(ValueError, match='no source business'):
+        prepare(mixed_source)
+
+
+def test_ambiguous_casefold_business_directories_stop_reconciliation(source):
+    try:
+        (source / 'business/Alpha').mkdir()
+    except FileExistsError:
+        pytest.skip('Filesystem cannot contain business directories differing only by case')
+    with pytest.raises(ValueError, match='Case-ambiguous'):
+        prepare(source)
 
 
 def test_missing_security_db_fails_instead_of_losing_activation(source):
@@ -73,6 +170,27 @@ def test_json_that_would_change_during_import_rejected(source, content):
         prepare(source)
 
 
+@pytest.mark.parametrize('change', [
+    {'tenant': 'BETA'}, {'created_at': '2026-09-26'},
+    {'created_at': '2026-09-26T00:00:00'}, {'created_at': 'invalid'},
+    {'created_at': '2026-09-26T01:00:00+01:00'}, {'source': ''},
+    {'source': None}, {'unexpected': 'private-source-record'},
+])
+def test_generated_snapshot_metadata_must_match_runtime_shape(source, change):
+    marker = source / 'business/versions/2026-09-26/ALPHA/_snapshot.json'
+    payload = json.loads(marker.read_text())
+    payload.update(change)
+    marker.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match='Unexpected snapshot metadata'):
+        prepare(source)
+
+
+def test_snapshot_exception_does_not_allow_arbitrary_underscore_documents(source):
+    (source / 'business/versions/2026-09-26/ALPHA/_private.json').write_text('{}')
+    with pytest.raises(ValueError, match='Unexpected version file'):
+        prepare(source)
+
+
 def test_tls_cannot_be_downgraded(monkeypatch):
     psycopg = pytest.importorskip('psycopg')
     received = {}
@@ -91,6 +209,13 @@ def pg():
     if not dsn:
         pytest.skip('Set V7_TEST_POSTGRES_DSN to a disposable PostgreSQL database')
     psycopg = pytest.importorskip('psycopg')
+    from psycopg.conninfo import conninfo_to_dict
+    details = conninfo_to_dict(dsn)
+    if (details.get('host') not in {'localhost', '127.0.0.1'}
+            or details.get('hostaddr') not in {None, '127.0.0.1', '::1'}
+            or details.get('service')
+            or not details.get('dbname', '').startswith('v7_disposable_')):
+        pytest.fail('Migration tests require a named local disposable database')
     with psycopg.connect(dsn, autocommit=True, connect_timeout=5, options='-c statement_timeout=10000') as conn:
         if conn.execute("SELECT to_regnamespace('v7_private')").fetchone()[0]:
             pytest.fail('Integration test requires an empty disposable database; existing schema will not be deleted')
@@ -102,9 +227,9 @@ def pg():
         yield conn
 
 
-def test_postgres_copy_verification_and_row_security(pg, source, monkeypatch):
+def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypatch):
     psycopg = pytest.importorskip('psycopg')
-    bundle = prepare(source)
+    bundle = prepare(mixed_source)
     def failed_verification(conn, imported):
         raise ValueError('Injected verification failure after inserts')
     with monkeypatch.context() as patch:
@@ -114,6 +239,9 @@ def test_postgres_copy_verification_and_row_security(pg, source, monkeypatch):
     assert pg.execute('SELECT count(*) FROM v7_private.tenants').fetchone()[0] == 0
     import_bundle(pg,bundle)
     verify(pg,bundle)
+    assert pg.execute("SELECT payload FROM v7_private.document_versions WHERE filename='_snapshot.json'").fetchone()[0] == {
+        'tenant': 'Alpha', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/Alpha',
+    }
     assert pg.execute('SELECT id FROM v7_private.events').fetchone()[0] == 7
     assert pg.execute("SELECT nextval('v7_private.events_id_seq')").fetchone()[0] == 8
     with pytest.raises(ValueError, match='must be empty'):
@@ -129,15 +257,20 @@ def test_postgres_copy_verification_and_row_security(pg, source, monkeypatch):
         pg.execute('SET LOCAL ROLE v7_backend')
         assert pg.execute('SELECT count(*) FROM v7_private.business_documents').fetchone()[0] == 0
         assert pg.execute('SELECT count(*) FROM v7_private.billing_discounts').fetchone()[0] == 0
-        pg.execute("SELECT set_config('v7.tenant','ALPHA',true)")
-        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.business_documents')} == {'ALPHA'}
-        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.billing_discounts')} == {'ALPHA'}
+        pg.execute("SELECT set_config('v7.tenant','Alpha',true)")
+        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.business_documents')} == {'Alpha'}
+        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.billing_discounts')} == {'Alpha'}
+        assert {row[0] for row in pg.execute('SELECT tenant FROM v7_private.events')} == {'Alpha'}
+        assert pg.execute('SELECT sum(cost_nano_usd) FROM v7_private.api_usage').fetchone()[0] == 200000
+        assert pg.execute('SELECT tenant, payload FROM v7_private.crm_records').fetchone() == (
+            'Alpha', {'id': 'example-lead', 'tenant': 'Alpha', 'conversations': [{'text': 'Preserved conversation'}]},
+        )
         assert pg.execute("UPDATE v7_private.business_documents SET payload='{}' WHERE tenant='BETA'").rowcount == 0
         assert pg.execute('SELECT count(*) FROM v7_private.account_authenticators').fetchone()[0] == 1
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with pg.transaction():
             pg.execute('SET LOCAL ROLE v7_backend')
-            pg.execute("SELECT set_config('v7.tenant','ALPHA',true)")
+            pg.execute("SELECT set_config('v7.tenant','Alpha',true)")
             pg.execute("INSERT INTO v7_private.business_documents VALUES ('BETA','leak.json','{}')")
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         with pg.transaction():

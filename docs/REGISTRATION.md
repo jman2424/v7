@@ -44,6 +44,8 @@ send still has the normal 60-second limit.
 ## Access model
 
 1. An applicant submits email, password, company key and either owner or join.
+   Signup, account management and sign-in accept email addresses up to 254 characters.
+   Account creation validates ASCII mailbox syntax before storing credentials.
 2. A code is emailed, valid for ten minutes and five attempts. The browser receives
    only an opaque request ID. Passwords use scrypt; codes use keyed hashes.
 3. Verified owners receive a clean, payment-gated workspace. They must sign in with
@@ -55,6 +57,10 @@ send still has the normal 60-second limit.
    decision; decision emails are not currently sent. Pending requests expire in 30 days.
 5. Approved staff must also complete password and authenticator verification.
 
+New and reset managed-account passwords use scrypt, including all accepted password
+characters. Existing bcrypt passwords remain usable; reset them to replace their
+legacy hashes. Signup passwords already use scrypt.
+
 Owners cannot approve requests for other businesses. Client-supplied roles,
 permissions or payment flags cannot grant access. CSRF, same-origin checks and
 shared login throttling protect signup mutations; email requests also have a
@@ -62,10 +68,15 @@ shared login throttling protect signup mutations; email requests also have a
 
 `service/registration.py` holds the workflow, `registration_mail.py` sends mail,
 `routes/auth_routes.py` exposes signup, and the admin API handles owner decisions.
-Registration records use the private `SECURITY_DB_PATH` database; credentials are
-cleared on expiry, rejection or completion. Keep this database and business files
-on durable, access-restricted storage together. Operator recovery is required if
-workspace creation is interrupted between filesystem publication and status update.
+Registration records use the private `SECURITY_DB_PATH` database with SQLite, or
+the private PostgreSQL schema when that backend is configured. Credentials are
+cleared on expiry, rejection or completion. PostgreSQL staff approval writes the
+account document and request decision in the same tenant-locked transaction.
+PostgreSQL owner signup also commits the workspace, owner account and approved
+request together; a failed transaction leaves no partial workspace.
+Keep SQLite databases and business files on durable, access-restricted storage
+together. With SQLite, operator recovery is required if workspace creation is interrupted
+between publication and the request status update.
 
 Checks: `python -m pytest tests/test_registration.py tests/test_business_access.py -q`
 and, from `frontend`, `npm run check` and `npm run build`.

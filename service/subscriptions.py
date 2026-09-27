@@ -351,10 +351,10 @@ def usage_months(tenant):
     if session_store._using_postgres():
         with connection(tenant) as db:
             rows = db.execute(
-                "SELECT LEFT(ts_utc,7) month, COUNT(*) calls, SUM(cost_nano_usd) cost, "
+                'SELECT LEFT(ts_utc,7) AS "month", COUNT(*) calls, SUM(cost_nano_usd) cost, '
                 "SUM(CASE WHEN cost_nano_usd IS NULL THEN 1 ELSE 0 END) unpriced "
-                "FROM api_usage WHERE tenant=? GROUP BY month ORDER BY month DESC LIMIT 24",
-                (tenant.upper(),),
+                'FROM api_usage WHERE tenant=? GROUP BY "month" ORDER BY "month" DESC LIMIT 24',
+                (tenant,),
             ).fetchall()
     else:
         with closing(analytics_db._conn()) as db:

@@ -4,6 +4,7 @@ import hmac
 import re
 import secrets
 import time
+from contextlib import contextmanager
 
 from flask import current_app, session
 from werkzeug.security import generate_password_hash
@@ -117,6 +118,8 @@ def _reserved_email(email):
 def confirm(code):
     if not isinstance(code, str) or len(code) != 6 or not code.isascii() or not code.isdigit():
         raise ValueError('Enter the six-digit verification code.')
+    if session_store._using_postgres():
+        return _confirm_postgres(code)
     request_id = session.get('registration_request', '')
     storage = current_app.container.storage
     invalid = False
@@ -164,6 +167,57 @@ def confirm(code):
     return status()
 
 
+def _confirm_postgres(code):
+    """Create an owner's workspace and finish its request in one transaction."""
+    request_id = session.get('registration_request', '')
+    storage = current_app.container.storage
+    invalid = False
+    with _database() as db:
+        row = _execute(db, "SELECT email,password_hash,kind,tenant,business_name,code_hash "
+                       "FROM registration_requests WHERE id=? AND status='verification' "
+                       "AND expires>? AND attempts<5 FOR UPDATE", (request_id,time.time())).fetchone()
+        if not row:
+            raise ValueError('Verification expired or already used. Start again.')
+        email, password_hash, kind, tenant, name, expected = row
+        if not hmac.compare_digest(expected, _code_hash(request_id,code)):
+            _execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
+            _execute(db, "UPDATE registration_requests SET status='expired',password_hash='',code_hash='' "
+                       "WHERE id=? AND attempts>=5", (request_id,))
+            invalid = True
+        else:
+            if _reserved_email(email):
+                raise ValueError('An account already exists for this email. Use the existing sign-in.')
+            if kind == 'join':
+                if not storage.tenant_exists(tenant):
+                    raise ValueError('This company request cannot be completed. Check the company key with its owner.')
+                if any(a['email'] == email for a in AccountService(storage).list_accounts(tenant)):
+                    raise ValueError('An account already exists for this company. Use the existing sign-in.')
+                _execute(db, "UPDATE registration_requests SET status='pending',code_hash='' WHERE id=?", (request_id,))
+            else:
+                from service.account_service import ACCOUNT_FILE
+                from service.postgres_business_documents import PostgresBusinessDocuments
+                from service.tenant_access import owner_key
+                from service.tenant_service import TenantService
+                repository = PostgresBusinessDocuments(tenant)
+                identity = {'id':'signup:'+request_id,'email':email,'tenant':tenant,'roles':['business_owner']}
+                documents = TenantService._starter_documents(name)
+                documents[ACCOUNT_FILE] = [{**identity, 'password_hash':password_hash,
+                                            'active':True,'permissions':[]}]
+                # The validated, verified request determines scope. This scope
+                # is transaction-local and matches all workspace document rows.
+                db.execute("SELECT set_config('v7.tenant', %s, true)", (tenant,))
+                try:
+                    repository.create_tenant(documents, owner_key=owner_key(identity), transaction=db)
+                except Exception:
+                    raise ValueError('The workspace could not be created. The company key may already be in use. '
+                                     'Use a different company key or contact the operator.') from None
+                _execute(db, "UPDATE registration_requests SET status='approved',password_hash='',code_hash='' "
+                           "WHERE id=?", (request_id,))
+    if invalid:
+        raise ValueError('Code not accepted. Check your email and try again.')
+    return status()
+
+
 def pending(tenant):
     with _database() as db:
         _schema(db)
@@ -171,11 +225,24 @@ def pending(tenant):
     return [{'id':r[0],'email':r[1],'created':r[2]} for r in rows]
 
 
-def decide(tenant, request_id, approve, actor):
-    with _database() as db:
-        _schema(db)
-        if not session_store._using_postgres():
+@contextmanager
+def _decision_database(tenant):
+    storage = current_app.container.storage
+    if session_store._using_postgres():
+        # Account documents and request status share the tenant transaction.
+        with storage.write_lock(tenant) as db:
+            yield db
+    else:
+        with _database() as db:
+            _schema(db)
             db.execute('BEGIN IMMEDIATE')
+            with storage.write_lock(tenant):
+                yield db
+
+
+def decide(tenant, request_id, approve, actor):
+    with _decision_database(tenant) as db:
+        _schema(db)
         lock = ' FOR UPDATE' if session_store._using_postgres() else ''
         row = _execute(db, "SELECT email,password_hash FROM registration_requests WHERE id=? AND tenant=? AND status='pending' AND created>?" + lock, (request_id,tenant,time.time()-30*86400)).fetchone()
         if not row:
@@ -189,5 +256,5 @@ def decide(tenant, request_id, approve, actor):
             from service.account_service import ACCOUNT_FILE
             account = {'id':'signup:'+request_id,'email':row[0],'password_hash':row[1],
                        'roles':['business_staff'],'active':True,'permissions':[]}
-            service.storage.write_json(tenant,ACCOUNT_FILE,[*accounts,account])
+            service.storage._write_json(tenant,ACCOUNT_FILE,[*accounts,account])
         _execute(db, "UPDATE registration_requests SET status=?,password_hash='',code_hash='',decided_by=? WHERE id=?", ('approved' if approve else 'rejected',actor,request_id))

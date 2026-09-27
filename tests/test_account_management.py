@@ -1,4 +1,8 @@
 from __future__ import annotations
+import pytest
+
+from service.account_service import ACCOUNT_FILE, AccountService
+from service.security import verify_password
 from tests.conftest import set_test_identity
 
 
@@ -157,3 +161,69 @@ def test_disabled_account_loses_legacy_file_access_on_its_next_request(client):
     assert denied.status_code == 401
     with client.session_transaction() as sess:
         assert "user" not in sess
+
+
+@pytest.mark.parametrize("length", [254, 255, 320])
+def test_managed_account_email_length_matches_authentication(app, length):
+    service = AccountService(app.container.storage)
+    email = "a" * (length - len("@example.test")) + "@example.test"
+    payload = {"email": email, "password": "Account-password-only-123", "roles": ["business_staff"]}
+    if length > 254:
+        with pytest.raises(ValueError, match="invalid_account_email"):
+            service.create_account("EXAMPLE", payload)
+        assert service.list_accounts("EXAMPLE") == []
+    else:
+        created = service.create_account("EXAMPLE", payload)
+        assert created["email"] == email
+        from service.security import authenticate_user
+        with app.app_context():
+            assert authenticate_user(app.container, email=email, password=payload["password"], tenant="EXAMPLE")
+
+
+def test_managed_accounts_and_password_resets_preserve_long_passwords(app):
+    service = AccountService(app.container.storage)
+    prefix = "a" * 72
+    account = service.create_account("EXAMPLE", {
+        "email": "long-password@example.test", "password": prefix + "original",
+        "roles": ["business_staff"],
+    })
+    stored = app.container.storage.read_json("EXAMPLE", ACCOUNT_FILE)[0]
+    assert stored["password_hash"].startswith("scrypt:")
+    assert verify_password(prefix + "original", stored["password_hash"])
+    assert not verify_password(prefix + "different", stored["password_hash"])
+    service.update_account("EXAMPLE", account["id"], {"password": prefix + "reset"})
+    stored = app.container.storage.read_json("EXAMPLE", ACCOUNT_FILE)[0]
+    assert verify_password(prefix + "reset", stored["password_hash"])
+    assert not verify_password(prefix + "original", stored["password_hash"])
+
+
+@pytest.mark.parametrize('email', ['résumé@example.test', 'owner@例子.test', 'one,two@example.test', 'Name<one@example.test>'])
+def test_managed_account_email_validation_matches_signup(app, email):
+    service = AccountService(app.container.storage)
+    with pytest.raises(ValueError, match='invalid_account_email'):
+        service.create_account('EXAMPLE', {'email': email, 'password': 'Account-test-password-123',
+                                          'roles': ['business_staff']})
+    assert service.list_accounts('EXAMPLE') == []
+
+
+def test_legacy_unicode_account_records_do_not_block_ascii_creation(app):
+    storage = app.container.storage
+    legacy = {'id':'account:历史', 'email':'résumé@example.test',
+              'roles':['business_staff'], 'active':True, 'permissions':[]}
+    storage.write_json('EXAMPLE', ACCOUNT_FILE, [legacy])
+    service = AccountService(storage)
+    created = service.create_account('EXAMPLE', {'email':'new@example.test',
+        'password':'Account-test-password-123', 'roles':['business_staff']})
+    assert created['email'] == 'new@example.test'
+    assert service.get_account('EXAMPLE', legacy['id']) == legacy
+    assert service.update_account('EXAMPLE', legacy['id'], {'active':False})['active'] is False
+    assert len(service.list_accounts('EXAMPLE')) == 2
+
+
+def test_unknown_unicode_account_id_remains_not_found(client):
+    _as_platform_admin(client)
+    client.post('/admin/api/accounts', json={'email':'staff@example.test',
+        'password':'Account-test-password-123', 'roles':['business_staff']})
+    response = client.put('/admin/api/accounts/account:未知', json={'active':False})
+    assert response.status_code == 404
+    assert response.get_json() == {'error':'account_not_found'}

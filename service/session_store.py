@@ -20,7 +20,7 @@ def _using_postgres():
 
 
 @contextmanager
-def postgres_connection(authorized_tenant=None):
+def postgres_connection(authorized_tenant=None, *, repeatable_read=False):
     """Restricted server transaction; caller must authorize a tenant first.
 
     Results use psycopg's default tuple rows. A normal exit commits, and an
@@ -49,6 +49,8 @@ def postgres_connection(authorized_tenant=None):
             connect_timeout=15,
             autocommit=False,
         ) as db:
+            if repeatable_read:
+                db.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
             role = db.execute(
                 "SELECT current_user=session_user, "
                 "rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, "

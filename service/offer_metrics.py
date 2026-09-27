@@ -34,17 +34,34 @@ def shown_offers(result: dict) -> list[str] | None:
                              if item.get('id') and item.get('title') and item['title'] in reply))
 
 
-def offer_report(db, tenant, start, end, channel, offers):
-    condition = "e.tenant=? AND e.ts_utc>=? AND e.ts_utc<? AND e.event_type='msg_out' AND e.intent='offers'"
-    values = (tenant.upper(), start.isoformat(), end.isoformat())
+def offer_report(db, tenant, start, end, channel, offers, *, postgres=False):
+    from service import analytics_db
+    placeholder = '%s' if postgres else '?'
+    events = 'v7_private.events' if postgres else 'events'
+    condition = f"e.tenant={placeholder} AND e.ts_utc>={placeholder} AND e.ts_utc<{placeholder} AND e.event_type='msg_out' AND e.intent='offers'"
+    values = (tenant if postgres else tenant.upper(), start.isoformat(), end.isoformat())
     if channel != 'all':
-        condition += ' AND e.channel=?'
+        condition += f' AND e.channel={placeholder}'
         values += (channel,)
     # Only new, explicitly tracked offer IDs are attributed. Never guess from old text.
-    rows = db.execute(f"""SELECT j.value AS id, COUNT(DISTINCT e.id) AS replies,
+    if postgres:
+        meta = "(CASE WHEN pg_input_is_valid(e.meta_json, 'jsonb') THEN e.meta_json::jsonb ELSE '{}'::jsonb END)"
+        offers_json = f"CASE WHEN jsonb_typeof({meta}->'offers')='array' THEN {meta}->'offers' ELSE '[]'::jsonb END"
+        offer_source = f"{events} e CROSS JOIN LATERAL jsonb_array_elements({offers_json}) j(value)"
+        offer_id = "j.value #>> '{}'"
+        offer_type = "jsonb_typeof(j.value)='string'"
+    else:
+        offer_source = f"{events} e, json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{{}}' END, '$.offers') j"
+        offer_id = 'j.value'
+        offer_type = "j.type='text'"
+    def read_rows(sql):
+        if postgres:
+            return analytics_db._pg_rows(db, sql, values)
+        return [dict(row) for row in db.execute(sql, values)]
+    rows = read_rows(f"""SELECT {offer_id} AS id, COUNT(DISTINCT e.id) AS replies,
         COUNT(DISTINCT CASE WHEN e.session_id!='' THEN e.channel || ':' || e.session_id END) AS conversations
-        FROM events e, json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{{}}' END, '$.offers') j
-        WHERE {condition} AND j.type='text' GROUP BY j.value ORDER BY replies DESC, j.value LIMIT 500""", values).fetchall()
+        FROM {offer_source}
+        WHERE {condition} AND {offer_type} GROUP BY j.value ORDER BY replies DESC, j.value LIMIT 500""")
     counts = {row['id']: dict(row) for row in rows}
     today = datetime.now(timezone.utc).date().isoformat()
     items = []
@@ -55,5 +72,5 @@ def offer_report(db, tenant, start, end, channel, offers):
                       'replies': count['replies'], 'conversations': count['conversations']})
     items.extend({**row, 'title': row['id'], 'status': 'removed', 'deal_type': 'custom', 'terms': ''}
                  for row in counts.values())
-    totals = dict(db.execute(f"SELECT COUNT(*) AS offer_replies, COUNT(DISTINCT CASE WHEN e.session_id!='' THEN e.channel || ':' || e.session_id END) AS conversations FROM events e WHERE {condition}", values).fetchone())
+    totals = read_rows(f"SELECT COUNT(*) AS offer_replies, COUNT(DISTINCT CASE WHEN e.session_id!='' THEN e.channel || ':' || e.session_id END) AS conversations FROM {events} e WHERE {condition}")[0]
     return {'items': items, **totals}

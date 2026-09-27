@@ -31,7 +31,7 @@ def _pg_row(con: Any, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] 
     return rows[0] if rows else None
 
 
-_PG_FALLBACK = "(COALESCE(NULLIF(meta_json, ''), '{}')::jsonb ->> 'fallback') IN ('true', '1')"
+_PG_FALLBACK = "((CASE WHEN pg_input_is_valid(meta_json, 'jsonb') THEN meta_json::jsonb ELSE '{}'::jsonb END) ->> 'fallback') IN ('true', '1')"
 
 
 # ---------------------------------------------------------------------
@@ -50,7 +50,9 @@ def _since(minutes: int) -> str:
 
 def _norm_tenant(t: Optional[str]) -> str:
     t = (t or "default").strip() or "default"
-    return t.upper()
+    # PostgreSQL tenant keys are the exact document/foreign-key scope. Keep
+    # the existing case-insensitive analytics convention only for SQLite.
+    return t if _using_postgres() else t.upper()
 
 
 def _norm_channel(ch: Optional[str]) -> str:

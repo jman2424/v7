@@ -3,21 +3,32 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from service import analytics_db
+from service import analytics_db, session_store
 
 _FALLBACK = "json_extract(CASE WHEN json_valid(meta_json) THEN meta_json ELSE '{}' END, '$.fallback')=1"
-_SUMMARY = f"""
-    COALESCE(SUM(event_type='msg_in'),0) AS inbound,
-    COALESCE(SUM(event_type='msg_out'),0) AS outbound,
+_PG_JSON = "CASE WHEN pg_input_is_valid(meta_json, 'jsonb') THEN meta_json::jsonb ELSE '{}'::jsonb END"
+_PG_FALLBACK = f"COALESCE(({_PG_JSON} ->> 'fallback') IN ('true', '1'), false)"
+
+
+def _summary(fallback):
+    return f"""
+    COALESCE(SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END),0) AS inbound,
+    COALESCE(SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END),0) AS outbound,
     COUNT(DISTINCT CASE WHEN event_type IN ('msg_in','msg_out') AND session_id!=''
         THEN channel || ':' || session_id END) AS sessions,
-    COALESCE(SUM(event_type='msg_out' AND {_FALLBACK}),0) AS fallbacks,
-    COALESCE(SUM(event_type='error'),0) AS errors,
+    COALESCE(SUM(CASE WHEN event_type='msg_out' AND {fallback} THEN 1 ELSE 0 END),0) AS fallbacks,
+    COALESCE(SUM(CASE WHEN event_type='error' THEN 1 ELSE 0 END),0) AS errors,
     COUNT(DISTINCT CASE WHEN event_type='msg_out' AND intent IN ('human_handoff','handoff')
         AND session_id!='' THEN channel || ':' || session_id END) AS handoffs,
     COUNT(DISTINCT CASE WHEN event_type='msg_out' AND intent='handoff_contact_captured'
         AND COALESCE(lead_id,'')!='' THEN lead_id END) AS contacts
 """
+
+
+def _rows(db, sql, values=(), *, postgres=False):
+    if postgres:
+        return analytics_db._pg_rows(db, sql, values)
+    return [dict(row) for row in db.execute(sql, values)]
 
 
 def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetime | None = None, catalog: dict | None = None, offers: list | None = None) -> dict:
@@ -27,38 +38,50 @@ def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetim
     end = now or datetime.now(timezone.utc)
     start = end - timedelta(days=days)
     previous_start = start - timedelta(days=days)
-    condition = "tenant=? AND ts_utc>=? AND ts_utc<?"
+    postgres = session_store._using_postgres()
+    tenant_key = tenant if postgres else tenant.upper()
+    placeholder = "%s" if postgres else "?"
+    events = "v7_private.events" if postgres else "events"
+    leads = "v7_private.leads" if postgres else "leads"
+    fallback = _PG_FALLBACK if postgres else _FALLBACK
+    summary = _summary(fallback)
+    condition = f"tenant={placeholder} AND ts_utc>={placeholder} AND ts_utc<{placeholder}"
     if channel != "all":
-        condition += " AND channel=?"
+        condition += f" AND channel={placeholder}"
 
     def params(left: datetime, right: datetime) -> tuple:
-        values = (tenant.upper(), left.isoformat(), right.isoformat())
+        values = (tenant_key, left.isoformat(), right.isoformat())
         return values + (channel,) if channel != "all" else values
 
     current_params = params(start, end)
-    with analytics_db._conn() as db:
+    connection = (session_store.postgres_connection(tenant_key, repeatable_read=True)
+                  if postgres else analytics_db._conn())
+    with connection as db:
         # All panels share the same database snapshot and time boundary.
-        db.execute("BEGIN")
-        current = dict(db.execute(f"SELECT {_SUMMARY} FROM events WHERE {condition}", current_params).fetchone())
-        previous = dict(db.execute(f"SELECT {_SUMMARY} FROM events WHERE {condition}", params(previous_start, start)).fetchone())
-        daily_rows = db.execute(f"SELECT substr(ts_utc,1,10) AS day, {_SUMMARY} FROM events WHERE {condition} GROUP BY day ORDER BY day", current_params).fetchall()
-        channels = [dict(row) for row in db.execute(f"SELECT channel, {_SUMMARY} FROM events WHERE {condition} GROUP BY channel ORDER BY channel", current_params)]
-        intents = [dict(row) for row in db.execute(f"SELECT COALESCE(NULLIF(intent,''),'unknown') AS label, COUNT(*) AS count FROM events WHERE {condition} AND event_type='msg_out' GROUP BY label ORDER BY count DESC, label LIMIT 20", current_params)]
-        errors = [dict(row) for row in db.execute(f"SELECT substr(COALESCE(NULLIF(error_code,''),'Unspecified error'),1,120) AS label, COUNT(*) AS count FROM events WHERE {condition} AND event_type='error' GROUP BY label ORDER BY count DESC, label LIMIT 20", current_params)]
-        fallbacks = [dict(row) for row in db.execute(f"SELECT COALESCE(NULLIF(intent,''),'unknown') AS label, COUNT(*) AS count FROM events WHERE {condition} AND event_type='msg_out' AND {_FALLBACK} GROUP BY label ORDER BY count DESC, label LIMIT 20", current_params)]
+        if not postgres:
+            db.execute("BEGIN")
+        def rows(sql, values=current_params):
+            return _rows(db, sql, values, postgres=postgres)
+        current = rows(f"SELECT {summary} FROM {events} WHERE {condition}")[0]
+        previous = rows(f"SELECT {summary} FROM {events} WHERE {condition}", params(previous_start, start))[0]
+        daily_rows = rows(f"SELECT substr(ts_utc,1,10) AS day, {summary} FROM {events} WHERE {condition} GROUP BY day ORDER BY day")
+        channels = rows(f"SELECT channel, {summary} FROM {events} WHERE {condition} GROUP BY channel ORDER BY channel")
+        intents = rows(f"SELECT COALESCE(NULLIF(intent,''),'unknown') AS label, COUNT(*) AS count FROM {events} WHERE {condition} AND event_type='msg_out' GROUP BY label ORDER BY count DESC, label LIMIT 20")
+        errors = rows(f"SELECT substr(COALESCE(NULLIF(error_code,''),'Unspecified error'),1,120) AS label, COUNT(*) AS count FROM {events} WHERE {condition} AND event_type='error' GROUP BY label ORDER BY count DESC, label LIMIT 20")
+        fallbacks = rows(f"SELECT COALESCE(NULLIF(intent,''),'unknown') AS label, COUNT(*) AS count FROM {events} WHERE {condition} AND event_type='msg_out' AND {fallback} GROUP BY label ORDER BY count DESC, label LIMIT 20")
         # Leads have no reliable channel or creation-time field. Show the current
         # company pipeline separately rather than inventing historical conversion.
         pipeline = {key: 0 for key in ("Open", "Contacted", "Qualified", "Won", "Lost", "Other")}
-        for row in db.execute("SELECT COALESCE(NULLIF(status,''),'Open') AS status, COUNT(*) AS count FROM leads WHERE tenant=? GROUP BY status", (tenant.upper(),)):
+        for row in rows(f"SELECT COALESCE(NULLIF(status,''),'Open') AS status, COUNT(*) AS count FROM {leads} WHERE tenant={placeholder} GROUP BY status", (tenant_key,)):
             pipeline[row['status'] if row['status'] in pipeline else 'Other'] += row['count']
-        replies = reply_report(db, tenant, start, end, channel)
-        previous_replies = reply_report(db, tenant, previous_start, start, channel)
-        hours = [dict(row) for row in db.execute(f"SELECT substr(ts_utc,12,2) AS hour, SUM(event_type='msg_in') AS inbound, SUM(event_type='msg_out') AS outbound FROM events WHERE {condition} GROUP BY hour ORDER BY hour", current_params)]
-        topics_daily = [dict(row) for row in db.execute(f"SELECT substr(ts_utc,1,10) AS day,COALESCE(NULLIF(intent,''),'unknown') AS topic,COUNT(*) AS count FROM events WHERE {condition} AND event_type='msg_out' GROUP BY day,topic", current_params)]
+        replies = reply_report(db, tenant, start, end, channel, postgres=postgres)
+        previous_replies = reply_report(db, tenant, previous_start, start, channel, postgres=postgres)
+        hours = rows(f"SELECT substr(ts_utc,12,2) AS hour, SUM(CASE WHEN event_type='msg_in' THEN 1 ELSE 0 END) AS inbound, SUM(CASE WHEN event_type='msg_out' THEN 1 ELSE 0 END) AS outbound FROM {events} WHERE {condition} GROUP BY hour ORDER BY hour")
+        topics_daily = rows(f"SELECT substr(ts_utc,1,10) AS day,COALESCE(NULLIF(intent,''),'unknown') AS topic,COUNT(*) AS count FROM {events} WHERE {condition} AND event_type='msg_out' GROUP BY day,topic")
         from service.offer_metrics import offer_report
-        promotions = offer_report(db, tenant, start, end, channel, offers or [])
+        promotions = offer_report(db, tenant, start, end, channel, offers or [], postgres=postgres)
         from service.product_metrics import product_report
-        commerce = product_report(db, tenant, start.isoformat(), end.isoformat(), channel, catalog or {})
+        commerce = product_report(db, tenant, start.isoformat(), end.isoformat(), channel, catalog or {}, postgres=postgres)
     daily_map = {row['day']: dict(row) for row in daily_rows}
     daily = []
     day = start.date()
@@ -74,23 +97,32 @@ def get_statistics(*, tenant: str, days: int, channel: str = "all", now: datetim
             "topics_daily":topics_daily, "commerce":commerce, "offers":promotions}
 
 
-def reply_report(db, tenant, start, end, channel):
+def reply_report(db, tenant, start, end, channel, *, postgres=False):
     """Pair each inbound to its route-generated response ID, never to another user."""
-    condition = "i.tenant=? AND i.ts_utc>=? AND i.ts_utc<? AND i.event_type='msg_in'"
-    values = (end.isoformat(),tenant.upper(),start.isoformat(),end.isoformat())
+    placeholder = "%s" if postgres else "?"
+    events = "v7_private.events" if postgres else "events"
+    condition = f"i.tenant={placeholder} AND i.ts_utc>={placeholder} AND i.ts_utc<{placeholder} AND i.event_type='msg_in'"
+    values = (end.isoformat(),tenant if postgres else tenant.upper(),start.isoformat(),end.isoformat())
     if channel != 'all':
-        condition += ' AND i.channel=?'
+        condition += f' AND i.channel={placeholder}'
         values += (channel,)
-    rows = [dict(row) for row in db.execute(f'''SELECT substr(i.ts_utc,1,10) AS day,
-        COUNT(*) AS inbound, SUM(COALESCE(i.message_id,'')!='') AS eligible,
+    answered = (f"NOT ({_PG_FALLBACK.replace('meta_json', 'o.meta_json')})" if postgres else
+                "COALESCE(json_extract(CASE WHEN json_valid(o.meta_json) THEN o.meta_json ELSE '{}' END,'$.fallback'),0)=0")
+    response_seconds = ("GREATEST(0,EXTRACT(EPOCH FROM o.ts_utc::timestamptz-i.ts_utc::timestamptz))" if postgres else
+                        "MAX(0,(julianday(o.ts_utc)-julianday(i.ts_utc))*86400)")
+    rows = _rows(db, f'''SELECT substr(i.ts_utc,1,10) AS day,
+        COUNT(*) AS inbound, SUM(CASE WHEN COALESCE(i.message_id,'')!='' THEN 1 ELSE 0 END) AS eligible,
         COUNT(o.id) AS replied,
         SUM(CASE WHEN o.id IS NOT NULL AND o.intent NOT IN ('system_error','system_no_results','system_clarify','unknown','out_of_scope')
-            AND COALESCE(json_extract(CASE WHEN json_valid(o.meta_json) THEN o.meta_json ELSE '{{}}' END,'$.fallback'),0)=0 THEN 1 ELSE 0 END) AS answered,
-        SUM(CASE WHEN o.id IS NOT NULL THEN MAX(0,(julianday(o.ts_utc)-julianday(i.ts_utc))*86400) ELSE 0 END) AS response_seconds
-        FROM events i LEFT JOIN events o ON o.tenant=i.tenant AND o.channel=i.channel AND o.session_id=i.session_id
+            AND {answered} THEN 1 ELSE 0 END) AS answered,
+        SUM(CASE WHEN o.id IS NOT NULL THEN {response_seconds} ELSE 0 END) AS response_seconds
+        FROM {events} i LEFT JOIN {events} o ON o.tenant=i.tenant AND o.channel=i.channel AND o.session_id=i.session_id
           AND o.event_type='msg_out' AND COALESCE(i.message_id,'')!=''
           AND o.message_id=i.message_id || CASE WHEN i.channel='whatsapp' THEN ':out' ELSE ':reply' END
-          AND o.ts_utc>=i.ts_utc AND o.ts_utc<?
-        WHERE {condition} GROUP BY day ORDER BY day''', values)]
+          AND o.ts_utc>=i.ts_utc AND o.ts_utc<{placeholder}
+        WHERE {condition} GROUP BY day ORDER BY day''', values, postgres=postgres)
+    if postgres:
+        for row in rows:
+            row['response_seconds'] = float(row['response_seconds'])
     total = {key:sum(row[key] for row in rows) for key in ('inbound','eligible','replied','answered','response_seconds')}
     return {'total':total,'daily':rows}

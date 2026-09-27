@@ -1096,9 +1096,9 @@ def api_lead_status_put(lead_id: str):
 
 @bp.get("/conversations")
 def api_conversations():
-    from service.analytics_db import _conn, _ensure_ready, _since
+    from service.analytics_db import _conn, _ensure_ready, _since, _norm_tenant
     from service import session_store
-    tenant = _tenant().upper()
+    tenant = _norm_tenant(_tenant())
     since = _since(_int_arg("minutes", 1440, maximum=43200))
     try:
         before = int(request.args.get("before", "9223372036854775807"))

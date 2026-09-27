@@ -19,7 +19,7 @@ KNOWLEDGE_FILES = ("catalog.json", "faq.json", "branches.json", "delivery.json",
 
 def get_platform_overview(container: Any, *, minutes: int = 1440, page: int = 1) -> dict:
     if container.storage._using_postgres():
-        raise RuntimeError("PostgreSQL platform overview requires a scoped tenant inventory")
+        return _postgres_platform_overview(container, minutes=minutes, page=page)
     root = Path(container.storage.business_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     tenants = sorted(
@@ -78,4 +78,41 @@ def get_platform_overview(container: Any, *, minutes: int = 1440, page: int = 1)
         "window_minutes": minutes, "company_count": len(tenants), "page": page,
         "page_size": PAGE_SIZE, "has_next": start + PAGE_SIZE < len(tenants),
         "companies": rows,
+    }
+
+
+def _postgres_platform_overview(container: Any, *, minutes: int, page: int) -> dict:
+    keys = container.storage.tenant_keys()
+    start = (page - 1) * PAGE_SIZE
+    rows = []
+    for tenant in keys[start:start + PAGE_SIZE]:
+        issues = []
+        name, mode, valid_files = tenant, str(container.settings.MODE), 0
+        for filename in KNOWLEDGE_FILES:
+            try:
+                data = container.storage.read_json(tenant, filename)
+                if not isinstance(data, (dict, list)):
+                    issues.append(f"{filename}: expected structured data")
+                    continue
+                valid_files += 1
+                if filename == 'overrides.json' and isinstance(data, dict) and isinstance(data.get('ai'), dict):
+                    mode = str(data['ai'].get('mode') or mode)
+                if filename == 'store_info.json' and isinstance(data, dict):
+                    name = str(data.get('name') or name)[:200]
+            except FileNotFoundError:
+                issues.append(f"{filename}: missing")
+        kpis = get_kpis(tenant=tenant, minutes=minutes)
+        errors = get_errors(tenant=tenant, minutes=minutes, top=5)
+        status = 'needs_attention' if issues or kpis.get('errors') else (
+            'activity_recorded' if kpis.get('total') else 'no_recent_activity'
+        )
+        rows.append({
+            'tenant': tenant, 'name': name, 'mode': mode, 'status': status,
+            'knowledge_files': valid_files, 'knowledge_files_expected': len(KNOWLEDGE_FILES),
+            'issues': issues, 'analytics_available': True, 'kpis': kpis, 'errors': errors,
+        })
+    return {
+        'generated_at': datetime.now(timezone.utc).isoformat(), 'window_minutes': minutes,
+        'company_count': len(keys), 'page': page, 'page_size': PAGE_SIZE,
+        'has_next': start + PAGE_SIZE < len(keys), 'companies': rows,
     }

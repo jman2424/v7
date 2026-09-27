@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from flask import abort, current_app, session
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from service import session_store
 
@@ -39,9 +39,8 @@ def _app_secret() -> bytes:
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    raw = (password or "").encode("utf-8")
-    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
+    """Hash new passwords without bcrypt's 72-byte truncation."""
+    return generate_password_hash(password or "", method="scrypt")
 
 
 def verify_password(password: str, password_hash: str) -> bool:

@@ -14,7 +14,10 @@ Ownership is recorded by account ID, email and home tenant in the private securi
 database; clients cannot assign ownership or activate a business. Owners can
 manage staff in those businesses; only platform operators can manage owners.
 Public registration requires email verification; tenant join requests additionally
-require owner approval. See [Registration](REGISTRATION.md) for SMTP setup.
+require owner approval. See [Registration](REGISTRATION.md) for mail setup.
+Account creation and sign-in accept email addresses up to 254 characters;
+managed-account creation validates ASCII mailbox syntax. New and reset managed
+passwords use scrypt. Existing bcrypt hashes remain supported for sign-in.
 
 Staff have no API cost or subscription access by default. Owners grant the
 independent `view_costs` and `view_subscriptions` permissions through Team access.
@@ -30,10 +33,13 @@ events and canonical Stripe responses update that ledger. Test-agent requests
 also respect activation. Existing businesses without an onboarding record retain
 their previous operation. An inactive/past-due subscription stops a managed
 business again. Test Stripe payments satisfy these checks in a test deployment.
-Ownership, activation and billing use `SECURITY_DB_PATH`; preserve it with the
-business files on durable storage. Never delete it to reset onboarding.
+Ownership, activation and billing use `SECURITY_DB_PATH` with SQLite, or private
+PostgreSQL tables when `V7_STORAGE_BACKEND=postgres`. Preserve the active storage
+with the business data. Never delete it to reset onboarding.
 
-Run from the repository root:
+For a SQLite deployment, or to prepare the protected registry before PostgreSQL
+import, run from the repository root:
+
 ```bash
 python scripts/manage_account.py operator@example.com --role platform_admin
 python scripts/manage_account.py owner@example.com --tenant TARIQ
@@ -47,6 +53,8 @@ outside business and dashboard directories. Account removal, disabling,
 password changes and role changes invalidate existing sessions. Existing
 BUSINESS_USERS_JSON and tenant-managed bcrypt accounts remain supported.
 Tenant accounts can be managed on the console's Team access page.
+PostgreSQL uses the imported `operator_accounts` rows instead of rereading this
+registry file; editing a local registry after cutover does not update those rows.
 
 All management accounts (platform administrator, business owner and staff) must
 complete password and authenticator verification in every environment. A correct
@@ -59,8 +67,9 @@ the CSRF-protected `/auth` endpoints for enrollment and verification. Old dashbo
 URLs preserve account and tenant authorization before redirecting signed-in users.
 
 Only an opaque challenge token and CSRF token enter the signed cookie. Pending
-secrets and enrolled authenticators live in the private `SECURITY_DB_PATH` SQLite
-database. Treat that database as credential storage: use persistent storage,
+secrets and enrolled authenticators live in the private security database
+(`SECURITY_DB_PATH` with SQLite, `v7_private` with PostgreSQL).
+Treat that database as credential storage: use persistent storage,
 restrict access, and include it in protected backups. Enrollment allows five
 attempts and also shares the server login rate limit. Challenges are single-use,
 bound to the browser and account credential revision, and cannot replace an
@@ -91,9 +100,9 @@ expired authenticated cookie before submitting a new login.
 
 SECRET_KEY must be random and at least 32 characters. Cookies are HttpOnly,
 SameSite=Lax and Secure when BASE_URL uses HTTPS. Management sessions expire
-after eight hours and are revocable in SECURITY_DB_PATH. Logout revokes copied
-session cookies. A shared SQLite login limiter allows five attempts per minute
-per observed client IP. Ordinary request limits are process-local.
+after eight hours and are revocable in the configured security database. Logout
+revokes copied session cookies. A shared database login limiter allows five
+attempts per minute per observed client IP. Ordinary request limits are process-local.
 
 ## Request and tenant boundaries
 
@@ -104,6 +113,23 @@ overview requires platform-admin access. Writes require CSRF tokens, except
 public chat and separately signed integration webhooks. Business files use
 allowlisted names, path containment checks, validation and pre-edit snapshots.
 CSV exports neutralize formula-leading values.
+
+PostgreSQL tenant document mutations use a database lock shared by workers.
+Staff-request approval commits the new account document and request status
+together; failure rolls back both. Concurrent account edits use the same tenant
+lock. Owner signup commits its workspace, owner account and approved request in
+one transaction. These controls supplement account authorization and CSRF checks.
+Owner signup also commits its tenant, account, ownership and approved request
+together in PostgreSQL; a failed final approval leaves the request retryable.
+
+PostgreSQL connections require a separate restricted login inheriting only
+`v7_backend`, verified TLS, and transaction-local tenant context. All private
+tables have forced RLS; Supabase Data API roles have no private-schema access.
+The platform inventory function returns only bounded pages of tenant keys for
+an unexpired administrator session, with a fixed `pg_catalog` search path.
+Owners continue listing only their assigned and owned businesses. Startup
+rejects missing or unsafe database objects and never falls back to local files.
+See [PostgreSQL setup and migration](SUPABASE_MIGRATION.md).
 
 Management responses disable caching and framing. The content security policy
 uses local scripts or per-request nonces. Each widget's allowed_origins controls
@@ -137,7 +163,8 @@ a mapping, only the configured recipient is assigned to BUSINESS_KEY. Provider
 credentials are shared by this deployment; arbitrary per-tenant credentials
 are not supported. Web chat continues to work while WhatsApp is unconfigured.
 
-Provider message IDs are deduplicated in SECURITY_DB_PATH for seven days.
+Provider message IDs are deduplicated in the configured security database for
+seven days.
 Completed Twilio replies can be replayed safely; failed processing can retry.
 This does not guarantee exactly-once external delivery if a process crashes
 after a provider accepts a send but before completion is recorded.
@@ -149,8 +176,16 @@ transcribed text under the existing conversation retention rules.
 ## Deployment requirements and limitations
 
 - Use HTTPS and set BASE_URL to the exact externally reachable origin.
-- Persist business data, snapshots, account registry and both SQLite databases.
-  Back up and restrict access to them; they contain private information.
+- With SQLite, persist business data, snapshots, account registry, both databases
+  and the CRM snapshot. With PostgreSQL, back up the complete private schema and
+  retain protected service configuration. Both contain private information.
+- The current Free Render deployment has not completed PostgreSQL cutover.
+  Obtain a verified independent export of its actual live files before any
+  deployment/restart that could discard them. [LIVE_BACKUP.md](LIVE_BACKUP.md)
+  describes the offline exporter and current recovery limitations.
+- Public signup requires a sender domain verified by the mail provider and
+  protected runtime mail credentials. Resend MCP authorization alone does not
+  configure delivery. Verify real email receipt before opening signup.
 - The default Gunicorn worker count is one because conversation memory is
   process-local. Shared session storage does not make agent memory distributed.
 - Configure trusted proxy addresses explicitly. The application does not trust

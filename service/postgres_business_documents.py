@@ -105,7 +105,7 @@ class PostgresBusinessDocuments:
                 yield connection
 
     @contextmanager
-    def locked(self) -> Iterator[None]:
+    def locked(self) -> Iterator[Any]:
         """Keep revision checks and writes in one tenant-locked transaction."""
         if self._active_connection.get() is not None:
             raise TenantDocumentStorageError("Nested tenant write lock")
@@ -118,17 +118,18 @@ class PostgresBusinessDocuments:
                 raise FileNotFoundError(self.tenant_key)
             token = self._active_connection.set(connection)
             try:
-                yield
+                yield connection
             finally:
                 self._active_connection.reset(token)
 
-    def create_tenant(self, documents: Mapping[str, Any], *, owner_key: str | None = None) -> None:
+    def create_tenant(self, documents: Mapping[str, Any], *, owner_key: str | None = None,
+                      transaction: Any | None = None) -> None:
         """Create the tenant and its initial JSON documents in one transaction."""
         prepared = [(_valid_filename(name), _jsonb(value)) for name, value in documents.items()]
         # Reject non-JSON data before opening a transaction.
         for value in documents.values():
             _json_dumps(value)
-        with self._connection() as connection:
+        with self._creation_connection(transaction) as connection:
             connection.execute("INSERT INTO v7_private.tenants (tenant) VALUES (%s)", (self.tenant_key,))
             for filename, payload in prepared:
                 connection.execute(
@@ -141,6 +142,19 @@ class PostgresBusinessDocuments:
                 "INSERT INTO v7_private.managed_businesses (tenant, owner) VALUES (%s, %s)",
                 (self.tenant_key, owner_key),
             )
+
+    @contextmanager
+    def _creation_connection(self, transaction: Any | None) -> Iterator[Any]:
+        if transaction is None:
+            with self._connection() as connection:
+                yield connection
+            return
+        # Registration supplies its already restricted server transaction only
+        # after verifying the request. Never borrow an unscoped tenant writer.
+        scope = transaction.execute("SELECT current_setting('v7.tenant', true)").fetchone()
+        if scope is None or scope[0] != self.tenant_key:
+            raise TenantDocumentStorageError('Tenant creation transaction must match its scope')
+        yield transaction
 
     def read_document(self, filename: str) -> Any:
         filename = _valid_filename(filename)
@@ -239,7 +253,8 @@ class PostgresBusinessDocuments:
         return [row[0].isoformat() for row in rows]
 
     def read_version(self, day: str, filename: str) -> Any:
-        filename = _valid_filename(filename)
+        if filename != '_snapshot.json':
+            filename = _valid_filename(filename)
         try:
             parsed_day = date.fromisoformat(day)
         except (TypeError, ValueError):

@@ -16,6 +16,7 @@ from typing import Dict, Any
 import pytest
 from flask.testing import FlaskClient
 from werkzeug.security import generate_password_hash
+from tests.pg_runtime_fixtures import native_database, pg_runtime
 
 
 class CsrfClient(FlaskClient):

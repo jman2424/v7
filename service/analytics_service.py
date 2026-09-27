@@ -47,8 +47,7 @@ def _clamp_int(v: Any, default: int, lo: int, hi: int) -> int:
 
 def _norm_tenant(t: Optional[str]) -> str:
     # CRITICAL: consistent tenant means reads match writes
-    t = (t or "default").strip() or "default"
-    return t.upper()
+    return analytics_db._norm_tenant(t)
 
 
 def _norm_channel(ch: Optional[str]) -> str:

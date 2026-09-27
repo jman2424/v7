@@ -1,30 +1,27 @@
-# Supabase migration preparation
+# Supabase storage and migration
 
 ## Current status
 
-**Preparation only: the running application still uses SQLite and JSON files.**
-This package creates and tests the destination schema and provides a verified,
-non-destructive import. It does not replace the application's storage adapter or
-switch the live deployment. The offline preparation does not contact Supabase.
-Do not set a database URL expecting Flask to switch over or remove any existing
-persistent disk before the data has been independently backed up.
+The application supports SQLite/files (the default) and PostgreSQL through
+`V7_STORAGE_BACKEND`. PostgreSQL routes business documents and versions, accounts,
+sessions, MFA, signup, billing, CRM, audits, webhook deduplication and analytics
+through `v7_private`. It does not fall back to local files on a database error.
+The runtime driver is included in `requirements.txt`.
 
-`service/postgres_business_documents.py` has a tenant-scoped document
-repository, and local adapter work covers several session, analytics, account,
-billing, registration, audit and webhook paths. The adapter is incomplete:
-platform-wide tenant inventory, some filesystem callers and full PostgreSQL
-integration checks remain unresolved. `create_app` still rejects
-`V7_STORAGE_BACKEND=postgres` so no writes can split between backends. The
-runtime PostgreSQL dependency belongs in `requirements.txt` when the full
-adapter is ready. **Do not enable this setting on Render yet.** Keep existing
-sign-in, authenticator verification, tenant permissions and Stripe activation
-checks.
-Supabase Auth and Google login are not part of this database migration.
+**The current live V7 deployment has not been switched to PostgreSQL.** Obtain and
+verify a complete independent export of its actual current data, rehearse import
+and runtime checks, and configure a verified mail sender before enabling it live.
+Pushing code or applying a schema does not preserve Render's ephemeral files.
+See [complete live backup](LIVE_BACKUP.md) and the cutover gates below.
+Existing password/authenticator verification, tenant permissions and Stripe
+activation checks remain required. Supabase Auth and Google login are not part
+of this database migration.
 
 ## Destination design
 
-The SQL files in `supabase/migrations/`, applied in filename order, create private tables in
-`v7_private`, separate from the public Data API schema:
+The SQL files in `supabase/migrations/`, applied in filename order on PostgreSQL 16
+or newer, create private tables in `v7_private`, separate from the public Data API
+schema:
 
 | Existing source | Destination |
 | --- | --- |
@@ -44,17 +41,24 @@ verification/workspace-creation requests are expired with their credentials clea
 Verified pending join requests are retained. No paid status is inferred or invented.
 
 All tables have row-level security (RLS) enabled and forced. Tenant tables require
-an exact transaction-local `v7.tenant` setting. This also means the restricted
-backend cannot list every tenant for platform-wide views; that feature needs a
-separately reviewed design. `anon`, `authenticated` and
+an exact transaction-local `v7.tenant` setting. A bounded, fixed-search-path
+`list_platform_tenant_keys` function returns tenant keys only for an unexpired
+platform-admin management session. It does not relax tenant table policies or
+expose business documents. Owner inventories remain scoped to their assigned and
+owned businesses. `anon`, `authenticated` and
 `service_role` have no access to the private schema. The non-login `v7_backend`
 role cannot create schemas, bypass RLS or delete audit records. Global authentication
 tables are accessible to that trusted backend role; they are not user-facing APIs.
 
-The future server adapter must authorize the account **before** setting tenant
-context using a parameterized `SELECT set_config('v7.tenant', %s, true)` inside a
-transaction. A browser-supplied tenant ID is never authorization. Never use a
+The server authorizes management accounts before setting tenant context through
+parameterized `SELECT set_config('v7.tenant', %s, true)` inside a transaction.
+Public channel requests retain their signed conversation, origin or webhook
+boundaries. A browser-supplied tenant ID is never management authorization. Tenant
+document writes use a shared database lock; PostgreSQL staff approval commits the
+account document and signup decision in that same transaction. Never use a
 superuser or the migration-owner connection for normal application requests.
+Owner signup also creates the workspace, account and approved request atomically;
+a failed PostgreSQL transaction leaves no partial workspace.
 
 ## Create the project
 
@@ -69,8 +73,11 @@ superuser or the migration-owner connection for normal application requests.
    project-specific certificate is needed. The importer enforces `verify-full`,
    even if a weaker SSL mode is present in the connection string. Never paste
    credentials into chat, shell arguments, source files, or browser bundles.
-5. Run all SQL migrations in filename order in the Supabase SQL editor as the migration owner.
-   Review it first; it changes only the new `v7_private` schema and `v7_backend` role.
+5. Review and run all SQL migrations in filename order as the migration owner.
+   Do not edit migrations already applied to a project. The importer requires
+   schema versions 1–5; the separate transcription migration adds `audio_seconds`.
+   Version 4 adds the gated tenant-key inventory. Version 5 preserves generated
+   `_snapshot.json` provenance files in document history.
 
 Official references: [database connections](https://supabase.com/docs/guides/database/connecting-to-postgres),
 [SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement),
@@ -78,14 +85,15 @@ Official references: [database connections](https://supabase.com/docs/guides/dat
 
 ## Rehearse the data copy
 
-Take a protected backup while **all application and webhook writers are stopped**.
-The backup must include `business/`, `logs/security.db`, `logs/analytics.db`, and
-any configured CRM/audit/registry files. If their deployment paths differ, copy
-them into the documented layout in the backup, not in the live data directory.
-Keep the live originals and an independent backup. A snapshot on the same Render
-disk is not an independent backup.
+Obtain the actual current source files and quiesce all application and webhook
+writers while retaining access to that filesystem. Do not stop or redeploy the
+current Free Render instance to install an exporter. Follow
+[LIVE_BACKUP.md](LIVE_BACKUP.md) to create and verify an independent protected copy
+with `scripts/export_runtime.py`. Include the business tree, security and analytics
+databases, CRM snapshot, audit records and any configured account registry. Keep
+the live originals; a snapshot on the same disk is not an independent backup.
 
-Install the migration-only dependency:
+Install the import tooling dependency (also included in the runtime requirements):
 
 ```sh
 python -m pip install -r requirements-migration.txt
@@ -109,6 +117,11 @@ python scripts/prepare_supabase.py --data-dir /protected/v7-backup --accounts /p
 python scripts/prepare_supabase.py --data-dir /protected/v7-backup --accounts /protected/accounts.json --verify-only --source-frozen
 ```
 
+Legacy SQLite analytics and CRM can contain uppercase tenant references while
+business directory names preserve case. Preparation reconciles these references
+only to a unique existing business and reports counts; orphan or ambiguous keys
+stop migration. The protected raw backup remains unchanged.
+
 The copy is transactional, checks row counts and content digests before committing,
 and restores identity sequences. It refuses nonempty destinations and never
 overwrites data. Reports contain counts, not credential values or business records.
@@ -123,34 +136,44 @@ rejected records. A failed import rolls back; schema preparation remains in plac
   make its local files durable. Render Free does not provide Shell or SSH access
   for exporting those files. Obtain and verify a complete independent backup
   before the first deployment that changes the storage backend.
-- Implement and test PostgreSQL connections in `session_store`, `analytics_db`,
-  and `analytics_service`; port SQLite-specific SQL and transaction locks explicitly.
-- Finish routing `Storage` reads/writes/versioning, tenant creation/listing,
-  account registry, CRM and audit persistence through the new tables. Platform
-  tenant listing must preserve RLS and include legacy businesses. Do not leave
-  parallel writable copies in SQLite/JSON or fall back to local storage on
-  database errors.
 - Create a separate, restricted server login that inherits `v7_backend`, with no
-  owner, DDL, superuser or RLS-bypass powers. Configure it only as a server secret.
-- Test the existing auth/MFA/payment/tenant suite against Supabase, including
-  transaction-local tenant scope with connection pooling and concurrent writes.
+  other role memberships, table ownership, DDL, superuser or RLS-bypass powers.
+  Revoke database/schema CREATE privileges, including inherited PUBLIC grants.
+  Configure it only as the server secret `V7_POSTGRES_DSN`; never reuse the
+  migration-owner credential. Set `V7_SUPABASE_CA_FILE` when a project CA is needed.
+  Runtime connections enforce `verify-full` even if the DSN requests weaker TLS.
+- Run the disposable PostgreSQL checks below, then verify the actual Supabase
+  connection, TLS and pooler behavior with the restricted role. Test auth, MFA,
+  tenant boundaries, concurrent account writes, payment state, reports and voice
+  accounting with isolated data before changing live configuration.
 - Rehearse restore, back up the final frozen source, repeat the import into a clean
-  destination, verify it, and only then deploy the completed PostgreSQL adapter.
+  destination and run `--verify-only`. Import preserves existing password hashes;
+  new/reset managed passwords use scrypt and legacy bcrypt sign-in remains supported.
+- Configure a sender on a domain verified by the mail provider. For Resend, the
+  runtime uses its HTTPS Email API with the protected SMTP-compatible settings;
+  MCP authorization alone does not configure Flask. See [registration](REGISTRATION.md).
+- Only after these gates, deploy with `V7_STORAGE_BACKEND=postgres` and an imported
+  `BUSINESS_KEY`. Startup checks required tables, forced RLS, restricted ownership,
+  private Data API permissions, runtime additions and the default tenant. Missing
+  or unsafe storage stops startup instead of creating a parallel local copy.
+- Verify live signup email receipt, password/authenticator sign-in, owner/staff
+  boundaries, web dictation and signed WhatsApp voice notes. Provider acceptance
+  of an email does not prove inbox delivery; mocked audio tests do not prove
+  microphone or WhatsApp delivery behavior.
 - Keep the old source read-only after cutover. Rolling back after new PostgreSQL
   writes requires reconciling those writes; switching to an old snapshot would lose data.
-
-The local integration test uses PostgreSQL compiled to WebAssembly (PGlite). It
-checks schema application, import verification and RLS. It does not establish
-Supabase network, TLS, backup, pooler or concurrent-worker behavior.
 
 ## Checks
 
 ```sh
 python -m pytest tests/test_supabase_preparation.py -q
+python -m pytest tests/test_postgres_runtime.py tests/test_postgres_auth_runtime.py tests/test_postgres_reports.py tests/test_postgres_channels.py -q
 ```
 
-Set `V7_TEST_POSTGRES_DSN` only to an **empty disposable test database** to include
-the PostgreSQL integration test. It creates a schema and test roles and refuses an
-existing `v7_private` schema. Without that variable, the integration test is skipped.
-
-Apply all files in `supabase/migrations/` in filename order, including the additive billing-discounts migration (schema version 2) and sales-actions/usage migration (schema version 3). The importer preserves saved tenant discounts and sales requests, skips short-lived sales rate-limit attempts, and requires all three versions.
+Set `V7_TEST_POSTGRES_DSN` only to an **empty disposable test database**. The native
+runtime fixtures require localhost/127.0.0.1 and a database name beginning
+`v7_disposable_`; they create the schema and a restricted test login and refuse an
+existing `v7_private` schema. Use a fresh database for the import and runtime
+commands separately. Supply a trusted local TLS CA when required. Without the
+test DSN these integration tests skip. They do not establish live Supabase network,
+backup, pooler, email or external voice-delivery behavior.

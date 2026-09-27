@@ -1,7 +1,21 @@
 from __future__ import annotations
+import pytest
 from tests.conftest import set_test_identity
 
 from service.security import generate_totp_secret, generate_totp_token
+
+
+@pytest.mark.parametrize('length', [254, 255, 320])
+def test_login_email_boundary_matches_account_creation(client, monkeypatch, length):
+    attempts = []
+    monkeypatch.setattr('service.security.authenticate_user',
+                        lambda container, **credentials: attempts.append(credentials) or None)
+    email = 'a' * (length - len('@example.test')) + '@example.test'
+    response = client.post('/auth/login', json={
+        'email': email, 'password': 'Account-test-password-123', 'tenant': 'EXAMPLE',
+    })
+    assert response.status_code == (401 if length == 254 else 400)
+    assert len(attempts) == (1 if length == 254 else 0)
 
 
 def test_api_login_replaces_anonymous_session_and_excludes_server_secrets(client, monkeypatch):

@@ -156,12 +156,13 @@ def _install_error_handlers(app: Flask) -> None:
 # App factory
 # ---------------------------------------------------------------------
 def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
-    # A partial database switch would split account, tenant and analytics writes
-    # across PostgreSQL and Render's temporary filesystem.
     storage_backend = os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower()
-    if storage_backend != "sqlite":
-        raise RuntimeError("V7_STORAGE_BACKEND is not ready for live PostgreSQL cutover")
+    if storage_backend not in {"sqlite", "postgres"}:
+        raise RuntimeError("Unsupported V7_STORAGE_BACKEND value")
     settings: Settings = load_settings(config_override)
+    if storage_backend == "postgres":
+        from service.storage_readiness import validate_postgres_storage
+        validate_postgres_storage(settings.BUSINESS_KEY)
     configure_logging(settings)
 
     # Analytics is used for leads, usage and sales. Do not serve writes when

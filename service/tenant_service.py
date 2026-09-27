@@ -21,7 +21,32 @@ class TenantService:
 
     def list_tenants(self) -> List[Dict[str, Any]]:
         if self.storage._using_postgres():
-            raise RuntimeError("PostgreSQL tenant inventory requires a scoped design")
+            from service.security import management_user, is_platform_admin
+            from service.tenant_access import owned_tenants
+            user = management_user()
+            if is_platform_admin(user):
+                keys = self.storage.tenant_keys()
+            else:
+                keys = sorted({user['tenant'], *owned_tenants(user)}, key=str.casefold)
+            tenants = []
+            for key in keys:
+                if not self.storage.tenant_exists(key):
+                    continue
+                def document(filename):
+                    try:
+                        value = self.storage.read_json(key, filename)
+                    except FileNotFoundError:
+                        return {}
+                    return value if isinstance(value, dict) else {}
+                store_info = document('store_info.json')
+                widget = document('branding.json').get('widget')
+                widget = widget if isinstance(widget, dict) else {}
+                tenants.append({
+                    'key': key, 'name': str(store_info.get('name') or key),
+                    'widget_configured': bool(widget.get('allowed_origins')),
+                    'valid': self._is_valid(key), 'activation': self.activation(key),
+                })
+            return tenants
         tenants: List[Dict[str, Any]] = []
         if not self.storage.business_root.exists():
             return tenants

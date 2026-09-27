@@ -41,7 +41,7 @@ def record_inventory(tenant: str, before: dict, after: dict) -> None:
     analytics_db._ensure_ready()
     previous = {item['sku']: item for item in catalogue_items(before)}
     if session_store._using_postgres():
-        tenant_key = tenant.upper()
+        tenant_key = analytics_db._norm_tenant(tenant)
         with session_store.postgres_connection(tenant_key) as db:
             for item in catalogue_items(after):
                 old = previous.get(item['sku'], {})
@@ -96,7 +96,7 @@ def record_sale(tenant: str, data: dict, catalog: dict) -> dict:
     channel = data.get('channel')
     if channel not in {'web', 'whatsapp', 'offline'}:
         raise ValueError('Choose web, WhatsApp or offline sales.')
-    row = (tenant.upper(), sale_id, item['sku'], item['name'], float(quantity), int(amount * 100),
+    row = (analytics_db._norm_tenant(tenant), sale_id, item['sku'], item['name'], float(quantity), int(amount * 100),
            occurred.astimezone(timezone.utc).isoformat(), channel)
     analytics_db._ensure_ready()
     if session_store._using_postgres():
@@ -137,11 +137,11 @@ def record_sale(tenant: str, data: dict, catalog: dict) -> dict:
 def void_sale(tenant: str, sale_id: str) -> bool:
     analytics_db._ensure_ready()
     if session_store._using_postgres():
-        with session_store.postgres_connection(tenant.upper()) as db:
+        with session_store.postgres_connection(tenant) as db:
             return db.execute(
                 'UPDATE v7_private.recorded_sales SET voided_utc=COALESCE(voided_utc,%s) '
                 'WHERE tenant=%s AND id=%s',
-                (analytics_db._utc_now(), tenant.upper(), sale_id),
+                (analytics_db._utc_now(), tenant, sale_id),
             ).rowcount == 1
     with analytics_db._conn() as db:
         init_tables(db)
@@ -149,25 +149,46 @@ def void_sale(tenant: str, sale_id: str) -> bool:
                           (analytics_db._utc_now(), tenant.upper(), sale_id)).rowcount == 1
 
 
-def product_report(db, tenant: str, start: str, end: str, channel: str, catalog: dict) -> dict:
+def product_report(db, tenant: str, start: str, end: str, channel: str, catalog: dict, *, postgres=False) -> dict:
     items = {item['sku']: item for item in catalogue_items(catalog)}
     products = {sku: {'sku':sku, 'name':item['name'], 'unit':item.get('unit','each'),
                      'interest':0, 'units':0, 'amount_pence':0, 'quantity':item.get('stock_quantity'),
                      'threshold':item.get('low_stock_threshold',5), 'available':item.get('in_stock',True), 'archived':False}
                 for sku,item in items.items()}
-    values = (tenant.upper(), start, end)
-    event_filter = "e.tenant=? AND e.ts_utc>=? AND e.ts_utc<? AND e.event_type='msg_out'"
-    sales_filter = 'tenant=? AND occurred_utc>=? AND occurred_utc<? AND voided_utc IS NULL'
+    tenant_key = tenant if postgres else tenant.upper()
+    values = (tenant_key, start, end)
+    placeholder = '%s' if postgres else '?'
+    events = 'v7_private.events' if postgres else 'events'
+    recorded_sales = 'v7_private.recorded_sales' if postgres else 'recorded_sales'
+    inventory_history = 'v7_private.inventory_history' if postgres else 'inventory_history'
+    event_filter = f"e.tenant={placeholder} AND e.ts_utc>={placeholder} AND e.ts_utc<{placeholder} AND e.event_type='msg_out'"
+    sales_filter = f'tenant={placeholder} AND occurred_utc>={placeholder} AND occurred_utc<{placeholder} AND voided_utc IS NULL'
     if channel != 'all':
-        event_filter += ' AND e.channel=?'
-        sales_filter += ' AND channel=?'
+        event_filter += f' AND e.channel={placeholder}'
+        sales_filter += f' AND channel={placeholder}'
         values += (channel,)
-    interest = [dict(row) for row in db.execute(f'''SELECT substr(e.ts_utc,1,10) AS day, p.value AS sku, COUNT(*) AS count
-        FROM events e, json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{{}}' END, '$.products') p
-        WHERE {event_filter} AND p.type='text' GROUP BY day,sku''', values)]
-    sales = [dict(row) for row in db.execute(f'''SELECT substr(occurred_utc,1,10) AS day,sku,MAX(name) AS name,
+    def rows(query, parameters=values):
+        if postgres:
+            return analytics_db._pg_rows(db, query, parameters)
+        return [dict(row) for row in db.execute(query, parameters)]
+    if postgres:
+        meta = "(CASE WHEN pg_input_is_valid(e.meta_json, 'jsonb') THEN e.meta_json::jsonb ELSE '{}'::jsonb END)"
+        products_json = f"CASE WHEN jsonb_typeof({meta}->'products')='array' THEN {meta}->'products' ELSE '[]'::jsonb END"
+        product_source = f"{events} e CROSS JOIN LATERAL jsonb_array_elements({products_json}) p(value)"
+        sku_expression = "p.value #>> '{}'"
+        product_type = "jsonb_typeof(p.value)='string'"
+    else:
+        product_source = f"{events} e, json_each(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{{}}' END, '$.products') p"
+        sku_expression = 'p.value'
+        product_type = "p.type='text'"
+    interest = rows(f'''SELECT substr(e.ts_utc,1,10) AS day, {sku_expression} AS sku, COUNT(*) AS count
+        FROM {product_source} WHERE {event_filter} AND {product_type} GROUP BY day,sku''')
+    sales = rows(f'''SELECT substr(occurred_utc,1,10) AS day,sku,MAX(name) AS name,
         SUM(quantity) AS units,SUM(amount_pence) AS amount_pence,COUNT(*) AS entries
-        FROM recorded_sales WHERE {sales_filter} GROUP BY day,sku''', values)]
+        FROM {recorded_sales} WHERE {sales_filter} GROUP BY day,sku''')
+    if postgres:
+        for row in sales:
+            row['amount_pence'] = int(row['amount_pence'])
     for row in interest + sales:
         sku = row['sku']
         if sku not in products:
@@ -177,12 +198,14 @@ def product_report(db, tenant: str, start: str, end: str, channel: str, catalog:
         products[sku]['units'] += row.get('units',0)
         products[sku]['amount_pence'] += row.get('amount_pence',0)
     # Include the last known level before the window, without assuming it existed earlier.
-    inventory = [dict(row) for row in db.execute('''SELECT sku,ts_utc,quantity,threshold,in_stock FROM inventory_history h
-        WHERE tenant=? AND ts_utc<? AND (ts_utc>=? OR id=(SELECT h2.id FROM inventory_history h2
-        WHERE h2.tenant=h.tenant AND h2.sku=h.sku AND h2.ts_utc<? ORDER BY h2.ts_utc DESC,h2.id DESC LIMIT 1))
-        ORDER BY ts_utc,id''', (tenant.upper(),end,start,start))]
-    recent = [dict(row) for row in db.execute(f'''SELECT id,sku,name,quantity,amount_pence,occurred_utc,channel
-        FROM recorded_sales WHERE {sales_filter} ORDER BY occurred_utc DESC,id LIMIT 30''', values)]
-    first = db.execute("SELECT MIN(ts_utc) FROM events WHERE tenant=? AND json_type(CASE WHEN json_valid(meta_json) THEN meta_json ELSE '{}' END,'$.products')='array'", (tenant.upper(),)).fetchone()[0]
+    inventory = rows(f'''SELECT sku,ts_utc,quantity,threshold,in_stock FROM {inventory_history} h
+        WHERE tenant={placeholder} AND ts_utc<{placeholder} AND (ts_utc>={placeholder} OR id=(SELECT h2.id FROM {inventory_history} h2
+        WHERE h2.tenant=h.tenant AND h2.sku=h.sku AND h2.ts_utc<{placeholder} ORDER BY h2.ts_utc DESC,h2.id DESC LIMIT 1))
+        ORDER BY ts_utc,id''', (tenant_key,end,start,start))
+    recent = rows(f'''SELECT id,sku,name,quantity,amount_pence,occurred_utc,channel
+        FROM {recorded_sales} WHERE {sales_filter} ORDER BY occurred_utc DESC,id LIMIT 30''')
+    tracking_filter = (f"jsonb_typeof({meta}->'products')='array'" if postgres else
+                       "json_type(CASE WHEN json_valid(e.meta_json) THEN e.meta_json ELSE '{}' END,'$.products')='array'")
+    first = rows(f"SELECT MIN(ts_utc) AS first FROM {events} e WHERE tenant={placeholder} AND {tracking_filter}", (tenant_key,))[0]['first']
     return {'products':list(products.values()),'interest_daily':interest,'sales_daily':sales,
             'inventory':inventory,'recent_sales':recent,'interest_tracking_since':first}

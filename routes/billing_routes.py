@@ -55,10 +55,18 @@ def companies_get():
     except ValueError:
         abort(400,description='invalid_page')
     matches = [row for row in companies if search in (row['key']+' '+row['name']).lower()]
-    with subscriptions.connection() as db:
+    def billing_details(company, db):
+        company['contracts'] = [dict(row) for row in db.execute('SELECT kind,status,next_due,paused FROM billing_contracts WHERE tenant=?',(company['key'],))]
+        totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=?",(company['key'],)).fetchone())
+        company['totals'] = {key: int(value) for key, value in totals.items()}
+    if subscriptions.session_store._using_postgres():
         for company in matches[(page-1)*50:page*50]:
-            company['contracts'] = [dict(row) for row in db.execute('SELECT kind,status,next_due,paused FROM billing_contracts WHERE tenant=?',(company['key'],))]
-            company['totals'] = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=?",(company['key'],)).fetchone())
+            with subscriptions.connection(company['key']) as db:
+                billing_details(company, db)
+    else:
+        with subscriptions.connection() as db:
+            for company in matches[(page-1)*50:page*50]:
+                billing_details(company, db)
     return jsonify(companies=matches[(page-1)*50:page*50],total=len(companies),matched=len(matches),page=page,has_next=len(matches)>page*50)
 
 

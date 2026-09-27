@@ -164,7 +164,25 @@ class Storage:
 
     def tenant_keys(self) -> List[str]:
         if self._using_postgres():
-            raise RuntimeError("PostgreSQL tenant inventory requires a scoped design")
+            from flask import session
+            from service import session_store
+            from service.security import management_user
+            # Revalidate session revision and privileges before asking the
+            # bounded database function for keys. No tenant document is exposed.
+            management_user(platform_only=True)
+            token = session.get("management_token")
+            if not isinstance(token, str):
+                raise RuntimeError("Platform administrator session required")
+            keys = []
+            with session_store.postgres_connection(repeatable_read=True) as connection:
+                while True:
+                    rows = connection.execute(
+                        "SELECT tenant FROM v7_private.list_platform_tenant_keys(%s, %s, %s)",
+                        (session_store._digest(token), 500, len(keys)),
+                    ).fetchall()
+                    keys.extend(self.validate_tenant_key(row[0]) for row in rows)
+                    if len(rows) < 500:
+                        return keys
         root = self.business_root
         if not root.exists():
             return []
@@ -257,8 +275,8 @@ class Storage:
     def write_lock(self, tenant: Optional[str] = None):
         """Serialize revision-checked MCP/API writes with existing JSON writers."""
         if self._using_postgres():
-            with self._postgres_repository(tenant).locked():
-                yield
+            with self._postgres_repository(tenant).locked() as connection:
+                yield connection
             return
         self.business_root.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.business_root / '.write-lock.sqlite3', timeout=10)

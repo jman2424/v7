@@ -208,10 +208,15 @@ class MessageHandlerV7:
                 self.sales_actions = load_actions(storage, storage.tenant_key)
             except ActionError:
                 pass
-        if storage is not None and storage.file_path(storage.tenant_key, 'business_core.json').is_file():
-            from service.business_core import BusinessCore
-            self.business_core = BusinessCore(storage, storage.tenant_key)
-            self.sales_context['business_core'] = self.business_core.public_context()
+        if storage is not None:
+            try:
+                storage.read_json(storage.tenant_key, 'business_core.json')
+            except FileNotFoundError:
+                pass
+            else:
+                from service.business_core import BusinessCore
+                self.business_core = BusinessCore(storage, storage.tenant_key)
+                self.sales_context['business_core'] = self.business_core.public_context()
 
         self.brain = BrainV7(getattr(deps, "openai_client", None))
         tone_style, max_sentences = self._tone_settings()
@@ -309,21 +314,6 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            # 0.75) Out of scope
-            if self._looks_out_of_scope(user_text):
-                reply_text = f"I can help with questions about {self._business_scope()}."
-                safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent="out_of_scope",
-                    plan=safe_plan,
-                    facts={},
-                    entities=self._entities_from_plan(safe_plan),
-                    items=[],
-                )
-
             # 0.9) Explicit human handoff and voluntary contact details.
             contact = self._handoff_contact(user_text, session_snapshot)
             if contact and self._has_pending_handoff(session_snapshot):
@@ -356,6 +346,27 @@ class MessageHandlerV7:
                     entities={},
                     items=[],
                 )
+
+            # "Offer" can describe a service, rather than a promotion. An
+            # exact owner-maintained FAQ can answer that availability question.
+            # Current prices, stock, delivery and promotions retain their paths.
+            if (re.search(r"\b(?:do|can|could)\s+you\s+offer\b", user_text, re.I)
+                    and not self._PRICE_REQUEST.search(user_text)
+                    and not re.search(
+                        r"\b(?:stock|available|delivery|shipping|collection|pick[ -]?up|"
+                        r"offers|deals?|discounts?|promotions?|sales?|specials?|bogo|coupons?)\b",
+                        user_text, re.I)):
+                service_faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
+                if (service_faq and self._normalize_text(service_faq["question"])
+                        == self._normalize_text(user_text)):
+                    plan = self._simple_plan("faq", "FAQ_LOOKUP", session_snapshot)
+                    facts = {"faq": service_faq}
+                    reply_text = self.renderer.render(
+                        user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                    return self._wrap_reply(
+                        request_id=request_id, t0=t0, reply=reply_text, intent="faq",
+                        plan=plan, facts=facts, entities={}, items=[],
+                    )
 
             offers = self._current_offers(user_text)
             if offers is not None:
@@ -582,6 +593,21 @@ class MessageHandlerV7:
 
             if product_query:
                 plan = self._heuristic_plan(user_text, request_id=request_id)
+
+            # Tenant FAQs and imported facts can cover otherwise unrelated topics.
+            if not plan and self._looks_out_of_scope(user_text):
+                reply_text = f"I can help with questions about {self._business_scope()}."
+                safe_plan = self._simple_plan("out_of_scope", "SMALLTALK_REPLY", session_snapshot)
+                return self._wrap_reply(
+                    request_id=request_id,
+                    t0=t0,
+                    reply=reply_text,
+                    intent="out_of_scope",
+                    plan=safe_plan,
+                    facts={},
+                    entities=self._entities_from_plan(safe_plan),
+                    items=[],
+                )
 
             # 4) Otherwise brain
             if not plan:
@@ -816,12 +842,19 @@ class MessageHandlerV7:
         t = self._clean_text(text)
         if not t:
             return False
-        for h in self._OUT_OF_SCOPE_HINTS:
-            if h in t:
-                if self._looks_like_product_query(text):
-                    return False
-                return True
-        return False
+        hints = [hint for hint in self._OUT_OF_SCOPE_HINTS
+                 if re.search(r"\b" + re.escape(hint) + r"\b", t)]
+        if not hints or self._looks_like_product_query(text):
+            return False
+        descriptions = [str(self.sales_context.get(key) or "")
+                        for key in ("name", "about", "business_focus", "categories")]
+        pages = self.website_knowledge.get("pages", [])
+        if isinstance(pages, list):
+            descriptions.extend(str(page.get("title") or "") + " " + str(page.get("text") or "")
+                                for page in pages if isinstance(page, dict))
+        tenant_scope = self._clean_text(" ".join(descriptions))
+        return any(not re.search(r"\b" + re.escape(hint) + r"\b", tenant_scope)
+                   for hint in hints)
 
     def _looks_like_branch_or_delivery_question(self, text: str) -> bool:
         t = self._clean_text(text)
@@ -1008,7 +1041,12 @@ class MessageHandlerV7:
 
     def _current_offers(self, user_text: str) -> Optional[Dict[str, Any]]:
         """Return only current tenant offers, optionally scoped to a named product."""
-        if re.search(r"\b(?:do you|can you)\s+offer\s+(?:free\s+)?(?:delivery|shipping|collection|pick[ -]?up)\b", user_text, re.I):
+        if (re.search(r"\b(?:do|can|could)\s+you\s+offer\b", user_text, re.I)
+                and not re.search(
+                    r"\b(?:offers|deals?|discounts?|promotions?|sales?|specials?|bogo|coupons?)\b",
+                    user_text, re.I)):
+            # Service/product availability belongs to tenant facts or catalog,
+            # even when no exact FAQ exists. Only explicit promotions use offers.
             return None
         if not self._OFFER_REQUEST.search(user_text or ""):
             return None

@@ -18,7 +18,7 @@ def validated_permissions(value):
     if not isinstance(value, list) or any(not isinstance(item, str) or item not in STAFF_PERMISSIONS for item in value):
         raise ValueError('invalid_account_permissions')
     return sorted(set(value))
-_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_EMAIL_RE = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z0-9.-]+\Z")
 
 
 class AccountService:
@@ -33,7 +33,7 @@ class AccountService:
         password = str(payload.get("password") or "")
         roles = self._roles(payload.get("roles"))
 
-        if not _EMAIL_RE.fullmatch(email) or len(email) > 320:
+        if not _EMAIL_RE.fullmatch(email) or len(email) > 254:
             raise ValueError("invalid_account_email")
         if len(password) < 12 or len(password) > 256:
             raise ValueError("password_must_be_at_least_12_characters")
@@ -50,7 +50,8 @@ class AccountService:
         }
         with self.storage.write_lock(tenant):
             accounts = self._accounts(tenant)
-            if any(secrets.compare_digest(str(stored.get("email") or "").lower(), email) for stored in accounts):
+            if any(secrets.compare_digest(str(stored.get("email") or "").lower().encode('utf-8'),
+                                          email.encode('utf-8')) for stored in accounts):
                 raise ValueError("account_already_exists")
             self.storage._write_json(tenant, ACCOUNT_FILE, [*accounts, account])
         return self._public_account(account)
@@ -60,7 +61,7 @@ class AccountService:
         if not wanted:
             return None
         for account in self._accounts(tenant):
-            if secrets.compare_digest(str(account.get("id") or ""), wanted):
+            if secrets.compare_digest(str(account.get("id") or "").encode('utf-8'), wanted.encode('utf-8')):
                 return account
         return None
 
@@ -84,7 +85,7 @@ class AccountService:
         with self.storage.write_lock(tenant):
             accounts = self._accounts(tenant)
             for index, stored in enumerate(accounts):
-                if not secrets.compare_digest(str(stored.get("id") or ""), wanted):
+                if not secrets.compare_digest(str(stored.get("id") or "").encode('utf-8'), wanted.encode('utf-8')):
                     continue
                 updated = dict(stored)
                 if 'permissions' in payload:

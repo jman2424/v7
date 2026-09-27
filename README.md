@@ -24,7 +24,7 @@ agent for its own niche.
 ## Current Stack
 
 - Python/Flask backend
-- JSON-backed tenant configuration under `business/`
+- Tenant configuration under `business/` with SQLite/files, or private PostgreSQL tables
 - V5/V6/V7 AI mode strategies under `ai_modes/`
 - Web and WhatsApp routes under `routes/`
 - Svelte management console under `frontend/`
@@ -58,10 +58,23 @@ it first creates the service. Add the WhatsApp, OpenAI, and billing secrets
 marked `sync: false` in the Render dashboard; Blueprint updates intentionally
 do not overwrite existing secret values.
 
-Do not run a customer-facing deployment on Render's Free plan: it has no
-persistent disk, so owner edits and lead data are not durable across restarts.
-The first start with `V7_DATA_DIR` seeds the bundled starter tenant once and
-never overwrites subsequent tenant data.
+Render's Free plan has no persistent disk: SQLite/file-backed owner edits and
+lead data are not durable across restarts. The first SQLite start with
+`V7_DATA_DIR` seeds the bundled starter tenant once and never overwrites subsequent
+tenant data.
+
+For external PostgreSQL storage, set `V7_STORAGE_BACKEND=postgres`, a protected
+restricted-login `V7_POSTGRES_DSN`, and `V7_SUPABASE_CA_FILE` when a project CA is
+required. Connections enforce verified TLS and tenant RLS. Startup refuses missing
+or unsafe storage; it does not seed or fall back to local files. Follow
+[Supabase storage and migration](docs/SUPABASE_MIGRATION.md) for all migrations
+(schema versions 1-5), import and disposable database checks.
+
+The current live V7 instance has not completed this cutover. Preserve a complete
+independent export of its business documents, security/analytics databases, CRM
+and configured account/audit data before changing or redeploying it. See
+[complete live backup](docs/LIVE_BACKUP.md) and `scripts/export_runtime.py`.
+Public signup also needs a verified mail sender; see [registration setup](docs/REGISTRATION.md).
 
 ## Website Widget
 
@@ -113,7 +126,8 @@ That operator can create tenant owner
 and staff accounts in the Team section of `/console/`; hashes stay server-side
 in the tenant's protected account data. `BUSINESS_USERS_JSON` remains available
 for migration from existing deployments. Never put a real password or hash in a
-client bundle or commit one to the repository.
+client bundle or commit one to the repository. PostgreSQL uses imported operator
+registry rows; changing a local registry after cutover does not update them.
 
 The console gives each owner structured controls for their business profile,
 branches and opening hours, website widget, catalogue, current offers, FAQs,
@@ -273,9 +287,9 @@ Fast paths and deterministic replies do not create API-call records.
 
 Accounting stores only model, company, channel, purpose, timestamps, status,
 token counts and a USD cost snapshot in an additive `api_usage` table in
-`ANALYTICS_DB_PATH`. Keep that database on persistent storage and back it up;
-ephemeral hosting loses retained usage after replacement/redeployment. There is
-no import of spending before this feature. Unknown prices, nonstandard tiers,
+`ANALYTICS_DB_PATH` with SQLite, or the private PostgreSQL schema. Back up the
+active storage; ephemeral SQLite hosting loses retained usage after replacement
+or redeployment. There is no import of spending before this feature. Unknown prices, nonstandard tiers,
 failed requests and missing provider usage are explicitly unpriced. SDK retries
 without returned usage, taxes, credits and other applications are not included;
 this is an estimate, not the provider invoice. Browser speech is not billed by
@@ -326,7 +340,7 @@ subscription access is read-only. All accounts require authenticator 2FA. New
 businesses can be configured before launch, but only activate after both the
 platform subscription invoice and implementation payment are confirmed. Existing
 businesses keep their current operation. Ownership and activation records live in
-SECURITY_DB_PATH and need persistent storage along with account and billing data.
+the configured security database and need durable storage and protected backups.
 No real Stripe charge is taken by tests or by deploying the code.
 
 Stripe setup (server-side only):
@@ -345,9 +359,9 @@ Stripe setup (server-side only):
   Old open combined checkouts are expired when replaced. Optional WhatsApp has
   its own monthly subscription. API usage is additional and paid separately.
   The homepage and subscription page explain all four charges and VAT.
-- Use **persistent** `SECURITY_DB_PATH`, `V7_DATA_DIR` and `ANALYTICS_DB_PATH`
-  storage before onboarding paying companies. This deployment's previous free
-  Render instance has ephemeral local storage; deploying code alone does not
+- Use persistent SQLite/file storage or complete the verified PostgreSQL migration
+  before onboarding paying companies. The current Free Render instance's local
+  data is ephemeral; deploying code alone does not preserve existing data or
   configure durable billing, account, authenticator or usage storage.
 
 Only signature-verified webhooks update payments. The server re-fetches Stripe
