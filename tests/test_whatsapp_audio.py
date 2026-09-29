@@ -11,6 +11,19 @@ from twilio.request_validator import RequestValidator
 
 from connectors.whatsapp import parse_inbound
 from connectors import whatsapp_audio
+from service.speech_transcription import SpeechTranscriptionError
+
+
+def _cloud_voice_post(client, message_id):
+    payload = {"entry": [{"changes": [{"value": {
+        "metadata": {"phone_number_id": "phone-id"},
+        "messages": [{"id": message_id, "from": "447700900123", "type": "audio",
+                      "audio": {"id": "998877", "mime_type": "audio/ogg"}}],
+    }}]}]}
+    body = json.dumps(payload).encode()
+    signature = hmac.new(b"configured-secret", body, hashlib.sha256).hexdigest()
+    return client.post("/whatsapp/webhook", data=body, headers={
+        "Content-Type": "application/json", "X-Hub-Signature-256": "sha256=" + signature})
 
 
 @pytest.fixture
@@ -168,3 +181,66 @@ def test_twilio_voice_note_uses_signed_form(client, app, monkeypatch, wa_config)
     response = client.post("/whatsapp/webhook", data=form, headers={"X-Twilio-Signature": signature})
     assert response.status_code == 200
     assert calls == ["Can you help me?"]
+
+
+@pytest.mark.parametrize("failure", [
+    whatsapp_audio.AudioMediaError("audio_too_large"),
+    whatsapp_audio.AudioMediaError("unsupported_audio_type"),
+    SpeechTranscriptionError("invalid_audio"),
+    SpeechTranscriptionError("no_speech_detected"),
+    SpeechTranscriptionError("transcript_too_long"),
+])
+def test_cloud_unusable_voice_gets_text_fallback_once(client, app, monkeypatch, wa_config, failure):
+    handler = Mock(side_effect=AssertionError("invalid audio reached the agent"))
+    app.container.for_tenant("EXAMPLE").handler.handle = handler
+    downloads = Mock()
+    if isinstance(failure, whatsapp_audio.AudioMediaError):
+        downloads.side_effect = failure
+    else:
+        downloads.return_value = (b"voice", "audio/ogg")
+        monkeypatch.setattr("service.speech_transcription.transcribe_audio", Mock(side_effect=failure))
+    monkeypatch.setattr("routes.whatsapp_routes.download_audio", downloads)
+    sends = Mock()
+    monkeypatch.setattr("routes.whatsapp_routes.send_reply", sends)
+
+    assert _cloud_voice_post(client, "wamid.unusable").status_code == 200
+    assert _cloud_voice_post(client, "wamid.unusable").status_code == 200
+    assert downloads.call_count == sends.call_count == 1
+    assert "text" in sends.call_args.args[1]
+    assert "shorter recording" in sends.call_args.args[1]
+    handler.assert_not_called()
+
+
+def test_twilio_unusable_voice_returns_text_fallback(client, app, monkeypatch, wa_config):
+    handler = Mock(side_effect=AssertionError("invalid audio reached the agent"))
+    app.container.for_tenant("EXAMPLE").handler.handle = handler
+    monkeypatch.setattr("routes.whatsapp_routes.download_audio",
+                        Mock(side_effect=whatsapp_audio.AudioMediaError("empty_audio")))
+    form = {"Body": "", "From": "whatsapp:+447700900123", "To": "whatsapp:+447700900999",
+            "MessageSid": "SMunusable", "NumMedia": "1", "MediaContentType0": "audio/ogg",
+            "MediaUrl0": "https://api.twilio.com/voice"}
+    signature = RequestValidator("configured-token").compute_signature(
+        app.container.settings.BASE_URL + "/whatsapp/webhook", form)
+    response = client.post("/whatsapp/webhook", data=form, headers={"X-Twilio-Signature": signature})
+    assert response.status_code == 200
+    assert "send your question as text" in response.text
+    handler.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [
+    whatsapp_audio.AudioMediaError("media_unavailable"),
+    whatsapp_audio.AudioMediaError("media_identity_mismatch"),
+    SpeechTranscriptionError("transcription_failed"),
+    SpeechTranscriptionError("transcription_unavailable"),
+])
+def test_temporary_or_untrusted_voice_failure_still_fails_closed(client, monkeypatch, wa_config, failure):
+    if isinstance(failure, whatsapp_audio.AudioMediaError):
+        monkeypatch.setattr("routes.whatsapp_routes.download_audio", Mock(side_effect=failure))
+    else:
+        monkeypatch.setattr("routes.whatsapp_routes.download_audio", lambda *_a, **_kw: (b"voice", "audio/ogg"))
+        monkeypatch.setattr("service.speech_transcription.transcribe_audio", Mock(side_effect=failure))
+    sends = Mock()
+    monkeypatch.setattr("routes.whatsapp_routes.send_reply", sends)
+    response = _cloud_voice_post(client, "wamid.temporary")
+    assert response.status_code == 503
+    sends.assert_not_called()

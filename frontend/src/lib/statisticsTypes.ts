@@ -1,4 +1,4 @@
-export type ReplyTotals = {inbound:number;eligible:number;replied:number;answered:number;response_seconds:number};
+export type ReplyTotals = {inbound:number;eligible:number;replied:number;answered:number;response_seconds:number;timed_replies?:number};
 export type ReplyReport = {total:ReplyTotals;daily:(ReplyTotals & {day:string})[]};
 export type Product = {sku:string;name:string;unit:string;interest:number;units:number;amount_pence:number;quantity:number|null;threshold:number;available:boolean;archived:boolean};
 export type Sale = {id:string;sku:string;name:string;quantity:number;amount_pence:number;occurred_utc:string;channel:string};

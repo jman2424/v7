@@ -59,6 +59,9 @@ account document and signup decision in that same transaction. Never use a
 superuser or the migration-owner connection for normal application requests.
 Owner signup also creates the workspace, account and approved request atomically;
 a failed PostgreSQL transaction leaves no partial workspace.
+Repository initialization is serialized per `Storage` instance, so concurrent
+first requests reuse the same tenant transaction context. Connections themselves
+remain isolated between requests.
 
 ## Create the project
 

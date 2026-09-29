@@ -148,11 +148,14 @@ After transferring the protected backup, verify it again:
 
 ```sh
 python scripts/export_runtime.py --out /protected/v7-backup --verify-only
-python scripts/prepare_supabase.py --data-dir /protected/v7-backup --accounts /protected/v7-backup/accounts.json
+python scripts/prepare_supabase.py --data-dir /protected/v7-backup
 ```
 
-Omit the `--accounts` argument from the dry run only when no registry was configured
-and the manifest records `accounts_included: false`. A successful offline export
+Preparation automatically includes the canonical `accounts.json` registry when it
+is present, preserving operator passwords and MFA settings even without repeating
+`--accounts`. Use `--accounts` for a separately stored registry in a raw frozen
+backup. The preparation CLI verifies an existing export manifest before connecting
+to PostgreSQL. A successful offline export
 does not import data, configure PostgreSQL, or authorize deployment. Continue with
 the restore/import verification gates in [SUPABASE_MIGRATION.md](SUPABASE_MIGRATION.md).
 

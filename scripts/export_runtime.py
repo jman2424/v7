@@ -65,10 +65,10 @@ def _checksum(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _inventory(root: Path) -> dict[str, Path]:
+def _inventory(root: Path, *, ignore_coordination: bool = False) -> dict[str, Path]:
     result = {}
     for path in sorted(root.rglob('*')):
-        if path.parent == root and path.name in _COORDINATION:
+        if ignore_coordination and path.parent == root and path.name in _COORDINATION:
             _safe_path(path)
             continue
         if path.is_dir() and not path.is_symlink():
@@ -80,7 +80,7 @@ def _inventory(root: Path) -> dict[str, Path]:
 
 def _source_state(sources: Sources) -> dict[str, str]:
     state = {'business/' + name: _checksum(path)
-             for name, path in _inventory(sources.business).items()}
+             for name, path in _inventory(sources.business, ignore_coordination=True).items()}
     for path in sorted(sources.business.rglob('*')):
         if path.is_dir():
             _safe_path(path, directory=True)
@@ -215,7 +215,7 @@ def export_runtime(sources: Sources, destination: Path, *, source_frozen: bool =
             if path.is_dir():
                 _safe_path(path, directory=True)
                 (business / path.relative_to(sources.business)).mkdir(mode=0o700, parents=True, exist_ok=True)
-        for name, path in _inventory(sources.business).items():
+        for name, path in _inventory(sources.business, ignore_coordination=True).items():
             _copy_file(path, business / name)
         _copy_database(sources.security, destination / 'logs/security.db')
         _copy_database(sources.analytics, destination / 'logs/analytics.db')
@@ -262,29 +262,35 @@ def export_runtime(sources: Sources, destination: Path, *, source_frozen: bool =
 
 def configured_sources(args) -> Sources:
     root = _safe_path(args.source_dir, directory=True)
-    def rooted(value):
-        path = Path(value).expanduser()
+    def rooted(value, *, expand_user=False):
+        path = Path(value).expanduser() if expand_user else Path(value)
         return path if path.is_absolute() else root / path
-    data_root = rooted(os.getenv('V7_DATA_DIR', '').strip()) if os.getenv('V7_DATA_DIR', '').strip() else root
+    raw_data_root = os.getenv('V7_DATA_DIR', '').strip()
+    data_root = rooted(raw_data_root, expand_user=True) if raw_data_root else root
+    # Storage expands V7_DATA_DIR; existing CRM/audit defaults do not. Mirror
+    # the actual source paths instead of choosing a different file during export.
+    file_data_root = rooted(raw_data_root) if raw_data_root else root
     business = args.business_dir or data_root / 'business'
     security = args.security_db or os.getenv('SECURITY_DB_PATH') or root / 'logs/security.db'
     analytics = args.analytics_db or os.getenv('ANALYTICS_DB_PATH') or Path('/app/logs/analytics.db')
     configured_crm = args.crm_snapshot or os.getenv('CRM_SNAPSHOT_PATH', '').strip()
-    crm = configured_crm or data_root / 'logs/crm_snapshot.json'
-    audit = args.audit_log or data_root / 'logs/selfrepair.log'
+    crm = configured_crm or file_data_root / 'logs/crm_snapshot.json'
+    audit = args.audit_log or file_data_root / 'logs/selfrepair.log'
     accounts = args.accounts or os.getenv('ADMIN_USERS_FILE', '').strip()
     if args.no_crm_snapshot:
-        if configured_crm or rooted(crm).exists():
+        if configured_crm or rooted(crm, expand_user=bool(args.crm_snapshot)).exists():
             raise ValueError('Cannot omit a configured or existing CRM snapshot')
         crm = None
     if args.no_audit_log:
-        if args.audit_log or rooted(audit).exists():
+        if args.audit_log or rooted(audit, expand_user=bool(args.audit_log)).exists():
             raise ValueError('Cannot omit a configured or existing audit log')
         audit = None
-    return Sources(rooted(business), rooted(security), rooted(analytics),
-                   rooted(crm) if crm is not None else None,
-                   rooted(audit) if audit is not None else None,
-                   rooted(accounts) if accounts else None)
+    return Sources(rooted(business, expand_user=bool(args.business_dir)),
+                   rooted(security, expand_user=bool(args.security_db)),
+                   rooted(analytics, expand_user=bool(args.analytics_db)),
+                   rooted(crm, expand_user=bool(args.crm_snapshot)) if crm is not None else None,
+                   rooted(audit, expand_user=bool(args.audit_log)) if audit is not None else None,
+                   rooted(accounts, expand_user=True) if accounts else None)
 
 
 def main(argv=None):

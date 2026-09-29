@@ -106,6 +106,9 @@ Signed Meta and Twilio webhooks also accept compatible audio voice notes. V7
 downloads at most 10 MiB from the provider's authenticated media endpoint,
 transcribes the audio, and sends the transcript through the same tenant agent
 as text. Raw audio is not stored. `OPENAI_API_KEY` is required for voice notes.
+An empty, unsupported or unusable recording receives a text reply asking the
+customer to type their question or record again. Duplicate webhooks reuse that
+reply; temporary download or transcription failures remain retryable.
 For Twilio media, set `TWILIO_API_KEY` and `TWILIO_API_SECRET` for API-key
 authentication; the existing Account SID and auth token can be used when those
 are unavailable. `TWILIO_ACCOUNT_SID` can pin the expected account.
@@ -229,6 +232,9 @@ customer satisfaction, delivery or purchase. Untracked messages are excluded and
 shown separately. Reply timing uses retained event timestamps (one-second
 precision). Daily rates follow the inbound day, while message-volume graphs use
 each event's own day. Busiest-hour, query-topic and fallback/error charts use UTC.
+Malformed legacy metadata does not stop the report. Reply counts are retained
+when timestamps are unusable; the additive `timed_replies` field counts only
+measurable replies and is the denominator for average reply generation time.
 
 **Products, sales & stock** ranks matched product enquiries, owner-recorded units
 sold and current quantities in either direction. Product interest is recorded at

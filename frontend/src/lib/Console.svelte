@@ -250,6 +250,7 @@
   let totp = '';
   let mfa: {enrollment:boolean;email:string;setup_key?:string;qr_image?:string}|null = null;
   let loginError = '';
+  let signingIn = false;
   let formStatus = '';
   let formError = false;
   let loading = true;
@@ -620,42 +621,52 @@
   }
 
   async function login() {
+    if (signingIn) return;
+    signingIn = true;
     loginError = '';
-    let sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
-    // A revoked cookie is cleared by the first request. Get a fresh anonymous
-    // CSRF token before submitting credentials, without retrying the login.
-    if (sessionResponse.status === 401) {
-      sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+    try {
+      let sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      // A revoked cookie is cleared by the first request. Get a fresh anonymous
+      // CSRF token before submitting credentials, without retrying the login.
+      if (sessionResponse.status === 401) {
+        sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      }
+      const sessionData = await readJson(sessionResponse);
+      csrf = sessionData.csrf_token || '';
+      if (!sessionResponse.ok || !csrf) {
+        loginError = 'Could not start a secure sign-in session. Reload the page and allow cookies for this site.';
+        return;
+      }
+      const response = await fetch(apiPath('/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password, totp, tenant })
+      });
+      const data = await readJson(response);
+      if (response.status === 202 && data.mfa_required) {
+        mfa = data.mfa; csrf = data.csrf_token; password = ''; totp = ''; return;
+      }
+      if (!response.ok) {
+        loginError = data.message || data.error || 'Sign-in failed.';
+        return;
+      }
+      user = data.user;
+      csrf = data.csrf_token || '';
+      tenant = user?.tenant || tenant;
+      await loadTenantWorkspace(tenant);
+      await loadTenants();
+      await openDefaultWorkspace();
+    } catch {
+      loginError = 'Could not complete sign-in. Please try again.';
+    } finally {
+      signingIn = false;
     }
-    const sessionData = await readJson(sessionResponse);
-    csrf = sessionData.csrf_token || '';
-    if (!sessionResponse.ok || !csrf) {
-      loginError = 'Could not start a secure sign-in session. Reload the page and allow cookies for this site.';
-      return;
-    }
-    const response = await fetch(apiPath('/auth/login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-      credentials: 'same-origin',
-      body: JSON.stringify({ email, password, totp, tenant })
-    });
-    const data = await readJson(response);
-    if (response.status === 202 && data.mfa_required) {
-      mfa = data.mfa; csrf = data.csrf_token; password = ''; totp = ''; return;
-    }
-    if (!response.ok) {
-      loginError = data.message || data.error || 'Sign-in failed.';
-      return;
-    }
-    user = data.user;
-    csrf = data.csrf_token || '';
-    tenant = user?.tenant || tenant;
-    await loadTenantWorkspace(tenant);
-    await loadTenants();
-    await openDefaultWorkspace();
   }
 
   async function confirmMfa() {
+    if (signingIn) return;
+    signingIn = true;
     loginError = '';
     try {
       const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp})});
@@ -664,11 +675,19 @@
       mfa = null; totp = ''; user = data.user; csrf = data.csrf_token; tenant = user?.tenant || tenant;
       await loadTenantWorkspace(tenant); await loadTenants(); await openDefaultWorkspace();
     } catch {loginError = 'Could not complete sign-in. Please try again.';}
+    finally {signingIn = false;}
   }
 
   async function restartLogin() {
-    await fetch(apiPath('/auth/logout'), {method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf}});
-    mfa = null; totp = ''; password = ''; loginError = ''; await restoreSession();
+    if (signingIn) return;
+    signingIn = true;
+    loginError = '';
+    try {
+      const response = await fetch(apiPath('/auth/logout'), {method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf}});
+      if (!response.ok) throw new Error();
+      mfa = null; totp = ''; password = ''; await restoreSession();
+    } catch {loginError = 'Could not restart sign-in. Please try again.';}
+    finally {signingIn = false;}
   }
 
   async function openDefaultWorkspace() {
@@ -1105,7 +1124,7 @@
     {#if signupOpen && !mfa}
       <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>Back to sign in</button></div>
     {:else}
-    <form class="login" on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
+    <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="product-mark">V7</div>
       <h1>{mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7'}</h1>
       {#if mfa}
@@ -1115,18 +1134,18 @@
         <img class="mfa-qr" src={mfa.qr_image} alt="Scan to set up your V7 authenticator"/>
         <details><summary>Enter a setup key instead</summary><code class="mfa-key">{mfa.setup_key}</code></details>
       {/if}
-      <label>Authenticator code<input bind:value={totp} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required /></label>
-      <button class="secondary" type="button" on:click={restartLogin}>Start again</button>
+      <label>Authenticator code<input disabled={signingIn} bind:value={totp} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required /></label>
+      <button disabled={signingIn} class="secondary" type="button" on:click={restartLogin}>Start again</button>
       {:else}
       <p>Use an account created on this site. Local preview passwords do not work on the live website.</p>
-      <label>Company key<input bind:value={tenant} autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
-      <label>Email<input bind:value={email} type="email" autocomplete="username" required /></label>
-      <label>Password<input bind:value={password} type="password" autocomplete="current-password" required /></label>
+      <label>Company key<input disabled={signingIn} bind:value={tenant} maxlength="64" autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
+      <label>Email<input disabled={signingIn} bind:value={email} type="email" maxlength="254" autocomplete="username" required /></label>
+      <label>Password<input disabled={signingIn} bind:value={password} type="password" maxlength="1024" autocomplete="current-password" required /></label>
       <p>Two-factor verification follows after your password is accepted.</p>
       {/if}
-      {#if loginError}<div class="notice error">{loginError}</div>{/if}
-      <button class="primary" type="submit">{mfa ? 'Verify and sign in' : 'Continue'}</button>
-      {#if !mfa}<button class="secondary" type="button" on:click={() => signupOpen = true}>Create an account or request to join</button>{/if}
+      {#if loginError}<div role="alert" class="notice error">{loginError}</div>{/if}
+      <button disabled={signingIn} class="primary" type="submit">{signingIn ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Continue'}</button>
+      {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>Create an account or request to join</button>{/if}
     </form>
     {/if}
   </main>

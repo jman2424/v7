@@ -13,6 +13,7 @@
   $: rates=labels.map(day=>replies.daily.find(row=>row.day===day));
   const ratio=(n:number,d:number)=>d?100*n/d:null;
   const fmt=(value:number|null,unit='%')=>value===null?'No data':value.toLocaleString('en-GB',{maximumFractionDigits:1})+unit;
+  $: timedReplies=replies.total.timed_replies??replies.total.replied;
   $: cards=[
     {name:'Reply rate',value:ratio(replies.total.replied,replies.total.eligible),prior:ratio(previous.total.replied,previous.total.eligible),hint:'Matched replies ÷ customer messages with a tracking ID.'},
     {name:'Answer success rate',value:ratio(replies.total.answered,replies.total.eligible),prior:ratio(previous.total.answered,previous.total.eligible),hint:'Matched replies without fallback, clarification or system failure ÷ tracked customer messages. A technical measure, not verified customer satisfaction.'}
@@ -20,7 +21,7 @@
 </script>
 <div class="performance">
   <div class="cards">{#each cards as card}<article><h3>{card.name}</h3><strong>{fmt(card.value)}</strong><p>{card.value!==null&&card.prior!==null?fmt(card.value-card.prior,' percentage points vs previous period'):'No comparable previous rate'}</p><p>{card.hint}</p></article>{/each}
-    <article><h3>Average reply generation time</h3><strong>{fmt(replies.total.replied?replies.total.response_seconds/replies.total.replied:null,'s')}</strong><p>Matched replies; timestamps have one-second precision. This does not measure provider delivery or read receipts.</p></article>
+    <article><h3>Average reply generation time</h3><strong>{fmt(timedReplies?replies.total.response_seconds/timedReplies:null,'s')}</strong><p>Matched replies with valid timestamps; timestamps have one-second precision. This does not measure provider delivery or read receipts.</p></article>
     <article><h3>Messages without a recorded reply</h3><strong>{replies.total.eligible-replies.total.replied}</strong><p>Of {replies.total.eligible} tracked inbound messages, as of the report end. {replies.total.inbound-replies.total.eligible} older messages without IDs are excluded from rates.</p></article>
     <article><h3>Current lead win rate</h3><strong>{fmt(ratio(pipeline.Won||0,(pipeline.Won||0)+(pipeline.Lost||0)))}</strong><p>Won ÷ (Won + Lost), using current owner-managed statuses across all time and channels. This is not a product purchase rate.</p></article>
   </div>

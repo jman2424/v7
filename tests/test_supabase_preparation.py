@@ -163,10 +163,29 @@ def test_ambiguous_tenants_rejected(source):
         prepare(source)
 
 
-@pytest.mark.parametrize('content', ['{"a":1,"a":2}', '{"a":NaN}'])
+@pytest.mark.parametrize('content', ['{"a":1,"a":2}', '{"a":NaN}', '{"a":1e309}', '{"a":-1e309}'])
 def test_json_that_would_change_during_import_rejected(source, content):
     (source / 'business/ALPHA/catalog.json').write_text(content)
     with pytest.raises(ValueError):
+        prepare(source)
+
+
+def test_canonical_export_registry_is_preserved_without_repeating_accounts_argument(source):
+    registry = {'users': [{
+        'email': 'operator@example.invalid', 'password_hash': 'preserved-operator-hash',
+        'totp_secret': 'preserved-operator-authenticator', 'role': 'platform_admin',
+    }]}
+    (source / 'accounts.json').write_text(json.dumps(registry))
+    bundle = prepare(source)
+    assert bundle.rows['operator_accounts'] == [{
+        'email': 'operator@example.invalid', 'payload': registry['users'][0],
+    }]
+
+
+def test_linked_source_root_is_rejected_before_resolving_or_opening_database(source, monkeypatch):
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda path: path == source or original(path))
+    with pytest.raises(ValueError, match='Linked source'):
         prepare(source)
 
 

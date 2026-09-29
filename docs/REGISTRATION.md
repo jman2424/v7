@@ -2,6 +2,8 @@
 
 The console sign-in page offers **Create an account or request to join**.
 Public signup is disabled until verification mail is configured. Existing sign-in is unaffected.
+An already-issued verification code can still be entered until it expires if
+mail sending is disabled afterward. This does not enable new signup requests.
 
 ## Server configuration
 

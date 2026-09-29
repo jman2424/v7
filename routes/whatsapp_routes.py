@@ -12,12 +12,17 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 
 from connectors.whatsapp import parse_inbound, send_reply
-from connectors.whatsapp_audio import download_audio
+from connectors.whatsapp_audio import AudioMediaError, download_audio
 from routes import get_container
 from service import webhook_inbox
 from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
 
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
+
+_UNUSABLE_AUDIO = {
+    "audio_too_large", "empty_audio", "unsupported_audio_type", "unsupported_audio",
+    "invalid_audio", "no_speech_detected", "transcript_too_long",
+}
 
 
 def _verify():
@@ -58,16 +63,25 @@ def _reply(c, event, source):
     sender = sender.removeprefix("whatsapp:").lstrip("+")
     if not sender.isdigit() or len(sender) > 20:
         abort(400)
-    voice = bool(event.get("audio")) and not text
-    if voice:
-        from service.speech_transcription import transcribe_audio
-        audio_bytes, mime_type = download_audio(event, settings=c.settings)
-        text = transcribe_audio(audio_bytes, mime_type,
-                                tenant=c.settings.BUSINESS_KEY, channel="whatsapp")
-    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
-        abort(400)
     tenant = c.settings.BUSINESS_KEY
     sid = "wa:" + sender
+    voice = bool(event.get("audio")) and not text
+    if voice:
+        from service.speech_transcription import SpeechTranscriptionError, transcribe_audio
+        try:
+            audio_bytes, mime_type = download_audio(event, settings=c.settings)
+            text = transcribe_audio(audio_bytes, mime_type, tenant=tenant, channel="whatsapp")
+        except (AudioMediaError, SpeechTranscriptionError) as error:
+            if str(error) not in _UNUSABLE_AUDIO:
+                raise
+            # Retrying the same unusable recording cannot repair it. Return a
+            # cached text response without passing invented text to the agent.
+            log_error(tenant=tenant, channel="whatsapp", session_id=sid,
+                      error_code="wa_audio_rejected", error_type=type(error).__name__)
+            return ("I couldn't read that voice message. Please send your question as text "
+                    "or try a shorter recording.")
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+        abort(400)
     raw = event.get("raw", {})
     mid = raw.get("id") or raw.get("MessageSid") or ""
     logging.getLogger("WA.Webhook").info("WA inbound source=%s tenant=%s message_len=%s", source, tenant, len(text))

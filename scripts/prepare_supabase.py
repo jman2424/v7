@@ -10,6 +10,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -56,16 +57,31 @@ def strict_json(text):
         return result
     def invalid_constant(_value):
         raise ValueError('Non-finite JSON value in source')
-    return json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant)
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError('Non-finite JSON value in source')
+        return number
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant,
+                      parse_float=finite_float)
+
+
+def _reject_linked_source(path):
+    absolute = path.absolute()
+    if any(part.is_symlink() or getattr(part, 'is_junction', lambda: False)()
+           for part in [absolute, *absolute.parents]):
+        raise ValueError('Linked source paths require review')
 
 
 def json_file(path):
+    _reject_linked_source(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError('Source must be a regular file')
     return strict_json(path.read_text(encoding='utf-8-sig'))
 
 
 def json_lines(path):
+    _reject_linked_source(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError('Source must be a regular file')
     return [strict_json(line) for line in path.read_text(encoding='utf-8-sig').splitlines() if line.strip()]
@@ -174,15 +190,18 @@ def read_sqlite(path, allowed, bundle):
 
 
 def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
+    _reject_linked_source(data_dir)
     data_dir = data_dir.resolve(strict=True)
     bundle = Bundle()
     read_sqlite(data_dir / 'logs/security.db', SECURITY_TABLES, bundle)
     read_sqlite(data_dir / 'logs/analytics.db', ANALYTICS_TABLES, bundle)
     root = data_dir / 'business'
+    _reject_linked_source(root)
     if root.is_symlink() or not root.is_dir():
         raise ValueError('Required business directory is missing or unsafe')
     seen = set()
     for directory in sorted(root.iterdir()):
+        _reject_linked_source(directory)
         if directory.name in {'.write-lock.sqlite3','.write-lock.sqlite3-journal','.write-lock.sqlite3-wal','.write-lock.sqlite3-shm'} and directory.is_file() and not directory.is_symlink():
             continue  # Local coordination only; never application records.
         if directory.name == 'versions':
@@ -231,10 +250,12 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
         if versions.is_symlink():
             raise ValueError('Unsafe version directory')
         for day in sorted(versions.iterdir()):
+            _reject_linked_source(day)
             if day.is_symlink() or not day.is_dir():
                 raise ValueError('Unexpected version entry')
             date.fromisoformat(day.name)
             for directory in sorted(day.iterdir()):
+                _reject_linked_source(directory)
                 if directory.is_symlink() or not directory.is_dir():
                     raise ValueError('Unsafe version tenant')
                 tenant = tenant_key(directory.name)
@@ -264,6 +285,10 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
                     if path.is_symlink() or path.suffix != '.json' or not FILENAME.fullmatch(path.name):
                         raise ValueError('Unexpected version file')
                     bundle.rows['document_versions'].append({'tenant':tenant, 'day':day.name, 'filename':path.name, 'payload':json_file(path)})
+    if accounts is None:
+        canonical_registry = data_dir / 'accounts.json'
+        if canonical_registry.exists() or canonical_registry.is_symlink():
+            accounts = canonical_registry
     if accounts:
         registry = json_file(accounts)
         if not isinstance(registry, dict) or not isinstance(registry.get('users'), list):
@@ -361,6 +386,15 @@ def main():
     if (args.apply or args.verify_only) and not args.source_frozen:
         parser.error('Database operations require a frozen backup and --source-frozen')
     try:
+        # A canonical exporter manifest is checked before opening the destination
+        # database. prepare() itself must remain usable on a frozen raw backup.
+        manifest = args.data_dir / 'manifest.json'
+        if manifest.exists() or manifest.is_symlink():
+            try:
+                from scripts.export_runtime import verify_export
+            except ModuleNotFoundError:
+                from export_runtime import verify_export
+            verify_export(args.data_dir)
         bundle = prepare(args.data_dir, accounts=args.accounts)
         if args.apply or args.verify_only:
             with connection() as conn:

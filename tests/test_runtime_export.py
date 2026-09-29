@@ -196,6 +196,32 @@ def test_manifest_detects_changed_and_missing_files(runtime, tmp_path):
         exporter.verify_export(destination)
 
 
+def test_manifest_does_not_ignore_coordination_named_files_at_backup_root(runtime, tmp_path):
+    destination = tmp_path / 'backup'
+    exporter.export_runtime(runtime, destination, source_frozen=True)
+    (destination / '.write-lock.sqlite3').write_bytes(b'unexpected backup file')
+    with pytest.raises(ValueError, match='inventory'):
+        exporter.verify_export(destination)
+
+
+def test_import_cli_verifies_export_manifest_before_connecting(runtime, tmp_path, monkeypatch, capsys):
+    from scripts import prepare_supabase as preparation
+    destination = tmp_path / 'backup'
+    exporter.export_runtime(runtime, destination, source_frozen=True)
+    (destination / 'business/ALPHA/owner_accounts.json').write_text('[]')
+    connected = False
+    def destination_connection():
+        nonlocal connected
+        connected = True
+        raise AssertionError('Do not connect after backup checksum mismatch')
+    monkeypatch.setattr(preparation, 'connection', destination_connection)
+    monkeypatch.setattr('sys.argv', ['prepare_supabase.py', '--data-dir', str(destination),
+                                   '--apply', '--source-frozen'])
+    assert preparation.main() == 1
+    assert connected is False
+    assert 'Source files were not modified' in capsys.readouterr().err
+
+
 def test_manifest_detects_added_empty_directory(runtime, tmp_path):
     destination = tmp_path / 'backup'
     exporter.export_runtime(runtime, destination, source_frozen=True)
@@ -245,3 +271,39 @@ def test_cannot_declare_existing_crm_or_audit_absent(runtime, tmp_path):
         assert exporter.main(['--source-dir', str(runtime.business.parent), '--out', str(tmp_path / 'backup'),
                               '--analytics-db', str(runtime.analytics), '--source-frozen', flag]) == 1
     assert not (tmp_path / 'backup').exists()
+
+
+def test_configured_export_paths_match_literal_runtime_file_paths(runtime, monkeypatch):
+    from types import SimpleNamespace
+    root = runtime.business.parent
+    monkeypatch.setenv('V7_DATA_DIR', '~/v7-test-data')
+    monkeypatch.setenv('SECURITY_DB_PATH', '~/security.db')
+    monkeypatch.setenv('ANALYTICS_DB_PATH', '~/analytics.db')
+    monkeypatch.setenv('CRM_SNAPSHOT_PATH', '~/crm.json')
+    monkeypatch.setenv('ADMIN_USERS_FILE', '~/accounts.json')
+    args = SimpleNamespace(source_dir=root, business_dir=None, security_db=None,
+        analytics_db=None, crm_snapshot=None, audit_log=None, accounts=None,
+        no_crm_snapshot=False, no_audit_log=False)
+    sources = exporter.configured_sources(args)
+    assert sources.business == Path('~/v7-test-data').expanduser() / 'business'
+    assert sources.security == root / '~/security.db'
+    assert sources.analytics == root / '~/analytics.db'
+    assert sources.crm == root / '~/crm.json'
+    assert sources.audit == root / '~/v7-test-data/logs/selfrepair.log'
+    assert sources.accounts == Path('~/accounts.json').expanduser()
+
+
+def test_explicit_export_file_paths_expand_user(runtime, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.delenv('V7_DATA_DIR', raising=False)
+    args = SimpleNamespace(source_dir=runtime.business.parent, business_dir='~/business',
+        security_db='~/security.db', analytics_db='~/analytics.db', crm_snapshot='~/crm.json',
+        audit_log='~/audit.log', accounts='~/accounts.json',
+        no_crm_snapshot=False, no_audit_log=False)
+    sources = exporter.configured_sources(args)
+    assert sources.business == Path('~/business').expanduser()
+    assert sources.security == Path('~/security.db').expanduser()
+    assert sources.analytics == Path('~/analytics.db').expanduser()
+    assert sources.crm == Path('~/crm.json').expanduser()
+    assert sources.audit == Path('~/audit.log').expanduser()
+    assert sources.accounts == Path('~/accounts.json').expanduser()

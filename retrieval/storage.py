@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
@@ -115,6 +116,8 @@ class Storage:
 
         object.__setattr__(self, "tenant_key", tenant_key)
         object.__setattr__(self, "business_root", root)
+        object.__setattr__(self, "_postgres_repositories", {})
+        object.__setattr__(self, "_postgres_repository_lock", Lock())
         object.__setattr__(
             self,
             "versions_root",
@@ -148,13 +151,13 @@ class Storage:
         key = self.validate_tenant_key(tenant or self.tenant_key)
         # Reuse the same repository during revision-checked transactions. Its
         # active connection is held in a ContextVar, not shared between requests.
-        repositories = getattr(self, "_postgres_repositories", None)
-        if repositories is None:
-            repositories = {}
-            object.__setattr__(self, "_postgres_repositories", repositories)
-        if key not in repositories:
-            repositories[key] = PostgresBusinessDocuments(key)
-        return repositories[key]
+        # Concurrent first reads must not create different ContextVars for the
+        # same tenant and split an active write transaction across repositories.
+        with self._postgres_repository_lock:
+            repositories = self._postgres_repositories
+            if key not in repositories:
+                repositories[key] = PostgresBusinessDocuments(key)
+            return repositories[key]
 
     def tenant_exists(self, tenant: Optional[str] = None) -> bool:
         key = self.validate_tenant_key(tenant or self.tenant_key)

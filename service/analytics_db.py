@@ -1256,7 +1256,8 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
     if _using_postgres():
         with session_store.postgres_connection(tenant_n) as con:
             rows = _pg_rows(
-                con, "SELECT COALESCE(NULLIF(COALESCE(NULLIF(meta_json, ''), '{}')::jsonb "
+                con, "SELECT COALESCE(NULLIF((CASE WHEN pg_input_is_valid(meta_json, 'jsonb') "
+                "THEN meta_json::jsonb ELSE '{}'::jsonb END) "
                 "->> 'store', ''), 'international') AS store, COUNT(*) AS n "
                 "FROM v7_private.events WHERE tenant=%s AND ts_utc >= %s "
                 "AND channel='whatsapp' AND event_type='msg_in' "
@@ -1269,7 +1270,7 @@ def get_whatsapp_store_share(*, tenant: str, minutes: int = 1440, limit: int = 1
         rows = con.execute(
             """
             SELECT
-              COALESCE(NULLIF(json_extract(COALESCE(meta_json,'{}'),'$.store'),''), 'international') AS store,
+              COALESCE(NULLIF(json_extract(CASE WHEN json_valid(meta_json) THEN meta_json ELSE '{}' END,'$.store'),''), 'international') AS store,
               COUNT(*) AS n
             FROM events
             WHERE tenant=? AND ts_utc>=?

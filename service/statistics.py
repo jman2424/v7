@@ -108,11 +108,21 @@ def reply_report(db, tenant, start, end, channel, *, postgres=False):
         values += (channel,)
     answered = (f"NOT ({_PG_FALLBACK.replace('meta_json', 'o.meta_json')})" if postgres else
                 "COALESCE(json_extract(CASE WHEN json_valid(o.meta_json) THEN o.meta_json ELSE '{}' END,'$.fallback'),0)=0")
-    response_seconds = ("GREATEST(0,EXTRACT(EPOCH FROM o.ts_utc::timestamptz-i.ts_utc::timestamptz))" if postgres else
-                        "MAX(0,(julianday(o.ts_utc)-julianday(i.ts_utc))*86400)")
+    if postgres:
+        inbound_timestamp = "CASE WHEN pg_input_is_valid(i.ts_utc,'timestamptz') THEN i.ts_utc::timestamptz END"
+        outbound_timestamp = "CASE WHEN pg_input_is_valid(o.ts_utc,'timestamptz') THEN o.ts_utc::timestamptz END"
+        timed = f"isfinite({inbound_timestamp}) AND isfinite({outbound_timestamp})"
+        duration = f"GREATEST(0,EXTRACT(EPOCH FROM ({outbound_timestamp})-({inbound_timestamp})))"
+    else:
+        timed = "julianday(i.ts_utc) IS NOT NULL AND julianday(o.ts_utc) IS NOT NULL"
+        duration = "MAX(0,(julianday(o.ts_utc)-julianday(i.ts_utc))*86400)"
+    # Preserve message/reply counts even when legacy timestamp strings cannot
+    # measure elapsed time. The separate denominator keeps averages accurate.
+    response_seconds = f"CASE WHEN {timed} THEN {duration} ELSE 0 END"
     rows = _rows(db, f'''SELECT substr(i.ts_utc,1,10) AS day,
         COUNT(*) AS inbound, SUM(CASE WHEN COALESCE(i.message_id,'')!='' THEN 1 ELSE 0 END) AS eligible,
         COUNT(o.id) AS replied,
+        SUM(CASE WHEN o.id IS NOT NULL AND {timed} THEN 1 ELSE 0 END) AS timed_replies,
         SUM(CASE WHEN o.id IS NOT NULL AND o.intent NOT IN ('system_error','system_no_results','system_clarify','unknown','out_of_scope')
             AND {answered} THEN 1 ELSE 0 END) AS answered,
         SUM(CASE WHEN o.id IS NOT NULL THEN {response_seconds} ELSE 0 END) AS response_seconds
@@ -124,5 +134,5 @@ def reply_report(db, tenant, start, end, channel, *, postgres=False):
     if postgres:
         for row in rows:
             row['response_seconds'] = float(row['response_seconds'])
-    total = {key:sum(row[key] for row in rows) for key in ('inbound','eligible','replied','answered','response_seconds')}
+    total = {key:sum(row[key] for row in rows) for key in ('inbound','eligible','replied','timed_replies','answered','response_seconds')}
     return {'total':total,'daily':rows}
