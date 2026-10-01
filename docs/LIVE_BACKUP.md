@@ -110,7 +110,7 @@ Local `.write-lock.sqlite3` coordination files are excluded from the business tr
 they contain no application records. Generated dated `_snapshot.json` provenance
 files remain intact in the backup. The importer counts valid generated metadata
 among `document_versions` and preserves its original name and payload. Apply all
-five reviewed migrations, including the additive snapshot filename constraint
+all eight reviewed migrations, including the additive snapshot filename constraint
 migration, before import. Other underscore filenames and unexpected metadata
 fields, non-UTC timestamps or missing provenance paths stop export for review.
 
