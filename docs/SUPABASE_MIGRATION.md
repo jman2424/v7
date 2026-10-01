@@ -78,7 +78,9 @@ remain isolated between requests.
    credentials into chat, shell arguments, source files, or browser bundles.
 5. Review and run all SQL migrations in filename order as the migration owner.
    Do not edit migrations already applied to a project. The importer requires
-   schema versions 1–8; the separate transcription migration adds `audio_seconds`.
+   schema versions 1–9; the separate transcription migration adds `audio_seconds`.
+   Version 9 adds private `totp_steps` replay protection. Preserve accepted OTP
+   high-water marks during import; they are not transient sessions or challenges.
    Version 4 adds the gated tenant-key inventory. Version 5 preserves generated
    `_snapshot.json` provenance files in document history. Versions 6–8 add
    authentication hardening, trusted devices, and linked OAuth identities.

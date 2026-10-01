@@ -272,3 +272,33 @@ def reset_login_failures(subject_hash, *, transaction=None):
         return
     with (postgres_connection() if _using_postgres() else connection()) as db:
         reset_login_failures(subject_hash, transaction=db)
+
+
+def consume_totp(identity, secret, timestep, *, database=None):
+    """Consume one account's accepted time step atomically across all workers."""
+    key = _digest(identity + ":" + secret)
+
+    def consume(db):
+        if _using_postgres():
+            row = db.execute(
+                "INSERT INTO v7_private.totp_steps (account_hash, step) VALUES (%s, %s) "
+                "ON CONFLICT(account_hash) DO UPDATE SET step=excluded.step "
+                "WHERE v7_private.totp_steps.step < excluded.step RETURNING step",
+                (key, timestep),
+            ).fetchone()
+            return row is not None
+        db.execute("CREATE TABLE IF NOT EXISTS totp_steps (account_hash TEXT PRIMARY KEY, step INTEGER NOT NULL)")
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "INSERT INTO totp_steps (account_hash, step) VALUES (?, ?) "
+            "ON CONFLICT(account_hash) DO UPDATE SET step=excluded.step "
+            "WHERE totp_steps.step < excluded.step RETURNING step", (key, timestep),
+        ).fetchone()
+        return row is not None
+
+    if database is not None:
+        return consume(database)
+    source = postgres_connection() if _using_postgres() else connection()
+    with source as db:
+        return consume(db)

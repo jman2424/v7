@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 from dataclasses import replace
 
 from flask import Blueprint, Response, abort, jsonify, request
@@ -23,6 +24,43 @@ _UNUSABLE_AUDIO = {
     "audio_too_large", "empty_audio", "unsupported_audio_type", "unsupported_audio",
     "invalid_audio", "no_speech_detected", "transcript_too_long",
 }
+_SAFE_MEDIA_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z", re.ASCII)
+
+
+def _validate_event(event, source):
+    """Validate the complete batch before agent, analytics or audio side effects."""
+    if not isinstance(event, dict):
+        abort(400, description="invalid_webhook_payload")
+    sender = event.get("from")
+    text = event.get("text")
+    raw = event.get("raw")
+    metadata = event.get("metadata")
+    if (not isinstance(sender, str) or not isinstance(text, str)
+            or not isinstance(raw, dict) or not isinstance(metadata, dict)):
+        abort(400, description="invalid_webhook_payload")
+    sender = sender.removeprefix("whatsapp:").lstrip("+")
+    if not sender.isascii() or not sender.isdigit() or len(sender) > 20:
+        abort(400, description="invalid_webhook_payload")
+    message_id = raw.get("id") if source == "cloud" else raw.get("MessageSid")
+    if (not isinstance(message_id, str) or not message_id or len(message_id) > 200
+            or not message_id.isascii() or any(ord(character) < 32 for character in message_id)):
+        abort(400, description="message_id_required")
+    audio = event.get("audio")
+    if audio is not None and not isinstance(audio, dict):
+        abort(400, description="invalid_webhook_payload")
+    if audio and not text:
+        if source == "cloud":
+            media_id = audio.get("id")
+            if not isinstance(media_id, str) or not _SAFE_MEDIA_ID.fullmatch(media_id):
+                abort(400, description="invalid_webhook_payload")
+        elif not isinstance(audio.get("url"), str) or not audio["url"] or len(audio["url"]) > 2048:
+            abort(400, description="invalid_webhook_payload")
+        mime = audio.get("mime_type")
+        if mime is not None and (not isinstance(mime, str) or len(mime) > 100):
+            abort(400, description="invalid_webhook_payload")
+    elif not text.strip() or len(text) > 4000:
+        abort(400, description="invalid_webhook_payload")
+    return text, sender
 
 
 def _verify():
@@ -63,13 +101,7 @@ def webhook_verify():
 
 
 def _reply(c, event, source):
-    text = event.get("text")
-    sender = event.get("from", "")
-    if not isinstance(sender, str):
-        abort(400)
-    sender = sender.removeprefix("whatsapp:").lstrip("+")
-    if not sender.isdigit() or len(sender) > 20:
-        abort(400)
+    text, sender = _validate_event(event, source)
     tenant = c.settings.BUSINESS_KEY
     sid = "wa:" + sender
     voice = bool(event.get("audio")) and not text
@@ -167,7 +199,14 @@ def webhook_receive():
             abort(503, description="whatsapp_tenant_not_configured")
     if source == "twilio":
         c = recipient_container(request.form.get("To"))
-        events = parse_inbound({"raw_form": request.form.to_dict()})
+        if any(len(request.form.getlist(key)) != 1 for key in request.form):
+            abort(400, description="duplicate_webhook_field")
+        try:
+            events = parse_inbound({"raw_form": request.form.to_dict()})
+        except (TypeError, AttributeError, KeyError, ValueError):
+            abort(400, description="invalid_webhook_payload")
+        for event in events:
+            _validate_event(event, source)
         response = MessagingResponse()
         if events:
             response.message(_process(c, events[0], source))
@@ -178,12 +217,16 @@ def webhook_receive():
         abort(400)
     try:
         events = parse_inbound(payload)
-    except (TypeError, AttributeError, KeyError):
+    except (TypeError, AttributeError, KeyError, ValueError):
         abort(400, description="invalid_webhook_payload")
     if events and not root.settings.WHATSAPP_TOKEN:
         abort(503, description="whatsapp_not_configured")
-    routed = [(recipient_container(event.get("metadata", {}).get("phone_number_id")), event) for event in events]
-    for c, event in routed:
+    prepared_events = []
+    for event in events:
+        _validate_event(event, source)
+        c = recipient_container(event.get("metadata", {}).get("phone_number_id"))
+        prepared_events.append((c, event))
+    for c, event in prepared_events:
         _process(c, event, source)
     return jsonify(ok=True, events=len(events))
 

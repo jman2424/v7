@@ -12,14 +12,17 @@ Provides:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
 import logging
+import re
+from typing import Any, Dict, List
+
 import requests
 
 from app.config import Settings
-from service.whatsapp_configuration import normalize_recipient, valid_meta_api_url
+from service.whatsapp_configuration import valid_meta_api_url
 
 logger = logging.getLogger("WhatsAppConnector")
+_SAFE_PHONE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z", re.ASCII)
 
 
 def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -47,10 +50,14 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     }
     """
     events: List[Dict[str, Any]] = []
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid WhatsApp payload")
 
     # -------- Twilio form-encoded (wrapped as "raw_form") ----------
     if "raw_form" in payload:
         form = payload.get("raw_form") or {}
+        if not isinstance(form, dict) or any(not isinstance(value, str) for value in form.values()):
+            raise ValueError("Invalid Twilio payload")
         body = (form.get("Body") or "").strip()
 
         # Twilio WA sends both WaId and From (with "whatsapp:" prefix)
@@ -95,27 +102,48 @@ def parse_inbound(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         return events
 
     # -------- Meta Cloud API JSON ----------
-    for entry in payload.get("entry", []):
+    entries = payload.get("entry", [])
+    if not isinstance(entries, list):
+        raise ValueError("Invalid Meta entries")
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("changes", []), list):
+            raise ValueError("Invalid Meta entry")
         for change in entry.get("changes", []):
-            value = change.get("value", {}) or {}
-            metadata = value.get("metadata", {}) or {}
-            messages = value.get("messages", []) or []
+            if not isinstance(change, dict):
+                raise ValueError("Invalid Meta change")
+            value = change.get("value", {})
+            if not isinstance(value, dict):
+                raise ValueError("Invalid Meta value")
+            metadata = value.get("metadata", {})
+            messages = value.get("messages", [])
+            if not isinstance(metadata, dict) or not isinstance(messages, list):
+                raise ValueError("Invalid Meta messages")
 
             for msg in messages:
+                if not isinstance(msg, dict) or not isinstance(msg.get("type"), str):
+                    raise ValueError("Invalid Meta message")
                 if msg.get("type") not in {"text", "audio"}:
                     continue
 
                 wa_id = msg.get("from")
-                text = ((msg.get("text", {}) or {}).get("body", "") or "") if msg.get("type") == "text" else ""
+                if not isinstance(wa_id, str):
+                    raise ValueError("Invalid Meta sender")
+                text = ""
+                if msg["type"] == "text":
+                    text_data = msg.get("text")
+                    if not isinstance(text_data, dict) or not isinstance(text_data.get("body"), str):
+                        raise ValueError("Invalid Meta text")
+                    text = text_data["body"]
                 audio = None
                 if msg.get("type") == "audio":
-                    item = msg.get("audio") or {}
-                    if isinstance(item, dict):
-                        audio = {"id": item.get("id"), "mime_type": item.get("mime_type"),
-                                 "phone_number_id": metadata.get("phone_number_id")}
+                    item = msg.get("audio")
+                    if not isinstance(item, dict):
+                        raise ValueError("Invalid Meta audio")
+                    audio = {"id": item.get("id"), "mime_type": item.get("mime_type"),
+                             "phone_number_id": metadata.get("phone_number_id")}
 
                 if not wa_id or not (text.strip() or audio):
-                    continue
+                    raise ValueError("Invalid Meta message fields")
 
                 events.append(
                     {
@@ -158,18 +186,20 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         return
 
     wa_id = event.get("from")
-    if not wa_id:
-        logger.warning("send_reply: missing 'from' in event, cannot reply")
-        return
+    if (not isinstance(wa_id, str) or not wa_id.isascii() or not wa_id.isdigit()
+            or len(wa_id) > 20):
+        raise ValueError("Invalid WhatsApp recipient")
 
     token = settings.WHATSAPP_TOKEN
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
-    phone_id = str(metadata.get("phone_number_id") or settings.WHATSAPP_PHONE_ID).strip()
+    phone_id = metadata.get("phone_number_id") or settings.WHATSAPP_PHONE_ID
     base_url = settings.WHATSAPP_API_URL or "https://graph.facebook.com/v21.0"
 
     if not token or not phone_id:
         raise RuntimeError("WhatsApp send configuration missing")
-    if not normalize_recipient(phone_id, "meta") or not valid_meta_api_url(base_url):
+    if (not valid_meta_api_url(base_url) or "\\" in base_url
+            or any(character.isspace() for character in base_url)
+            or not isinstance(phone_id, str) or not _SAFE_PHONE_ID.fullmatch(phone_id)):
         raise RuntimeError("WhatsApp send configuration invalid")
 
     url = f"{base_url.rstrip('/')}/{phone_id}/messages"

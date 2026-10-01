@@ -11,7 +11,12 @@ from retrieval.storage import Storage
 
 ACCOUNT_FILE = "owner_accounts.json"
 MANAGED_ROLES = {"business_owner", "business_staff"}
-STAFF_PERMISSIONS = {'view_costs', 'view_subscriptions'}
+STAFF_PERMISSIONS = {
+    'analytics.read', 'conversations.read', 'customers.read', 'offerings.read', 'offerings.write',
+    'offers.read', 'offers.write', 'users.read', 'roles.read', 'business_settings.read',
+    'business_settings.write', 'integrations.read', 'health.read', 'errors.read',
+    'view_costs', 'view_subscriptions',
+}
 
 
 def validated_permissions(value):
@@ -48,6 +53,8 @@ class AccountService:
             "active": True,
             "permissions": validated_permissions(payload.get('permissions', [])),
         }
+        if 'permissions' in payload and 'business_owner' in roles:
+            account['permissions_version'] = 1
         with self.storage.write_lock(tenant):
             accounts = self._accounts(tenant)
             if any(secrets.compare_digest(str(stored.get("email") or "").lower().encode('utf-8'),
@@ -88,8 +95,13 @@ class AccountService:
                 if not secrets.compare_digest(str(stored.get("id") or "").encode('utf-8'), wanted.encode('utf-8')):
                     continue
                 updated = dict(stored)
+                # Re-enabling an account or restoring an old permission set must
+                # not resurrect sessions issued before the intervening change.
+                updated['credential_version'] = secrets.token_hex(16)
                 if 'permissions' in payload:
                     updated['permissions'] = validated_permissions(payload['permissions'])
+                    if 'business_owner' in updated.get('roles', []):
+                        updated['permissions_version'] = 1
                 if has_active:
                     updated["active"] = payload["active"]
                 if password:

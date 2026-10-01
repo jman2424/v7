@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional
+from urllib.parse import urlsplit
 
 
 def _get(name: str, default: Optional[str] = None) -> str:
@@ -25,17 +26,17 @@ def _get(name: str, default: Optional[str] = None) -> str:
 class Settings:
     MODE: str                    # V5 | V6 | V7
     BUSINESS_KEY: str            # tenant key e.g. "EXAMPLE"
-    SECRET_KEY: str
+    SECRET_KEY: str = field(repr=False)
 
     # External tokens/creds
-    WHATSAPP_VERIFY_TOKEN: str
-    WHATSAPP_APP_SECRET: str
-    WHATSAPP_TOKEN: str
+    WHATSAPP_VERIFY_TOKEN: str = field(repr=False)
+    WHATSAPP_APP_SECRET: str = field(repr=False)
+    WHATSAPP_TOKEN: str = field(repr=False)
     WHATSAPP_PHONE_ID: str
     WHATSAPP_API_URL: str
     WHATSAPP_TENANT_MAP: Dict[str, str]
-    TWILIO_AUTH_TOKEN: str
-    SHEETS_SERVICE_JSON: str | None  # path or JSON string
+    TWILIO_AUTH_TOKEN: str = field(repr=False)
+    SHEETS_SERVICE_JSON: str | None = field(repr=False)  # path or JSON string
 
     # Rate limiting
     RATE_LIMIT_PER_MIN: int
@@ -113,6 +114,28 @@ def load_settings(override: dict | None = None) -> Settings:
     if whatsapp_mode not in {"auto", "meta", "twilio", "both"}:
         raise RuntimeError("WHATSAPP_PROVIDER_MODE must be auto, meta, twilio or both")
 
+    if _to_bool(os.getenv("FLASK_DEBUG"), False) and not o.get("TESTING"):
+        raise RuntimeError("FLASK_DEBUG must be disabled outside tests")
+    base_url = o.get("BASE_URL", os.environ.get("BASE_URL", "http://localhost:10000"))
+    try:
+        parsed = urlsplit(base_url)
+        base_port = parsed.port
+        provider_url = o.get("WHATSAPP_API_URL", _get("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0"))
+        provider = urlsplit(provider_url)
+        provider_port = provider.port
+    except (TypeError, ValueError):
+        raise RuntimeError("Invalid configured HTTP URL") from None
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or base_port == 0
+            or parsed.username or parsed.password or parsed.path not in {"", "/"}
+            or parsed.query or parsed.fragment
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == "\\" for char in base_url)
+            or (parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"})):
+        raise RuntimeError("BASE_URL must be an HTTPS origin; loopback HTTP is allowed for development")
+    if (provider.scheme != "https" or not provider.hostname or provider.username or provider_port == 0
+            or provider.password or provider.query or provider.fragment
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == "\\" for char in provider_url)):
+        raise RuntimeError("WHATSAPP_API_URL must be HTTPS without credentials or query parameters")
+
     return Settings(
         MODE=o.get("MODE", _get("MODE", "V6")),
         BUSINESS_KEY=o.get("BUSINESS_KEY", _get("BUSINESS_KEY", "EXAMPLE")),
@@ -122,7 +145,7 @@ def load_settings(override: dict | None = None) -> Settings:
         WHATSAPP_APP_SECRET=o.get("WHATSAPP_APP_SECRET", _get("WHATSAPP_APP_SECRET", "")),
         WHATSAPP_TOKEN=o.get("WHATSAPP_TOKEN", _get("WHATSAPP_TOKEN", "")),
         WHATSAPP_PHONE_ID=o.get("WHATSAPP_PHONE_ID", _get("WHATSAPP_PHONE_ID", "")),
-        WHATSAPP_API_URL=o.get("WHATSAPP_API_URL", _get("WHATSAPP_API_URL", "https://graph.facebook.com/v21.0")),
+        WHATSAPP_API_URL=provider_url,
         WHATSAPP_TENANT_MAP=_whatsapp_tenant_map(
             o.get("WHATSAPP_TENANT_MAP_JSON", _get("WHATSAPP_TENANT_MAP_JSON", ""))
         ),
@@ -141,7 +164,7 @@ def load_settings(override: dict | None = None) -> Settings:
         FF_ANALYTICS_TO_SHEETS=_to_bool(o.get("FF_ANALYTICS_TO_SHEETS", os.environ.get("FF_ANALYTICS_TO_SHEETS")), False),
 
         ENVIRONMENT=environment,
-        BASE_URL=o.get("BASE_URL", os.environ.get("BASE_URL", "http://localhost:10000")),
+        BASE_URL=base_url.rstrip("/"),
         HEALTH_PATH=o.get("HEALTH_PATH", os.environ.get("HEALTH_PATH", "/health")),
         WHATSAPP_PROVIDER_MODE=whatsapp_mode,
         WHATSAPP_META_TENANT_MAP=_optional_whatsapp_map(

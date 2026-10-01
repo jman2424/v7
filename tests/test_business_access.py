@@ -10,7 +10,9 @@ from service import subscriptions, tenant_access
 from service.account_service import AccountService
 from service.security import generate_totp_token
 from tests.conftest import set_test_identity
-from tests.test_subscriptions import signature, stripe
+from tests.test_subscriptions import signature, stripe as stripe_fixture
+
+stripe = stripe_fixture
 
 
 def owner(client, name='owner'):
@@ -18,12 +20,12 @@ def owner(client, name='owner'):
         set_test_identity(client, state, {'id':name, 'roles':['business_owner'], 'tenant':'EXAMPLE'})
 
 
-def staff_login(client, secret=None):
+def staff_login(client, secret=None, at=None):
     response = client.post('/auth/login', json={'tenant':'EXAMPLE','email':'staff@testing.test','password':'Test-password-only-123'})
     assert response.status_code == 202
     assert client.get('/billing/subscription').status_code == 401
-    code = pyotp.TOTP(secret).at(time.time()+30) if secret else generate_totp_token(response.json['mfa']['setup_key'])
     secret = secret or response.json['mfa']['setup_key']
+    code = generate_totp_token(secret) if at is None else pyotp.TOTP(secret).at(at)
     confirmed = client.post('/auth/mfa/confirm', json={'code':code})
     assert confirmed.status_code == 200
     return secret
@@ -75,9 +77,10 @@ def test_staff_permissions_are_independent_read_only_and_revocable(client, monke
     assert client.get('/admin/api/api-usage?scope=all').status_code==403
     assert client.get('/billing/subscription?tenant=OTHER').status_code==403
     AccountService(client.application.container.storage).update_account('EXAMPLE',account['id'],{'permissions':[]})
-    if permissions:
-        assert client.get('/admin/api/catalog').status_code==401
-        staff_login(client,secret)
+    assert client.get('/admin/api/catalog').status_code==401
+    next_step = (int(time.time()) // 30 + 1) * 30 + 5
+    monkeypatch.setattr(time, 'time', lambda: next_step)
+    staff_login(client,secret,at=next_step)
     assert client.get('/billing/subscription').status_code==403
     assert client.get('/admin/api/api-usage').status_code==403
 

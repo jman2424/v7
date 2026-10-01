@@ -1,0 +1,2 @@
+# Legacy filename retained; requirements.txt is the single dependency source.
+-r requirements.txt

@@ -4,8 +4,10 @@ import json
 import pytest
 
 from service import mcp_tools, tenant_access
-from tests.test_mcp import mcp, issue, data, rpc  # noqa: F401
+from tests.test_mcp import mcp as mcp_fixture, issue, data, rpc  # noqa: F401
 from tests.test_platform_security import platform  # noqa: F401
+
+mcp = mcp_fixture
 
 
 READS = {

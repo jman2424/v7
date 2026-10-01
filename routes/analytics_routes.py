@@ -5,10 +5,10 @@ import io
 from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, abort, jsonify, request
 
 from routes import get_container
-from service.security import authorized_tenant, require_management
+from service.security import authorized_tenant, require_management, require_permission
 
 bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 
@@ -27,11 +27,9 @@ def _get_int(name: str, default: int, min_value: int = 1, max_value: int = 10_00
     try:
         v = int(raw)
     except ValueError:
-        return default
-    if v < min_value:
-        return min_value
-    if v > max_value:
-        return max_value
+        abort(400, description="Invalid query parameter")
+    if not min_value <= v <= max_value:
+        abort(400, description="Query parameter out of range")
     return v
 
 
@@ -47,6 +45,7 @@ def kpis_json():
     Returns dashboard KPI summary payload for a tenant.
     """
     c = get_container()
+    require_permission("analytics.read")
     tenant = _get_tenant(c)
 
     # Optional time window (minutes). Your service can ignore if unsupported.
@@ -63,6 +62,7 @@ def rollups_json():
     Returns time-series rollups for charts (message volume, sessions, etc).
     """
     c = get_container()
+    require_permission("analytics.read")
     tenant = _get_tenant(c)
 
     minutes = _get_int("minutes", default=1440, min_value=1, max_value=60 * 24 * 365)
@@ -101,6 +101,7 @@ def export_csv_route():
     Export up to 500 recent leads for the authorized company.
     """
     c = get_container()
+    require_permission("customers.read")
     tenant = _get_tenant(c)
 
     from service.analytics_db import get_leads

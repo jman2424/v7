@@ -6,13 +6,15 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   build-publish:
     name: Build & Publish Image + Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: Checkout
@@ -22,15 +24,16 @@ jobs:
 
       - name: Set version from tag
         id: ver
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]+)?$ ]] || [[ ${#tag} -gt 128 ]]; then
-            echo "Release tag must be a bounded semantic version."
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || [[ ${#RELEASE_TAG} -gt 128 ]]; then
+            echo "::error::Release tag must be a semantic version beginning with v"
             exit 1
           fi
-          version="${tag#v}"
+          version="${RELEASE_TAG#v}"
           version="${version//+/-}"
-          printf 'TAG=%s\nVERSION=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
+          printf 'TAG=%s\nVERSION=%s\n' "$RELEASE_TAG" "$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -70,8 +73,7 @@ jobs:
         run: |
           mkdir -p dist
           printf '%s\n' "$RELEASE_TAG" > dist/VERSION.txt
-          tar -czf "dist/source-${RELEASE_TAG}.tar.gz" \
-            --exclude-vcs --exclude="./logs" --exclude="./backups" --exclude="./dist" .
+          git archive --format=tar.gz --output="dist/source-${RELEASE_TAG}.tar.gz" HEAD
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

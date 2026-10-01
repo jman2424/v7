@@ -27,7 +27,7 @@ import random
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -38,7 +38,7 @@ def _json(obj: Any) -> bytes:
 @dataclass
 class SheetsClient:
     api_url: str
-    api_key: str
+    api_key: str = field(repr=False)
     analytics_sheet: Optional[str] = None
     export_sheet: Optional[str] = None
     max_retries: int = 3
@@ -287,7 +287,7 @@ class SheetsClient:
                 row_tenant, cat, subcat, name, price_str, stock = (row + [""] * 6)[:6]
 
                 # If multi-tenant sheet, only keep rows for this tenant.
-                if row_tenant and tenant and row_tenant != tenant:
+                if not tenant or row_tenant != tenant:
                     continue
 
                 cat = (cat or "").strip()

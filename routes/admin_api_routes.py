@@ -17,6 +17,9 @@ from routes import get_container
 from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
 from service.sales_playbook import SalesPlaybookValidationError, load_sales_playbook, validate_sales_playbook
+from service.audit import AuditService
+from service.business_management import revision
+from service.security import has_permission, management_user, require_permission
 from service.website_knowledge import WebsiteImportError, import_website
 from service.conversion_actions import (
     ActionError, list_action_requests, load_actions, validate_actions_config,
@@ -34,10 +37,45 @@ def _require_admin_session() -> None:
         clear_authenticated_session()
         abort(401, description="unauthorized")
     require_admin_role()
+    endpoint = (request.endpoint or "").rsplit(".", 1)[-1]
+    permission = {
+        "api_catalog_get": "offerings.read", "api_catalog_put": "offerings.write",
+        "api_offers_get": "offers.read", "api_offers_put": "offers.write",
+        "api_errors": "errors.read", "api_questions": "conversations.read",
+        "api_conversations": "conversations.read", "api_leads": "customers.read",
+        "api_lead_status_put": "customers.read", "api_action_requests_get": "customers.read",
+        "api_accounts_get": "users.read", "api_integrations": "integrations.read",
+        "api_whatsapp_qr": "integrations.read", "api_platform": "platform.read",
+    }.get(endpoint)
+    settings_endpoints = {
+        "api_faq_get", "api_faq_put", "api_delivery_get", "api_delivery_put",
+        "api_profile_get", "api_profile_put", "api_branches_get", "api_branches_put",
+        "api_agent_settings_get", "api_agent_settings_put", "api_widget_get", "api_widget_put",
+        "api_website_knowledge_get", "api_website_knowledge_import", "api_sales_actions_get",
+        "api_sales_actions_put", "api_mode_set",
+    }
+    analytics_endpoints = {
+        "api_insights", "api_statistics", "api_kpis", "api_timeseries", "api_sessions_timeseries",
+        "api_channels", "api_intents", "api_fallbacks",
+    }
+    if endpoint in settings_endpoints:
+        permission = "business_settings." + ("read" if request.method in {"GET", "HEAD"} else "write")
+    elif endpoint in analytics_endpoints:
+        permission = "analytics.read"
+    if permission:
+        require_permission(permission)
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.path not in {'/admin/api/tenants'}:
         if not is_platform_operator():
             from service.tenant_access import require_active
             require_active(_tenant())
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        user = management_user()
+        tenant = _tenant()
+        AuditService().record(
+            user=user["id"], role=user["roles"][0], ip=request.remote_addr or "",
+            action="management.request", target=f"{tenant}/{endpoint}",
+            extra={"tenant": tenant, "source": "API", "result": "attempted"},
+        )
 
 
 def _safe_import(name: str, fallback: Callable[..., Any]) -> Callable[..., Any]:
@@ -127,21 +165,69 @@ def _invalidate_tenant(tenant: str) -> None:
 
 
 def _audit(action: str, target: str, before: Any = None, after: Any = None) -> None:
-    try:
-        from services.audit import AuditService
+    def safe_details(value):
+        if not isinstance(value, dict):
+            return None
+        result = {key: value[key] for key in ("active", "password_reset", "error")
+                  if isinstance(value.get(key), bool)}
+        if isinstance(value.get("status"), str) and value["status"] in {"Open", "Contacted", "Qualified", "Won", "Lost"}:
+            result["status"] = value["status"]
+        roles = {"admin", "platform_admin", "business_owner", "business_staff"}
+        if isinstance(value.get("role"), str) and value["role"] in roles:
+            result["role"] = value["role"]
+        for key, allowed in (("roles", roles), ("permissions", None)):
+            if isinstance(value.get(key), list):
+                if allowed is None:
+                    from service.security import ALL_PERMISSIONS
+                    allowed = ALL_PERMISSIONS
+                result[key] = [item for item in value[key] if isinstance(item, str) and item in allowed]
+        return result
 
-        user = session.get("user") or {}
-        AuditService().record(
-            user=str(user.get("email") or user.get("username") or user.get("id") or "admin"),
-            role=str((user.get("roles") or [user.get("role") or "admin"])[0]),
-            ip=request.remote_addr or "",
-            action=action,
-            target=target,
-            before=before if isinstance(before, dict) else None,
-            after=after if isinstance(after, dict) else None,
-        )
-    except Exception:
-        logger.exception("audit failed action=%s target=%s", action, target)
+    user = management_user()
+    tenant = _tenant()
+    AuditService().record(
+        user=user["id"], role=user["roles"][0], ip=request.remote_addr or "",
+        action=action, target=target, before=safe_details(before), after=safe_details(after),
+        extra={"tenant": tenant, "source": "API", "result": "success"},
+    )
+
+
+@bp.errorhandler(OSError)
+def management_storage_unavailable(error):
+    logger.error("Management storage unavailable (%s)", type(error).__name__)
+    return jsonify(error="Management storage temporarily unavailable"), 503
+
+
+def _audited_json_write(storage, tenant, filename, payload, *, action, schema=None,
+                        expected_revision=None, expected_website=None, extra=None):
+    """Lock the current document and persist an audit record before replacing it."""
+    with storage.write_lock(tenant):
+        if expected_website is not None:
+            current_profile = storage.read_json(tenant, "store_info.json")
+            if not isinstance(current_profile, dict) or current_profile.get("website") != expected_website:
+                abort(409, description="Business website changed. Import it again.")
+        if (filename == "catalog.json" and isinstance(payload, dict)
+                and "product_catalog" in payload and "categories" not in payload):
+            schema = "catalog-sheet.schema.json"
+        if schema:
+            storage._validate_json(payload, storage._schema_path(schema))
+        try:
+            previous = storage.read_json(tenant, filename)
+        except FileNotFoundError:
+            previous = None
+        before_revision = revision(previous)
+        if expected_revision is not None and expected_revision != before_revision:
+            abort(409, description="Business data changed. Reload it before saving.")
+        user = management_user()
+        audit = AuditService()
+        common = {"user": user["id"], "role": user["roles"][0], "ip": request.remote_addr or "",
+                  "action": action, "target": f"{tenant}/{filename}"}
+        details = {"tenant": tenant, "source": "API", **(extra or {})}
+        audit.record(**common, extra={**details, "result": "prepared",
+                     "before_revision": before_revision, "after_revision": revision(payload)})
+        snapshot = storage._write_json(tenant, filename, payload, schema=schema)
+        audit.record(**common, extra={**details, "result": "success", "snapshot": snapshot})
+        return snapshot
 
 
 @bp.get("/tenants")
@@ -216,7 +302,9 @@ def api_usage_get():
         "mode": mode.upper(),
         "planning_model": chosen_model or brain.config.model,
         "model_options": model_settings.options(),
-        "can_change_model": bool(is_platform_operator() or user_roles() == {"business_owner"}),
+        "can_change_model": bool((is_platform_operator() or user_roles() == {"business_owner"})
+                                 and has_permission(management_user(), "models.write" if is_platform_operator()
+                                                    else "business_settings.write")),
         "planning_enabled": mode == "v7" and brain.client is not None,
         "rewriting_model": chosen_model or container.rewriter._model,
         "rewriting_enabled": container.rewriter._client is not None,
@@ -411,12 +499,13 @@ def api_catalog_put():
         if len(skus) != len(set(str(sku) for sku in skus)):
             return jsonify(error='Product references must be unique within the company.'), 400
     try:
-        snap = _storage().write_json(tenant, "catalog.json", data, schema="catalog.schema.json")
+        snap = _audited_json_write(_storage(), tenant, "catalog.json", data,
+                                  action="catalog.update", schema="catalog.schema.json",
+                                  expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_catalog", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
     record_inventory(tenant, before, data)
-    _audit("catalog.update", f"{tenant}/catalog.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -434,11 +523,11 @@ def api_faq_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "faq.json")
     try:
-        snap = _storage().write_json(tenant, "faq.json", data, schema="faq.schema.json")
+        snap = _audited_json_write(_storage(), tenant, "faq.json", data, action="faq.update",
+                                  schema="faq.schema.json", expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_faq", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
-    _audit("faq.update", f"{tenant}/faq.json", before={"items": before}, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -472,11 +561,11 @@ def api_offers_put():
     except FileNotFoundError:
         before = []
     try:
-        snap = storage.write_json(tenant, "offers.json", data, schema="offers.schema.json")
+        snap = _audited_json_write(storage, tenant, "offers.json", data, action="offers.update",
+                                  schema="offers.schema.json")
     except ValidationError as exc:
         return jsonify({"error": "invalid_offers", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
-    _audit("offers.update", f"{tenant}/offers.json", before={"items": before}, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -494,11 +583,11 @@ def api_delivery_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "delivery.json")
     try:
-        snap = _storage().write_json(tenant, "delivery.json", data, schema="delivery.schema.json")
+        snap = _audited_json_write(_storage(), tenant, "delivery.json", data, action="delivery.update",
+                                  schema="delivery.schema.json", expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_delivery", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
-    _audit("delivery.update", f"{tenant}/delivery.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -516,11 +605,11 @@ def api_profile_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "store_info.json")
     try:
-        snap = _storage().write_json(tenant, "store_info.json", data, schema="store_info.schema.json")
+        snap = _audited_json_write(_storage(), tenant, "store_info.json", data, action="profile.update",
+                                  schema="store_info.schema.json", expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_profile", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
-    _audit("profile.update", f"{tenant}/store_info.json", before=before, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -538,11 +627,11 @@ def api_branches_put():
     tenant = _tenant()
     before = _storage().read_json(tenant, "branches.json")
     try:
-        snap = _storage().write_json(tenant, "branches.json", data, schema="branches.schema.json")
+        snap = _audited_json_write(_storage(), tenant, "branches.json", data, action="branches.update",
+                                  schema="branches.schema.json", expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_branches", "detail": exc.message}), 400
     _invalidate_tenant(tenant)
-    _audit("branches.update", f"{tenant}/branches.json", before={"items": before}, after={"snapshot": snap})
     return jsonify({"ok": True, "snapshot": snap})
 
 
@@ -606,24 +695,9 @@ def api_agent_settings_put():
 
     overrides["tone"] = {"style": style, "max_sentences": max_sentences}
     overrides["sales_playbook"] = playbook
-    snapshot = storage.write_json(tenant, "overrides.json", overrides)
+    snapshot = _audited_json_write(storage, tenant, "overrides.json", overrides,
+                                  action="agent_settings.update", expected_revision=revision(before))
     _invalidate_tenant(tenant)
-    _audit(
-        "agent_settings.update",
-        f"{tenant}/overrides.json",
-        before=before,
-        after={
-            "snapshot": snapshot,
-            "tone": overrides["tone"],
-            "playbook": {
-                "offering_type": playbook["offering_type"],
-                "primary_goal": playbook["primary_goal"],
-                "ideal_customer_configured": bool(playbook["ideal_customer"]),
-                "value_propositions": len(playbook["value_propositions"]),
-                "qualification_questions": len(playbook["qualification_questions"]),
-            },
-        },
-    )
     return jsonify({"ok": True, "snapshot": snapshot, **_agent_settings_payload(overrides)})
 
 
@@ -796,10 +870,11 @@ def api_website_knowledge_import():
         knowledge = import_website(website or "")
     except WebsiteImportError as exc:
         return jsonify(error=str(exc)), 422
-    snapshot = storage.write_json(tenant, "website_knowledge.json", knowledge)
+    # A fetch runs outside the write lock; the source must still be current.
+    _audited_json_write(storage, tenant, "website_knowledge.json", knowledge,
+                        action="website.knowledge.import", expected_website=website,
+                        extra={"page_count": len(knowledge["pages"])})
     _invalidate_tenant(tenant)
-    _audit("website.knowledge.import", f"{tenant}/website_knowledge.json",
-           after={"snapshot": snapshot, "page_count": len(knowledge["pages"])})
     return jsonify(source_url=knowledge["source_url"], fetched_at=knowledge["fetched_at"],
                    page_count=len(knowledge["pages"]))
 
@@ -828,10 +903,9 @@ def api_sales_actions_put():
         return jsonify(error=str(exc)), 400
     tenant = _tenant()
     storage = _storage()
-    snapshot = storage.write_json(tenant, "sales_actions.json", settings)
+    _audited_json_write(storage, tenant, "sales_actions.json", settings,
+                        action="sales.actions.update")
     _invalidate_tenant(tenant)
-    _audit("sales.actions.update", f"{tenant}/sales_actions.json",
-           after={"snapshot": snapshot, "enabled": [name for name, value in settings.items() if value["enabled"]]})
     return jsonify(ok=True, settings=settings)
 
 
@@ -872,9 +946,9 @@ def api_widget_put():
         "allowed_origins": _clean_allowed_origins(data.get("allowed_origins", [])),
     }
     branding["widget"] = widget
-    snapshot = storage.write_json(tenant, "branding.json", branding)
+    snapshot = _audited_json_write(storage, tenant, "branding.json", branding,
+                                  action="widget.update", expected_revision=revision(before))
     _invalidate_tenant(tenant)
-    _audit("widget.update", f"{tenant}/branding.json", before=before, after={"snapshot": snapshot, "widget": widget})
     return jsonify({"ok": True, "snapshot": snapshot, **_widget_response(tenant, branding)})
 
 
@@ -896,9 +970,9 @@ def api_mode_set():
     normalized_mode = "v7" if mode.startswith("AIV7") else mode.lower()
     ai["mode"] = normalized_mode
     overrides["ai"] = ai
-    snapshot = storage.write_json(tenant, "overrides.json", overrides)
+    _audited_json_write(storage, tenant, "overrides.json", overrides,
+                        action="agent.mode.update", expected_revision=revision(before))
     _invalidate_tenant(tenant)
-    _audit("agent.mode.update", f"{tenant}/overrides.json", before=before, after={"snapshot": snapshot, "mode": normalized_mode})
     return jsonify({"ok": True, "mode": normalized_mode})
 
 
@@ -934,9 +1008,10 @@ def api_insights():
     channels = get_channels_split(tenant=tenant, minutes=minutes)
     intents = get_top_intents(tenant=tenant, minutes=minutes, top=top)
     fallbacks = get_fallbacks(tenant=tenant, minutes=minutes, top=top)
-    errors = get_errors(tenant=tenant, minutes=minutes, top=top)
-    questions = get_common_questions(tenant=tenant, minutes=minutes, top=top)
-    leads = get_leads(tenant=tenant, limit=limit)
+    user = management_user()
+    errors = get_errors(tenant=tenant, minutes=minutes, top=top) if has_permission(user, "errors.read") else []
+    questions = get_common_questions(tenant=tenant, minutes=minutes, top=top) if has_permission(user, "conversations.read") else []
+    leads = get_leads(tenant=tenant, limit=limit) if has_permission(user, "customers.read") else []
 
     # Overview daily series (powers the "overview" chart)
     overview_daily = get_overview_daily(tenant=tenant, minutes=minutes, limit_days=45)
@@ -1114,18 +1189,22 @@ def api_conversations():
         with session_store.postgres_connection(tenant) as db:
             with db.cursor(row_factory=dict_row) as cursor:
                 rows = cursor.execute(
-                    "SELECT id, ts_utc, channel, event_type, text FROM v7_private.events "
-                    "WHERE tenant=%s AND id<%s AND ts_utc>=%s "
-                    "AND event_type IN ('msg_in','msg_out') ORDER BY id DESC LIMIT 51",
+                    "WITH tenant_messages AS ("
+                    "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
+                    "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out')) "
+                    "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
+                    "WHERE id<%s AND ts_utc>=%s ORDER BY id DESC LIMIT 51",
                     (tenant, before, since),
                 ).fetchall()
         return jsonify(messages=rows[:50], has_more=len(rows) > 50,
                        next_before=rows[49]["id"] if len(rows) > 50 else None)
     with _conn() as db:
         rows = db.execute(
-            "SELECT id, ts_utc, channel, event_type, text FROM events "
-            "WHERE tenant=? AND id<? AND ts_utc>=? AND event_type IN ('msg_in','msg_out') "
-            "ORDER BY id DESC LIMIT 51", (tenant, before, since)
+            "WITH tenant_messages AS ("
+            "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
+            "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out')) "
+            "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
+            "WHERE id<? AND ts_utc>=? ORDER BY id DESC LIMIT 51", (tenant, before, since)
         ).fetchall()
     return jsonify(messages=[dict(row) for row in rows[:50]], has_more=len(rows) > 50,
                    next_before=rows[49]["id"] if len(rows) > 50 else None)

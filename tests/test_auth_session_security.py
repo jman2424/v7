@@ -3,7 +3,7 @@ import pytest
 import json
 from tests.conftest import set_test_identity
 
-from service.security import generate_totp_secret, generate_totp_token
+from service.security import ALL_PERMISSIONS, generate_totp_secret, generate_totp_token
 
 
 def test_unicode_email_is_rejected_without_crashing_configured_login(client, monkeypatch):
@@ -180,7 +180,7 @@ def test_api_login_replaces_anonymous_session_and_excludes_server_secrets(client
         "email": "owner@example.test",
         "roles": ["platform_admin"],
         "tenant": "EXAMPLE",
-        "permissions": ["view_costs", "view_subscriptions"],
+        "permissions": sorted(ALL_PERMISSIONS),
     }
     with client.session_transaction() as sess:
         assert sess["_csrf"] != "csrf_before_login"

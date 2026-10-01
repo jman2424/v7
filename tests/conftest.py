@@ -49,7 +49,8 @@ def set_test_identity(client, state, user):
             data = json.loads(registry.read_text())
             data["users"] = [r for r in data["users"] if r["email"] != identity["email"]]
             data["users"].append({"email": identity["email"], "role": roles[0], "tenant": identity["tenant"],
-                                  "password_hash": generate_password_hash("Unit-test-password-only")})
+                                  "password_hash": generate_password_hash("Unit-test-password-only"),
+                                  **({"permissions": identity["permissions"]} if "permissions" in identity else {})})
             registry.write_text(json.dumps(data))
             revision = _revision(identity)
         assert revision

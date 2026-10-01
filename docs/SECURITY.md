@@ -26,6 +26,13 @@ payment links and subscription changes remain owner/operator-only. Subscription
 reports omit API invoices, usage and their totals without `view_costs`.
 Permission changes revoke existing sessions and require a fresh sign-in with 2FA.
 
+Staff also need explicit grants for tenant reads and writes. Server-side checks
+apply to dashboard APIs, file editors, model settings, diagnostics, MCP and REST.
+Owner accounts can carry a restricted permission set; legacy tenant owner records
+without the permission-version marker keep their previous owner permissions.
+Registry accounts use their explicit grants. Environment business accounts must
+specify their tenant; a login request cannot supply missing account scope.
+
 New business data editing, team changes, the agent, public widget
 and WhatsApp processing require an active platform subscription, a confirmed paid
 platform invoice, and confirmed implementation payment. Only verified Stripe
@@ -104,6 +111,16 @@ own-account device count, absolute expiry and current-device status. CSRF-protec
 It leaves existing authenticated sessions active until expiry or logout. Normal
 session expiry alone preserves an unexpired device proof. Device proofs and spent
 authenticator codes are security state and must be preserved in complete backups.
+Accepted authenticator steps also have a per-account high-water mark, so an older
+step cannot be reused after a newer one. Preserve replay state in backups.
+Password verification, pending MFA and OAuth consent are bound to the exact
+credential revision verified at the beginning of authentication. Account changes
+cannot turn an earlier password proof into a session for newer credentials.
+
+Apply `supabase/migrations/202609300001_totp_replay_protection.sql` (schema version 9)
+before starting the updated PostgreSQL runtime. SQLite creates this private table
+on first use. The credential policy upgrade invalidates existing management
+sessions and MCP/REST grants; sign in and consent again after deployment.
 
 There is no unauthenticated MFA reset. Losing an existing
 authenticator requires operator recovery through the server's protected account
@@ -118,8 +135,11 @@ Local preview accounts exist only on localhost and cannot sign in on Render.
 For the environment admin, generate a private Base32 TOTP secret locally,
 add that key to your authenticator as a time-based account, and save the same
 key as `ADMIN_TOTP_SECRET` in the service's environment. Keep the existing
-`ADMIN_USERNAME` and `ADMIN_PASSWORD` / `ADMIN_PASSWORD_HASH` unchanged.
-Redeploy, then use the same password and the authenticator's six-digit code.
+`ADMIN_USERNAME`. Production HTTPS login requires `ADMIN_PASSWORD_HASH`; hash
+the existing password with the account-management tool before deployment if
+only `ADMIN_PASSWORD` is configured. Plaintext password compatibility is limited
+to local HTTP development. After the live-data backup and deployment steps,
+use the same password and the authenticator's six-digit code.
 Do not use an online QR-code generator or commit the setup key.
 
 A `csrf_failed` response means the sign-in page expired or its session cookie
@@ -137,6 +157,8 @@ addresses. Its defaults are eight attempts per 900 seconds, configurable with
 do not clear failures; successful MFA or validated device proof does. Account failure
 subjects are HMAC digests, without raw email or client address keys. Ordinary request
 limits are process-local.
+Chat, analytics and management writes have additional bounded buckets; none bypass
+a stricter configured global limit. Forwarded headers cannot choose a rate-limit key.
 
 ## Request and tenant boundaries
 
@@ -156,6 +178,25 @@ names and validated company keys. Account/security and privacy remain available 
 authenticated inactive businesses. On SQLite, directory aliases resolve to the unique
 actual tenant key before authentication; legacy alias authenticator records are reused
 unchanged, and conflicting saved secrets fail closed.
+
+JSON requests reject duplicate keys, non-finite or overflowed numbers and excessive
+nesting. Repeated query selectors are rejected. MCP and REST bodies are bounded at
+64 KiB; OAuth token forms are bounded at 8 KiB and reject repeated/unknown fields.
+Raw-file editors require JSON content types and validate settings field allowlists.
+Tenant files, legacy loaders, audit reads and snapshots reject symlink/junction
+aliases, traversal and Windows device names. Spreadsheet imports require an exact,
+nonblank tenant column; blank rows do not become shared tenant data.
+
+Management writes record an attempt before mutation; document edits also record
+prepared revisions and a success outcome. Audit preparation failure blocks the
+write. Filesystem replacement and the audit append are separate operations: if
+success logging fails after replacement, inspect the prepared revision before
+retrying. Do not assume an error means no write occurred.
+
+Signed catalog imports use the deployment's server-selected business, validate
+bounded rows and persist delivery digests before processing. Completed replays
+return the prior result and cannot undo later owner edits. Request tenant selectors
+are not accepted for signed imports.
 
 PostgreSQL tenant document mutations use a database lock shared by workers.
 Staff-request approval commits the new account document and request status
@@ -208,6 +249,11 @@ are not supported. Web chat continues to work while WhatsApp is unconfigured.
 
 Provider message IDs are deduplicated in the configured security database for
 seven days.
+The entire signed Meta message batch, including every recipient mapping, is
+validated before any message dispatch. Malformed later entries cannot partially
+dispatch earlier messages. Outbound sends require validated HTTPS URLs and do not
+follow redirects carrying provider credentials. Repeated Twilio form fields fail
+validation.
 Completed Twilio replies can be replayed safely; failed processing can retry.
 This does not guarantee exactly-once external delivery if a process crashes
 after a provider accepts a send but before completion is recorded.
@@ -274,7 +320,7 @@ Frontend checking and a production console build are separate release checks.
   Google/OAuth login was not added.
 - Raw-file offer writes now enforce the same business constraints as the Offers API.
 - Python security updates: Flask 3.1.3, Requests 2.33.0, python-dotenv 1.2.2,
-  PyJWT 2.13.0 and pytest 9.0.3, based on the local pip-audit findings.
+  PyJWT 2.15.0 and pytest 9.0.3, based on the local pip-audit findings.
 
 Use `pytest tests/test_request_hardening.py` alongside the existing security suites.
 Dependency and static scans supplement these tests; they do not establish that every

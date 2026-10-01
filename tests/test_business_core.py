@@ -8,8 +8,10 @@ import pytest
 from jsonschema import ValidationError
 from retrieval.storage import Storage
 from service.business_core import BusinessCore, empty_core, validate_core
-from tests.test_mcp import mcp, issue, data, rpc
+from tests.test_mcp import mcp as mcp_fixture, issue, data, rpc
 from tests.test_platform_security import platform
+
+mcp = mcp_fixture
 
 
 def test_native_offering_rest_mcp_and_private_work(mcp):

@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 
 from retrieval.catalog_store import _parse_price_str
 from service.audit import AuditService
+from service.security import has_permission
 
 
 class BusinessError(Exception):
@@ -77,6 +78,9 @@ class BusinessManagement:
         validate(action, args)
         if not self.identity or self.identity.get("roles") != ["business_owner"] or self.identity.get("tenant") != self.tenant:
             raise BusinessError("forbidden", "Business owner permission is required.")
+        permission = "offers.write" if action in {"create_offer", "update_offer", "disable_offer"} else "offerings.write"
+        if not has_permission(self.identity, permission):
+            raise BusinessError("forbidden", "Write permission is required.")
         from service.tenant_access import activation
         if not activation(self.tenant)['active']:
             raise BusinessError('forbidden', 'Business activation is required before editing.')

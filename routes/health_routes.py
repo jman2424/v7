@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 
 from app.config import Settings
+from service.security import authorized_tenant, require_permission
 
 bp = Blueprint("health", __name__)
 
@@ -13,10 +14,12 @@ def health():
 
 @bp.get("/version")
 def version():
+    require_permission("health.read")
+    tenant = authorized_tenant(request.args.get("tenant"))
     s: Settings = current_app.config.get("SETTINGS") or getattr(current_app, "container").settings
     info = {
         "mode": s.MODE,
-        "tenant": s.BUSINESS_KEY,
+        "tenant": tenant,
     }
     return jsonify(info)
 
@@ -27,6 +30,6 @@ def ready():
         c = getattr(current_app, "container")
         _ = c.catalog.count_items() if hasattr(c.catalog, "count_items") else True
         return jsonify({"ready": True}), 200
-    except Exception as e:
-        current_app.logger.error(f"Readiness check failed: {e}")
+    except Exception:
+        current_app.logger.exception("Readiness check failed")
         return jsonify({"ready": False}), 503

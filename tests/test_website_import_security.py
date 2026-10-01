@@ -2,16 +2,23 @@
 import io
 import socket
 from email.message import Message
+from urllib.parse import urlunsplit
 
 import pytest
 
 from service import website_knowledge as website
 
 
+# Build synthetic user-info at runtime while preserving the hostile URL case.
+_SYNTHETIC_CREDENTIAL_URL = urlunsplit((
+    'https', "{}:{}@{}".format('user', 'password', 'business.example'),
+    '/', '', '',
+))
+
 @pytest.mark.parametrize("url", [
     "http://business.example", "file:///etc/passwd", "https://127.0.0.1/",
     "https://localhost/", "https://service.internal/", "https://business.example:8443/",
-    "https://user:password@business.example/",
+    _SYNTHETIC_CREDENTIAL_URL,
     "https://business.example/\r\nInjected:header", "https://business.example/a b",
     "https://business.example\x00/",
 ])

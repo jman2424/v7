@@ -4,7 +4,10 @@
   "required": [
     "product_catalog"
   ],
+  "additionalProperties": false,
   "properties": {
+    "version": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string", "minLength": 1, "maxLength": 64 }] },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
     "product_catalog": {
       "type": "array",
       "items": {
@@ -13,6 +16,7 @@
           "name",
           "items"
         ],
+        "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string",
@@ -26,6 +30,7 @@
                 "name",
                 "price_str"
               ],
+              "additionalProperties": false,
               "properties": {
                 "name": {
                   "type": "string",

@@ -2,7 +2,9 @@
 from unittest.mock import Mock
 import pytest
 from service import model_settings, api_usage
-from tests.test_platform_security import platform, login
+from tests.test_platform_security import platform as platform_fixture, login
+
+platform = platform_fixture
 
 
 def request(client, method, path, csrf, **data):
@@ -13,7 +15,7 @@ def test_model_change_requires_both_confirmations_and_applies_to_calls(platform)
     app=platform[0]
     client=app.test_client()
     csrf=login(client)
-    assert request(client,'PUT','',csrf,model='gpt-4o',confirm_and_save=True).status_code==409
+    assert request(client,'PUT','',csrf,token='unreviewed',confirm_and_save=True).status_code==409
     review=request(client,'POST','/review',csrf,model='gpt-4o')
     assert review.status_code==200
     token=review.json['token']

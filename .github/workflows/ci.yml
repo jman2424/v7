@@ -56,6 +56,10 @@ jobs:
         env:
           V7_CONSOLE_BASE_PATH: /console
 
+      - name: Check widget SDK security
+        working-directory: sdk/js
+        run: npm test
+
       - name: Unit & integration tests
         run: pytest -v
 

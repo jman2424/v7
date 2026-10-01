@@ -43,8 +43,6 @@ DEFAULT_ALLOWED_ORIGINS: List[str] = [
     "http://localhost",
     "http://localhost:3000",
     "http://127.0.0.1",
-    "https://web-tester-jnwd.onrender.com",  # frontend
-    "https://v7-52g3.onrender.com",          # widget host
 ]
 
 
@@ -55,7 +53,9 @@ def _canon_origin(u: str) -> str:
     """
     try:
         p = urlparse(u)
-        if not p.scheme or not p.netloc:
+        if (p.scheme not in {"http", "https"} or not p.hostname
+                or p.username or p.password or p.path or p.query or p.fragment
+                or any(ord(char) < 32 or ord(char) == 127 for char in u)):
             return ""
         return f"{p.scheme}://{p.netloc}"
     except Exception:
@@ -240,7 +240,7 @@ class WidgetBridge:
 
         allowed = [
             normalized
-            for raw in (self.allowed_origins or DEFAULT_ALLOWED_ORIGINS)
+            for raw in (DEFAULT_ALLOWED_ORIGINS if self.allowed_origins is None else self.allowed_origins)
             if (normalized := canonical_origin(raw))
         ]
         o = canonical_origin(origin)

@@ -28,7 +28,7 @@ SECURITY_TABLES = {
     'management_sessions', 'login_attempts', 'account_authenticators', 'mfa_challenges',
     'auth_login_failures', 'mfa_code_uses', 'trusted_devices', 'oidc_states', 'oidc_links',
     'managed_businesses', 'registration_requests', 'billing_contracts', 'billing_invoices',
-    'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate',
+    'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate', 'totp_steps',
 }
 ANALYTICS_TABLES = {
     'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history',
@@ -343,7 +343,7 @@ def import_bundle(conn, bundle):
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(71616001)')
         version = conn.execute('SELECT version FROM v7_private.schema_version ORDER BY version').fetchall()
-        if version != [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]:
+        if version != [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]:
             raise ValueError('Apply the reviewed V7 schema migration first')
         for table in sorted(DATA_TABLES | {'migration_runs'}):
             query = sql.SQL('SELECT EXISTS(SELECT 1 FROM v7_private.{})').format(sql.Identifier(table))

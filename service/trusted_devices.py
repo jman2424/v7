@@ -44,7 +44,9 @@ def issue(user, tenant):
     if not user.get('totp_secret'):
         raise ValueError('mfa_setup_required')
     revision = _revision(identity)
-    if not revision:
+    authenticated = user.get('_credential_revision')
+    if (not revision or not isinstance(authenticated, str)
+            or not hmac.compare_digest(revision, authenticated)):
         raise ValueError('account_unavailable')
     token = secrets.token_urlsafe(32)
     expires = time.time()+TRUST_SECONDS

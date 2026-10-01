@@ -2,7 +2,7 @@
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, local
 from types import SimpleNamespace
 
 import pytest
@@ -135,7 +135,8 @@ def test_postgres_concurrent_join_approvals_preserve_both_accounts(pg_runtime):
 def test_postgres_concurrent_mfa_enrollment_rejects_the_losing_browser(pg_runtime, monkeypatch):
     app = _app(pg_runtime)
     user = {'id': 'native-mfa-' + pg_runtime['tenant'], 'email': pg_runtime['tenant'].lower() + '@example.test',
-            'roles': ['business_owner'], 'tenant': pg_runtime['tenant']}
+            'roles': ['business_owner'], 'tenant': pg_runtime['tenant'],
+            '_credential_revision': 'native-test-revision', '_account_revision': 'native-account-test-revision'}
     # Keep both challenge revisions current so the test reaches the insert race.
     monkeypatch.setattr('service.security._revision', lambda identity: 'native-test-revision')
     challenges = []
@@ -145,10 +146,15 @@ def test_postgres_concurrent_mfa_enrollment_rejects_the_losing_browser(pg_runtim
             challenges.append((session['mfa_challenge'], challenge['setup_key']))
     ready = Barrier(2)
     execute = account_mfa._execute
+    lookup_state = local()
 
     def concurrent_lookup(db, sql, params=()):
         result = execute(db, sql, params)
-        if sql == 'SELECT secret FROM account_authenticators WHERE account=?':
+        if (sql == 'SELECT secret FROM account_authenticators WHERE account=?'
+                and not getattr(lookup_state, 'synchronized', False)):
+            # Race the initial enrollment lookup, then allow the winner's
+            # post-commit credential-proof read to complete independently.
+            lookup_state.synchronized = True
             ready.wait(timeout=10)
         return result
 

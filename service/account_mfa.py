@@ -69,9 +69,13 @@ def begin(user, tenant):
     from service.security import _revision
     identity = {key: user[key] for key in ('id', 'email', 'roles')}
     identity['tenant'] = user.get('tenant') or tenant
+    if 'permissions' in user:
+        identity['permissions'] = user['permissions']
     revision = _revision(identity)
-    if not revision:
+    authenticated = user.get('_credential_revision')
+    if not revision or not isinstance(authenticated, str) or not hmac.compare_digest(revision, authenticated):
         raise ValueError('account_unavailable')
+    identity['_account_revision'] = user['_account_revision']
     existing = user.get('totp_secret') or enrolled_secret(identity)
     secret = existing or pyotp.random_base32()
     token = secrets.token_urlsafe(32)
@@ -156,6 +160,9 @@ def _consume_code(db, account, secret, code):
                         (account, secret_hash, timestep))
     if inserted.rowcount != 1:
         raise ValueError('authenticator_code_reused')
+    key = base64.b32decode(normalized + '=' * (-len(normalized) % 8), casefold=True)
+    if not session_store.consume_totp(account, key.hex(), timestep, database=db):
+        raise ValueError('authenticator_code_reused')
 
 
 def complete_login(user, tenant, code):
@@ -174,7 +181,7 @@ def complete_login(user, tenant, code):
 
 
 def confirm(code):
-    from service.security import _account_tenant, _revision
+    from service.security import _account_tenant, _bound_revision, _revision
     token = _digest(session.get('mfa_challenge', ''))
     # Read revision before the write transaction: it also opens the security DB.
     with _database() as db:
@@ -222,4 +229,5 @@ def confirm(code):
     if failure:
         raise ValueError(failure)
     session.pop('mfa_challenge', None)
+    user['_credential_revision'] = _bound_revision(user['_account_revision'], enrolled_secret(user))
     return {**user, 'totp_secret': secret}

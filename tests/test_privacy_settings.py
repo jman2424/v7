@@ -96,7 +96,8 @@ def test_permission_and_csrf_boundaries_for_privacy_settings(privacy_app):
     assert client.put("/admin/api/privacy", json={"settings": valid_settings(), "revision": current["revision"]}).status_code == 403
     staff = privacy_app.test_client()
     with staff.session_transaction() as state:
-        set_test_identity(staff, state, {"id": "staff", "email": "staff@example.test", "tenant": "ALPHA", "roles": ["business_staff"]})
+        set_test_identity(staff, state, {"id": "staff", "email": "staff@example.test", "tenant": "ALPHA", "roles": ["business_staff"],
+                                       "permissions": ["business_settings.read"]})
         token = state.get("_csrf", "")
     own = staff.get("/admin/api/privacy?tenant=ALPHA")
     assert own.status_code == 200 and own.json["write_allowed"] is False

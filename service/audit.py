@@ -19,6 +19,9 @@ from typing import Any, Dict, Optional
 
 
 def _default_audit_path() -> str:
+    configured = (os.getenv("AUDIT_LOG_PATH") or "").strip()
+    if configured:
+        return configured
     data_root = (os.getenv("V7_DATA_DIR") or "").strip()
     return os.path.join(data_root, "logs", "selfrepair.log") if data_root else "logs/selfrepair.log"
 
@@ -72,4 +75,6 @@ class AuditService:
             return
         self._ensure_dir()
         with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(evt, ensure_ascii=False) + "\n")
+            f.write(json.dumps(evt, ensure_ascii=False, allow_nan=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())

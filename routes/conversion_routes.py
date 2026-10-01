@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, current_app, jsonify, make_response, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -51,8 +52,16 @@ def _origin_allowed(tenant: str) -> None:
     except (FileNotFoundError, OSError, ValueError):
         branding = {}
     origins = allowed_origins_from_branding(branding)
-    same_origin = request.host_url.rstrip("/")
-    if origin != same_origin and origin not in origins:
+    configured_url = urlsplit(get_container().settings.BASE_URL)
+    same_origin = f"{configured_url.scheme}://{configured_url.netloc}"
+    request_url = urlsplit(request.host_url)
+    loopback_names = {"localhost", "127.0.0.1", "::1"}
+    local_preview_origin = (
+        configured_url.hostname in loopback_names
+        and request_url.hostname in loopback_names
+        and origin == request.host_url.rstrip("/")
+    )
+    if origin != same_origin and not local_preview_origin and origin not in origins:
         abort(403, description="origin_forbidden")
 
 

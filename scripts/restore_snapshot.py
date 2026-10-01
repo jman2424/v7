@@ -18,18 +18,19 @@ import gzip
 import os
 import sys
 import tarfile
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
 try:
+    from scripts.backup_utils import atomic_write, files_under
     from scripts.snapshot_paths import configured_business_root, reject_links, target_path, tenant_base, validate_tenant
 except ModuleNotFoundError:
+    from backup_utils import atomic_write, files_under
     from snapshot_paths import configured_business_root, reject_links, target_path, tenant_base, validate_tenant
 
 ROOT = Path(__file__).resolve().parents[1]
-BUSINESS_DIR = configured_business_root(ROOT)
+BUSINESS_DIR = Path(os.environ.get("BUSINESS_DATA_ROOT") or configured_business_root(ROOT)).expanduser()
 MAX_SNAPSHOT_FILES = 2000
 MAX_FILE_BYTES = 16 * 1024 * 1024
 MAX_TOTAL_BYTES = 64 * 1024 * 1024
@@ -119,7 +120,7 @@ def snapshot_map(snapshot_path: Path, tenant: str) -> Dict[str, bytes]:
 def current_map(tenant: str) -> Dict[str, bytes]:
     base = tenant_base(BUSINESS_DIR, tenant)
     out: Dict[str, bytes] = {}
-    for p in base.glob("**/*"):
+    for p in files_under(base):
         reject_links(p)
         if p.is_file():
             rel = p.relative_to(base.parent).as_posix()
@@ -128,7 +129,8 @@ def current_map(tenant: str) -> Dict[str, bytes]:
     return out
 
 def compute_diff(curr: Dict[str, bytes], snap: Dict[str, bytes]) -> DiffReport:
-    a = set(curr.keys()); b = set(snap.keys())
+    a = set(curr.keys())
+    b = set(snap.keys())
     added = sorted(b - a)
     removed = sorted(a - b)
     changed = sorted([k for k in (a & b) if curr[k] != snap[k]])
@@ -162,26 +164,19 @@ def apply_changes(tenant: str, snap: Dict[str, bytes], report: DiffReport, audit
             if parent in planned_files or (parent.exists() and not parent.is_dir()):
                 raise ValueError("Snapshot contains conflicting file and directory paths")
     audit.record(user=actor, role="admin", ip="127.0.0.1", action="restore_start", target=tenant,
-                 extra={"added": len(report.added), "changed": len(report.changed), "removed": len(report.removed)})
+                 extra={"added": len(report.added), "changed": len(report.changed), "removed": len(report.removed),
+                        "tenant": tenant, "source": "operator", "result": "prepared"})
     base.mkdir(parents=True, exist_ok=True)
 
     for rel in report.added + report.changed:
         dst = targets[rel]
         dst.parent.mkdir(parents=True, exist_ok=True)
         before = {"size": dst.stat().st_size} if dst.exists() else None
-        descriptor, temporary = tempfile.mkstemp(prefix=".restore-", dir=dst.parent)
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(snap[rel])
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, dst)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        atomic_write(dst, snap[rel])
         audit.record(user=actor, role="admin", ip="127.0.0.1",
                      action="restore_write", target=rel,
-                     before=before, after={"size": len(snap[rel])})
+                     before=before, after={"size": len(snap[rel])},
+                     extra={"tenant": tenant, "source": "operator", "result": "success"})
 
     for rel in report.removed:
         dst = targets[rel]
@@ -190,7 +185,8 @@ def apply_changes(tenant: str, snap: Dict[str, bytes], report: DiffReport, audit
             dst.unlink()
             audit.record(user=actor, role="admin", ip="127.0.0.1",
                          action="restore_delete", target=rel,
-                         before=before, after=None)
+                         before=before, after=None,
+                         extra={"tenant": tenant, "source": "operator", "result": "success"})
 
 def main():
     ap = argparse.ArgumentParser(description="Restore snapshot (with dry-run diff).")

@@ -2,6 +2,9 @@ from __future__ import annotations
 from flask import Blueprint, abort, jsonify, request, session
 from jsonschema.exceptions import ValidationError
 from service.business_validation import validate_settings
+from service.audit import AuditService
+from service.business_management import revision
+from service.security import require_permission
 
 from retrieval.storage import KNOWN_FILES
 from routes import get_container
@@ -26,6 +29,11 @@ def _filename(value: str) -> str:
     return filename
 
 
+def _permission(filename, write=False):
+    resource = "offerings" if filename in {"catalog.json", "business_core.json"} else "offers" if filename == "offers.json" else "business_settings"
+    return resource + (".write" if write else ".read")
+
+
 @bp.before_request
 def _require_tenant_admin() -> None:
     if not session.get("user"):
@@ -38,8 +46,10 @@ def _require_tenant_admin() -> None:
 
 @bp.get("/raw/<path:filename>")
 def get_file(filename: str):
+    filename = _filename(filename)
+    require_permission(_permission(filename))
     try:
-        return jsonify(get_container().storage.read_json(_tenant(), _filename(filename)))
+        return jsonify(get_container().storage.read_json(_tenant(), filename))
     except FileNotFoundError:
         abort(404)
     except ValueError:
@@ -49,7 +59,10 @@ def get_file(filename: str):
 @bp.put("/raw/<path:filename>")
 def put_file(filename: str):
     filename = _filename(filename)
-    payload = request.get_json(force=True)
+    identity = require_permission(_permission(filename, write=True))
+    if not request.is_json:
+        abort(415)
+    payload = request.get_json()
     schema_map = {
         "catalog.json": "catalog.schema.json",
         "faq.json": "faq.schema.json",
@@ -71,19 +84,27 @@ def put_file(filename: str):
         if filename == "offers.json":
             from retrieval.offer_store import OfferStore
             OfferStore.validate(payload)
-        snap = container.storage.write_json(tenant, filename, payload, schema=schema_map.get(filename))
+        audit = AuditService()
+        common = {"user": identity["id"], "role": identity["roles"][0],
+                  "ip": request.remote_addr or "", "action": "files.put", "target": f"{tenant}/{filename}"}
+        details = {"tenant": tenant, "source": "API"}
+        audit.record(**common, extra={**details, "result": "attempted"})
+        with container.storage.write_lock(tenant):
+            try:
+                previous = container.storage.read_json(tenant, filename)
+            except FileNotFoundError:
+                previous = None
+            audit.record(**common, extra={**details, "result": "prepared",
+                         "before_revision": revision(previous), "after_revision": revision(payload)})
+            snap = container.storage._write_json(tenant, filename, payload, schema=schema_map.get(filename))
+        audit.record(**common, extra={**details, "result": "success", "snapshot": snap})
     except (ValidationError, ValueError):
         abort(400, description="invalid_business_data")
     container.invalidate_tenant(tenant)
-    from service.audit import AuditService
-
-    identity = session.get("user") or {}
-    actor = str(identity.get("email") or identity.get("id") or "admin")
-    AuditService().record(user=actor, role=(identity.get("roles") or ["unknown"])[0], ip=request.remote_addr or "",
-                          action="files.put", target=f"{tenant}/{filename}", extra={"snapshot": snap})
     return jsonify({"ok": True, "snapshot_path": snap, "snapshot": snap})
 
 
 @bp.get("/versions")
 def list_versions():
+    require_permission("business_settings.read")
     return jsonify({"versions": get_container().storage.list_versions(_tenant())})

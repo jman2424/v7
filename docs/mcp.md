@@ -131,6 +131,11 @@ and [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specificatio
 - Existing owner permissions and server-assigned tenant remain authoritative.
   Changing/disabling/removing the account invalidates its tokens. Removing a
   registered OAuth client also invalidates access. Staff console access remains available; MCP and REST grants are owner-only.
+- Each of the 37 tools requires its mapped permission as well as its OAuth scope;
+  `tools/list` omits unavailable tools. Composite tools require every permission
+  needed for their projected data. Tool arguments never grant tenant authority.
+  Role/user results exclude platform-wide accounts, even if their records carry
+  tenant metadata. Internal agent tool calls use a separate explicit read allowlist.
 - Access tokens last 15 minutes; authorization codes last two minutes. Refresh
   tokens last 30 days and rotate on use. Only token digests are stored, in the
   existing security SQLite database. Refresh tokens are scoped to the same
@@ -138,6 +143,11 @@ and [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specificatio
 - Authenticated owners can POST `/auth/mcp/revoke` with their management
   session and CSRF token to revoke their grants, access and refresh tokens.
   Dashboard logout alone does not revoke independent OAuth connections.
+- `GET /auth/mcp/connections` preserves the existing integration status fields and
+  adds bounded connection pages (`offset`, `limit`, `connections`, `next_offset`).
+  An opaque `connection_id` in the revoke request removes that connection only;
+  omitting it revokes all of the owner's connections. Both endpoints require
+  `integrations.read`; IDs never expose grant/access/refresh tokens.
 - MCP applies a shared per-owner/tenant limit of 60 requests per minute in
   SQLite, in addition to existing IP limits. These limits and file-write locks
   assume local workers share the same persistent files. Separate replicas

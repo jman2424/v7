@@ -4,7 +4,9 @@ from flask import Flask
 import pytest
 
 from app.middleware import install_request_boundaries
-from tests.test_platform_security import platform, login  # noqa: F401
+from tests.test_platform_security import platform as platform_fixture, login  # noqa: F401
+
+platform = platform_fixture
 
 
 def test_production_accepts_only_configured_hosts_and_origins(monkeypatch):

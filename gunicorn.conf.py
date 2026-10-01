@@ -15,12 +15,15 @@ keepalive = int(os.getenv("WEB_KEEPALIVE", "5"))
 # Logging
 loglevel = os.getenv("LOG_LEVEL", "info")
 accesslog = "-"   # stdout
+# Never log the query string: provider verification/OAuth callbacks contain secrets.
+access_log_format = '%(t)s %(m)s %(U)s %(s)s %(b)s %(L)s'
 errorlog = "-"    # stderr
 capture_output = True
 
 # Security / proxy
 forwarded_allow_ips = os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1,::1")
 proxy_protocol = False
+umask = 0o077
 
 # Preload to reduce per-worker startup
 preload_app = True

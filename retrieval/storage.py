@@ -20,6 +20,7 @@ Used by:
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -47,6 +48,7 @@ VERSIONS_ROOT = BUSINESS_ROOT / "versions"
 SCHEMAS_ROOT = Path(__file__).resolve().parents[1] / "schemas"
 
 _TENANT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 
 # Known tenant files and their schemas (if any)
 KNOWN_FILES: Dict[str, Optional[str]] = {
@@ -84,8 +86,17 @@ def _atomic_write_json(path: Path, data: Any) -> None:
 
 
 def _read_json(path: Path) -> Any:
+    def invalid_constant(_value):
+        raise ValueError("JSON numbers must be finite")
+
+    def finite_number(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("JSON numbers must be finite")
+        return number
+
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        return json.load(f, parse_constant=invalid_constant, parse_float=finite_number)
 
 
 @dataclass(frozen=True, init=False)
@@ -113,6 +124,8 @@ class Storage:
         )
         if business_root is not None:
             root = Path(business_root).resolve()
+        elif base_dir is None and os.getenv("BUSINESS_DATA_ROOT"):
+            root = Path(os.environ["BUSINESS_DATA_ROOT"]).expanduser().resolve()
 
         object.__setattr__(self, "tenant_key", tenant_key)
         object.__setattr__(self, "business_root", root)
@@ -137,7 +150,7 @@ class Storage:
     def validate_tenant_key(tenant: str) -> str:
         """Return a safe tenant key or reject path-like identifiers."""
         value = str(tenant or "").strip()
-        if not _TENANT_KEY_RE.fullmatch(value) or value.lower() == "versions":
+        if not _TENANT_KEY_RE.fullmatch(value) or value.lower() in {"versions", *_WINDOWS_DEVICES}:
             raise ValueError("invalid_tenant")
         return value
 
@@ -214,7 +227,8 @@ class Storage:
         for directory in root.iterdir():
             if directory.is_dir() and not directory.is_symlink():
                 try:
-                    keys.append(self.validate_tenant_key(directory.name))
+                    if self.tenant_dir(directory.name).is_dir():
+                        keys.append(self.validate_tenant_key(directory.name))
                 except ValueError:
                     continue
         return sorted(keys, key=str.casefold)
@@ -224,8 +238,9 @@ class Storage:
             raise RuntimeError("Tenant data has no filesystem path in PostgreSQL mode")
         key = self.validate_tenant_key(tenant or self.tenant_key)
         root = self.business_root.resolve()
-        target = (root / key).resolve()
-        if not target.is_relative_to(root) or target == root:
+        candidate = root / key
+        target = candidate.resolve()
+        if target.parent != root or target != candidate.absolute() or candidate.is_symlink():
             raise ValueError("invalid_tenant")
         if root.is_dir() and sum(p.is_dir() and p.name.casefold() == key.casefold() for p in root.iterdir()) > 1:
             raise ValueError("ambiguous_tenant")
@@ -234,11 +249,13 @@ class Storage:
     def file_path(self, tenant: Optional[str], filename: str) -> Path:
         if self._using_postgres():
             raise RuntimeError("Tenant data has no filesystem path in PostgreSQL mode")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", filename):
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", filename)
+                or filename.split(".", 1)[0].lower() in _WINDOWS_DEVICES or filename.endswith(".")):
             raise ValueError("invalid_filename")
         root = self.tenant_dir(tenant)
-        target = (root / filename).resolve()
-        if not target.is_relative_to(root):
+        candidate = root / filename
+        target = candidate.resolve()
+        if target.parent != root or target != candidate.absolute() or candidate.is_symlink():
             raise ValueError("invalid_filename")
         return target
 
@@ -248,8 +265,11 @@ class Storage:
         date_str = day or datetime.utcnow().strftime("%Y-%m-%d")
         datetime.strptime(date_str, "%Y-%m-%d")
         root = self.versions_root.resolve()
-        target = (root / date_str / self.validate_tenant_key(tenant or self.tenant_key)).resolve()
-        if not target.is_relative_to(root):
+        day_root = root / date_str
+        candidate = day_root / self.validate_tenant_key(tenant or self.tenant_key)
+        target = candidate.resolve()
+        if (root != self.versions_root.absolute() or not target.is_relative_to(root) or target != candidate.absolute()
+                or day_root.is_symlink() or candidate.is_symlink()):
             raise ValueError("invalid_snapshot")
         return target
 
@@ -269,13 +289,16 @@ class Storage:
         Backwards-compatible loader for paths like ``EXAMPLE/catalog.json``.
         """
         rel = Path(path)
-        if self._using_postgres():
-            if rel.is_absolute() or len(rel.parts) != 2:
-                raise ValueError("invalid_document_path")
-            return self.read_json(rel.parts[0], rel.parts[1])
         if rel.is_absolute():
-            return _read_json(rel)
-        return _read_json(self.business_root / rel)
+            if self._using_postgres():
+                raise ValueError("invalid_document_path")
+            try:
+                rel = rel.relative_to(self.business_root)
+            except ValueError:
+                raise ValueError("invalid_document_path") from None
+        if len(rel.parts) != 2:
+            raise ValueError("invalid_document_path")
+        return self.read_json(rel.parts[0], rel.parts[1])
 
     def write_json(
         self,
@@ -303,7 +326,11 @@ class Storage:
                 yield connection
             return
         self.business_root.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.business_root / '.write-lock.sqlite3', timeout=10)
+        lock_path = self.business_root / '.write-lock.sqlite3'
+        for candidate in [lock_path, *(Path(str(lock_path) + suffix) for suffix in ('-journal', '-wal', '-shm'))]:
+            if candidate.resolve() != candidate.absolute() or candidate.is_symlink():
+                raise ValueError("invalid_write_lock")
+        db = sqlite3.connect(lock_path, timeout=10)
         try:
             db.execute('BEGIN IMMEDIATE')
             yield
@@ -341,10 +368,13 @@ class Storage:
         snap_path = ""
         if snapshot:
             snap_dir = self._ensure_daily_snapshot_folder(tkey)
-            if dest.exists() and not (snap_dir / filename).exists():
-                shutil.copy2(dest, snap_dir / filename)
-            if (snap_dir / filename).exists():
-                snap_path = str((snap_dir / filename).relative_to(self.versions_root))
+            snapshot_file = snap_dir / filename
+            if snapshot_file.resolve() != snapshot_file.absolute() or snapshot_file.is_symlink():
+                raise ValueError("invalid_snapshot")
+            if dest.exists() and not snapshot_file.exists():
+                shutil.copy2(dest, snapshot_file)
+            if snapshot_file.exists():
+                snap_path = str(snapshot_file.relative_to(self.versions_root))
         _atomic_write_json(dest, data)
 
         return snap_path
@@ -353,7 +383,7 @@ class Storage:
         """
         Return list of YYYY-MM-DD version folders that contain this tenant.
         """
-        tkey = tenant or self.tenant_key
+        tkey = self.validate_tenant_key(tenant or self.tenant_key)
         if self._using_postgres():
             return self._postgres_repository(tkey).list_version_days()
         if not self.versions_root.exists():
@@ -362,8 +392,11 @@ class Storage:
         for day_dir in sorted(self.versions_root.iterdir()):
             if not day_dir.is_dir():
                 continue
-            if (day_dir / tkey).exists():
-                days.append(day_dir.name)
+            try:
+                if self.versions_day_dir(day_dir.name, tkey).is_dir():
+                    days.append(day_dir.name)
+            except ValueError:
+                continue
         return days
 
     def list_audit_entries(self, tenant: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -379,7 +412,7 @@ class Storage:
             if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
                 raise ValueError("invalid_audit_log")
             return entries
-        log_path = self.tenant_dir(tkey) / "audit.log.jsonl"
+        log_path = self.file_path(tkey, "audit.log.jsonl")
         if not log_path.exists():
             return []
         out: List[Dict[str, Any]] = []
@@ -458,11 +491,11 @@ class Storage:
 
         # First creation today → mirror current tenant dir
         src = self.tenant_dir(tenant)
+        source_files = [self.file_path(tenant, p.name) for p in src.iterdir()
+                        if p.is_file() and p.suffix.lower() == ".json"] if src.exists() else []
         today_dir.mkdir(parents=True, exist_ok=True)
-        if src.exists():
-            for p in src.iterdir():
-                if p.is_file() and p.suffix.lower() == ".json":
-                    shutil.copy2(p, today_dir / p.name)
+        for p in source_files:
+            shutil.copy2(p, today_dir / p.name)
         # write a snapshot metadata file
         try:
             source = str(src.relative_to(REPO_ROOT))

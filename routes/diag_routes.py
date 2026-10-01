@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 
 from routes import get_container
-from service.security import authorized_tenant, require_management
+from service.security import authorized_tenant, require_management, require_permission
 
 bp = Blueprint("diag", __name__, url_prefix="/__diag")
 
@@ -11,6 +11,7 @@ bp = Blueprint("diag", __name__, url_prefix="/__diag")
 @bp.get("/self_repair")
 @require_management()
 def validate_all():
+    require_permission("health.read")
     c = get_container()
     tenant = authorized_tenant(request.args.get("tenant"))
     report = c.storage.validate_tenant(tenant)
@@ -25,5 +26,6 @@ def validate_all():
 @bp.get("/catalog_env")
 @require_management(platform_only=True)
 def catalog_env():
+    require_permission("integrations.read")
     import os
     return jsonify(CATALOG_WEBHOOK_SECRET_present=bool(os.getenv("CATALOG_WEBHOOK_SECRET")))

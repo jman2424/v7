@@ -11,7 +11,7 @@ _TABLES = {
     'billing_contracts', 'billing_invoices', 'billing_discounts',
     'billing_api_charges', 'billing_references', 'webhook_inbox', 'api_usage',
     'recorded_sales', 'inventory_history', 'usage_exchange_rate', 'mcp_grants',
-    'mcp_rate', 'sales_action_requests', 'sales_action_attempts',
+    'mcp_rate', 'sales_action_requests', 'sales_action_attempts', 'totp_steps',
 }
 
 

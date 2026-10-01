@@ -68,7 +68,7 @@ restricted-login `V7_POSTGRES_DSN`, and `V7_SUPABASE_CA_FILE` when a project CA 
 required. Connections enforce verified TLS and tenant RLS. Startup refuses missing
 or unsafe storage; it does not seed or fall back to local files. Follow
 [Supabase storage and migration](docs/SUPABASE_MIGRATION.md) for all migrations
-(schema versions 1-5), import and disposable database checks.
+(schema versions 1-9), import and disposable database checks.
 
 The current live V7 instance has not completed this cutover. Preserve a complete
 independent export of its business documents, security/analytics databases, CRM

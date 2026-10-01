@@ -8,11 +8,12 @@ import re
 from decimal import Decimal
 
 from jsonschema import Draft202012Validator, FormatChecker
+from flask import has_request_context, request
 
 from service import analytics_db
 from service.audit import AuditService
 from service.business_management import BusinessError, BusinessManagement
-from service.security import _registry_users
+from service.security import _registry_users, has_permission
 
 
 def obj(properties=None, required=()):
@@ -102,6 +103,32 @@ spec('update_offering','Update an offering using its ID and source revision. Ret
 spec('get_business_health','Read tenant data availability and channel observations.',obj(WINDOW))
 WRITES = {name for name, tool in SPECS.items() if not tool["annotations"]["readOnlyHint"]}
 
+PERMISSIONS = {
+    "get_business_overview": ("analytics.read", "offerings.read", "offers.read"),
+    "get_statistics": ("analytics.read",), "get_conversation_stats": ("conversations.read",),
+    "get_popular_queries": ("analytics.read",), "get_usage": ("analytics.read",),
+    "get_agent_health": ("health.read", "offerings.read"),
+    "get_service_status": ("health.read", "offerings.read"),
+    "get_error_summary": ("errors.read",), "get_recent_errors": ("errors.read",),
+    "get_catalog": ("offerings.read",), "search_catalog": ("offerings.read",),
+    "get_catalog_stats": ("offerings.read",), "get_offerings": ("offerings.read",),
+    "get_offering": ("offerings.read",), "get_offers": ("offers.read",),
+    "get_users": ("users.read",), "get_user_role": ("users.read",), "get_roles": ("roles.read",),
+    "update_catalog_item": ("offerings.write",), "disable_catalog_item": ("offerings.write",),
+    "add_catalog_item": ("offerings.write",), "create_offering": ("offerings.write",),
+    "update_offering": ("offerings.write",), "create_offer": ("offers.write",),
+    "update_offer": ("offers.write",), "disable_offer": ("offers.write",),
+    "get_business_health": ("health.read", "offerings.read", "business_settings.read"),
+    **{name: ("business_settings.read",) for name in ("get_locations", "get_service_areas", "get_business_rules")},
+    **{name: ("customers.read",) for name in ("get_jobs", "get_bookings", "get_orders", "get_projects", "get_viewings", "get_appointments", "get_tickets")},
+}
+
+
+def allowed(identity, scopes, name):
+    required = {"business:read", "business:write"} if name in WRITES else {"business:read"}
+    return (name in PERMISSIONS and required <= set(scopes)
+            and all(has_permission(identity, permission) for permission in PERMISSIONS[name]))
+
 
 def validate(name, args):
     if name not in SPECS:
@@ -139,6 +166,17 @@ def sanitize(payload, container):
         for key in ("password_hash", "totp_secret"):
             if record.get(key):
                 secrets.append(record[key])
+    if has_request_context():
+        authorization = request.headers.get("Authorization", "")
+        if authorization.startswith("Bearer "):
+            secrets.append(authorization[7:])
+    try:
+        clients = json.loads(os.getenv("MCP_OAUTH_CLIENTS", "{}"))
+        if isinstance(clients, dict):
+            secrets.extend(config["secret_hash"] for config in clients.values()
+                           if isinstance(config, dict) and isinstance(config.get("secret_hash"), str))
+    except (ValueError, TypeError):
+        pass
     def clean(value):
         if isinstance(value, str):
             for secret in secrets:
@@ -146,9 +184,10 @@ def sanitize(payload, container):
                     value = re.sub(re.escape(secret), "[redacted]", value, flags=re.I)
             value = re.sub(r"(?i)(?:bearer\s+|sk-(?:proj-)?)[A-Za-z0-9_.-]+", "[redacted]", value)
             value = re.sub(r"(?i)(?:password|api[_ -]?key|token|secret)\s*[:=]\s*\S+", "[redacted]", value)
+            value = re.sub(r"scrypt:[^\s]+", "[redacted]", value)
             return value
         if isinstance(value, dict):
-            return {k: clean(v) for k, v in value.items()}
+            return {clean(str(k)): clean(v) for k, v in value.items()}
         if isinstance(value, list):
             return [clean(v) for v in value]
         return value
@@ -158,9 +197,8 @@ def sanitize(payload, container):
 def execute(container, identity, scopes, name, args, *, source='ChatGPT MCP'):
     try:
         validate(name, args)
-        required = "business:write" if name in WRITES else "business:read"
-        if required not in scopes:
-            raise BusinessError("forbidden", "This connection does not have the required scope.")
+        if not allowed(identity, scopes, name):
+            raise BusinessError("forbidden", "This connection does not have the required permission and scope.")
     except BusinessError:
         if name in WRITES:
             AuditService().record(user=identity["id"], role=identity["roles"][0], ip="", action=name,
@@ -201,7 +239,8 @@ def execute(container, identity, scopes, name, args, *, source='ChatGPT MCP'):
         result = {"total": len(items), "unavailable": sum(i.get("in_stock") is False or any(w in str(i.get("stock", "")).lower() for w in ("out", "sold", "no")) for i in items)}
     elif name in {"get_users", "get_user_role"}:
         users = [{"email": r.get("email"), "role": r.get("role"), "disabled": bool(r.get("disabled"))}
-                 for r in _registry_users(container) if r.get("tenant") == tenant]
+                 for r in _registry_users(container)
+                 if r.get("tenant") == tenant and r.get("role") in {"business_owner", "business_staff"}]
         from service.account_service import AccountService
         known = {str(row['email']).casefold() for row in users}
         users.extend({'email':row['email'],'role':row['roles'][0] if row['roles'] else '', 'disabled':not row['active']}

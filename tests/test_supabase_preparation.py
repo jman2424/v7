@@ -35,6 +35,8 @@ def source(tmp_path):
         db.execute('CREATE TABLE oidc_links (provider TEXT, client_id TEXT, issuer TEXT, subject TEXT, account TEXT, identity TEXT, created REAL)')
         db.execute('INSERT INTO oidc_links VALUES (?,?,?,?,?,?,?)',
                    ('google', 'test-client', 'https://accounts.google.com', 'test-subject', 'account-id', '{}', 123))
+        db.execute('CREATE TABLE totp_steps (account_hash TEXT PRIMARY KEY, step INTEGER NOT NULL)')
+        db.execute("INSERT INTO totp_steps VALUES ('test-account-hash',17000000)")
     with closing(sqlite3.connect(logs / 'analytics.db')) as db, db:
         db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, ts_utc TEXT NOT NULL, tenant TEXT NOT NULL, channel TEXT NOT NULL, session_id TEXT NOT NULL, event_type TEXT NOT NULL, meta_json TEXT)')
         db.execute("INSERT INTO events VALUES (7,'2026-09-16T00:00:00Z','ALPHA','web','chat-id','msg_in','{}')")
@@ -71,6 +73,8 @@ def test_offline_inventory_preserves_sources_and_redacts_sessions(source):
     assert bundle.rows['trusted_devices'] == [] and bundle.skipped['trusted_devices'] == 1
     assert bundle.rows['oidc_states'] == [] and bundle.skipped['oidc_states'] == 1
     assert bundle.rows['oidc_links'][0]['subject'] == 'test-subject'
+    assert bundle.rows['totp_steps'] == [{'account_hash': 'test-account-hash', 'step': 17000000}]
+    assert 'totp_steps' not in bundle.skipped
     assert before == {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
 
 
@@ -274,6 +278,7 @@ def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypat
     assert pg.execute('SELECT count(*) FROM v7_private.tenants').fetchone()[0] == 0
     import_bundle(pg,bundle)
     verify(pg,bundle)
+    assert pg.execute('SELECT account_hash, step FROM v7_private.totp_steps').fetchall() == [('test-account-hash', 17000000)]
     assert pg.execute("SELECT payload FROM v7_private.document_versions WHERE filename='_snapshot.json'").fetchone()[0] == {
         'tenant': 'Alpha', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/Alpha',
     }

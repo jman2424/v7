@@ -250,3 +250,26 @@ def test_simultaneous_use_of_one_device_proof_skips_mfa_only_once(app, account, 
 def test_remember_device_requires_a_boolean_choice(client, path, payload):
     assert client.post(path, json=payload).status_code == 400
     assert client.get_cookie(trusted_devices.COOKIE_NAME) is None
+
+
+def test_credential_change_after_mfa_cannot_issue_a_fresh_device_proof(client, account, monkeypatch):
+    issue = trusted_devices.issue
+
+    def change_password_then_issue(user, tenant):
+        AccountService(client.application.container.storage).update_account(
+            'EXAMPLE', account[0]['id'], {'password': 'Changed-device-proof-password-456'})
+        return issue(user, tenant)
+
+    monkeypatch.setattr(trusted_devices, 'issue', change_password_then_issue)
+    challenge = client.post('/auth/login', json={**CREDENTIALS, 'remember_device': True})
+    assert challenge.status_code == 202
+    response = client.post('/auth/mfa/confirm', json={
+        'code': pyotp.TOTP(challenge.json['mfa']['setup_key']).at(account[1][0]),
+        'remember_device': True,
+    })
+    assert response.status_code == 401
+    assert client.get_cookie(trusted_devices.COOKIE_NAME) is None
+    assert client.get('/admin/api/catalog').status_code == 401
+    with session_store.connection() as db:
+        assert db.execute('SELECT COUNT(*) FROM management_sessions').fetchone()[0] == 0
+        assert db.execute('SELECT COUNT(*) FROM trusted_devices').fetchone()[0] == 0

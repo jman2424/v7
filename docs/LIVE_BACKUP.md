@@ -110,8 +110,9 @@ Local `.write-lock.sqlite3` coordination files are excluded from the business tr
 they contain no application records. Generated dated `_snapshot.json` provenance
 files remain intact in the backup. The importer counts valid generated metadata
 among `document_versions` and preserves its original name and payload. Apply all
-all eight reviewed migrations, including the additive snapshot filename constraint
-migration, before import. Other underscore filenames and unexpected metadata
+reviewed migrations in filename order, including the snapshot filename constraint,
+authentication/OIDC migrations and schema version 9 replay protection, before
+import. Other underscore filenames and unexpected metadata
 fields, non-UTC timestamps or missing provenance paths stop export for review.
 
 Legacy analytics and CRM may have uppercase tenant IDs while business directory

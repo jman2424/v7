@@ -15,7 +15,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
-from flask import abort, current_app, session
+from flask import abort, current_app, g, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from service import session_store
@@ -57,9 +57,8 @@ def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
 
-def generate_totp_token(secret: str) -> str:
-    return pyotp.TOTP(secret).now()
-
+def generate_totp_token(secret: str, *, at: Optional[float] = None) -> str:
+    return pyotp.TOTP(secret).now() if at is None else pyotp.TOTP(secret).at(at)
 
 def verify_totp_token(secret: str, token: str, *, window: int = 0) -> bool:
     try:
@@ -190,113 +189,151 @@ def _account_tenant(c: Any, tenant: str) -> str:
     return storage.canonical_tenant_key(tenant) if storage is not None and tenant else tenant
 
 
+
+def _scoped_business_users(c, tenant):
+    # Environment records require their own scope; tenant files supply scope.
+    configured = []
+    for record in _business_users():
+        roles = record.get('roles', ['business_owner'])
+        platform = _valid_roles(roles) and bool({'admin', 'platform_admin'}.intersection(roles))
+        assigned = record.get('tenant')
+        try:
+            if platform or (isinstance(assigned, str) and assigned.strip()
+                            and _account_tenant(c, assigned.strip()) == tenant):
+                configured.append(record)
+        except ValueError:
+            continue
+    local = [record for record in _stored_business_users(c, tenant)
+             if not (_valid_roles(record.get('roles', ['business_owner']))
+                     and {'admin', 'platform_admin'}.intersection(record.get('roles', ['business_owner'])))]
+    return [*configured, *local]
+
 def _authenticate_configured(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
-    """
-    Dashboard login.
-
-    Matches routes/admin_routes.py:
-        user = authenticate_user(c, email=email, password=password)
-
-    Returns:
-        - user dict (with id/email/roles/totp_secret) if valid
-        - None if invalid
-    """
-    admin_user = (os.getenv("ADMIN_USERNAME") or "").strip().lower()
-    admin_pass = os.getenv("ADMIN_PASSWORD") or ""
-    email_norm = (email or "").strip().lower()
-    password_norm = password or ""
-
-    if admin_user and admin_pass and (
-        hmac.compare_digest(email_norm.encode(), admin_user.encode())
-        and hmac.compare_digest(password_norm.encode(), admin_pass.encode())
-    ):
-        return {
-            "id": "admin",
-            "email": admin_user,
-            "roles": ["platform_admin"],
-            "totp_secret": (os.getenv("ADMIN_TOTP_SECRET") or "").strip() or None,
-        }
-
-    target_tenant = (tenant or "").strip()
-    for configured in [*_business_users(), *_stored_business_users(c, target_tenant)]:
-        configured_email = str(configured.get("email") or "").strip().lower()
-        assigned_tenant = str(configured.get("tenant") or target_tenant).strip()
-        try:
-            configured_tenant = _account_tenant(c, assigned_tenant)
-        except ValueError:
-            continue
-        password_hash = str(configured.get("password_hash") or "")
-        roles = configured.get("roles") or ["business_owner"]
-        if not isinstance(roles, list):
-            continue
-        if not (
-            configured_email
-            and configured_tenant
-            and password_hash
-            and configured.get("active") is not False
-            and hmac.compare_digest(email_norm.encode(), configured_email.encode())
-            and hmac.compare_digest(target_tenant.encode(), configured_tenant.encode())
-            and verify_password(password_norm, password_hash)
-        ):
-            continue
-
-        return {
-            "id": str(configured.get("id") or f"owner:{assigned_tenant}:{configured_email}"),
-            "email": configured_email,
-            "roles": [str(role) for role in roles],
-            "tenant": configured_tenant,
-            "totp_secret": str(configured.get("totp_secret") or "").strip() or None,
-        }
-
-    return None
-
+    email_norm = email.strip().lower()
+    try:
+        target = _account_tenant(c, tenant.strip())
+    except ValueError:
+        return None
+    candidates = [record for record in _scoped_business_users(c, target)
+                  if str(record.get('email') or '').strip().lower() == email_norm]
+    if len(candidates) != 1:
+        return None
+    record = candidates[0]
+    roles = record.get('roles', ['business_owner'])
+    password_hash = record.get('password_hash')
+    if (not _valid_roles(roles) or record.get('active') is False or record.get('disabled')
+            or not _TENANT_KEY.fullmatch(target)
+            or not isinstance(password_hash, str) or not verify_password(password, password_hash)):
+        return None
+    platform = bool({'admin', 'platform_admin'}.intersection(roles))
+    assigned = str(record.get('tenant') or target).strip()
+    try:
+        configured_tenant = _account_tenant(c, assigned)
+        permissions = _record_permissions(record, roles)
+    except ValueError:
+        return None
+    if not platform and configured_tenant != target:
+        return None
+    secret = record.get('totp_secret') or ''
+    if not isinstance(secret, str):
+        return None
+    return {'id': str(record.get('id') or f'owner:{assigned}:{email_norm}'),
+            'email': email_norm, 'roles': roles, 'tenant': None if platform else configured_tenant,
+            'totp_secret': secret, 'permissions': permissions, '_credential_account': record}
 
 _TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _MANAGEMENT_ROLES = {"admin", "platform_admin", "business_owner", "business_staff"}
 
+ALL_PERMISSIONS = frozenset({
+    "analytics.read", "conversations.read", "customers.read", "offerings.read", "offerings.write",
+    "offers.read", "offers.write", "users.read", "roles.read", "business_settings.read", "business_settings.write",
+    "integrations.read", "health.read", "errors.read", "models.read", "models.write", "platform.read",
+    "view_costs", "view_subscriptions",
+})
+OWNER_PERMISSIONS = ALL_PERMISSIONS - {"models.read", "models.write", "platform.read"}
+
+
+def _valid_roles(roles):
+    return (isinstance(roles, list) and bool(roles)
+            and all(isinstance(role, str) and role in _MANAGEMENT_ROLES for role in roles))
+
+
+def _record_permissions(record, roles):
+    if not _valid_roles(roles):
+        raise ValueError("invalid_account_roles")
+    platform = bool({"admin", "platform_admin"}.intersection(roles))
+    allowed = ALL_PERMISSIONS if platform else OWNER_PERMISSIONS
+    default = allowed if platform or "business_owner" in roles else frozenset()
+    # Earlier tenant owner records carried the staff-only permissions field,
+    # which never restricted owners. Explicit new owner subsets are versioned.
+    legacy_owner = ("business_owner" in roles and "roles" in record and "password_hash" in record
+                    and record.get("permissions_version") != 1)
+    configured = sorted(default) if legacy_owner else record.get("permissions", sorted(default))
+    if (not isinstance(configured, list)
+            or any(not isinstance(value, str) or value not in allowed for value in configured)):
+        raise ValueError("invalid_account_permissions")
+    return sorted(set(configured))
+
+
+def _account_revision(record):
+    return hmac.new(current_app.secret_key.encode(), json.dumps(record, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
+
+def _bound_revision(account_revision, enrolled):
+    protected = {"account_revision": account_revision, "mfa_policy": "all-accounts-v2", "enrolled_secret": enrolled}
+    return hmac.new(current_app.secret_key.encode(), json.dumps(protected, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
 
 def _revision(identity):
     """Changing/removing/disabling credentials immediately invalidates sessions."""
-    c = getattr(current_app, "container", None)
+    if not isinstance(identity, dict) or not _valid_roles(identity.get('roles')):
+        return None
+    c = getattr(current_app, 'container', None)
     try:
         records = _registry_users(c)
     except (OSError, ValueError, TypeError):
         return None
-    email = identity.get("email")
-    matches = [r for r in records if str(r.get("email", "")).strip().lower() == email]
-    if matches:
-        if len(matches) != 1 or matches[0].get("disabled"):
-            return None
-        data = matches[0]
-    elif identity.get("id") == "admin" and email == os.getenv("ADMIN_USERNAME", "").strip().lower():
-        data = {key: os.getenv(key, "") for key in ("ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_PASSWORD_HASH", "ADMIN_TOTP_SECRET")}
-        if not data["ADMIN_PASSWORD"] and not data["ADMIN_PASSWORD_HASH"]:
-            return None
-    else:
-        target = str(identity.get("tenant") or "")
-        candidates = [*_business_users(), *_stored_business_users(c, target)]
-        platform = bool({'admin', 'platform_admin'}.intersection(identity.get('roles', [])))
-        try:
-            target = _account_tenant(c, target)
-            candidates = [r for r in candidates if str(r.get("email", "")).strip().lower() == email
-                          and str(r.get("id") or f"owner:{r.get('tenant') or target}:{email}") == identity.get("id")
-                          and ((platform and isinstance(r.get('roles'), list)
-                                and any(role in {'admin', 'platform_admin'} for role in r['roles'] if isinstance(role, str)))
-                               or (not platform and _account_tenant(c, str(r.get("tenant") or target)) == target))]
-        except ValueError:
-            return None
-        if len(candidates) != 1 or candidates[0].get("active") is False:
-            return None
-        data = candidates[0]
-    from service.account_mfa import enrolled_secret
+    email = identity.get('email')
+    matches = [r for r in records if str(r.get('email', '')).strip().lower() == email]
     try:
-        protected = {'account': data, 'mfa_policy': 'all-accounts-v1', 'enrolled_secret': enrolled_secret(identity)}
-    except ValueError:
+        if matches:
+            if len(matches) != 1 or matches[0].get('disabled'):
+                return None
+            data = matches[0]
+            roles = [data.get('role')]
+            expected_tenant = (_account_tenant(c, data.get('tenant'))
+                               if data.get('role') in ('business_owner', 'business_staff') else identity.get('tenant'))
+        elif identity.get('id') == 'admin' and email == os.getenv('ADMIN_USERNAME', '').strip().lower():
+            data = {key: os.getenv(key, '') for key in ('ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_PASSWORD_HASH', 'ADMIN_TOTP_SECRET')}
+            if not data['ADMIN_PASSWORD'] and not data['ADMIN_PASSWORD_HASH']:
+                return None
+            roles = ['platform_admin']
+            expected_tenant = identity.get('tenant')
+        else:
+            target = _account_tenant(c, str(identity.get('tenant') or ''))
+            platform = bool({'admin', 'platform_admin'}.intersection(identity['roles']))
+            candidates = [r for r in _scoped_business_users(c, target)
+                          if str(r.get('email', '')).strip().lower() == email
+                          and str(r.get('id') or f"owner:{r.get('tenant') or target}:{email}") == identity.get('id')
+                          and ((platform and _valid_roles(r.get('roles'))
+                                and {'admin', 'platform_admin'}.intersection(r['roles']))
+                               or (not platform and _account_tenant(c, str(r.get('tenant') or target)) == target))]
+            if len(candidates) != 1 or candidates[0].get('active') is False or candidates[0].get('disabled'):
+                return None
+            data = candidates[0]
+            roles = data.get('roles', ['business_owner'])
+            expected_tenant = identity.get('tenant') if platform else target
+        if not _valid_roles(roles) or identity.get('roles') != roles or identity.get('tenant') != expected_tenant:
+            return None
+        permissions = _record_permissions(data, roles)
+        if 'permissions' in identity and identity['permissions'] != permissions:
+            return None
+        from service.account_mfa import enrolled_secret
+        return _bound_revision(_account_revision(data), enrolled_secret(identity))
+    except (ValueError, TypeError):
         return None
-    return hmac.new(current_app.secret_key.encode(), json.dumps(protected, sort_keys=True).encode(), hashlib.sha256).hexdigest()
-
 
 def _verify_password(password: str, password_hash: str) -> bool:
     # Use Werkzeug's maintained password hashing implementation, already required
@@ -346,21 +383,25 @@ def authenticate_user(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
     user = _authenticate_user(c, email=email, password=password, tenant=tenant)
-    if user:
-        try:
-            if user.get('tenant'):
-                user['tenant'] = _account_tenant(c, user['tenant'])
-        except ValueError:
-            return None
-        if user.get('tenant') and tenant and user['tenant'] != tenant:
-            return None
-        from service.account_mfa import enrolled_secret
-        try:
-            user['totp_secret'] = user.get('totp_secret') or enrolled_secret(user)
-        except ValueError:
-            return None
-    return user
+    return _bind_authenticated_user(user, c, tenant) if user else None
 
+
+def _bind_authenticated_user(user, container, tenant=''):
+    """Bind the exact checked account snapshot to subsequent MFA/session work."""
+    from service.account_mfa import enrolled_secret
+    try:
+        if user.get('tenant'):
+            user['tenant'] = _account_tenant(container, user['tenant'])
+        if user.get('tenant') and tenant and user['tenant'] != _account_tenant(container, tenant):
+            return None
+        enrolled = enrolled_secret(user)
+        user['totp_secret'] = user.get('totp_secret') or enrolled
+        record = user.pop('_credential_account')
+        user['_account_revision'] = _account_revision(record)
+        user['_credential_revision'] = _bound_revision(user['_account_revision'], enrolled)
+        return user
+    except (ValueError, TypeError):
+        return None
 
 def login_tenant_scope(c: Any, *, email: str, tenant: str) -> str:
     """Operator accounts share one attempt bound regardless of selected tenant."""
@@ -380,6 +421,7 @@ def login_tenant_scope(c: Any, *, email: str, tenant: str) -> str:
                 and any(role in {'admin', 'platform_admin'} for role in roles if isinstance(role, str))):
             return ''
     return tenant
+
 
 
 def resolve_linked_account(reference: Mapping[str, object], container=None) -> Optional[Dict[str, Any]]:
@@ -414,24 +456,24 @@ def resolve_linked_account(reference: Mapping[str, object], container=None) -> O
         if role in {'business_owner', 'business_staff'} and not _TENANT_KEY.fullmatch(assigned):
             return None
         user = {'id': email, 'email': email, 'roles': [role], 'tenant': assigned or None,
-                'totp_secret': record.get('totp_secret') or ''}
+                'totp_secret': record.get('totp_secret') or '', '_credential_account': record}
     elif email == os.getenv('ADMIN_USERNAME', '').strip().lower():
         if not os.getenv('ADMIN_PASSWORD') and not os.getenv('ADMIN_PASSWORD_HASH'):
             return None
         user = {'id': 'admin', 'email': email, 'roles': ['platform_admin'], 'tenant': None,
-                'totp_secret': os.getenv('ADMIN_TOTP_SECRET', '').strip()}
+                'totp_secret': os.getenv('ADMIN_TOTP_SECRET', '').strip(),
+                '_credential_account': {key: os.getenv(key, '') for key in ('ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_PASSWORD_HASH', 'ADMIN_TOTP_SECRET')}}
     else:
         user = None
-        candidates = [*_business_users(), *_stored_business_users(c, tenant)]
+        candidates = _scoped_business_users(c, tenant)
         for record in candidates:
             assigned = str(record.get('tenant') or tenant)
-            roles = record.get('roles') or ['business_owner']
+            roles = record.get('roles', ['business_owner'])
             if (str(record.get('email', '')).strip().lower() != email
                     or str(record.get('id') or f'owner:{assigned}:{email}') != reference['id']
-                    or record.get('active') is False or not isinstance(record.get('password_hash'), str)
+                    or record.get('active') is False or record.get('disabled') or not isinstance(record.get('password_hash'), str)
                     or not record['password_hash']
-                    or not isinstance(roles, list) or not all(isinstance(role, str) for role in roles)
-                    or not set(roles).intersection(_MANAGEMENT_ROLES)):
+                    or not _valid_roles(roles)):
                 continue
             try:
                 assigned = _account_tenant(c, assigned)
@@ -443,7 +485,7 @@ def resolve_linked_account(reference: Mapping[str, object], container=None) -> O
             if user is not None:
                 return None
             user = {'id': reference['id'], 'email': email, 'roles': roles, 'tenant': None if platform else assigned,
-                    'totp_secret': record.get('totp_secret') or ''}
+                    'totp_secret': record.get('totp_secret') or '', '_credential_account': record}
         if user is None:
             return None
     platform = bool({'admin', 'platform_admin'}.intersection(user['roles']))
@@ -451,19 +493,20 @@ def resolve_linked_account(reference: Mapping[str, object], container=None) -> O
             or (not platform and (not tenant or user['tenant'] != tenant))
             or not isinstance(user['totp_secret'], str)):
         return None
-    from service.account_mfa import enrolled_secret
     try:
-        user['totp_secret'] = user['totp_secret'] or enrolled_secret(user)
+        user['permissions'] = _record_permissions(user['_credential_account'], user['roles'])
     except ValueError:
         return None
-    return user if _revision(user) else None
+    bound = _bind_authenticated_user(user, c)
+    current = _revision(bound) if bound else None
+    return bound if current and hmac.compare_digest(current, bound['_credential_revision']) else None
 
 
 def _authenticate_user(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
     """Authenticate a server-configured account; never take role/tenant from input."""
-    if not isinstance(email, str) or not isinstance(password, str):
+    if not isinstance(email, str) or not isinstance(password, str) or not isinstance(tenant, str):
         return None
     email_norm = email.strip().lower()
     if not email_norm or len(email_norm) > 254 or not password or len(password) > 1024:
@@ -494,23 +537,31 @@ def _authenticate_user(
         secret = record.get("totp_secret") or ""
         if not isinstance(secret, str):
             return None
+        try:
+            permissions = _record_permissions(record, [role])
+        except ValueError:
+            return None
         return {
             "id": email_norm,
             "email": email_norm,
             "roles": [role],
             "tenant": tenant if role in {"business_owner", "business_staff"} else None,
-            "totp_secret": secret,
+            "totp_secret": secret, "permissions": permissions, "_credential_account": record,
         }
 
-    admin_user = (os.getenv("ADMIN_USERNAME") or "").strip().lower()
+    environment = {key: os.getenv(key, "") for key in ("ADMIN_USERNAME", "ADMIN_PASSWORD", "ADMIN_PASSWORD_HASH", "ADMIN_TOTP_SECRET")}
+    admin_user = environment["ADMIN_USERNAME"].strip().lower()
     if not admin_user or not hmac.compare_digest(email_norm.encode(), admin_user.encode()):
         return _authenticate_configured(c, email=email, password=password, tenant=tenant)
-    admin_hash = os.getenv("ADMIN_PASSWORD_HASH") or ""
+    admin_hash = environment["ADMIN_PASSWORD_HASH"]
     if admin_hash:
         valid = _verify_password(password, admin_hash)
     else:
-        # Preserve the existing environment-based platform admin during migration.
-        admin_pass = os.getenv("ADMIN_PASSWORD") or ""
+        # Plaintext legacy credentials are confined to local HTTP compatibility.
+        settings = getattr(c, "settings", None)
+        if getattr(settings, "BASE_URL", "").startswith("https://"):
+            return None
+        admin_pass = environment["ADMIN_PASSWORD"]
         valid = bool(admin_pass) and hmac.compare_digest(password.encode(), admin_pass.encode())
     if not valid:
         return None
@@ -519,13 +570,21 @@ def _authenticate_user(
         "email": admin_user,
         "roles": ["platform_admin"],
         "tenant": None,
-        "totp_secret": (os.getenv("ADMIN_TOTP_SECRET") or "").strip(),
+        "totp_secret": environment["ADMIN_TOTP_SECRET"].strip(),
+        "permissions": sorted(ALL_PERMISSIONS), "_credential_account": environment,
     }
 
 
-def verify_totp(secret: str, code: str) -> bool:
-    """Verify a six-digit TOTP, allowing one time step for clock skew."""
-    return totp_timestep(secret, code) is not None
+def verify_totp(secret: str, code: str, identity: Optional[str] = None, database=None) -> bool:
+    """Verify a TOTP; authenticated flows additionally consume its time step."""
+    step = totp_timestep(secret, code)
+    if step is None:
+        return False
+    if identity is None:
+        return True
+    normalized = secret.strip().upper().rstrip('=')
+    key = base64.b32decode(normalized + '=' * (-len(normalized) % 8), casefold=True)
+    return session_store.consume_totp(identity, key.hex(), step, database=database)
 
 
 def totp_timestep(secret: str, code: str) -> Optional[int]:
@@ -554,15 +613,17 @@ def totp_timestep(secret: str, code: str) -> Optional[int]:
     return None
 
 
-def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_verified: bool = False,
-                             transaction=None) -> dict[str, Any]:
+def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_verified: bool = False, transaction=None) -> dict[str, Any]:
     """Rotate login state, storing only a safe, signed identity in the cookie."""
     identity = {key: user[key] for key in ("id", "email", "roles")}
     if not mfa_verified or not user.get("totp_secret"):
         abort(403, description="mfa_setup_required")
     identity["tenant"] = user.get("tenant") or tenant
+    if "permissions" in user:
+        identity["permissions"] = user["permissions"]
     revision = _revision(identity)
-    if not revision:
+    authenticated = user.get("_credential_revision")
+    if not revision or not isinstance(authenticated, str) or not hmac.compare_digest(revision, authenticated):
         abort(401)
     token = session_store.create(identity, revision, transaction=transaction)
     session_store.revoke(session.get("management_token"), transaction=transaction)
@@ -600,10 +661,12 @@ def management_user(platform_only: bool = False) -> dict[str, Any]:
     if not isinstance(user, dict) or not user.get("id"):
         abort(401, description="unauthorized")
     roles = user.get("roles")
-    if not isinstance(roles, list) or not _MANAGEMENT_ROLES.intersection(roles):
+    if not _valid_roles(roles):
         abort(403, description="forbidden")
     if platform_only and not is_platform_admin(user):
         abort(403, description="platform_admin_required")
+    g.management_identity = user
+    g.management_revision = revision
     return user
 
 
@@ -618,23 +681,41 @@ def require_management(platform_only: bool = False):
 
 
 def account_permissions(user):
-    from service.account_service import AccountService, STAFF_PERMISSIONS
-    if is_platform_admin(user) or 'business_owner' in user.get('roles', []):
-        return sorted(STAFF_PERMISSIONS)
-    c = getattr(current_app, 'container', None)
-    record = AccountService(c.storage).get_account(user['tenant'], user['id']) if c else None
-    return [value for value in (record or {}).get('permissions', []) if value in STAFF_PERMISSIONS]
+    if not isinstance(user, dict) or not _valid_roles(user.get("roles")):
+        return []
+    if "permissions" in user:
+        try:
+            return _record_permissions(user, user["roles"])
+        except ValueError:
+            return []
+    # Sessions issued before permission subsets were supported preserve role
+    # defaults; staff grants still come only from the server account record.
+    if is_platform_admin(user) or "business_owner" in user["roles"]:
+        return _record_permissions({}, user["roles"])
+    from service.account_service import AccountService
+    c = getattr(current_app, "container", None)
+    try:
+        record = AccountService(c.storage).get_account(user["tenant"], user["id"]) if c else None
+        return _record_permissions(record or {}, user["roles"])
+    except (KeyError, ValueError, OSError):
+        return []
 
 
-def require_permission(permission):
-    user = management_user()
-    if permission not in account_permissions(user):
-        abort(403, description='permission_required')
-    return user
+def has_permission(user, permission):
+    return permission in ALL_PERMISSIONS and permission in account_permissions(user)
+
+
+def require_permission(permission, user=None):
+    identity = management_user() if user is None else user
+    if not has_permission(identity, permission):
+        current_app.logger.warning("SECURITY permission_denied permission=%s", permission)
+        abort(403, description="permission_required")
+    return identity
 
 
 def public_identity(user):
-    return {**user, 'permissions': account_permissions(user)}
+    return {**{key: value for key, value in user.items() if not key.startswith("_")},
+            "permissions": account_permissions(user)}
 
 
 def authorized_tenant(requested: Optional[str] = None, default: Optional[str] = None) -> str:
@@ -651,12 +732,21 @@ def authorized_tenant(requested: Optional[str] = None, default: Optional[str] = 
             from service.tenant_access import owned_tenants
             if selected not in owned_tenants(user):
                 abort(403, description="tenant_forbidden")
-            return selected
-        return assigned
+        else:
+            selected = assigned
     if not selected:
         container = getattr(current_app, "container", None)
         settings = getattr(container, "settings", None)
         selected = default or getattr(settings, "BUSINESS_KEY", "")
     if not isinstance(selected, str) or not _TENANT_KEY.fullmatch(selected):
         abort(400, description="invalid_tenant")
+    # Analytics paths also use this guard, so alias/case conflicts cannot bypass
+    # the document repository's tenant checks. Both storage runtimes share it.
+    container = getattr(current_app, "container", None)
+    try:
+        exists = container.storage.tenant_exists(selected)
+    except ValueError:
+        abort(403, description="tenant_forbidden")
+    if not exists:
+        abort(404, description="tenant_not_found")
     return selected

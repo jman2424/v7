@@ -4,6 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+_READ_TOOLS = frozenset({
+    "policy.delivery_rule_for", "policy.delivery_summary", "geo.nearest_for_postcode",
+    "catalog.search", "catalog.price_of", "catalog.in_stock", "faq.best_match",
+})
+
 
 def _unwrap_tool_result(res: Any) -> Any:
     """
@@ -114,6 +119,8 @@ class ToolRuntime:
     deps: Dict[str, Any]
 
     def _resolve(self, dotted: str):
+        if not isinstance(dotted, str) or dotted not in _READ_TOOLS:
+            raise ValueError("Tool is not permitted for customer conversations")
         parts = dotted.split(".")
         if len(parts) != 2:
             raise ValueError(f"Tool name must be like 'geo.nearest_for_postcode', got: {dotted}")
@@ -129,6 +136,9 @@ class ToolRuntime:
         facts: Dict[str, Any] = {}
 
         for tc in tools:
+            if not isinstance(tc, dict):
+                facts.setdefault("_errors", []).append({"tool": "unknown", "error": "tool_failed"})
+                continue
             name = tc.get("name")
             args = tc.get("args") or {}
             required = bool(tc.get("required", False))
@@ -137,9 +147,9 @@ class ToolRuntime:
                 fn = self._resolve(name)
                 res = fn(**args)
                 apply_tool_result_to_facts(tool_name=name, tool_args=args, raw_result=res, facts=facts)
-            except Exception as e:
+            except Exception:
                 facts.setdefault("_errors", [])
-                facts["_errors"].append({"tool": name, "error": repr(e), "args": args})
+                facts["_errors"].append({"tool": name if isinstance(name, str) and name in _READ_TOOLS else "unknown", "error": "tool_failed"})
                 if required:
                     # required tool failed → stop early
                     break

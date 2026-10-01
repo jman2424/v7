@@ -204,6 +204,12 @@ def _branding(c):
 
 def _check_origin(c):
     origin = request.headers.get("Origin")
+    if origin is None:
+        if request.headers.get("Sec-Fetch-Site") == "cross-site":
+            response = jsonify(error="origin_forbidden")
+            response.status_code = 403
+            abort(response)
+        return
     from connectors.web_widget import allowed_origins_from_branding
     branding = _branding(c)
     allowed = allowed_origins_from_branding(branding)
@@ -211,8 +217,17 @@ def _check_origin(c):
         allowed = list(set(allowed + [origin for origin in branding["allowed_origins"] if isinstance(origin, str)]))
     if not isinstance(allowed, list):
         allowed = []
-    # Same-origin hosted chat always works. Cross-origin calls need tenant consent.
-    if origin and origin != request.host_url.rstrip("/") and origin not in allowed:
+    # The public origin is configuration, not a caller-controlled Host header.
+    configured_url = urlsplit(c.settings.BASE_URL)
+    same_origin = f"{configured_url.scheme}://{configured_url.netloc}"
+    request_url = urlsplit(request.host_url)
+    loopback_names = {"localhost", "127.0.0.1", "::1"}
+    local_preview_origin = (
+        configured_url.hostname in loopback_names
+        and request_url.hostname in loopback_names
+        and origin == request.host_url.rstrip("/")
+    )
+    if origin != same_origin and not local_preview_origin and origin not in allowed:
         response = jsonify(error="origin_forbidden")
         response.status_code = 403
         abort(response)

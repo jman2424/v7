@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hmac
+import json
+import math
 import secrets
 import time
 import os
@@ -58,12 +60,14 @@ def install_request_id(app):
         response.headers["X-Request-ID"] = g.get("request_id", "-")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        if response.status_code == 429:
+            response.headers.setdefault("Retry-After", "60")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'nonce-" + g.csp_nonce + "'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
-        if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console", "/mcp", "/oauth", "/api/v1")):
+        if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console", "/mcp", "/oauth", "/api/v1", "/mode", "/version", "/export_catalog_csv", "/catalog_webhook")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] += "; frame-ancestors 'none'"
@@ -73,6 +77,48 @@ def install_request_id(app):
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response
+
+
+def install_request_validation(app):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_json_key")
+            result[key] = value
+        return result
+
+    def finite_number(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("nonfinite_number")
+        return number
+
+    def reject_constant(_value):
+        raise ValueError("nonfinite_number")
+
+    @app.before_request
+    def validate_request():
+        if any(len(request.args.getlist(key)) > 1 for key in request.args):
+            abort(400, description="duplicate_query_parameter")
+        if request.path.startswith("/api/v1/"):
+            request.max_content_length = 65536
+        if not request.is_json or request.path.startswith("/whatsapp/") or request.path == "/mcp":
+            return
+        try:
+            value = json.loads(request.get_data(), object_pairs_hook=unique_object,
+                               parse_constant=reject_constant, parse_float=finite_number)
+        except (ValueError, RecursionError):
+            abort(400, description="invalid_json")
+        pending = [(value, 0)]
+        while pending:
+            item, depth = pending.pop()
+            if depth > 32:
+                abort(400, description="json_too_deep")
+            if isinstance(item, dict):
+                pending.extend((child, depth + 1) for child in item.values())
+            elif isinstance(item, list):
+                pending.extend((child, depth + 1) for child in item)
 
 
 def install_rate_limit(app, settings):
@@ -88,22 +134,38 @@ def install_rate_limit(app, settings):
             from service.session_store import allow_login
             if not allow_login(ip):
                 abort(429)
-        key = (ip, "login" if login else "request")
-        rate = 5 if login else max(1, settings.RATE_LIMIT_PER_MIN)
-        capacity = 5 if login else rate + max(0, settings.RATE_LIMIT_BURST)
+        general_rate = max(1, settings.RATE_LIMIT_PER_MIN)
+        general_capacity = general_rate + max(0, settings.RATE_LIMIT_BURST)
+        limits = [((ip, "request"), general_rate, general_capacity)]
+        key, rate, capacity = (ip, "login"), 5, 5
+        if not login and request.path in {"/chat_api", "/chat/actions", "/chat/transcribe"}:
+            key, rate, capacity = (ip, "public_chat"), 30, 40
+        elif not login and request.path.startswith(("/analytics", "/admin/api/")) and request.method == "GET":
+            key, rate, capacity = (ip, "analytics"), 30, 40
+        elif not login and request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.path.startswith(("/admin", "/files")):
+            key, rate, capacity = (ip, "management_write"), 20, 25
+        else:
+            key = (ip, "login") if login else None
+        if key is not None:
+            limits.append((key, rate, capacity))
         now = time.monotonic()
         with lock:
             if len(buckets) > 10000:
                 for stale in [k for k, (_, timestamp) in buckets.items() if now - timestamp > 600]:
                     buckets.pop(stale, None)
-                if key not in buckets and len(buckets) > 10000:
+                if any(key not in buckets for key, _, _ in limits) and len(buckets) > 10000:
                     abort(429)
-            tokens, previous = buckets.get(key, (capacity, now))
-            tokens = min(capacity, tokens + (now - previous) * rate / 60)
-            if tokens < 1:
-                buckets[key] = (tokens, now)
-                abort(429)
-            buckets[key] = (tokens - 1, now)
+            available = []
+            for key, rate, capacity in limits:
+                tokens, previous = buckets.get(key, (capacity, now))
+                tokens = min(capacity, tokens + (now - previous) * rate / 60)
+                if tokens < 1:
+                    buckets[key] = (tokens, now)
+                    app.logger.warning("SECURITY rate_limited scope=%s", key[1])
+                    abort(429)
+                available.append((key, tokens))
+            for key, tokens in available:
+                buckets[key] = (tokens - 1, now)
 
 
 def install_csrf(app, settings):

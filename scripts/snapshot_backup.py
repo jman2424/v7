@@ -20,21 +20,23 @@ from pathlib import Path
 from typing import List
 
 try:
+    from scripts.backup_utils import checked_path, files_under
     from scripts.snapshot_paths import configured_business_root, reject_links, target_path, tenant_base
     from scripts.prepare_supabase import _protect_directory
 except ModuleNotFoundError:
+    from backup_utils import checked_path, files_under
     from snapshot_paths import configured_business_root, reject_links, target_path, tenant_base
     from prepare_supabase import _protect_directory
 
 ROOT = Path(__file__).resolve().parents[1]
-BUSINESS_DIR = configured_business_root(ROOT)
+BUSINESS_DIR = Path(os.environ.get("BUSINESS_DATA_ROOT") or configured_business_root(ROOT)).expanduser()
 
 def gather_files(tenant: str) -> List[Path]:
     base = tenant_base(BUSINESS_DIR, tenant)
     if not base.exists():
         raise SystemExit(f"[ERR] Tenant folder not found: {base}")
     files = []
-    for path in base.glob("**/*"):
+    for path in files_under(base):
         reject_links(path)
         if path.is_file():
             target_path(base, path.relative_to(base.parent).as_posix(), tenant)
@@ -50,6 +52,8 @@ def make_snapshot(tenant: str, out_dir: Path, date_str: str) -> Path:
     reject_links(out_dir)
     day_dir = out_dir / date_str
     reject_links(day_dir)
+    if checked_path(day_dir).is_relative_to(checked_path(BUSINESS_DIR)):
+        raise ValueError("Backups must be outside business data")
     day_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     out_path = day_dir / f"{tenant}.tar.gz"
     reject_links(out_path)

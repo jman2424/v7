@@ -22,6 +22,11 @@ __pycache__/
 .ruff_cache/
 .codex-test-deps/
 .push-worktree/
+.security-publish/
+.security-venv/
+.security-audit-tools/
+private/
+output/
 management-users.json
 coverage.xml
 .coverage

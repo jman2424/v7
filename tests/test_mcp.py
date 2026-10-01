@@ -30,8 +30,9 @@ def authorization(client, scope="business:read business:write"):
     return "/oauth/authorize?" + urlencode(args), verifier, args
 
 
-def issue(client, scope="business:read business:write"):
-    csrf = login(client)
+def issue(client, scope="business:read business:write", email="owner@example.test"):
+    current = client.get('/auth/session').json
+    csrf = current['csrf_token'] if (current.get('user') or {}).get('email') == email else login(client, email=email)
     url, verifier, args = authorization(client, scope)
     assert client.get(url).status_code == 200
     response = client.post(url, data={"csrf_token": csrf, "decision": "allow"})
@@ -48,7 +49,8 @@ def issue(client, scope="business:read business:write"):
 def rpc(client, token, method="tools/call", params=None, **kwargs):
     headers = {"Authorization": "Bearer " + token, "Accept": "application/json, text/event-stream",
                "MCP-Protocol-Version": "2025-06-18", **kwargs.pop("headers", {})}
-    return client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}, headers=headers, **kwargs)
+    payload = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}}
+    return client.post('/mcp', data=json.dumps(payload), content_type='application/json', headers=headers, **kwargs)
 
 
 def call(client, token, name, args=None):
@@ -173,13 +175,11 @@ def test_invalid_catalogue_updates_rejected(mcp, changes):
     client = app.test_client()
     token = issue(client)[0]["access_token"]
     catalog = data(client, token, "get_catalog")
+    args = {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes}
     if isinstance(changes.get('price'), float) and not math.isfinite(changes['price']):
-        response = rpc(client, token, params={"name": "update_catalog_item", "arguments": {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes}})
-        assert response.status_code == 200
-        assert response.json['error']['code'] == -32700
+        assert rpc(client, token, params={'name': 'update_catalog_item', 'arguments': args}).json['error']['code'] == -32700
     else:
-        result = call(client, token, "update_catalog_item", {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes})
-        assert result["isError"]
+        assert call(client, token, "update_catalog_item", args)["isError"]
     assert data(client, token, "get_catalog")["revision"] == catalog["revision"]
 
 
@@ -266,7 +266,7 @@ def test_audit_failure_blocks_write(mcp, monkeypatch):
     assert data(client, token, "get_catalog")["revision"] == catalog["revision"]
 
 
-def test_token_expiry_disabled_accounts_and_rate_limit(mcp):
+def test_token_expiry_disabled_accounts_and_rate_limit(mcp, monkeypatch):
     app, registry, _ = mcp
     client = app.test_client()
     token = issue(client)[0]["access_token"]
@@ -274,6 +274,9 @@ def test_token_expiry_disabled_accounts_and_rate_limit(mcp):
         db.execute("UPDATE mcp_grants SET expires=0 WHERE kind='access'")
     assert rpc(client, token, "ping").status_code == 401
     token = issue(client)[0]["access_token"]
+    # Keep all requests in one minute, independent of real-time rollover.
+    now = mcp_auth.time.time()
+    monkeypatch.setattr(mcp_auth.time, "time", lambda: now)
     for _ in range(60):
         assert rpc(client, token, "ping").status_code == 200
     limited = rpc(client, token, "ping")

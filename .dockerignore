@@ -5,6 +5,15 @@
 .pytest-v7
 logs
 backups
+private
+output
+.security-venv
+.security-audit-tools
+.security-publish
+.push-worktree
+.pytest_cache
+.ruff_cache
+.serena
 business/versions
 __pycache__
 *.pyc

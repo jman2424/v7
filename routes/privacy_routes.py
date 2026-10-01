@@ -8,7 +8,7 @@ from flask import Blueprint, abort, current_app, jsonify, render_template, reque
 from routes import get_container
 from routes.tenancy import require_admin_role, resolve_admin_tenant
 from service.audit import AuditService
-from service.security import is_platform_admin, management_user
+from service.security import has_permission, is_platform_admin, management_user, require_permission
 from service import privacy_settings
 
 bp = Blueprint("privacy_pages", __name__)
@@ -19,6 +19,7 @@ def management_context(write=False):
     require_admin_role()
     if write and not (is_platform_admin(user) or "business_owner" in user.get("roles", [])):
         abort(403, description="company_owner_required")
+    require_permission("business_settings.write" if write else "business_settings.read", user=user)
     container = get_container()
     requested = request.args.get("tenant", "")
     try:
@@ -35,7 +36,8 @@ def management_context(write=False):
 def management_response(user, tenant, storage):
     result = privacy_settings.status(storage, tenant)
     response = jsonify(tenant=tenant, **result, policy_url=url_for("privacy_pages.privacy_page", tenant=tenant),
-                       write_allowed=bool(is_platform_admin(user) or "business_owner" in user.get("roles", [])))
+                       write_allowed=bool((is_platform_admin(user) or "business_owner" in user.get("roles", []))
+                                          and has_permission(user, "business_settings.write")))
     response.headers["Cache-Control"] = "no-store"
     return response
 

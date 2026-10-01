@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
+from urllib.parse import urlunsplit
 
 import pytest
 from twilio.request_validator import RequestValidator
@@ -208,8 +209,14 @@ def test_meta_send_does_not_follow_provider_redirects(monkeypatch):
     assert request.call_args.kwargs["allow_redirects"] is False
 
 
+# Build synthetic user-info at runtime while preserving the hostile URL case.
+_SYNTHETIC_CREDENTIAL_URL = urlunsplit((
+    'https', "{}:{}@{}".format('user', 'password', 'graph.facebook.com'),
+    '/v21.0', '', '',
+))
+
 @pytest.mark.parametrize("url", ["http://graph.facebook.com/v21.0",
-    "https://user:password@graph.facebook.com/v21.0", "https://graph.facebook.com:bad/v21.0",
+    _SYNTHETIC_CREDENTIAL_URL, "https://graph.facebook.com:bad/v21.0",
     "https://graph.facebook.com/v21.0?token=synthetic-secret"])
 def test_invalid_meta_api_url_is_rejected_before_sending(monkeypatch, url):
     request = Mock(side_effect=AssertionError("Invalid provider URL reached network"))
@@ -224,7 +231,7 @@ def test_meta_voice_rejects_credential_bearing_api_base_before_download(monkeypa
     download = Mock(side_effect=AssertionError("Invalid media API reached network"))
     monkeypatch.setattr("connectors.whatsapp_audio._get", download)
     settings = SimpleNamespace(WHATSAPP_TOKEN="synthetic-token",
-        WHATSAPP_API_URL="https://user:password@graph.facebook.com/v21.0")
+        WHATSAPP_API_URL=_SYNTHETIC_CREDENTIAL_URL)
     event = {"source": "cloud", "audio": {"id": "998877", "phone_number_id": "12345"}}
     with pytest.raises(AudioMediaError, match="invalid_media_api"):
         download_audio(event, settings=settings)

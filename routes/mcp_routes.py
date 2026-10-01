@@ -1,5 +1,7 @@
 """Stateless MCP Streamable HTTP (JSON response mode) on the existing Flask app."""
 import json
+import math
+import os
 import sqlite3
 
 from flask import Blueprint, abort, jsonify, request
@@ -35,11 +37,47 @@ def rpc_error(identifier, code, message):
     return jsonify(jsonrpc="2.0", id=identifier, error={"code": code, "message": message})
 
 
+def read_message():
+    # Bound the bytes actually read, including chunked requests without a length.
+    body = request.stream.read(65537)
+    if len(body) > 65536:
+        abort(413)
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Repeated JSON key")
+            result[key] = value
+        return result
+
+    def finite_number(value):
+        raise ValueError("Non-finite JSON number")
+
+    message = json.loads(body, object_pairs_hook=unique_object, parse_constant=finite_number)
+    pending = [(message, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > 32:
+            raise ValueError("JSON nesting exceeds the limit")
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("Non-finite JSON number")
+        if isinstance(value, dict):
+            pending.extend((item, depth + 1) for item in value.values())
+        elif isinstance(value, list):
+            pending.extend((item, depth + 1) for item in value)
+    return message
+
+
 @bp.route("/mcp", methods=["GET", "POST", "DELETE"])
 def endpoint():
     identity, scopes = mcp_auth.authenticate(request.headers.get("Authorization", ""))
-    request.max_content_length = 65536
-    mcp_auth.require_origin(request.headers.get('Origin'))
+    if request.args:
+        abort(400)
+    origin = request.headers.get("Origin")
+    allowed = {mcp_auth.issuer(), *filter(None, os.getenv("MCP_ALLOWED_ORIGINS", "").split(","))}
+    if origin is not None and origin not in allowed:
+        abort(403)
     if request.method != "POST":
         return jsonify(error="Streaming and server sessions are not supported"), 405, {"Allow": "POST"}
     if request.content_length is not None and request.content_length > 65536:
@@ -51,11 +89,13 @@ def endpoint():
         abort(406)
     if not request.is_json:
         abort(415)
-    message = request.get_json(silent=True)
-    if message is None:
+    try:
+        message = read_message()
+    except (ValueError, UnicodeError, RecursionError):
         return rpc_error(None, -32700, "Invalid JSON")
     if (not isinstance(message, dict) or message.get("jsonrpc") != "2.0"
             or not isinstance(message.get("method"), str)
+            or set(message) - {"jsonrpc", "id", "method", "params"}
             or ("id" in message and (type(message["id"]) not in {str, int}))):
         return rpc_error(None, -32600, "Invalid request")
     identifier = message.get("id")
@@ -77,7 +117,7 @@ def endpoint():
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": [tool for name, tool in mcp_tools.SPECS.items() if name not in mcp_tools.WRITES or "business:write" in scopes]}
+        result = {"tools": [tool for name, tool in mcp_tools.SPECS.items() if mcp_tools.allowed(identity, scopes, name)]}
     elif method == "tools/call":
         if not isinstance(params.get("name"), str) or set(params) - {"name", "arguments", "_meta"}:
             return rpc_error(identifier, -32602, "Invalid tool call")

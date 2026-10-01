@@ -7,11 +7,11 @@ Route helpers.
 """
 
 from __future__ import annotations
-from typing import Callable, Iterable, Optional
+
 from functools import wraps
+from typing import Callable, Iterable, Optional
 
-from flask import current_app, request, session, abort
-
+from flask import abort, current_app, request
 
 # -------------------------------------------------------------------
 # Container access
@@ -40,10 +40,8 @@ def require_admin(roles: Optional[Iterable[str]] = None) -> Callable:
     def decorator(fn: Callable):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            user = session.get("user")
-
-            if not user:
-                abort(401, description="unauthorized")
+            from service.security import management_user
+            user = management_user()
 
             if required_roles:
                 user_roles = set(user.get("roles", []))
@@ -73,18 +71,12 @@ def require_api_auth(roles: Optional[Iterable[str]] = None) -> Callable:
     def decorator(fn: Callable):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            container = get_container()
-            from service.security import (
-                authenticate_bearer_token,
-                ensure_roles,
-            )
-
-            user = authenticate_bearer_token(container, request)
-            if not user:
-                abort(401, description="unauthorized")
+            from service.mcp_auth import authenticate
+            user, scopes = authenticate(request.headers.get("Authorization", ""))
 
             if required_roles:
-                ensure_roles(user, required_roles)
+                if not set(user.get("roles", [])).intersection(required_roles):
+                    abort(403, description="forbidden")
 
             return fn(*args, **kwargs)
 

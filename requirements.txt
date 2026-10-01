@@ -18,7 +18,7 @@ requests==2.33.0
 python-dotenv==1.2.2
 
 # --- Security / Auth ---
-pyjwt[crypto]==2.13.0
+pyjwt[crypto]==2.15.0
 pyotp==2.9.0
 itsdangerous==2.2.0
 
@@ -27,6 +27,8 @@ google-api-python-client==2.142.0
 google-auth==2.34.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
+# Google OAuth PKCE security fix; constrain the transitive runtime dependency.
+oauthlib==4.0.0
 
 # --- JSON / Schema / Validation ---
 jsonschema==4.23.0

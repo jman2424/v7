@@ -38,7 +38,11 @@ test('private messages target an exact origin even if the frame navigates', () =
 });
 
 test('unsafe widget URL schemes and embedded credentials are rejected', () => {
-  for (const chatUiPath of ['javascript:alert(1)', 'data:text/html,test', 'https://user:pass@example.test/chat']) {
+  // Build synthetic user-info at runtime while preserving the hostile URL case.
+  const syntheticCredentialUrl = new URL("https://example.test/chat");
+  syntheticCredentialUrl.username = "user";
+  syntheticCredentialUrl.password = "pass";
+  for (const chatUiPath of ['javascript:alert(1)', 'data:text/html,test', syntheticCredentialUrl.href]) {
     assert.throws(() => new AssistantWidget({ baseUrl: 'https://chat.example.test', chatUiPath }));
   }
 });

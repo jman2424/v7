@@ -1,17 +1,17 @@
 """Bounded, same-site public HTML import for owner supplied business websites."""
 from __future__ import annotations
 
-import ipaddress
 import http.client
+import ipaddress
 import re
 import socket
 import time
-from threading import Event, Lock, Timer
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from threading import Event, Lock, Timer
 from typing import Any
 
 MAX_PAGES = 6
@@ -156,7 +156,8 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
 
 
 def _validate_public_https_url(value: str, *, expected_host: str | None = None) -> str:
-    if not isinstance(value, str) or len(value) > 2048:
+    if (not isinstance(value, str) or len(value) > 2048
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)):
         raise WebsiteImportError("Enter a valid public HTTPS website URL in Business profile.")
     value = value.strip()
     if any(ord(char) < 33 or ord(char) == 127 for char in value):
@@ -241,6 +242,9 @@ def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str])
     for href in links:
         if len(found) >= MAX_PAGES:
             break
+        if (not isinstance(href, str) or len(href) > 2048
+                or any(ord(character) < 32 or ord(character) == 127 for character in href)):
+            continue
         try:
             absolute = urllib.parse.urljoin(base_url, href)
             parsed_absolute = urllib.parse.urlsplit(absolute)
@@ -295,7 +299,7 @@ def import_website(url: str) -> dict[str, Any]:
                     raw = _read_page(response)
                     if deadline.expired.is_set():
                         raise TimeoutError("Website fetch deadline exceeded")
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
             continue
         if len(raw) > MAX_PAGE_BYTES:
             continue

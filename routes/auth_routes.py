@@ -57,6 +57,8 @@ def login_post():
         return jsonify({"ok": False, "error": "json_required"}), 400
 
     data = request.get_json(silent=True) or {}
+    if isinstance(data, dict) and set(data) - {'email', 'password', 'totp', 'tenant', 'csrf_token', 'remember_device'}:
+        return jsonify(ok=False, error='invalid_credentials'), 400
     if not isinstance(data, dict) or any(not isinstance(data.get(key, ""), str) for key in ("email", "password", "totp", "tenant")):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
     if not isinstance(data.get('remember_device', False), bool):
@@ -122,7 +124,11 @@ def login_post():
 
     response = jsonify({"ok": True, "user": public_identity(identity), "csrf_token": session.get("_csrf", "")})
     if data.get('remember_device', False):
-        token, expires = trusted_devices.issue(user, tenant)
+        try:
+            token, expires = trusted_devices.issue(user, tenant)
+        except ValueError:
+            clear_authenticated_session()
+            return jsonify(ok=False, error='invalid_credentials'), 401
         trusted_devices.set_cookie(response, token, expires)
     return response
 
@@ -165,6 +171,8 @@ def devices_delete():
 def mfa_confirm():
     from service.account_mfa import confirm
     data = request.get_json(silent=True)
+    if isinstance(data, dict) and set(data) - {'code', 'csrf_token', 'remember_device'}:
+        return jsonify(error='invalid_authenticator_code'), 400
     if not isinstance(data, dict) or not isinstance(data.get('code'), str) or len(data['code']) > 32:
         return jsonify(error='invalid_authenticator_code'), 400
     if not isinstance(data.get('remember_device', False), bool):
@@ -179,6 +187,10 @@ def mfa_confirm():
     response = jsonify(ok=True, user=public_identity(identity), csrf_token=session['_csrf'])
     if data.get('remember_device', False):
         from service import trusted_devices
-        token, expires = trusted_devices.issue(user, user['tenant'])
+        try:
+            token, expires = trusted_devices.issue(user, user['tenant'])
+        except ValueError:
+            clear_authenticated_session()
+            return jsonify(ok=False, error='invalid_credentials'), 401
         trusted_devices.set_cookie(response, token, expires)
     return response
