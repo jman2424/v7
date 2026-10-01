@@ -7,6 +7,9 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 COPY frontend/ ./
+# The console imports the shared language dictionaries from dashboard/static.
+# Preserve their repository-relative path in this isolated build stage.
+COPY dashboard/static/i18n/ /dashboard/static/i18n/
 ENV V7_CONSOLE_BASE_PATH=/console
 RUN npm run build
 
