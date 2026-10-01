@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import pyotp
 
 from service import subscriptions, tenant_access
 from service.account_service import AccountService
@@ -21,8 +22,9 @@ def staff_login(client, secret=None):
     response = client.post('/auth/login', json={'tenant':'EXAMPLE','email':'staff@testing.test','password':'Test-password-only-123'})
     assert response.status_code == 202
     assert client.get('/billing/subscription').status_code == 401
+    code = pyotp.TOTP(secret).at(time.time()+30) if secret else generate_totp_token(response.json['mfa']['setup_key'])
     secret = secret or response.json['mfa']['setup_key']
-    confirmed = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(secret)})
+    confirmed = client.post('/auth/mfa/confirm', json={'code':code})
     assert confirmed.status_code == 200
     return secret
 

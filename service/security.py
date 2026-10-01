@@ -13,7 +13,7 @@ import struct
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from flask import abort, current_app, session
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -185,6 +185,11 @@ def _stored_business_users(c: Any, tenant: str) -> list[Dict[str, Any]]:
     return [user for user in users if isinstance(user, dict)] if isinstance(users, list) else []
 
 
+def _account_tenant(c: Any, tenant: str) -> str:
+    storage = getattr(c, 'storage', None)
+    return storage.canonical_tenant_key(tenant) if storage is not None and tenant else tenant
+
+
 def _authenticate_configured(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
@@ -204,8 +209,8 @@ def _authenticate_configured(
     password_norm = password or ""
 
     if admin_user and admin_pass and (
-        hmac.compare_digest(email_norm, admin_user)
-        and hmac.compare_digest(password_norm, admin_pass)
+        hmac.compare_digest(email_norm.encode(), admin_user.encode())
+        and hmac.compare_digest(password_norm.encode(), admin_pass.encode())
     ):
         return {
             "id": "admin",
@@ -217,9 +222,11 @@ def _authenticate_configured(
     target_tenant = (tenant or "").strip()
     for configured in [*_business_users(), *_stored_business_users(c, target_tenant)]:
         configured_email = str(configured.get("email") or "").strip().lower()
-        configured_tenant = str(configured.get("tenant") or "").strip()
-        if not configured_tenant:
-            configured_tenant = target_tenant
+        assigned_tenant = str(configured.get("tenant") or target_tenant).strip()
+        try:
+            configured_tenant = _account_tenant(c, assigned_tenant)
+        except ValueError:
+            continue
         password_hash = str(configured.get("password_hash") or "")
         roles = configured.get("roles") or ["business_owner"]
         if not isinstance(roles, list):
@@ -229,14 +236,14 @@ def _authenticate_configured(
             and configured_tenant
             and password_hash
             and configured.get("active") is not False
-            and hmac.compare_digest(email_norm, configured_email)
-            and hmac.compare_digest(target_tenant, configured_tenant)
+            and hmac.compare_digest(email_norm.encode(), configured_email.encode())
+            and hmac.compare_digest(target_tenant.encode(), configured_tenant.encode())
             and verify_password(password_norm, password_hash)
         ):
             continue
 
         return {
-            "id": str(configured.get("id") or f"owner:{configured_tenant}:{configured_email}"),
+            "id": str(configured.get("id") or f"owner:{assigned_tenant}:{configured_email}"),
             "email": configured_email,
             "roles": [str(role) for role in roles],
             "tenant": configured_tenant,
@@ -270,14 +277,24 @@ def _revision(identity):
     else:
         target = str(identity.get("tenant") or "")
         candidates = [*_business_users(), *_stored_business_users(c, target)]
-        candidates = [r for r in candidates if str(r.get("email", "")).strip().lower() == email
-                      and str(r.get("tenant") or target) == target
-                      and str(r.get("id") or f"owner:{target}:{email}") == identity.get("id")]
+        platform = bool({'admin', 'platform_admin'}.intersection(identity.get('roles', [])))
+        try:
+            target = _account_tenant(c, target)
+            candidates = [r for r in candidates if str(r.get("email", "")).strip().lower() == email
+                          and str(r.get("id") or f"owner:{r.get('tenant') or target}:{email}") == identity.get("id")
+                          and ((platform and isinstance(r.get('roles'), list)
+                                and any(role in {'admin', 'platform_admin'} for role in r['roles'] if isinstance(role, str)))
+                               or (not platform and _account_tenant(c, str(r.get("tenant") or target)) == target))]
+        except ValueError:
+            return None
         if len(candidates) != 1 or candidates[0].get("active") is False:
             return None
         data = candidates[0]
     from service.account_mfa import enrolled_secret
-    protected = {'account': data, 'mfa_policy': 'all-accounts-v1', 'enrolled_secret': enrolled_secret(identity)}
+    try:
+        protected = {'account': data, 'mfa_policy': 'all-accounts-v1', 'enrolled_secret': enrolled_secret(identity)}
+    except ValueError:
+        return None
     return hmac.new(current_app.secret_key.encode(), json.dumps(protected, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
 
@@ -330,11 +347,116 @@ def authenticate_user(
 ) -> Optional[Dict[str, Any]]:
     user = _authenticate_user(c, email=email, password=password, tenant=tenant)
     if user:
+        try:
+            if user.get('tenant'):
+                user['tenant'] = _account_tenant(c, user['tenant'])
+        except ValueError:
+            return None
         if user.get('tenant') and tenant and user['tenant'] != tenant:
             return None
         from service.account_mfa import enrolled_secret
-        user['totp_secret'] = user.get('totp_secret') or enrolled_secret(user)
+        try:
+            user['totp_secret'] = user.get('totp_secret') or enrolled_secret(user)
+        except ValueError:
+            return None
     return user
+
+
+def login_tenant_scope(c: Any, *, email: str, tenant: str) -> str:
+    """Operator accounts share one attempt bound regardless of selected tenant."""
+    try:
+        records = _registry_users(c)
+    except (OSError, ValueError, TypeError):
+        return tenant
+    matches = [record for record in records if str(record.get('email', '')).strip().lower() == email]
+    if matches:
+        role = matches[0].get('role') if len(matches) == 1 else None
+        return '' if isinstance(role, str) and role in {'admin', 'platform_admin'} else tenant
+    if email == os.getenv('ADMIN_USERNAME', '').strip().lower():
+        return ''
+    for record in _business_users():
+        roles = record.get('roles', [])
+        if (str(record.get('email', '')).strip().lower() == email and isinstance(roles, list)
+                and any(role in {'admin', 'platform_admin'} for role in roles if isinstance(role, str))):
+            return ''
+    return tenant
+
+
+def resolve_linked_account(reference: Mapping[str, object], container=None) -> Optional[Dict[str, Any]]:
+    """Resolve an explicitly linked immutable identity without trusting provider roles."""
+    if (not isinstance(reference, Mapping) or not isinstance(reference.get('id'), str)
+            or not isinstance(reference.get('email'), str)
+            or (reference.get('tenant') is not None and not isinstance(reference.get('tenant'), str))):
+        return None
+    c = container if container is not None else getattr(current_app, 'container', None)
+    email = reference['email']
+    if not email or email != email.strip().lower() or len(email) > 254:
+        return None
+    try:
+        tenant = _account_tenant(c, reference.get('tenant') or '')
+        records = _registry_users(c)
+    except (OSError, ValueError, TypeError):
+        return None
+    matches = [record for record in records if str(record.get('email', '')).strip().lower() == email]
+    if matches:
+        if len(matches) != 1:
+            return None
+        record = matches[0]
+        role = record.get('role')
+        password_hash = record.get('password_hash')
+        if (record.get('disabled') or not isinstance(role, str) or role not in _MANAGEMENT_ROLES
+                or not isinstance(password_hash, str) or not password_hash.startswith('scrypt:')):
+            return None
+        try:
+            assigned = _account_tenant(c, record.get('tenant') or '') if role in {'business_owner', 'business_staff'} else ''
+        except (ValueError, TypeError):
+            return None
+        if role in {'business_owner', 'business_staff'} and not _TENANT_KEY.fullmatch(assigned):
+            return None
+        user = {'id': email, 'email': email, 'roles': [role], 'tenant': assigned or None,
+                'totp_secret': record.get('totp_secret') or ''}
+    elif email == os.getenv('ADMIN_USERNAME', '').strip().lower():
+        if not os.getenv('ADMIN_PASSWORD') and not os.getenv('ADMIN_PASSWORD_HASH'):
+            return None
+        user = {'id': 'admin', 'email': email, 'roles': ['platform_admin'], 'tenant': None,
+                'totp_secret': os.getenv('ADMIN_TOTP_SECRET', '').strip()}
+    else:
+        user = None
+        candidates = [*_business_users(), *_stored_business_users(c, tenant)]
+        for record in candidates:
+            assigned = str(record.get('tenant') or tenant)
+            roles = record.get('roles') or ['business_owner']
+            if (str(record.get('email', '')).strip().lower() != email
+                    or str(record.get('id') or f'owner:{assigned}:{email}') != reference['id']
+                    or record.get('active') is False or not isinstance(record.get('password_hash'), str)
+                    or not record['password_hash']
+                    or not isinstance(roles, list) or not all(isinstance(role, str) for role in roles)
+                    or not set(roles).intersection(_MANAGEMENT_ROLES)):
+                continue
+            try:
+                assigned = _account_tenant(c, assigned)
+            except ValueError:
+                continue
+            platform = bool({'admin', 'platform_admin'}.intersection(roles))
+            if not platform and assigned != tenant:
+                continue
+            if user is not None:
+                return None
+            user = {'id': reference['id'], 'email': email, 'roles': roles, 'tenant': None if platform else assigned,
+                    'totp_secret': record.get('totp_secret') or ''}
+        if user is None:
+            return None
+    platform = bool({'admin', 'platform_admin'}.intersection(user['roles']))
+    if (user['id'] != reference['id'] or (platform and reference.get('tenant') is not None)
+            or (not platform and (not tenant or user['tenant'] != tenant))
+            or not isinstance(user['totp_secret'], str)):
+        return None
+    from service.account_mfa import enrolled_secret
+    try:
+        user['totp_secret'] = user['totp_secret'] or enrolled_secret(user)
+    except ValueError:
+        return None
+    return user if _revision(user) else None
 
 
 def _authenticate_user(
@@ -361,7 +483,7 @@ def _authenticate_user(
         role = record.get("role")
         tenant = record.get("tenant")
         password_hash = record.get("password_hash")
-        if record.get("disabled") or role not in _MANAGEMENT_ROLES:
+        if record.get("disabled") or not isinstance(role, str) or role not in _MANAGEMENT_ROLES:
             return None
         if role in {"business_owner", "business_staff"} and (
             not isinstance(tenant, str) or not _TENANT_KEY.fullmatch(tenant)
@@ -403,31 +525,37 @@ def _authenticate_user(
 
 def verify_totp(secret: str, code: str) -> bool:
     """Verify a six-digit TOTP, allowing one time step for clock skew."""
+    return totp_timestep(secret, code) is not None
+
+
+def totp_timestep(secret: str, code: str) -> Optional[int]:
+    """Return the matching step so login can atomically reject code reuse."""
     if not secret:
-        return False
+        return None
     if not isinstance(secret, str) or not isinstance(code, str):
-        return False
+        return None
     code = code.strip()
     if len(code) != 6 or not code.isascii() or not code.isdigit():
-        return False
+        return None
     try:
         normalized = secret.strip().upper().rstrip("=")
         key = base64.b32decode(normalized + "=" * (-len(normalized) % 8), casefold=True)
         if not key:
-            return False
+            return None
         timestep = int(time.time()) // 30
         for offset in (-1, 0, 1):
             digest = hmac.new(key, struct.pack(">Q", timestep + offset), hashlib.sha1).digest()
             position = digest[-1] & 0x0F
             number = struct.unpack(">I", digest[position:position + 4])[0] & 0x7FFFFFFF
             if hmac.compare_digest(code, f"{number % 1000000:06d}"):
-                return True
+                return timestep + offset
     except (ValueError, binascii.Error, struct.error):
-        return False
-    return False
+        return None
+    return None
 
 
-def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_verified: bool = False) -> dict[str, Any]:
+def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_verified: bool = False,
+                             transaction=None) -> dict[str, Any]:
     """Rotate login state, storing only a safe, signed identity in the cookie."""
     identity = {key: user[key] for key in ("id", "email", "roles")}
     if not mfa_verified or not user.get("totp_secret"):
@@ -436,11 +564,12 @@ def start_management_session(user: dict[str, Any], tenant: str = "", *, mfa_veri
     revision = _revision(identity)
     if not revision:
         abort(401)
-    session_store.revoke(session.get("management_token"))
+    token = session_store.create(identity, revision, transaction=transaction)
+    session_store.revoke(session.get("management_token"), transaction=transaction)
     session.clear()
     session.permanent = True
     session["user"] = identity
-    session["management_token"] = session_store.create(identity, revision)
+    session["management_token"] = token
     session["_csrf"] = secrets.token_urlsafe(32)
     return identity
 

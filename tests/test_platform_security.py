@@ -64,7 +64,7 @@ def login(client, email="owner@example.test", password="Test-only-password-42!")
         details = response.json['mfa']
         with client.application.app_context():
             secret = details.get('setup_key') or enrolled_secret({'id':email,'email':email,'roles':['platform_admin'] if email.startswith('admin@') else ['business_owner'],'tenant':'ALPHA'})
-        response = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(secret)}, headers={'X-CSRF-Token':response.json['csrf_token']})
+        response = client.post('/auth/mfa/confirm', json={'code':generate_totp_token(secret), 'remember_device': True}, headers={'X-CSRF-Token':response.json['csrf_token']})
     assert response.status_code == 200, response.json
     return response.json["csrf_token"]
 

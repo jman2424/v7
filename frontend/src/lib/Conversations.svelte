@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
 
   export let tenant: string;
@@ -82,7 +83,7 @@
       {#if view !== 'leads'}
         <label>Time period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
       {/if}
-      <button type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes)}>Refresh</button>
+      <button type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes)}>{$t("Refresh")}</button>
       {#if view === 'leads'}
         <a href={apiPrefix + '/analytics/export.csv?tenant=' + encodeURIComponent(tenant)}>Export leads</a>
       {/if}
@@ -90,7 +91,7 @@
   </header>
   <div class="content" aria-busy={busy}>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if busy && !messages.length}<p class="empty" role="status">Loading…</p>
+    {#if busy && !messages.length}<p class="empty" role="status">{$t("Loading\u2026")}</p>
     {:else if !error && view === 'messages'}
       <h2>Recent messages</h2>
       {#each messages as message (message.id)}
@@ -119,19 +120,19 @@
   .surface { min-width: 0; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; overflow-wrap: anywhere; }
   header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 20px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
   nav, .tools { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; max-width: 100%; }
-  button, a { min-height: 40px; padding: 9px 12px; border: 1px solid #bbc4bc; border-radius: 6px; color: #2f3833; background: #fff; font-size: 14px; font-weight: 600; text-decoration: none; }
-  button.active { color: #fff; background: #007d70; border-color: #007d70; }
+  button, a { min-height: 40px; padding: 9px 12px; border: 1px solid #bec9dc; border-radius: 6px; color: #17233c; background: #fff; font-size: 14px; font-weight: 600; text-decoration: none; }
+  button.active { color: #fff; background: #3e53c4; border-color: #3e53c4; }
   button:disabled { opacity: .6; cursor: wait; }
   button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid #8bcdc0; outline-offset: 2px; }
-  label { display: grid; gap: 6px; min-width: 0; color: #2f3833; font-size: 12px; font-weight: 600; }
-  select { max-width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; }
+  label { display: grid; gap: 6px; min-width: 0; color: #17233c; font-size: 12px; font-weight: 600; }
+  select { max-width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid #bec9dc; border-radius: 6px; color: #17233c; background: #fff; }
   .content { padding: 20px; }
   h2 { margin: 0 0 16px; font-size: 17px; }
-  .empty, .hint { color: #67706b; font-size: 14px; line-height: 1.5; }
+  .empty, .hint { color: #5e6b82; font-size: 14px; line-height: 1.5; }
   .empty { margin: 0; padding: 12px 0; }
   .message, .lead, .question { padding: 16px 0; border-top: 1px solid #e4e8e1; }
   .message-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; font-size: 13px; }
-  .message-meta span, time { color: #67706b; font-size: 12px; }
+  .message-meta span, time { color: #5e6b82; font-size: 12px; }
   .message-meta time { margin-left: auto; }
   .message p { margin: 10px 0 0; white-space: pre-wrap; line-height: 1.6; }
   .lead { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; font-size: 14px; }

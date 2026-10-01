@@ -80,7 +80,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 
 def _atomic_write_json(path: Path, data: Any) -> None:
-    _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+    _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
 
 
 def _read_json(path: Path) -> Any:
@@ -158,6 +158,27 @@ class Storage:
             if key not in repositories:
                 repositories[key] = PostgresBusinessDocuments(key)
             return repositories[key]
+
+    def canonical_tenant_key(self, tenant: Optional[str] = None) -> str:
+        """Resolve filesystem aliases before authorizing a tenant identity.
+
+        PostgreSQL keys stay exact. SQLite keys use the existing directory's
+        spelling, so case-insensitive filesystems cannot split account,
+        ownership, billing or conversation state into multiple identities.
+        """
+        key = self.validate_tenant_key(tenant or self.tenant_key)
+        if self._using_postgres() or not self.business_root.is_dir():
+            return key
+        matches = [entry for entry in self.business_root.iterdir()
+                   if entry.is_dir() and entry.name.casefold() == key.casefold()]
+        if len(matches) > 1:
+            raise ValueError("ambiguous_tenant")
+        if matches:
+            if matches[0].is_symlink():
+                raise ValueError("invalid_tenant")
+            key = self.validate_tenant_key(matches[0].name)
+            self.tenant_dir(key)
+        return key
 
     def tenant_exists(self, tenant: Optional[str] = None) -> bool:
         key = self.validate_tenant_key(tenant or self.tenant_key)
@@ -293,6 +314,12 @@ class Storage:
     def _write_json(self, tenant, filename, data, *, schema=None, snapshot=True):
         """Internal writer; callers hold write_lock across read/check/write."""
         tkey = tenant or self.tenant_key
+        # Both backends must reject non-JSON numbers or recursive structures
+        # before creating snapshots, changing a revision, or writing any data.
+        try:
+            json.dumps(data, ensure_ascii=False, allow_nan=False)
+        except (ValueError, TypeError, RecursionError):
+            raise ValueError('invalid_document_json') from None
         # schema may be provided as "schemas/catalog.schema.json" or just "catalog.schema.json"
         if filename == "catalog.json" and isinstance(data, dict) and "product_catalog" in data and "categories" not in data:
             schema = "catalog-sheet.schema.json"
@@ -300,6 +327,9 @@ class Storage:
             from service.business_core import validate_core
             validate_core(data)
             schema = 'business-core.schema.json'
+        if filename == 'privacy.json':
+            from service.privacy_settings import validate_settings
+            validate_settings(data)
         if schema:
             schema_path = self._schema_path(schema)
             self._validate_json(data, schema_path)

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy information | Vertex Seven</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css') }}">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="policy-header"><a class="brand" href="/">vertex seven<span>V7 Agents</span></a><nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><a href="/console/">Workspace</a></nav></header>
+  <main id="main" class="policy">
+    <p class="eyebrow">YOUR INFORMATION</p><h1>Privacy information</h1>
+    {% if policy.draft %}<aside class="draft" role="status"><strong>Draft — business information is incomplete.</strong><p>The controller must confirm the missing details below before treating this notice as complete.</p></aside>{% endif %}
+    {% if tenant %}<p class="intro">This page contains the privacy details supplied for this business's V7 experience.</p>{% else %}<p class="intro">This page describes the Vertex Seven platform. Each business using a V7 agent has its own responsibilities and privacy information.</p>{% endif %}
+    <section><h2>Who is responsible and how to contact them</h2>
+      <dl><dt>Controller</dt><dd>{{ policy.settings.controller_name or 'Not provided — needs confirmation.' }}</dd>
+      <dt>Privacy contact</dt><dd>{% if policy.settings.contact_email %}<a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>{% else %}Not provided — needs confirmation.{% endif %}</dd></dl>
+      <p>The named controller decides how and why personal information is used. The platform operator must clarify its responsibilities and processing arrangements with each business.</p>
+    </section>
+    <section><h2>Information used by the service</h2><ul>
+      <li>Account identity, assigned roles, business settings, authentication records and security/audit events support access and account protection.</li>
+      <li>Customer messages, replies, contact details supplied during a conversation, leads, consultation requests and sales activity support the business's customer service and follow-up.</li>
+      <li>Conversation and usage records help authorised business users review agent activity, errors and costs.</li>
+      <li>When you use voice, V7 handles the recording in memory for transcription. The transcript may be saved with the conversation; an enabled transcription provider receives the audio.</li>
+    </ul><p>AI responses may be inaccurate. A human should review important enquiries and decisions. This service does not establish a lawful basis on a business's behalf.</p></section>
+    <section><h2>Business explanation of lawful basis</h2><p class="owner-text">{{ policy.settings.lawful_basis or 'Not provided — the controller must explain its lawful basis for each purpose.' }}</p></section>
+    <section><h2>Retention</h2>
+      {% if policy.settings.retention_days is not none %}<p>Business-provided retention period: <strong>{{ policy.settings.retention_days }} days</strong>.</p>{% endif %}
+      {% if policy.settings.retention_criteria %}<p class="owner-text">{{ policy.settings.retention_criteria }}</p>{% endif %}
+      {% if policy.settings.retention_days is none and not policy.settings.retention_criteria %}<p>Retention period or criteria not provided — needs confirmation.</p>{% endif %}
+      <p>Updating this notice does not schedule or delete records. The controller and operator must implement and verify the stated retention process, including backups and provider-held data. Account sessions and security challenges have separate expiry controls.</p>
+    </section>
+    <section><h2>Service providers</h2><p>The following categories reflect local configuration, not a live check of contracts or processing locations:</p>
+      <ul>{% for processor in processors %}<li><strong>{{ processor.name }}:</strong> {{ processor.purpose }}</li>{% endfor %}</ul>
+      <p>The controller must confirm processing agreements, storage locations and any international transfers or safeguards. These details have not been supplied through the current notice settings.</p>
+    </section>
+    <section><h2>Your choices and rights</h2><p>Depending on applicable law and the processing, you may request access, correction, deletion, restriction or portability of your information. Contact the controller above to make a request or withdraw consent where consent is used.</p>
+      <p><strong>You may have a right to object to processing.</strong> Raise an objection with the controller so it can review the relevant purpose and lawful basis.</p>
+      <p>Signed-in users can <a href="/auth/privacy/export">download their own account identity and preference metadata</a>. This limited export does not include customer conversations, other accounts or business records; requests for those require a controller review.</p>
+      <p>For UK data protection concerns, you can <a href="https://ico.org.uk/make-a-complaint/" rel="noopener noreferrer">contact the Information Commissioner's Office</a>. Other locations may have a local regulator.</p>
+    </section>
+    <section><h2>Cookies and review</h2><p><a href="/cookies">Read the cookie information</a> for sign-in, opt-in trusted-device and language choices. The controller should review this notice when the service or processing changes. Business-supplied details do not certify compliance.</p>
+      <p class="source">Reference: <a href="https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/the-right-to-be-informed/what-privacy-information-should-we-provide/" rel="noopener noreferrer">ICO guidance on privacy information</a>.</p>
+    </section>
+  </main><footer class="policy-footer"><a href="/">Vertex Seven</a><a href="/cookies">Cookie information</a></footer>
+</body></html>

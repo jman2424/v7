@@ -7,6 +7,7 @@ _TABLES = {
     'crm_records', 'audit_records', 'migration_runs', 'schema_version', 'events',
     'leads', 'management_sessions', 'login_attempts', 'account_authenticators',
     'mfa_challenges', 'managed_businesses', 'registration_requests',
+    'auth_login_failures', 'mfa_code_uses', 'trusted_devices', 'oidc_states', 'oidc_links',
     'billing_contracts', 'billing_invoices', 'billing_discounts',
     'billing_api_charges', 'billing_references', 'webhook_inbox', 'api_usage',
     'recorded_sales', 'inventory_history', 'usage_exchange_rate', 'mcp_grants',
@@ -40,6 +41,28 @@ def validate_postgres_storage(default_tenant):
         ).fetchall()
         if exposed:
             raise RuntimeError('Private PostgreSQL storage must not be exposed to Data API roles')
+        auth_keys = dict(db.execute(
+            "SELECT c.relname,pg_get_constraintdef(k.oid) FROM pg_constraint k "
+            "JOIN pg_class c ON c.oid=k.conrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='v7_private' AND k.contype='p' "
+            "AND c.relname=ANY(%s)",
+            (['auth_login_failures', 'mfa_code_uses', 'trusted_devices', 'oidc_states', 'oidc_links'],),
+        ).fetchall())
+        if auth_keys != {
+            'auth_login_failures': 'PRIMARY KEY (attempt)',
+            'mfa_code_uses': 'PRIMARY KEY (account, secret_hash, timestep)',
+            'trusted_devices': 'PRIMARY KEY (token_hash)',
+            'oidc_states': 'PRIMARY KEY (state_hash)',
+            'oidc_links': 'PRIMARY KEY (provider, client_id, issuer, subject)',
+        }:
+            raise RuntimeError('PostgreSQL authentication migrations are incomplete')
+        links = db.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid='v7_private.oidc_links'::regclass AND contype='u'",
+        ).fetchall()
+        if ('UNIQUE (provider, client_id, account)',) not in links:
+            raise RuntimeError('PostgreSQL authentication migrations are incomplete')
         # Audio accounting and gated platform inventory are both required for
         # the completed runtime; an earlier schema is not sufficient.
         audio = db.execute(

@@ -17,6 +17,7 @@ import logging
 import requests
 
 from app.config import Settings
+from service.whatsapp_configuration import normalize_recipient, valid_meta_api_url
 
 logger = logging.getLogger("WhatsAppConnector")
 
@@ -168,6 +169,8 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
 
     if not token or not phone_id:
         raise RuntimeError("WhatsApp send configuration missing")
+    if not normalize_recipient(phone_id, "meta") or not valid_meta_api_url(base_url):
+        raise RuntimeError("WhatsApp send configuration invalid")
 
     url = f"{base_url.rstrip('/')}/{phone_id}/messages"
 
@@ -183,6 +186,6 @@ def send_reply(event: Dict[str, Any], reply: str, *, settings: Settings) -> None
         "text": {"body": reply},
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=8)
-    if resp.status_code >= 400:
+    resp = requests.post(url, headers=headers, json=payload, timeout=8, allow_redirects=False)
+    if not 200 <= resp.status_code < 300:
         raise RuntimeError("WhatsApp provider rejected the send")

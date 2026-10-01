@@ -29,6 +29,38 @@ def body():
     return data
 
 
+@bp.get('/parameters')
+def parameters_get():
+    _, tenant, storage = identity()
+    return jsonify(model_settings.parameter_status(storage, tenant))
+
+
+@bp.put('/parameters')
+def parameters_put():
+    user, tenant, storage = identity()
+    data = body()
+    if set(data) - {'parameters', 'revision', 'csrf_token'} or not isinstance(data.get('revision'), str):
+        abort(400, description='invalid_ai_parameters')
+    try:
+        parameters = model_settings.validated_parameters(data.get('parameters'))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    with storage.write_lock(tenant):
+        before = model_settings.document(storage, tenant)
+        if model_settings.revision(before) != data['revision']:
+            abort(409, description='Settings changed. Reload the AI parameters.')
+        status = model_settings.parameter_status(storage, tenant, before)
+        if ('reasoning_effort' in parameters
+                and parameters['reasoning_effort'] not in status['capabilities']['reasoning_efforts']):
+            abort(400, description='invalid_reasoning_effort')
+        after = {**before, 'parameters': parameters}
+        AuditService().record(user=user['id'], role=user['roles'][0], ip=request.remote_addr or '',
+            action='ai_model.parameters', target=tenant, before=before.get('parameters', {}),
+            after=parameters, extra={'result': 'prepared'})
+        storage._write_json(tenant, model_settings.FILENAME, after)
+    return jsonify(model_settings.parameter_status(storage, tenant, after))
+
+
 def pending(data, user, tenant, stage):
     change = session.get('model_change') or {}
     token = data.get('token')
@@ -75,6 +107,10 @@ def save():
         AuditService().record(user=user['id'],role=user['roles'][0],ip=request.remote_addr or '',
             action='ai_model.change',target=tenant,before={'model':before.get('model')},
             after={'model':change['model']},extra={'result':'prepared'})
-        storage._write_json(tenant,model_settings.FILENAME,{'model':change['model'],'generation':secrets.token_hex(16)})
+        parameters = model_settings.validated_parameters(before.get('parameters', {}))
+        if parameters.get('reasoning_effort') not in model_settings.capabilities(change['model'])['reasoning_efforts']:
+            parameters.pop('reasoning_effort', None)
+        storage._write_json(tenant,model_settings.FILENAME,{**before,'model':change['model'],
+                            'parameters': parameters,'generation':secrets.token_hex(16)})
     session.pop('model_change',None)
     return jsonify(ok=True,model=change['model'])

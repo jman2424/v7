@@ -27,26 +27,15 @@ def _tenant(value: object) -> str:
         abort(400, description="invalid_tenant")
     storage = get_container().storage
     try:
-        if storage._using_postgres():
-            value = storage.validate_tenant_key(value)
-            if not storage.tenant_exists(value):
-                abort(404, description="tenant_not_found")
-            from service.tenant_access import require_active
-            require_active(value)
-            return value
-        path = storage.tenant_dir(value)
+        value = storage.canonical_tenant_key(value)
+        exists = storage.tenant_exists(value)
     except ValueError:
         abort(400, description="invalid_tenant")
-    if not path.is_dir():
+    if not exists:
         abort(404, description="tenant_not_found")
     from service.tenant_access import require_active
     require_active(value)
-    # Use the directory's actual case for signed tokens and SQLite keys on
-    # case-insensitive filesystems, so one tenant cannot split slot inventory.
-    return next(
-        entry.name for entry in storage.business_root.iterdir()
-        if entry.is_dir() and entry.name.casefold() == value.casefold()
-    )
+    return value
 
 
 def _origin_allowed(tenant: str) -> None:
@@ -126,7 +115,7 @@ def post_chat_actions():
     if not isinstance(data, dict):
         return _cors(jsonify(error="json_object_required")), 400
     tenant = _tenant(data.get("tenant"))
-    if request.args.get("tenant") and request.args["tenant"] != tenant:
+    if request.args.get("tenant") and _tenant(request.args["tenant"]) != tenant:
         return _cors(jsonify(error="tenant_mismatch")), 400
     _origin_allowed(tenant)
     try:

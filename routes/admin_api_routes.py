@@ -165,7 +165,7 @@ def api_tenants_post():
     user = management_user()
     if not is_platform_operator() and 'business_owner' not in user_roles():
         abort(403, description='company_owner_required')
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "tenant_payload_must_be_object"}), 400
 
@@ -321,7 +321,7 @@ def api_accounts_post():
     if not _may_manage_accounts():
         abort(403, description="account_management_forbidden")
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "account_payload_must_be_object"}), 400
 
@@ -348,7 +348,7 @@ def api_accounts_put(account_id: str):
     if not account_id or len(account_id) > 256:
         return jsonify({"error": "invalid_account_id"}), 400
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "account_payload_must_be_object"}), 400
 
@@ -847,7 +847,7 @@ def api_action_requests_get():
 
 @bp.put("/widget")
 def api_widget_put():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "widget_payload_must_be_object"}), 400
 
@@ -880,7 +880,9 @@ def api_widget_put():
 
 @bp.post("/mode")
 def api_mode_set():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "mode_payload_must_be_object"}), 400
     mode = str(data.get("mode") or "").strip().upper()
     if mode not in {"V5", "V6", "V7", "AIV7", "AIV7_FLAGSHIP"}:
         return jsonify({"error": "invalid_mode"}), 400
@@ -1081,7 +1083,7 @@ _LEAD_STATUSES = {"Open", "Contacted", "Qualified", "Won", "Lost"}
 
 @bp.put("/leads/<string:lead_id>")
 def api_lead_status_put(lead_id: str):
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     status = str(data.get("status") or "").strip() if isinstance(data, dict) else ""
     if status not in _LEAD_STATUSES:
         return jsonify({"error": "invalid_lead_status"}), 400
@@ -1132,16 +1134,19 @@ def api_conversations():
 @bp.get("/integrations")
 def api_integrations():
     import os
+    from service.whatsapp_configuration import setup_status
     tenant = _tenant()
     c = get_container()
-    mapping = c.settings.WHATSAPP_TENANT_MAP
-    assigned = tenant in mapping.values() if mapping else tenant == c.settings.BUSINESS_KEY
-    return jsonify(
-        tenant=tenant, whatsapp_assigned=assigned,
-        meta_configured=assigned and bool(c.settings.WHATSAPP_APP_SECRET and c.settings.WHATSAPP_TOKEN and (mapping or c.settings.WHATSAPP_PHONE_ID)),
-        twilio_configured=assigned and bool((os.getenv("TWILIO_AUTH_TOKEN") or c.settings.TWILIO_AUTH_TOKEN) and (mapping or os.getenv("TWILIO_WHATSAPP_NUMBER"))),
+    whatsapp = setup_status(c, tenant)
+    response = jsonify(
+        tenant=tenant, whatsapp_assigned=any(provider["recipients"] for provider in whatsapp["providers"].values()),
+        meta_configured=whatsapp["providers"]["meta"]["configured"],
+        twilio_configured=whatsapp["providers"]["twilio"]["configured"],
         ai_configured=bool(os.getenv("OPENAI_API_KEY")),
+        whatsapp=whatsapp,
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.post("/whatsapp-qr")

@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import math
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
@@ -172,8 +173,13 @@ def test_invalid_catalogue_updates_rejected(mcp, changes):
     client = app.test_client()
     token = issue(client)[0]["access_token"]
     catalog = data(client, token, "get_catalog")
-    result = call(client, token, "update_catalog_item", {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes})
-    assert result["isError"]
+    if isinstance(changes.get('price'), float) and not math.isfinite(changes['price']):
+        response = rpc(client, token, params={"name": "update_catalog_item", "arguments": {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes}})
+        assert response.status_code == 200
+        assert response.json['error']['code'] == -32700
+    else:
+        result = call(client, token, "update_catalog_item", {"category": "Devices", "name": "Alpha laptop", "expected_revision": catalog["revision"], "changes": changes})
+        assert result["isError"]
     assert data(client, token, "get_catalog")["revision"] == catalog["revision"]
 
 

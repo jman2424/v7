@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   export let tenant: string;
   export let apiPrefix = '';
@@ -87,7 +88,7 @@
 
 <section class="health-workspace" aria-label="Errors and business health">
   <div class="heading">
-    <div><h2>Errors &amp; health</h2><p>Recorded failures and saved business data for {tenant}.</p></div>
+    <div><h2>{$t("Errors & health")}</h2><p>Recorded failures and saved business data for {tenant}.</p></div>
     <div class="controls"><label>Activity period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
       <button type="button" disabled={loading} on:click={() => loadActivity(tenant, minutes)}>Refresh activity</button></div>
   </div>
@@ -121,5 +122,5 @@
 </section>
 
 <style>
-  .health-workspace{display:grid;gap:20px;min-width:0}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}h2,h3{margin:0 0 8px;color:#20332a}h2{font-size:22px}h3{font-size:16px}p{color:#59675f;line-height:1.5;margin:8px 0}.controls{display:flex;gap:12px;align-items:end;flex-wrap:wrap}label{display:grid;gap:6px;font-size:13px;font-weight:600}select,button{font:inherit;padding:10px 14px;border:1px solid #bbc4bc;border-radius:6px;background:#fff;color:#20332a}button{cursor:pointer;font-weight:600}button:disabled{opacity:.65;cursor:wait}:focus-visible{outline:3px solid #008879;outline-offset:3px}.metrics,.breakdowns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.panel{background:#fff;border:1px solid #dce3dc;border-radius:10px;padding:22px;min-width:0}.metrics strong{font-size:30px}.panel ul{list-style:none;padding:0;margin:16px 0}.panel li{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #edf0ec}.panel li span{overflow-wrap:anywhere}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}caption{text-align:left;font-weight:600;padding:12px 0}th,td{padding:12px 10px;border-bottom:1px solid #e5e9e4;vertical-align:top;font-size:14px;overflow-wrap:anywhere}.failure{color:#a92b34;background:#fff0f0;padding:14px;border-radius:6px}.note{font-size:13px;margin-top:18px}@media(max-width:700px){.metrics,.breakdowns{grid-template-columns:1fr}.panel{padding:16px}.controls{width:100%}th,td{min-width:110px}}
+  .health-workspace{display:grid;gap:20px;min-width:0}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}h2,h3{margin:0 0 8px;color:#20332a}h2{font-size:22px}h3{font-size:16px}p{color:#59675f;line-height:1.5;margin:8px 0}.controls{display:flex;gap:12px;align-items:end;flex-wrap:wrap}label{display:grid;gap:6px;font-size:13px;font-weight:600}select,button{font:inherit;padding:10px 14px;border:1px solid #bec9dc;border-radius:6px;background:#fff;color:#20332a}button{cursor:pointer;font-weight:600}button:disabled{opacity:.65;cursor:wait}:focus-visible{outline:3px solid #008879;outline-offset:3px}.metrics,.breakdowns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.panel{background:#fff;border:1px solid #dce2ed;border-radius:10px;padding:22px;min-width:0}.metrics strong{font-size:30px}.panel ul{list-style:none;padding:0;margin:16px 0}.panel li{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #edf0ec}.panel li span{overflow-wrap:anywhere}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}caption{text-align:left;font-weight:600;padding:12px 0}th,td{padding:12px 10px;border-bottom:1px solid #e5e9e4;vertical-align:top;font-size:14px;overflow-wrap:anywhere}.failure{color:#a92b34;background:#fff0f0;padding:14px;border-radius:6px}.note{font-size:13px;margin-top:18px}@media(max-width:700px){.metrics,.breakdowns{grid-template-columns:1fr}.panel{padding:16px}.controls{width:100%}th,td{min-width:110px}}
 </style>

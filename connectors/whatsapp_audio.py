@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 import requests
 
 from app.config import Settings
+from service.whatsapp_configuration import valid_meta_api_url
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 _MIME_TYPES = {"audio/ogg", "audio/mpeg", "audio/mp4", "audio/wav", "audio/webm"}
@@ -81,8 +82,7 @@ def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
     if not settings.WHATSAPP_TOKEN:
         raise AudioMediaError("media_not_configured")
     base = settings.WHATSAPP_API_URL.rstrip("/")
-    parsed_base = urlsplit(base)
-    if parsed_base.scheme != "https" or parsed_base.hostname != "graph.facebook.com" or parsed_base.port:
+    if not valid_meta_api_url(base, media=True):
         raise AudioMediaError("invalid_media_api")
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
     metadata_bytes = _get(f"{base}/{media_id}?phone_number_id={phone_id}",

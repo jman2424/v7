@@ -6,6 +6,7 @@ from routes import get_container
 from routes.session_auth import clear_authenticated_session, establish_authenticated_session, is_authenticated_account_active
 from retrieval.storage import Storage
 from service.security import public_identity
+from service.login_limiter import LoginThrottled
 
 # Unique blueprint name to avoid: "auth already registered"
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
@@ -58,6 +59,8 @@ def login_post():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict) or any(not isinstance(data.get(key, ""), str) for key in ("email", "password", "totp", "tenant")):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
+    if not isinstance(data.get('remember_device', False), bool):
+        return jsonify(ok=False, error='invalid_credentials'), 400
     if any(len(data.get(key, "")) > limit for key, limit in {"email": 254, "password": 1024, "totp": 32, "tenant": 64}.items()):
         return jsonify({"ok": False, "error": "invalid_credentials"}), 400
     email = (data.get("email") or "").strip().lower()
@@ -65,38 +68,63 @@ def login_post():
     totp = (data.get("totp") or None)
     tenant = str(data.get("tenant") or c.settings.BUSINESS_KEY).strip()
     try:
-        tenant = Storage.validate_tenant_key(tenant)
+        tenant = c.storage.canonical_tenant_key(Storage.validate_tenant_key(tenant))
         if not c.storage.tenant_exists(tenant):
             return jsonify({"ok": False, "error": "unknown_tenant"}), 404
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_tenant"}), 400
 
+    from service.security import authenticate_user, login_tenant_scope
+    from service.account_mfa import begin, complete_login
+    from service import trusted_devices
     limiter = current_app.extensions["auth_login_limiter"]
-    attempt_key = limiter.key(client_address=request.remote_addr or "unknown", tenant=tenant, identifier=email)
-    retry_after = limiter.retry_after(attempt_key)
-    if retry_after:
-        return jsonify({"ok": False, "error": "try_again_later", "retry_after": retry_after}), 429
-
-    from service.security import authenticate_user, verify_totp
+    attempt_key = limiter.key(tenant=login_tenant_scope(c, email=email, tenant=tenant), identifier=email)
+    try:
+        attempt = limiter.begin(attempt_key)
+    except LoginThrottled as exc:
+        return jsonify(ok=False, error='try_again_later', retry_after=exc.retry_after), 429
 
     # IMPORTANT: pass container
     user = authenticate_user(c, email=email, password=password, tenant=tenant)
     if not user:
-        limiter.record_failure(attempt_key)
+        limiter.fail(attempt_key, attempt)
         return jsonify({"ok": False, "error": "invalid_credentials"}), 401
 
-    if user.get("totp_secret") and totp:
-        if not verify_totp(user["totp_secret"], totp):
-            limiter.record_failure(attempt_key)
-            return jsonify({"ok": False, "error": "invalid_credentials"}), 401
-    else:
-        from service.account_mfa import begin
-        mfa = begin(user, tenant)
-        return jsonify(ok=False, mfa_required=True, mfa=mfa, csrf_token=session['_csrf']), 202
+    trusted = trusted_devices.password_login(user, tenant) if not totp else None
+    if trusted:
+        identity, token, expires = trusted
+        response = jsonify(ok=True, user=public_identity(identity), csrf_token=session.get('_csrf', ''))
+        return trusted_devices.set_cookie(response, token, expires)
 
-    limiter.reset(attempt_key)
-    identity = establish_authenticated_session(user, tenant, mfa_verified=True)
-    return jsonify({"ok": True, "user": public_identity(identity), "csrf_token": session.get("_csrf", "")})
+    if user.get("totp_secret") and totp:
+        try:
+            identity = complete_login(user, tenant, totp)
+        except ValueError as exc:
+            limiter.fail(attempt_key, attempt)
+            error = 'authenticator_code_reused' if str(exc) == 'authenticator_code_reused' else 'invalid_credentials'
+            return jsonify(ok=False, error=error), 401
+    else:
+        try:
+            mfa = begin(user, tenant)
+        except ValueError:
+            limiter.fail(attempt_key, attempt)
+            return jsonify(ok=False, error='invalid_credentials'), 401
+        if not mfa:
+            limiter.fail(attempt_key, attempt)
+            return jsonify(ok=False, error='invalid_credentials'), 401
+        # The password passed, but previous account failures remain until MFA
+        # succeeds. Release only this request's temporary reservation.
+        limiter.release(attempt_key, attempt)
+        response = jsonify(ok=False, mfa_required=True, mfa=mfa, csrf_token=session['_csrf'])
+        if request.cookies.get(trusted_devices.COOKIE_NAME):
+            trusted_devices.clear_cookie(response)
+        return response, 202
+
+    response = jsonify({"ok": True, "user": public_identity(identity), "csrf_token": session.get("_csrf", "")})
+    if data.get('remember_device', False):
+        token, expires = trusted_devices.issue(user, tenant)
+        trusted_devices.set_cookie(response, token, expires)
+    return response
 
 
 @bp.get("/session")
@@ -113,8 +141,24 @@ def session_get():
 
 @bp.post("/logout")
 def logout_post():
-    clear_authenticated_session()
-    return jsonify({"ok": True})
+    from service.trusted_devices import clear_cookie
+    clear_authenticated_session(revoke_device=True)
+    return clear_cookie(jsonify({"ok": True}))
+
+
+@bp.get('/devices')
+def devices_get():
+    from service.security import management_user
+    from service.trusted_devices import status
+    return jsonify(status(management_user()))
+
+
+@bp.delete('/devices')
+def devices_delete():
+    from service.security import management_user
+    from service.trusted_devices import clear_cookie, revoke_account
+    revoke_account(management_user())
+    return clear_cookie(jsonify(ok=True))
 
 
 @bp.post('/mfa/confirm')
@@ -123,9 +167,18 @@ def mfa_confirm():
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or not isinstance(data.get('code'), str) or len(data['code']) > 32:
         return jsonify(error='invalid_authenticator_code'), 400
+    if not isinstance(data.get('remember_device', False), bool):
+        return jsonify(error='invalid_credentials'), 400
     try:
         user = confirm(data['code'])
+    except LoginThrottled as exc:
+        return jsonify(error='try_again_later', retry_after=exc.retry_after), 429
     except ValueError as exc:
         return jsonify(error=str(exc)), 401
     identity = establish_authenticated_session(user, user['tenant'], mfa_verified=True)
-    return jsonify(ok=True, user=public_identity(identity), csrf_token=session['_csrf'])
+    response = jsonify(ok=True, user=public_identity(identity), csrf_token=session['_csrf'])
+    if data.get('remember_device', False):
+        from service import trusted_devices
+        token, expires = trusted_devices.issue(user, user['tenant'])
+        trusted_devices.set_cookie(response, token, expires)
+    return response

@@ -1,5 +1,6 @@
 """Revocable management sessions and login throttling shared by workers."""
 import hashlib
+import math
 import json
 import os
 import re
@@ -101,6 +102,8 @@ def connection():
         db.execute("CREATE TABLE IF NOT EXISTS management_sessions (token_hash TEXT PRIMARY KEY, identity TEXT NOT NULL, revision TEXT NOT NULL, expires REAL NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS login_attempts (ip_hash TEXT NOT NULL, attempted REAL NOT NULL)")
         db.execute("CREATE INDEX IF NOT EXISTS login_attempts_ip ON login_attempts(ip_hash, attempted)")
+        db.execute("CREATE TABLE IF NOT EXISTS auth_login_failures (attempt TEXT PRIMARY KEY, subject_hash TEXT NOT NULL, attempted REAL NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS auth_login_failures_subject_time ON auth_login_failures(subject_hash, attempted)")
         yield db
         db.commit()
     finally:
@@ -111,8 +114,14 @@ def _digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create(identity, revision):
+def create(identity, revision, *, transaction=None):
     token = secrets.token_urlsafe(32)
+    if transaction is not None:
+        now = time.time()
+        _auth_execute(transaction, "DELETE FROM management_sessions WHERE expires < ?", (now,))
+        _auth_execute(transaction, "INSERT INTO management_sessions (token_hash,identity,revision,expires) VALUES (?,?,?,?)",
+                      (_digest(token), json.dumps(identity), revision, now + 8 * 3600))
+        return token
     if _using_postgres():
         now = time.time()
         with postgres_connection() as db:
@@ -147,8 +156,11 @@ def read(token):
     return (json.loads(row[0]), row[1]) if row else None
 
 
-def revoke(token):
+def revoke(token, *, transaction=None):
     if isinstance(token, str):
+        if transaction is not None:
+            _auth_execute(transaction, "DELETE FROM management_sessions WHERE token_hash=?", (_digest(token),))
+            return
         if _using_postgres():
             with postgres_connection() as db:
                 db.execute(
@@ -192,3 +204,71 @@ def allow_login(ip):
             return False
         db.execute("INSERT INTO login_attempts VALUES (?, ?)", (_digest(ip), now))
     return True
+
+
+def _auth_execute(db, sql, params=()):
+    return db.execute(sql.replace('?', '%s') if _using_postgres() else sql, params)
+
+
+def _account_retry_after(db, subject_hash, max_attempts, window_seconds, now):
+    count, oldest = _auth_execute(db,
+        'SELECT COUNT(*),MIN(attempted) FROM auth_login_failures WHERE subject_hash=? AND attempted>?',
+        (subject_hash, now-window_seconds)).fetchone()
+    return max(1, math.ceil(window_seconds-(now-oldest))) if count >= max_attempts else 0
+
+
+def login_retry_after(subject_hash, *, max_attempts, window_seconds):
+    with (postgres_connection() if _using_postgres() else connection()) as db:
+        return _account_retry_after(db, subject_hash, max_attempts, window_seconds, time.time())
+
+
+def reserve_login_attempt(subject_hash, *, max_attempts, window_seconds):
+    """Count failures and in-flight checks atomically across addresses/workers."""
+    if not re.fullmatch(r'[a-f0-9]{64}', subject_hash):
+        raise ValueError('invalid_login_subject')
+    with (postgres_connection() if _using_postgres() else connection()) as db:
+        if _using_postgres():
+            lock_key = int.from_bytes(bytes.fromhex(subject_hash)[:8], 'big', signed=True)
+            db.execute('SELECT pg_advisory_xact_lock(%s)', (lock_key,))
+        else:
+            db.execute('BEGIN IMMEDIATE')
+        now = time.time()
+        _auth_execute(db, 'DELETE FROM auth_login_failures WHERE attempted<=?', (now-max(window_seconds,86400),))
+        _auth_execute(db, 'DELETE FROM auth_login_failures WHERE subject_hash=? AND attempted<=?',
+                      (subject_hash, now-window_seconds))
+        retry_after = _account_retry_after(db, subject_hash, max_attempts, window_seconds, now)
+        if retry_after:
+            return None, retry_after
+        attempt = secrets.token_urlsafe(32)
+        _auth_execute(db, 'INSERT INTO auth_login_failures (attempt,subject_hash,attempted) VALUES (?,?,?)',
+                      (attempt, subject_hash, now))
+    return attempt, 0
+
+
+def release_login_attempt(subject_hash, attempt, *, transaction=None):
+    if transaction is not None:
+        _auth_execute(transaction, 'DELETE FROM auth_login_failures WHERE subject_hash=? AND attempt=?',
+                      (subject_hash, attempt))
+        return
+    with (postgres_connection() if _using_postgres() else connection()) as db:
+        release_login_attempt(subject_hash, attempt, transaction=db)
+
+
+def finish_login_failure(subject_hash, attempt, *, transaction=None):
+    # A different successful login may reset rows while this reserved check is
+    # still running. Its later failure must remain visible after that reset.
+    if transaction is not None:
+        _auth_execute(transaction,
+            'INSERT INTO auth_login_failures (attempt,subject_hash,attempted) VALUES (?,?,?) '
+            'ON CONFLICT(attempt) DO NOTHING', (attempt, subject_hash, time.time()))
+        return
+    with (postgres_connection() if _using_postgres() else connection()) as db:
+        finish_login_failure(subject_hash, attempt, transaction=db)
+
+
+def reset_login_failures(subject_hash, *, transaction=None):
+    if transaction is not None:
+        _auth_execute(transaction, 'DELETE FROM auth_login_failures WHERE subject_hash=?', (subject_hash,))
+        return
+    with (postgres_connection() if _using_postgres() else connection()) as db:
+        reset_login_failures(subject_hash, transaction=db)

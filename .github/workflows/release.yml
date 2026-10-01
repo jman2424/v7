@@ -16,22 +16,30 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set version from tag
         id: ver
         run: |
-          echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          tag="${GITHUB_REF#refs/tags/}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.+-]+)?$ ]] || [[ ${#tag} -gt 128 ]]; then
+            echo "Release tag must be a bounded semantic version."
+            exit 1
+          fi
+          version="${tag#v}"
+          version="${version//+/-}"
+          printf 'TAG=%s\nVERSION=%s\n' "$tag" "$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -39,7 +47,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -47,7 +55,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build & push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./Dockerfile
@@ -57,36 +65,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Create artifact (dist)
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.TAG }}
         run: |
           mkdir -p dist
-          echo "${{ steps.ver.outputs.TAG }}" > dist/VERSION.txt
-          tar -czf dist/source-${{ steps.ver.outputs.TAG }}.tar.gz \
-            --exclude-vcs --exclude="./logs" --exclude="./backups" .
+          printf '%s\n' "$RELEASE_TAG" > dist/VERSION.txt
+          tar -czf "dist/source-${RELEASE_TAG}.tar.gz" \
+            --exclude-vcs --exclude="./logs" --exclude="./backups" --exclude="./dist" .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: source-${{ steps.ver.outputs.TAG }}
           path: dist/
 
       - name: Generate release notes
-        id: notes
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.TAG }}
         run: |
-          TAG=${{ steps.ver.outputs.TAG }}
-          echo "## ${TAG}" > RELEASE_NOTES.md
+          printf '## %s\n' "$RELEASE_TAG" > RELEASE_NOTES.md
           if [ -f CHANGELOG.md ]; then
-            awk 'BEGIN{p=0}/^## \[/{if(p)exit} $0 ~ TAG{p=1} p' TAG=$TAG CHANGELOG.md >> RELEASE_NOTES.md || true
+            awk -v tag="$RELEASE_TAG" 'BEGIN{p=0}/^## \[/{if(p)exit} index($0,"[" tag "]"){p=1} p' CHANGELOG.md >> RELEASE_NOTES.md
           fi
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          cat RELEASE_NOTES.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.ver.outputs.TAG }}
           name: ${{ steps.ver.outputs.TAG }}
-          body: ${{ steps.notes.outputs.notes }}
+          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
           files: |

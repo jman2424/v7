@@ -57,7 +57,8 @@ PostgreSQL uses the imported `operator_accounts` rows instead of rereading this
 registry file; editing a local registry after cutover does not update those rows.
 
 All management accounts (platform administrator, business owner and staff) must
-complete password and authenticator verification in every environment. A correct
+enroll an authenticator in every environment. Sign-in requires a verified first
+factor and either authenticator verification or a valid opted-in device proof. A correct
 password with no enrolled authenticator starts a five-minute enrollment challenge
 and returns a locally generated QR code. Until a valid code is confirmed, no
 management session or tenant data is available. Existing configured TOTP secrets
@@ -73,9 +74,36 @@ Treat that database as credential storage: use persistent storage,
 restrict access, and include it in protected backups. Enrollment allows five
 attempts and also shares the server login rate limit. Challenges are single-use,
 bound to the browser and account credential revision, and cannot replace an
-existing authenticator. Existing sessions must sign in again after this policy
-upgrade. A TOTP permits one time step of clock skew; reuse within that short
-window is not currently prevented for the legacy combined password/code login.
+existing authenticator. Logout revokes the pending server challenge. Disabling
+or changing the account invalidates the challenge before any setup key is returned.
+Existing sessions must sign in again after this policy upgrade. A TOTP permits
+one time step of clock skew. Each accepted account/secret/time-step combination
+is consumed atomically with enrollment or session creation, including legacy
+combined password/code login, so a concurrent or repeated submission cannot reuse it.
+
+### Trusted devices
+
+After successful authenticator verification, a user may explicitly trust a personal
+device for 30 days. This skips the authenticator on a subsequent successful password
+sign-in or fully verified sign-in from an explicitly linked provider. It does not
+silently sign in, remove the password requirement from password sign-in, or extend
+the normal session lifetime. Trust expires 30 days after verification; use never
+extends that absolute expiry.
+
+The high-entropy proof is a host-only, HttpOnly, SameSite=Lax cookie, Secure with
+the production session-cookie setting. Only its SHA-256 hash is stored in the private
+`trusted_devices` table. Proofs require the same canonical account, an enrolled
+authenticator and the current credential revision. Accepted proofs rotate atomically
+with session creation; the previous value cannot be replayed. Explicit logout revokes
+the current proof, and managed-account edits revoke that account's proofs. Registry
+and environment credential changes invalidate proofs through their revision.
+
+The account security page uses authenticated `GET /auth/devices` to show only the
+own-account device count, absolute expiry and current-device status. CSRF-protected
+`DELETE /auth/devices` revokes all own-account proofs, including this browser's cookie.
+It leaves existing authenticated sessions active until expiry or logout. Normal
+session expiry alone preserves an unexpired device proof. Device proofs and spent
+authenticator codes are security state and must be preserved in complete backups.
 
 There is no unauthenticated MFA reset. Losing an existing
 authenticator requires operator recovery through the server's protected account
@@ -102,7 +130,13 @@ SECRET_KEY must be random and at least 32 characters. Cookies are HttpOnly,
 SameSite=Lax and Secure when BASE_URL uses HTTPS. Management sessions expire
 after eight hours and are revocable in the configured security database. Logout
 revokes copied session cookies. A shared database login limiter allows five
-attempts per minute per observed client IP. Ordinary request limits are process-local.
+attempts per minute per observed client IP. A separate shared account limiter reserves
+password and MFA attempts atomically across workers, browsers, challenges and client
+addresses. Its defaults are eight attempts per 900 seconds, configurable with
+`AUTH_LOGIN_MAX_ATTEMPTS` and `AUTH_LOGIN_WINDOW_SECONDS`. Correct passwords alone
+do not clear failures; successful MFA or validated device proof does. Account failure
+subjects are HMAC digests, without raw email or client address keys. Ordinary request
+limits are process-local.
 
 ## Request and tenant boundaries
 
@@ -113,6 +147,15 @@ overview requires platform-admin access. Writes require CSRF tokens, except
 public chat and separately signed integration webhooks. Business files use
 allowlisted names, path containment checks, validation and pre-edit snapshots.
 CSV exports neutralize formula-leading values.
+
+Private console HTML sections and their `.html` aliases enforce account and tenant
+authorization before serving the page. Platform, company/team, cost and subscription
+sections also enforce their respective roles or permissions. The sign-in page and
+static JS/CSS remain public; anonymous private-page redirects use allowlisted section
+names and validated company keys. Account/security and privacy remain available to
+authenticated inactive businesses. On SQLite, directory aliases resolve to the unique
+actual tenant key before authentication; legacy alias authenticator records are reused
+unchanged, and conflicting saved secrets fail closed.
 
 PostgreSQL tenant document mutations use a database lock shared by workers.
 Staff-request approval commits the new account document and request status

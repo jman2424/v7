@@ -5,6 +5,8 @@ import ipaddress
 import http.client
 import re
 import socket
+import time
+from threading import Event, Lock, Timer
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,6 +19,9 @@ MAX_PAGE_BYTES = 512 * 1024
 MAX_PAGE_CHARS = 18_000
 MAX_TOTAL_CHARS = 60_000
 MAX_LINKS = 1000
+MAX_PAGE_SECONDS = 5
+MAX_FETCH_SECONDS = 10
+_NAT64_NETWORK = ipaddress.ip_network("64:ff9b::/96")
 _SKIP_TAGS = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form"}
 
 
@@ -66,31 +71,85 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _FetchDeadline:
+    """Interrupt socket reads even when a peer trickles HTTP header/chunk lines."""
+    def __init__(self):
+        self.expires_at = time.monotonic() + MAX_FETCH_SECONDS
+        self.expired = Event()
+        self._lock = Lock()
+        self._socket = None
+        self._timer = Timer(MAX_FETCH_SECONDS, self._expire)
+        self._timer.daemon = True
+
+    def __enter__(self):
+        self._timer.start()
+        return self
+
+    def __exit__(self, *args):
+        self._timer.cancel()
+        with self._lock:
+            self._socket = None
+
+    def _expire(self):
+        self.expired.set()
+        with self._lock:
+            sock = self._socket
+            if sock is not None:
+                try:
+                    # Use the base socket operation: do not mutate SSL state
+                    # concurrently with the thread blocked in its buffered read.
+                    socket.socket.shutdown(sock, socket.SHUT_RDWR)
+                except OSError:
+                    pass  # The request may already have closed this socket.
+
+    def timeout(self):
+        remaining = self.expires_at - time.monotonic()
+        if self.expired.is_set() or remaining <= 0:
+            raise TimeoutError("Website fetch deadline exceeded")
+        return min(3, remaining)
+
+    def watch(self, sock):
+        with self._lock:
+            self._socket = sock
+        try:
+            sock.settimeout(self.timeout())
+        except TimeoutError:
+            sock.close()
+            raise
+
+
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     """Connect to a previously validated IP while retaining hostname TLS checks."""
 
-    def __init__(self, host: str, *, pinned_ip: str, **kwargs: Any) -> None:
+    def __init__(self, host: str, *, pinned_ip: str, deadline=None, **kwargs: Any) -> None:
         self._pinned_ip = pinned_ip
+        self._deadline = deadline
         super().__init__(host, **kwargs)
 
     def connect(self) -> None:
-        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout, self.source_address)
+        timeout = self._deadline.timeout() if self._deadline else self.timeout
+        sock = socket.create_connection((self._pinned_ip, self.port), timeout, self.source_address)
+        if self._deadline:
+            self._deadline.watch(sock)
         if self._tunnel_host:
             self.sock = sock
             self._tunnel()
             sock = self.sock
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        if self._deadline:
+            self._deadline.watch(self.sock)
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, pinned_ip: str) -> None:
+    def __init__(self, pinned_ip: str, deadline=None) -> None:
         super().__init__()
         self.pinned_ip = pinned_ip
+        self.deadline = deadline
 
     def https_open(self, req):
         return self.do_open(
             lambda host, **kwargs: _PinnedHTTPSConnection(
-                host, pinned_ip=self.pinned_ip, context=self._context, **kwargs
+                host, pinned_ip=self.pinned_ip, deadline=self.deadline, context=self._context, **kwargs
             ),
             req,
         )
@@ -99,8 +158,11 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
 def _validate_public_https_url(value: str, *, expected_host: str | None = None) -> str:
     if not isinstance(value, str) or len(value) > 2048:
         raise WebsiteImportError("Enter a valid public HTTPS website URL in Business profile.")
+    value = value.strip()
+    if any(ord(char) < 33 or ord(char) == 127 for char in value):
+        raise WebsiteImportError("Enter a valid public HTTPS website URL in Business profile.")
     try:
-        parsed = urllib.parse.urlsplit(value.strip())
+        parsed = urllib.parse.urlsplit(value)
         port = parsed.port
     except ValueError as exc:
         raise WebsiteImportError("Enter a valid public HTTPS website URL in Business profile.") from exc
@@ -134,9 +196,44 @@ def _resolve_public_ip(host: str) -> str:
     if not addresses:
         raise WebsiteImportError("The configured website could not be reached.")
     resolved = [ipaddress.ip_address(info[4][0].split("%", 1)[0]) for info in addresses]
-    if any(not address.is_global for address in resolved):
+    if any(not _public_unicast(address) for address in resolved):
         raise WebsiteImportError("Private or non-public website addresses cannot be imported.")
     return str(resolved[0])
+
+
+def _public_unicast(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if not address.is_global or address.is_multicast:
+        return False
+    if isinstance(address, ipaddress.IPv6Address):
+        embedded = [address.ipv4_mapped, address.sixtofour]
+        if address.teredo:
+            embedded.extend(address.teredo)
+        if address in _NAT64_NETWORK:
+            embedded.append(ipaddress.IPv4Address(int(address) & 0xffffffff))
+        if any(ip is not None and (not ip.is_global or ip.is_multicast) for ip in embedded):
+            return False
+    return True
+
+
+def _read_page(response) -> bytes:
+    """Bound total body-read time as well as size, including slow trickle bodies."""
+    deadline = time.monotonic() + MAX_PAGE_SECONDS
+    chunks = []
+    size = 0
+    # HTTPS responses provide read1(), which returns available bytes instead of
+    # waiting indefinitely for a malicious server to fill a large read buffer.
+    read = response.read1
+    while size <= MAX_PAGE_BYTES:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Website body deadline exceeded")
+        chunk = read(min(8192, MAX_PAGE_BYTES + 1 - size))
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Website body deadline exceeded")
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
 
 
 def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str]) -> list[str]:
@@ -144,11 +241,11 @@ def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str])
     for href in links:
         if len(found) >= MAX_PAGES:
             break
-        absolute = urllib.parse.urljoin(base_url, href)
-        parsed_absolute = urllib.parse.urlsplit(absolute)
         try:
+            absolute = urllib.parse.urljoin(base_url, href)
+            parsed_absolute = urllib.parse.urlsplit(absolute)
             link_host = (parsed_absolute.hostname or "").rstrip(".").encode("idna").decode("ascii").lower()
-        except UnicodeError:
+        except (UnicodeError, ValueError):
             continue
         if link_host != host:
             continue
@@ -182,19 +279,22 @@ def import_website(url: str) -> dict[str, Any]:
         seen.add(page_url)
         page_url = _validate_public_https_url(page_url, expected_host=host)
         pinned_ip = _resolve_public_ip(host)
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}), _NoRedirect(), _PinnedHTTPSHandler(pinned_ip)
-        )
         request = urllib.request.Request(page_url, headers={
             "Accept": "text/html,application/xhtml+xml",
             "User-Agent": "V7-Business-Knowledge-Importer/1.0",
         })
         try:
-            with opener.open(request, timeout=3) as response:
-                content_type = (response.headers.get("Content-Type") or "").lower()
-                if response.status != 200 or not ("text/html" in content_type or "application/xhtml+xml" in content_type):
-                    continue
-                raw = response.read(MAX_PAGE_BYTES + 1)
+            with _FetchDeadline() as deadline:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}), _NoRedirect(), _PinnedHTTPSHandler(pinned_ip, deadline)
+                )
+                with opener.open(request, timeout=3) as response:
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+                    if response.status != 200 or not ("text/html" in content_type or "application/xhtml+xml" in content_type):
+                        continue
+                    raw = _read_page(response)
+                    if deadline.expired.is_set():
+                        raise TimeoutError("Website fetch deadline exceeded")
         except (urllib.error.URLError, TimeoutError, OSError):
             continue
         if len(raw) > MAX_PAGE_BYTES:

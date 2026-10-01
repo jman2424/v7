@@ -72,6 +72,25 @@ def test_join_approval_is_scoped_and_least_privilege(client, app, mailbox):
     assert client.get('/billing/subscription').status_code == 403
 
 
+@pytest.mark.parametrize('legacy_pending', [False, True])
+def test_join_alias_is_visible_and_approvable_only_in_its_existing_company(client, app, mailbox, legacy_pending):
+    response = request_account(client, 'join', 'example')
+    assert response.status_code == 202 and response.json['request']['tenant'] == 'EXAMPLE'
+    assert client.post('/auth/register/confirm', json={'code': mailbox['new@testing.test']}).status_code == 200
+    if legacy_pending:
+        with session_store.connection() as db:
+            db.execute("UPDATE registration_requests SET tenant='example' WHERE status='pending'")
+    operator = app.test_client()
+    owner(operator)
+    rows = operator.get('/admin/api/join-requests').json['requests']
+    assert len(rows) == 1
+    path = '/admin/api/join-requests/'+rows[0]['id']
+    assert operator.post(path+'?tenant=OTHER', json={'decision': 'approve'}).status_code == 403
+    assert operator.post(path, json={'decision': 'approve'}).status_code == 200
+    accounts = AccountService(app.container.storage).list_accounts('EXAMPLE')
+    assert len(accounts) == 1 and accounts[0]['roles'] == ['business_staff']
+
+
 def test_code_attempt_limit_and_expiry(client, mailbox):
     assert request_account(client).status_code == 202
     wrong = '000000' if mailbox['new@testing.test'] != '000000' else '111111'

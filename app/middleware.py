@@ -57,7 +57,7 @@ def install_request_id(app):
     def protect_response(response):
         response.headers["X-Request-ID"] = g.get("request_id", "-")
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'nonce-" + g.csp_nonce + "'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "

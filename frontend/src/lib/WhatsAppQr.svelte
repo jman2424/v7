@@ -70,12 +70,12 @@
 <style>
   .qr-page {display:grid;gap:20px;min-width:0;overflow-wrap:anywhere}
   .panel {padding:24px;background:#fff;border:1px solid #d9ddd7;border-radius:8px;min-width:0}
-  h2 {margin:0;font-size:20px} p {color:#526359;line-height:1.6}
+  h2 {margin:0;font-size:20px} p {color:#5e6b82;line-height:1.6}
   form,label {display:grid;gap:8px} form {gap:20px} label {font-size:14px;font-weight:600;min-width:0}
-  input,textarea {box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid #bbc4bc;border-radius:6px;font:inherit;color:#26332b;background:#fff}
-  textarea {resize:vertical} small,.hint {font-size:13px;font-weight:400;color:#526359;line-height:1.5}
-  button,.button {display:inline-block;justify-self:start;min-height:44px;box-sizing:border-box;padding:12px 16px;border:1px solid #007d70;border-radius:6px;background:#007d70;color:white;font:600 14px system-ui;cursor:pointer;text-decoration:none}
-  button:disabled {opacity:.6;cursor:wait} .secondary {background:white;color:#007d70} a {color:#007d70}
+  input,textarea {box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid #bec9dc;border-radius:6px;font:inherit;color:#26332b;background:#fff}
+  textarea {resize:vertical} small,.hint {font-size:13px;font-weight:400;color:#5e6b82;line-height:1.5}
+  button,.button {display:inline-block;justify-self:start;min-height:44px;box-sizing:border-box;padding:12px 16px;border:1px solid #3e53c4;border-radius:6px;background:#3e53c4;color:white;font:600 14px system-ui;cursor:pointer;text-decoration:none}
+  button:disabled {opacity:.6;cursor:wait} .secondary {background:white;color:#3e53c4} a {color:#3e53c4}
   .actions {display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:16px 0}
   .result img {display:block;width:min(320px,100%);height:auto;margin:20px auto;background:white}
   .error {color:#a12622} :is(button,a,input,textarea):focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}

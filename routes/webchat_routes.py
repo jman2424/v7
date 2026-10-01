@@ -186,7 +186,7 @@ def _tenant_container(tenant):
     try:
         container = get_container().for_tenant(tenant)
         from service.tenant_access import require_active
-        require_active(tenant)
+        require_active(container.settings.BUSINESS_KEY)
         return container
     except (ValueError, FileNotFoundError):
         response = jsonify(error="unknown_tenant")
@@ -390,6 +390,7 @@ def _safe_log_error(**kwargs) -> None:
 def chat_ui():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
     from urllib.parse import urlsplit
     from connectors.web_widget import allowed_origins_from_branding
     branding = _branding(c)
@@ -415,6 +416,7 @@ def chat_ui():
 def widget_embed():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
     response = Response(_embed_javascript(tenant, _branding(c)), mimetype="application/javascript")
     response.headers["Cache-Control"] = "no-cache, max-age=0"
     return response
@@ -432,6 +434,7 @@ def transcribe_api():
     """Return only text for a short widget recording; the visitor chooses when to send it."""
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
     c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
     _check_origin(c)
     signed = request.headers.get("X-V7-Transcription-Token", "")
     if not signed or len(signed) > 2048:
@@ -473,6 +476,7 @@ def chat_api():
     if not isinstance(tenant, str):
         return jsonify(error="invalid_tenant"), 400
     c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
     _check_origin(c)
     text = data.get("message", data.get("text", ""))
     if not isinstance(text, str) or not text.strip() or len(text) > 4000:

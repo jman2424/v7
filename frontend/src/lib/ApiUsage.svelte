@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   export let tenant: string;
   export let isPlatform = false;
@@ -72,11 +73,11 @@
 
 <section class="usage" aria-label="API usage and cost" aria-busy={busy}>
   <div class="toolbar">
-    <div><h2>API usage &amp; cost</h2><p>Track the agent's OpenAI calls, including Test agent conversations.</p></div>
+    <div><h2>{$t("API usage & cost")}</h2><p>Track the agent's OpenAI calls, including Test agent conversations.</p></div>
     <div class="controls">
       {#if isPlatform}<label>View<select bind:value={scope} disabled={changeBusy}><option value="company">Selected company</option><option value="all">All companies</option></select></label>{/if}
       <label>Time period<select bind:value={days} disabled={changeBusy}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
-      <button type="button" disabled={busy||changeBusy} on:click={() => refresh(tenant, scope, days)}>Refresh</button>
+      <button type="button" disabled={busy||changeBusy} on:click={() => refresh(tenant, scope, days)}>{$t("Refresh")}</button>
     </div>
   </div>
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
@@ -107,9 +108,9 @@
         {/each}
         {#if step===0}<button type="button" disabled={changeBusy||!data.configuration.model_options.some(option=>option.id===selectedModel)} on:click={()=>changeModel('review')}>Review model change</button>
         {:else if step===1}
-          <div class="notice" role="region" aria-label="First confirmation"><h4>Confirmation 1 of 2</h4><p>Switch {tenant} from {data.configuration.planning_model} to {selectedModel}. Response quality, behaviour and API charges may change. Availability depends on the platform’s provider account.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I understand that API usage, costs and responses may change.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('confirm')}>Confirm and continue</button><button type="button" disabled={changeBusy} on:click={cancelChange}>Cancel</button></div>
+          <div class="notice" role="region" aria-label="First confirmation"><h4>Confirmation 1 of 2</h4><p>Switch {tenant} from {data.configuration.planning_model} to {selectedModel}. Response quality, behaviour and API charges may change. Availability depends on the platform’s provider account.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I understand that API usage, costs and responses may change.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('confirm')}>Confirm and continue</button><button type="button" disabled={changeBusy} on:click={cancelChange}>{$t("Cancel")}</button></div>
         {:else}
-          <div class="notice" role="region" aria-label="Final confirmation"><h4>Confirmation 2 of 2 — save</h4><p>Save {selectedModel} for {tenant}? This takes effect for new AI calls and may affect your charges and customer responses. You can change it again later using this same confirmation process.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I confirm this model and accept the possible cost and response changes.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('save')}>{changeBusy?'Saving…':'Confirm again and save'}</button><button type="button" disabled={changeBusy} on:click={cancelChange}>Cancel</button></div>
+          <div class="notice" role="region" aria-label="Final confirmation"><h4>Confirmation 2 of 2 — save</h4><p>Save {selectedModel} for {tenant}? This takes effect for new AI calls and may affect your charges and customer responses. You can change it again later using this same confirmation process.</p><label><input type="checkbox" bind:checked={accepted} disabled={changeBusy}/> I confirm this model and accept the possible cost and response changes.</label><button type="button" disabled={!accepted||changeBusy} on:click={()=>changeModel('save')}>{changeBusy?'Saving…':'Confirm again and save'}</button><button type="button" disabled={changeBusy} on:click={cancelChange}>{$t("Cancel")}</button></div>
         {/if}
       {/if}
     </article>
@@ -135,7 +136,7 @@
       {#if data.breakdown.length}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
         <div class="table-wrap" role="region" aria-label="Usage by model and channel" tabindex="0">
-          <table><thead><tr>{#if scope === 'all'}<th>Company</th>{/if}<th>Mode</th><th>Response model</th><th>Use</th><th>Calls</th><th>Input</th><th>Cached</th><th>Cache writes</th><th>Output</th><th>Est. GBP</th></tr></thead>
+          <table><thead><tr>{#if scope === 'all'}<th>{$t("Company")}</th>{/if}<th>Mode</th><th>Response model</th><th>Use</th><th>Calls</th><th>Input</th><th>Cached</th><th>Cache writes</th><th>Output</th><th>Est. GBP</th></tr></thead>
             <tbody>{#each data.breakdown as row}<tr>
               {#if scope === 'all'}<td>{row.tenant}</td>{/if}
               <td>{row.mode === 'unknown' ? 'Earlier / direct' : row.mode.toUpperCase()}</td>
@@ -165,7 +166,7 @@
   h2, h3, p { margin: 0; } h2 { font-size: 20px; } h3 { font-size: 17px; margin-bottom: 16px; }
   p { color: #63716a; line-height: 1.55; } .toolbar p { margin-top: 7px; }
   label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
-  button, select { border: 1px solid #bbc4bc; border-radius: 6px; padding: 10px 12px; min-height: 42px; background: #fff; color: #26332b; font: inherit; max-width: 100%; }
+  button, select { border: 1px solid #bec9dc; border-radius: 6px; padding: 10px 12px; min-height: 42px; background: #fff; color: #26332b; font: inherit; max-width: 100%; }
   button { cursor: pointer; font-weight: 600; } button:disabled { opacity: .6; cursor: wait; }
   button:focus-visible, select:focus-visible, a:focus-visible, .table-wrap:focus-visible { outline: 3px solid #8bcdc0; outline-offset: 2px; }
   .panel { min-width: 0; padding: 20px; border: 1px solid #d9ddd7; border-radius: 8px; background: #fff; }
@@ -173,13 +174,13 @@
   .models strong, small, .value { display: block; } .models strong { margin-top: 6px; }
   .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   span, small { color: #63716a; } small { margin-top: 7px; font-size: 12px; line-height: 1.5; }
-  .value { margin: 10px 0; color: #007d70; font-size: 27px; }
+  .value { margin: 10px 0; color: #3e53c4; font-size: 27px; }
   .table-wrap { max-width: 100%; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #e4e8e1; vertical-align: top; }
   th { background: #f5f7f3; font-size: 12px; } td { min-width: 75px; } td:has(strong) { min-width: 160px; }
   .empty { padding: 12px 0; } .notice { padding: 20px; background: #fff; border-radius: 8px; }
-  .error { color: #a12622; } .footnote { font-size: 12px; } a { color: #007d70; }
+  .error { color: #a12622; } .footnote { font-size: 12px; } a { color: #3e53c4; }
   @media(max-width: 1100px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media(max-width: 600px) { .models, .metrics { grid-template-columns: minmax(0, 1fr); } .panel { padding: 16px; } .controls { width: 100%; } }
 </style>

@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
+  import WhatsAppConnection from './WhatsAppConnection.svelte';
+  export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
   type Settings = {configured:boolean;owner_access:boolean;clients:string[];connected_clients:string[];mcp_url:string;api_url:string;authorization_url:string;token_url:string};
@@ -35,6 +38,8 @@
   $: example = settings?.api_url ? `curl "${settings.api_url}/statistics" -H "Authorization: Bearer YOUR_ACCESS_TOKEN"` : '';
 </script>
 
+<WhatsAppConnection {tenant} {apiPrefix}/>
+
 <section class="connections" aria-label="MCP and REST API connections">
   {#if error}<p role="alert">{error}</p><button type="button" on:click={load}>Retry</button>{/if}
   {#if settings}
@@ -64,7 +69,7 @@
       <h3>Your connected apps</h3>
       <p>{settings.connected_clients.length ? settings.connected_clients.join(', ') : 'No active authorized apps.'}</p>
       <p>Revoking disconnects your apps from both MCP and REST. Each app must be authorized again.</p>
-      {#if confirmRevoke}<p>Revoke all your MCP and API connections?</p><button type="button" disabled={busy} on:click={revoke}>{busy ? 'Revoking…' : 'Confirm revocation'}</button> <button type="button" disabled={busy} on:click={()=>confirmRevoke=false}>Cancel</button>
+      {#if confirmRevoke}<p>Revoke all your MCP and API connections?</p><button type="button" disabled={busy} on:click={revoke}>{busy ? 'Revoking…' : 'Confirm revocation'}</button> <button type="button" disabled={busy} on:click={()=>confirmRevoke=false}>{$t("Cancel")}</button>
       {:else}<button type="button" on:click={()=>confirmRevoke=true}>Revoke my connections</button>{/if}
     {/if}
   {:else if !error}<p>Loading connection settings…</p>{/if}

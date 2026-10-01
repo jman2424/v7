@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from './i18n';
   import { onMount, createEventDispatcher } from 'svelte';
   export let csrf = '';
   export let apiPrefix = '';
@@ -61,13 +62,13 @@
         <p>Enter the verification code for <strong>{state.email}</strong>{sender ? ` from ${sender}` : ''}. It expires after 10 minutes. If it has not arrived, check spam or start again after one minute. Verification does not grant access to an existing business.</p>
         <label>Email verification code<input disabled={busy} bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required/></label>
         <button disabled={busy} type="submit">{busy?'Verifying…':'Verify email'}</button>
-        <button disabled={busy} type="button" on:click={()=>{state=null;code='';}}>Start again</button>
+        <button disabled={busy} type="button" on:click={()=>{state=null;code='';}}>{$t("Start again")}</button>
       {:else}
         {#if state}<p>Your previous request could not be completed or has expired. Start a new request.</p>{/if}
         <label>I want to<select disabled={busy} bind:value={kind}><option value="owner">Create my business workspace</option><option value="join">Request to join an existing business</option></select></label>
-        <label>Email<input disabled={busy} type="email" maxlength="254" autocomplete="email" bind:value={email} required/></label>
+        <label>{$t("Email")}<input disabled={busy} type="email" maxlength="254" autocomplete="email" bind:value={email} required/></label>
         {#if sender}<p>Verification codes are sent from <strong>{sender}</strong>.</p>{/if}
-        <label>Password<input disabled={busy} type="password" minlength="12" maxlength="256" autocomplete="new-password" bind:value={password} required/><small>At least 12 characters. An authenticator is also required at sign-in.</small></label>
+        <label>{$t("Password")}<input disabled={busy} type="password" minlength="12" maxlength="256" autocomplete="new-password" bind:value={password} required/><small>At least 12 characters. An authenticator is also required at sign-in.</small></label>
         <label>{kind==='owner'?'New company key':'Company key from your business owner'}<input disabled={busy} bind:value={tenant} maxlength="64" pattern={'[A-Za-z0-9][A-Za-z0-9_\\-]{0,63}'} required/></label>
         {#if kind==='owner'}<label>Business name<input disabled={busy} bind:value={businessName} maxlength="120" required/></label><p>After email verification, sign in and pay the platform subscription and implementation fee. Business data and the agent unlock only after payment is confirmed.</p>
         {:else}<p>Your verified request goes to this business’s owner. Approval grants staff access only, with no billing permissions by default.</p>{/if}
@@ -78,5 +79,5 @@
 </section>
 
 <style>
-  .registration{background:white;border:1px solid #dce3dc;border-radius:10px;padding:32px;max-width:520px;width:100%;box-sizing:border-box}h1{font-size:25px;margin:0 0 20px}h2{font-size:19px}p{line-height:1.6;color:#526359}form,label{display:grid;gap:10px}form{gap:18px}input,select,button{font:inherit;padding:12px;border:1px solid #b8c6be;border-radius:6px;max-width:100%;box-sizing:border-box}button{cursor:pointer;background:#007d70;color:white;min-height:44px}button:disabled{opacity:.6;cursor:wait}small{font-weight:normal;color:#526359}.error{color:#ad2020}:focus-visible{outline:3px solid #8bcdc0;outline-offset:2px}
+  .registration{background:white;border:1px solid #dce2ed;border-radius:10px;padding:32px;max-width:520px;width:100%;box-sizing:border-box}h1{font-size:25px;margin:0 0 20px}h2{font-size:19px}p{line-height:1.6;color:#5e6b82}form,label{display:grid;gap:10px}form{gap:18px}input,select,button{font:inherit;padding:12px;border:1px solid #b8c6be;border-radius:6px;max-width:100%;box-sizing:border-box}button{cursor:pointer;background:#3e53c4;color:white;min-height:44px}button:disabled{opacity:.6;cursor:wait}small{font-weight:normal;color:#5e6b82}.error{color:#ad2020}:focus-visible{outline:3px solid #8bcdc0;outline-offset:2px}
 </style>

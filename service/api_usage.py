@@ -188,16 +188,17 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     status = "failed"
     try:
         context = _context.get()
+        configuration = None
         if context:
-            from service.model_settings import selected
+            from service.model_settings import document
             from flask import current_app, has_app_context
             storage = current_app.container.storage if has_app_context() and hasattr(current_app,'container') else None
-            model = selected(context[0],storage)
-            if model:
-                kwargs['model'] = model
-        from service.model_settings import compatible_completion_kwargs
-        kwargs = compatible_completion_kwargs(kwargs)
-        response = client.chat.completions.create(**kwargs)
+            from retrieval.storage import Storage
+            configuration = document(storage or Storage(context[0]), context[0])
+        from service.model_settings import completion_options
+        from service.openai_completion import create
+        kwargs = completion_options(kwargs, purpose=purpose, configuration=configuration)
+        response = create(client, kwargs)
         status = "completed"
         return response
     finally:

@@ -9,7 +9,12 @@ from service import session_store
 def establish_authenticated_session(user: dict[str, Any], tenant: str, *, mfa_verified: bool = False) -> dict[str, Any]:
     return start_management_session(user, tenant, mfa_verified=mfa_verified)
 
-def clear_authenticated_session() -> None:
+def clear_authenticated_session(*, revoke_device: bool = False) -> None:
+    from service.account_mfa import cancel_pending
+    from service.trusted_devices import revoke_current
+    cancel_pending()
+    if revoke_device:
+        revoke_current()
     session_store.revoke(session.get("management_token"))
     session.clear()
 

@@ -98,6 +98,8 @@ class AccountService:
                     updated["password_hash"] = hash_password(password)
                 accounts[index] = updated
                 self.storage._write_json(tenant, ACCOUNT_FILE, accounts)
+                from service.trusted_devices import revoke_account
+                revoke_account({**updated, 'tenant': self.storage.canonical_tenant_key(tenant)})
                 return self._public_account(updated)
 
         raise ValueError("account_not_found")

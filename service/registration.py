@@ -63,6 +63,8 @@ def start(data):
     if kind not in {'owner', 'join'}:
         raise ValueError('Choose create a business or request to join.')
     tenant = Storage.validate_tenant_key(data.get('tenant', '').strip())
+    if kind == 'join':
+        tenant = current_app.container.storage.canonical_tenant_key(tenant)
     name = data.get('business_name', '').strip()
     if kind == 'owner' and not 1 <= len(name) <= 120:
         raise ValueError('Enter a business name up to 120 characters.')
@@ -188,11 +190,12 @@ def _confirm_postgres(code):
             if _reserved_email(email):
                 raise ValueError('An account already exists for this email. Use the existing sign-in.')
             if kind == 'join':
+                tenant = storage.canonical_tenant_key(tenant)
                 if not storage.tenant_exists(tenant):
                     raise ValueError('This company request cannot be completed. Check the company key with its owner.')
                 if any(a['email'] == email for a in AccountService(storage).list_accounts(tenant)):
                     raise ValueError('An account already exists for this company. Use the existing sign-in.')
-                _execute(db, "UPDATE registration_requests SET status='pending',code_hash='' WHERE id=?", (request_id,))
+                _execute(db, "UPDATE registration_requests SET status='pending',code_hash='',tenant=? WHERE id=?", (tenant,request_id))
             else:
                 from service.account_service import ACCOUNT_FILE
                 from service.postgres_business_documents import PostgresBusinessDocuments
@@ -219,9 +222,11 @@ def _confirm_postgres(code):
 
 
 def pending(tenant):
+    tenant = current_app.container.storage.canonical_tenant_key(tenant)
     with _database() as db:
         _schema(db)
-        rows = _execute(db, "SELECT id,email,created FROM registration_requests WHERE tenant=? AND status='pending' AND created>? ORDER BY created LIMIT 100", (tenant,time.time()-30*86400)).fetchall()
+        tenant_match = 'tenant=?' if session_store._using_postgres() else 'lower(tenant)=lower(?)'
+        rows = _execute(db, "SELECT id,email,created FROM registration_requests WHERE "+tenant_match+" AND status='pending' AND created>? ORDER BY created LIMIT 100", (tenant,time.time()-30*86400)).fetchall()
     return [{'id':r[0],'email':r[1],'created':r[2]} for r in rows]
 
 
@@ -241,10 +246,12 @@ def _decision_database(tenant):
 
 
 def decide(tenant, request_id, approve, actor):
+    tenant = current_app.container.storage.canonical_tenant_key(tenant)
     with _decision_database(tenant) as db:
         _schema(db)
         lock = ' FOR UPDATE' if session_store._using_postgres() else ''
-        row = _execute(db, "SELECT email,password_hash FROM registration_requests WHERE id=? AND tenant=? AND status='pending' AND created>?" + lock, (request_id,tenant,time.time()-30*86400)).fetchone()
+        tenant_match = 'tenant=?' if session_store._using_postgres() else 'lower(tenant)=lower(?)'
+        row = _execute(db, "SELECT email,password_hash FROM registration_requests WHERE id=? AND "+tenant_match+" AND status='pending' AND created>?" + lock, (request_id,tenant,time.time()-30*86400)).fetchone()
         if not row:
             raise ValueError('Request not found or already processed.')
         if approve:

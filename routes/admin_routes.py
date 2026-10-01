@@ -51,5 +51,6 @@ def login_submit():
 
 @bp.post("/logout")
 def logout():
-    clear_authenticated_session()
-    return _console_login()
+    clear_authenticated_session(revoke_device=True)
+    from service.trusted_devices import clear_cookie
+    return clear_cookie(_console_login())

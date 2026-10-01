@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import logging
 from dataclasses import replace
 
@@ -16,6 +15,7 @@ from connectors.whatsapp_audio import AudioMediaError, download_audio
 from routes import get_container
 from service import webhook_inbox
 from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
+from service.whatsapp_configuration import has_secret, provider_enabled, recipient_routes, recipient_tenant, twilio_token
 
 bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 
@@ -28,14 +28,18 @@ _UNUSABLE_AUDIO = {
 def _verify():
     settings = get_container().settings
     if request.mimetype == "application/x-www-form-urlencoded":
-        token = os.getenv("TWILIO_AUTH_TOKEN", "") or settings.TWILIO_AUTH_TOKEN
-        if not token or not (os.getenv("TWILIO_WHATSAPP_NUMBER") or settings.WHATSAPP_TENANT_MAP):
+        if not provider_enabled(settings, "twilio"):
+            abort(503, description="whatsapp_provider_disabled")
+        token = twilio_token(settings)
+        if not token or not recipient_routes(settings, "twilio")[0]:
             abort(503, description="whatsapp_not_configured")
         url = settings.BASE_URL.rstrip("/") + request.full_path.rstrip("?")
         if not RequestValidator(token).validate(url, request.form, request.headers.get("X-Twilio-Signature", "")):
             abort(403)
         return "twilio"
-    if not settings.WHATSAPP_APP_SECRET:
+    if not provider_enabled(settings, "meta"):
+        abort(503, description="whatsapp_provider_disabled")
+    if not has_secret(settings.WHATSAPP_APP_SECRET):
         abort(503, description="whatsapp_not_configured")
     expected = "sha256=" + hmac.new(settings.WHATSAPP_APP_SECRET.encode(), request.get_data(), hashlib.sha256).hexdigest()
     supplied = request.headers.get("X-Hub-Signature-256", "")
@@ -46,8 +50,11 @@ def _verify():
 
 @bp.get("/webhook")
 def webhook_verify():
-    expected = get_container().settings.WHATSAPP_VERIFY_TOKEN
-    if not expected:
+    settings = get_container().settings
+    if not provider_enabled(settings, "meta"):
+        abort(503, description="whatsapp_provider_disabled")
+    expected = settings.WHATSAPP_VERIFY_TOKEN
+    if not has_secret(expected):
         abort(503, description="whatsapp_not_configured")
     supplied = request.args.get("hub.verify_token", "")
     if request.args.get("hub.mode") != "subscribe" or not hmac.compare_digest(expected.encode(), supplied.encode()):
@@ -151,10 +158,7 @@ def webhook_receive():
     source = _verify()
     root = get_container()
     def recipient_container(recipient):
-        number = str(recipient or "").removeprefix("whatsapp:").lstrip("+")
-        mapping = root.settings.WHATSAPP_TENANT_MAP
-        expected = os.getenv("TWILIO_WHATSAPP_NUMBER", "") if source == "twilio" else root.settings.WHATSAPP_PHONE_ID
-        tenant = mapping.get(number) if mapping else root.settings.BUSINESS_KEY if number and number == expected.removeprefix("whatsapp:").lstrip("+") else None
+        tenant = recipient_tenant(root.settings, recipient, "twilio" if source == "twilio" else "meta")
         if not tenant:
             abort(403)
         try:
@@ -178,8 +182,8 @@ def webhook_receive():
         abort(400, description="invalid_webhook_payload")
     if events and not root.settings.WHATSAPP_TOKEN:
         abort(503, description="whatsapp_not_configured")
-    for event in events:
-        c = recipient_container(event.get("metadata", {}).get("phone_number_id"))
+    routed = [(recipient_container(event.get("metadata", {}).get("phone_number_id")), event) for event in events]
+    for c, event in routed:
         _process(c, event, source)
     return jsonify(ok=True, events=len(events))
 
@@ -188,7 +192,9 @@ def webhook_receive():
 def whatsapp_status():
     # Preserve callback URL while denying unsigned status submissions.
     if request.method == "GET":
+        settings = get_container().settings
         return jsonify(ok=True, integration="whatsapp", configured=bool(
-            get_container().settings.WHATSAPP_APP_SECRET or os.getenv("TWILIO_AUTH_TOKEN")))
+            (provider_enabled(settings, "meta") and has_secret(settings.WHATSAPP_APP_SECRET))
+            or (provider_enabled(settings, "twilio") and twilio_token(settings))))
     _verify()
     return Response(status=204)

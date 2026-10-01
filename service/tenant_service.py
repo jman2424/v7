@@ -103,6 +103,11 @@ class TenantService:
                 "activation": self.activation(tenant_key),
             }
 
+        # Tenant identity is case-insensitive even on Linux filesystems. A
+        # second directory with the same folded key makes both workspaces
+        # ambiguous, so preserve the existing company's exact directory key.
+        if any(key.casefold() == tenant_key.casefold() for key in self.storage.tenant_keys()):
+            raise ValueError("tenant_exists")
         target = self.storage.tenant_dir(tenant_key)
         if target.exists():
             raise ValueError("tenant_exists")

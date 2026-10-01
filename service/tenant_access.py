@@ -25,6 +25,12 @@ def owner_key(user):
 def register(tenant, owner=None):
     with _database() as db:
         _schema(db)
+        if not session_store._using_postgres():
+            # Serialize the reservation across workers before publishing a
+            # workspace. Keys are ASCII; SQLite lower() matches casefold().
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM managed_businesses WHERE lower(tenant)=lower(?)', (tenant,)).fetchone():
+                raise ValueError('tenant_exists')
         _execute(db, 'INSERT INTO managed_businesses VALUES (?,?)', (tenant, owner_key(owner) if owner else None))
 
 
@@ -39,7 +45,32 @@ def owned_tenants(user):
         return []
     with _database() as db:
         _schema(db)
-        return [row[0] for row in _execute(db, 'SELECT tenant FROM managed_businesses WHERE owner=?', (owner_key(user),))]
+        keys = [row[0] for row in _execute(db, 'SELECT tenant FROM managed_businesses WHERE owner=?', (owner_key(user),))]
+        if session_store._using_postgres():
+            return keys
+        # Older SQLite logins could use a directory case alias as their home
+        # tenant. Canonical login must retain those existing ownership records;
+        # account ID and email remain exact, and stored keys are never rewritten.
+        from flask import current_app, has_app_context
+        if not has_app_context() or not isinstance(user.get('tenant'), str):
+            return keys
+        storage = current_app.container.storage
+        home = storage.canonical_tenant_key(user['tenant'])
+        if not storage.tenant_exists(home):
+            return keys
+        for tenant, saved in db.execute('SELECT tenant,owner FROM managed_businesses WHERE owner IS NOT NULL'):
+            try:
+                identity = json.loads(saved)
+                if (not isinstance(identity, list) or len(identity) != 3
+                        or identity[:2] != [user['id'], user['email']]
+                        or not isinstance(identity[2], str)
+                        or storage.validate_tenant_key(identity[2]).casefold() != home.casefold()):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            if tenant not in keys:
+                keys.append(tenant)
+        return keys
 
 
 def activation(tenant):

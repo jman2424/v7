@@ -24,6 +24,17 @@ def source(tmp_path):
         db.execute("INSERT INTO management_sessions VALUES ('session-hash','{}','revision',99)")
         db.execute('CREATE TABLE account_authenticators (account TEXT PRIMARY KEY, secret TEXT NOT NULL)')
         db.execute("INSERT INTO account_authenticators VALUES ('account-id','test-authenticator-secret')")
+        db.execute('CREATE TABLE auth_login_failures (attempt TEXT PRIMARY KEY, subject_hash TEXT NOT NULL, attempted REAL NOT NULL)')
+        db.execute('INSERT INTO auth_login_failures VALUES (?,?,?)', ('test-attempt', 'a' * 64, 123.0))
+        db.execute('CREATE TABLE mfa_code_uses (account TEXT, secret_hash TEXT, timestep INTEGER, PRIMARY KEY(account,secret_hash,timestep))')
+        db.execute('INSERT INTO mfa_code_uses VALUES (?,?,?)', ('account-id', 'b' * 64, 123))
+        db.execute('CREATE TABLE trusted_devices (token_hash TEXT PRIMARY KEY, account TEXT, revision TEXT, expires REAL)')
+        db.execute('INSERT INTO trusted_devices VALUES (?,?,?,?)', ('c' * 64, 'account-id', 'd' * 64, 999))
+        db.execute('CREATE TABLE oidc_states (state_hash TEXT PRIMARY KEY, verifier TEXT)')
+        db.execute('INSERT INTO oidc_states VALUES (?,?)', ('e' * 64, 'test-only-verifier'))
+        db.execute('CREATE TABLE oidc_links (provider TEXT, client_id TEXT, issuer TEXT, subject TEXT, account TEXT, identity TEXT, created REAL)')
+        db.execute('INSERT INTO oidc_links VALUES (?,?,?,?,?,?,?)',
+                   ('google', 'test-client', 'https://accounts.google.com', 'test-subject', 'account-id', '{}', 123))
     with closing(sqlite3.connect(logs / 'analytics.db')) as db, db:
         db.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, ts_utc TEXT NOT NULL, tenant TEXT NOT NULL, channel TEXT NOT NULL, session_id TEXT NOT NULL, event_type TEXT NOT NULL, meta_json TEXT)')
         db.execute("INSERT INTO events VALUES (7,'2026-09-16T00:00:00Z','ALPHA','web','chat-id','msg_in','{}')")
@@ -55,6 +66,11 @@ def test_offline_inventory_preserves_sources_and_redacts_sessions(source):
     assert bundle.rows['management_sessions'] == []
     assert bundle.skipped['management_sessions'] == 1
     assert bundle.rows['account_authenticators'][0]['secret'] == 'test-authenticator-secret'
+    assert bundle.rows['auth_login_failures'] == [{'attempt': 'test-attempt', 'subject_hash': 'a' * 64, 'attempted': 123.0}]
+    assert bundle.rows['mfa_code_uses'] == [{'account': 'account-id', 'secret_hash': 'b' * 64, 'timestep': 123}]
+    assert bundle.rows['trusted_devices'] == [] and bundle.skipped['trusted_devices'] == 1
+    assert bundle.rows['oidc_states'] == [] and bundle.skipped['oidc_states'] == 1
+    assert bundle.rows['oidc_links'][0]['subject'] == 'test-subject'
     assert before == {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
 
 

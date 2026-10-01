@@ -166,7 +166,7 @@ class Container:
             return self._for_tenant(tenant)
 
     def _for_tenant(self, tenant: str) -> "Container":
-        tenant_key = Storage.validate_tenant_key(tenant)
+        tenant_key = self.storage.canonical_tenant_key(tenant)
         if tenant_key == self.settings.BUSINESS_KEY:
             return self
 
@@ -186,7 +186,7 @@ class Container:
 
     def invalidate_tenant(self, tenant: str) -> None:
         """Discard warmed retrieval state after an owner changes tenant data."""
-        tenant_key = Storage.validate_tenant_key(tenant)
+        tenant_key = self.storage.canonical_tenant_key(tenant)
         with self._tenant_lock:
             target = self if tenant_key == self.settings.BUSINESS_KEY else self._tenant_containers.get(tenant_key)
             if target is None:

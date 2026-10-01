@@ -13,6 +13,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import Settings, load_settings
 from app.logging_setup import configure_logging
+from app.json_provider import StrictJSONProvider
 from app.container import Container
 from app import middleware
 
@@ -75,11 +76,13 @@ def _register_blueprints(app: Flask) -> None:
     from routes.admin_routes import bp as admin_bp
     from routes.files_routes import bp as files_bp
     from routes.auth_routes import bp as auth_bp
+    from routes.oidc_routes import bp as oidc_bp
     from routes.diag_routes import bp as diag_bp
     from routes.catalog_routes import bp as catalog_bp
     from routes.conversion_routes import bp as conversion_bp
     from routes.mode_routes import bp as mode_bp
     from routes.owner_console_routes import bp as owner_console_bp
+    from routes.privacy_routes import bp as privacy_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -88,11 +91,13 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(admin_bp)
     app.register_blueprint(files_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(oidc_bp)
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
     app.register_blueprint(conversion_bp)
     app.register_blueprint(mode_bp)
     app.register_blueprint(owner_console_bp)
+    app.register_blueprint(privacy_bp)
     from routes.billing_routes import bp as billing_bp
     app.register_blueprint(billing_bp)
 
@@ -175,6 +180,7 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
         static_folder=str(STATIC_DIR),
         static_url_path="/static",
     )
+    app.json = StrictJSONProvider(app)
 
     app.logger.info(
         "Flask paths repo_root=%s templates=%s static=%s",

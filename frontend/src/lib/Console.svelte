@@ -16,9 +16,15 @@
   import ErrorsHealth from './ErrorsHealth.svelte';
   import Registration from './Registration.svelte';
   import JoinRequests from './JoinRequests.svelte';
+  import AccountSecurity from './AccountSecurity.svelte';
+  import PrivacySettings from './PrivacySettings.svelte';
+  import AiParameters from './AiParameters.svelte';
+  import LanguagePicker from './LanguagePicker.svelte';
+  import CookiePreferences from './CookiePreferences.svelte';
+  import { initialiseLanguage, t } from './i18n';
   let signupOpen = false;
   export let section = 'pipeline';
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
 
 
@@ -247,6 +253,10 @@
   let tenants: Tenant[] = [];
   let email = '';
   let password = '';
+  let showPassword = false;
+  let rememberDevice = false;
+  let providers: {id: 'google'|'microsoft'; name:string; configured:boolean}[] = [];
+  let oidcNotice = '';
   let totp = '';
   let mfa: {enrollment:boolean;email:string;setup_key?:string;qr_image?:string}|null = null;
   let loginError = '';
@@ -557,6 +567,17 @@
     return Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin' || role === 'business_owner'));
   }
 
+  function mayOpenScreen(key: string) {
+    if (!user || !Object.hasOwn(sections, key)) return false;
+    const operator = user.roles.some(role => role === 'platform_admin' || role === 'admin');
+    const owner = user.roles.includes('business_owner');
+    if (key === 'platform') return operator;
+    if (key === 'companies' || key === 'team') return operator || owner;
+    if (key === 'usage') return operator || owner || Boolean(user.permissions?.includes('view_costs'));
+    if (key === 'subscription') return operator || owner || Boolean(user.permissions?.includes('view_subscriptions'));
+    return true;
+  }
+
   async function loadAccounts(selectedTenant = tenant) {
     const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
     const data = await readJson(response);
@@ -641,7 +662,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         credentials: 'same-origin',
-        body: JSON.stringify({ email, password, totp, tenant })
+        body: JSON.stringify({ email, password, totp, tenant, remember_device: rememberDevice })
       });
       const data = await readJson(response);
       if (response.status === 202 && data.mfa_required) {
@@ -669,9 +690,15 @@
     signingIn = true;
     loginError = '';
     try {
-      const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp})});
+      const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp,remember_device:rememberDevice})});
       const data = await readJson(response);
-      if (!response.ok) {loginError = data.error === 'sign_in_again' ? 'This sign-in expired. Start again.' : 'Code not accepted. Check your authenticator and try again.'; return;}
+      if (!response.ok) {
+        loginError = data.error === 'sign_in_again' ? 'This sign-in expired. Start again.'
+          : data.error === 'authenticator_code_reused' ? 'That code has already been used. Wait for the next code in your authenticator.'
+          : data.error === 'try_again_later' ? `Too many sign-in attempts. Try again in ${data.retry_after || 60} seconds.`
+          : 'Code not accepted. Check your authenticator and try again.';
+        return;
+      }
       mfa = null; totp = ''; user = data.user; csrf = data.csrf_token; tenant = user?.tenant || tenant;
       await loadTenantWorkspace(tenant); await loadTenants(); await openDefaultWorkspace();
     } catch {loginError = 'Could not complete sign-in. Please try again.';}
@@ -691,8 +718,49 @@
   }
 
   async function openDefaultWorkspace() {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next');
+    if (next && mayOpenScreen(next)) {
+      params.delete('next');
+      params.delete('oidc');
+      params.delete('provider');
+      params.set('tenant', tenant);
+      await goto(base+'/'+next+'?'+params.toString(), {replaceState:true});
+      return;
+    }
     if (user?.roles?.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
       await goto(base+'/platform', {replaceState:true});
+    }
+  }
+
+  async function loadProviders() {
+    try {
+      const response = await fetch(apiPath('/auth/oidc/providers'), {credentials:'same-origin'});
+      if (!response.ok) return;
+      const data = await readJson(response);
+      providers = Array.isArray(data.providers) ? data.providers.filter((item: {id?:string}) => item.id === 'google' || item.id === 'microsoft') : [];
+    } catch { providers = []; }
+  }
+
+  async function providerLogin(provider: 'google'|'microsoft') {
+    if (signingIn) return;
+    signingIn = true; loginError = '';
+    try {
+      let response = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      if (response.status === 401) response = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      const data = await readJson(response);
+      if (!response.ok || !data.csrf_token) throw new Error();
+      csrf = data.csrf_token;
+      response = await fetch(apiPath('/auth/oidc/'+provider+'/start'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({intent:'login',tenant})});
+      const start = await readJson(response);
+      if (!response.ok || typeof start.authorization_url !== 'string') throw new Error();
+      const url = new URL(start.authorization_url);
+      if (url.protocol !== 'https:' || !['accounts.google.com','login.microsoftonline.com'].includes(url.hostname)) throw new Error();
+      window.location.assign(url.href);
+    } catch {
+      loginError = 'Could not start provider sign-in. Check the company key or use your password.';
+      signingIn = false;
     }
   }
 
@@ -716,6 +784,9 @@
     csrf = '';
     password = '';
     totp = '';
+    rememberDevice = false;
+    showPassword = false;
+    await goto(base+'/', {replaceState:true});
   }
 
   async function saveWidget() {
@@ -1103,8 +1174,21 @@
   }
 
   onMount(async () => {
+    initialiseLanguage();
+    const params = new URLSearchParams(window.location.search);
+    const notices: Record<string,string> = {
+      linked:'Your sign-in provider is linked to this account.',
+      mfa_required:'Provider verified. Complete your authenticator check to sign in.',
+      signed_in:'You are signed in with your linked provider and remembered device.',
+      not_linked:'This provider account is not linked. Sign in with your password, then link it in Account & security.',
+      failed:'Provider sign-in could not be completed. Start again or use your password.'
+    };
+    oidcNotice = notices[params.get('oidc') || ''] || '';
+    params.delete('oidc'); params.delete('provider');
+    window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params.toString():''));
     try {
       await restoreSession();
+      await loadProviders();
       await openDefaultWorkspace();
     } finally {
       loading = false;
@@ -1113,7 +1197,7 @@
 </script>
 
 <svelte:head>
-  <title>{pageTitle} · V7</title>
+  <title>{$t(pageTitle)} · V7</title>
   <meta name="description" content="Tenant widget configuration for the V7 AI sales agent." />
 </svelte:head>
 
@@ -1121,12 +1205,23 @@
   <main class="loading" aria-live="polite">Loading owner console...</main>
 {:else if !user}
   <main class="login-shell">
+    <section class="login-intro" aria-labelledby="welcome-title">
+      <a class="login-brand" href="/">vertex seven <span>V7</span></a>
+      <p class="eyebrow">{$t('Your business workspace')}</p>
+      <h2 id="welcome-title">{$t('Customer conversations, with a clear next step.')}</h2>
+      <p>{$t('Products, consultations and customer support.')} {$t('A sales assistant that knows your business.')}</p>
+      <div class="intro-features"><span>{$t('Website widget')}</span><span>WhatsApp</span><span>{$t('Sales pipeline')}</span></div>
+      <a href="/privacy">{$t('Privacy information')}</a>
+    </section>
+    <div class="login-content">
+    <div class="login-tools"><LanguagePicker /></div>
     {#if signupOpen && !mfa}
-      <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>Back to sign in</button></div>
+      <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="product-mark">V7</div>
-      <h1>{mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7'}</h1>
+      <h1>{$t(mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7')}</h1>
+      {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if mfa}
       <p>{mfa.email} · Every management account requires an authenticator.</p>
       {#if mfa.enrollment}
@@ -1134,32 +1229,39 @@
         <img class="mfa-qr" src={mfa.qr_image} alt="Scan to set up your V7 authenticator"/>
         <details><summary>Enter a setup key instead</summary><code class="mfa-key">{mfa.setup_key}</code></details>
       {/if}
-      <label>Authenticator code<input disabled={signingIn} bind:value={totp} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required /></label>
-      <button disabled={signingIn} class="secondary" type="button" on:click={restartLogin}>Start again</button>
+      <label>{$t("Authenticator code")}<input disabled={signingIn} bind:value={totp} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" required /></label>
+      <button disabled={signingIn} class="secondary" type="button" on:click={restartLogin}>{$t("Start again")}</button>
       {:else}
-      <p>Use an account created on this site. Local preview passwords do not work on the live website.</p>
-      <label>Company key<input disabled={signingIn} bind:value={tenant} maxlength="64" autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
-      <label>Email<input disabled={signingIn} bind:value={email} type="email" maxlength="254" autocomplete="username" required /></label>
-      <label>Password<input disabled={signingIn} bind:value={password} type="password" maxlength="1024" autocomplete="current-password" required /></label>
-      <p>Two-factor verification follows after your password is accepted.</p>
+      <p>{$t('Sign in to manage your business and customer conversations.')}</p>
+      <label>{$t("Company key")}<input disabled={signingIn} bind:value={tenant} maxlength="64" autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
+      <label>{$t("Email")}<input disabled={signingIn} bind:value={email} type="email" maxlength="254" autocomplete="username" required /></label>
+      <label>{$t('Password')}<span class="password-field"><input id="login-password" disabled={signingIn} bind:value={password} type={showPassword ? 'text' : 'password'} maxlength="1024" autocomplete="current-password" required /><button disabled={signingIn} type="button" aria-controls="login-password" aria-pressed={showPassword} on:click={() => showPassword = !showPassword}>{$t(showPassword ? 'Hide password' : 'Show password')}</button></span></label>
       {/if}
+      <label class="remember-choice"><input type="checkbox" disabled={signingIn} bind:checked={rememberDevice}/><span>{$t('Remember this device for 30 days')}<small>{$t('Use only on your own device. You will still need your password or linked provider account.')}</small></span></label>
       {#if loginError}<div role="alert" class="notice error">{loginError}</div>{/if}
-      <button disabled={signingIn} class="primary" type="submit">{signingIn ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Continue'}</button>
-      {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>Create an account or request to join</button>{/if}
+      <button disabled={signingIn} class="primary" type="submit">{$t(signingIn ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Continue')}</button>
+      {#if !mfa && providers.length}
+        <div class="provider-divider"><span>{$t('Or use a linked account')}</span></div>
+        <div class="provider-buttons">{#each providers as provider}<button class="secondary" type="button" disabled={signingIn || !provider.configured} on:click={() => providerLogin(provider.id)}>{provider.name}</button>{/each}</div>
+        <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
+      {/if}
+      {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>{$t("Create an account or request to join")}</button>{/if}
+      <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a></p>
     </form>
     {/if}
+    </div>
   </main>
 {:else}
   <div class="app-shell">
     <aside class="sidebar">
       <div class="side-brand"><span>V7</span><strong>{isPlatform ? 'Platform admin' : tenant}</strong><small>{isPlatform ? 'All-business management' : 'Sales agent workspace'}</small></div>
-      <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>Menu</button>
+      <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each navigationSections as [key,label]}
           {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
           {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
           {#if (key!=='usage'||canViewCosts) && (key!=='subscription'||canViewSubscriptions) && (key !== 'companies' || isPlatform || isOwner) && (key !== 'team' || canManageAccounts)}
-            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{label}</a>
+            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(label)}</a>
           {/if}
         {/each}
       </nav>
@@ -1168,14 +1270,15 @@
 
     <main class="workspace">
       <header class="workspace-head">
-        <div><p class="eyebrow">{isPlatform ? 'Platform workspace' : 'Business workspace'}</p><h1>{pageTitle}</h1></div>
+        <div><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1></div>
         <div class="workspace-actions">
+          <LanguagePicker />
         {#if (isPlatform || isOwner) && tenants.length > 0 && !['platform','companies'].includes(section)}
-          <label class="tenant-picker">Tenant<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
+          <label class="tenant-picker">{$t("Tenant")}<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
         {:else if !isPlatform}
-          <div class="company-scope"><span>Company</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
+          <div class="company-scope"><span>{$t("Company")}</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
         {/if}
-          <button class="secondary sign-out" type="button" on:click={logout}>Sign out</button>
+          <button class="secondary sign-out" type="button" on:click={logout}>{$t("Sign out")}</button>
         </div>
       </header>
 
@@ -1183,9 +1286,15 @@
         <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
       {/if}
 
-      {#if !isPlatform && activation && !activation.active && !['subscription','companies'].includes(section)}
+      {#if !mayOpenScreen(section)}
+        <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/pipeline?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
+      {:else if !isPlatform && activation && !activation.active && !['subscription','companies','account','privacy'].includes(section)}
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
+      {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
+      {#if section === 'account'}<AccountSecurity {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
+      {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'agent' && (isPlatform || isOwner)}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
@@ -1208,16 +1317,16 @@
       {/if}
       {#if section === 'test'}
         <section class="surface widget-studio" aria-labelledby="studio-heading">
-          <div class="surface-head"><div><p class="eyebrow">Preview and configure</p><h2 id="studio-heading">Test AI &amp; widget</h2><p>Changes in this preview are saved for this company only. The conversation below uses the real agent with test memory.</p></div></div>
+          <div class="surface-head"><div><p class="eyebrow">Preview and configure</p><h2 id="studio-heading">{$t("Test AI & widget")}</h2><p>Changes in this preview are saved for this company only. The conversation below uses the real agent with test memory.</p></div></div>
           <div class="widget-studio-grid">
             <form class="settings-form" on:submit|preventDefault={saveWidget}>
               <label>AI assistant name<input bind:value={widget.assistant_name} maxlength="80" placeholder="e.g. Alex" required /></label>
               <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /><small>A short description shown below the assistant name.</small></label>
-              <label>Welcome message<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
+              <label>{$t("Welcome message")}<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
               <label>Company logo URL<input bind:value={widget.company_logo_url} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/logo.png" /><small>Use an HTTPS image URL or an image path hosted by V7. The logo appears in the chat header and website launcher.</small></label>
               <label>Assistant avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /></label>
               <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
-              <fieldset class="widget-style-picker"><legend>Widget style</legend><div class="widget-style-grid">
+              <fieldset class="widget-style-picker"><legend>{$t("Widget style")}</legend><div class="widget-style-grid">
                 {#each widgetStyles as option}
                   <label class:selected={widget.style === option.id}>
                     <input type="radio" name="widget-style" value={option.id} bind:group={widget.style} />
@@ -1226,15 +1335,15 @@
                   </label>
                 {/each}
               </div></fieldset>
-              <div class="form-footer"><span class:error={formError} class="form-status" role="status">{formStatus}</span><button class="primary" type="submit">Save widget</button></div>
-              <p class="field-note">Approved website origins and install code are in <a href={base+'/website?tenant='+encodeURIComponent(tenant)}>Website widget</a>.</p>
+              <div class="form-footer"><span class:error={formError} class="form-status" role="status">{formStatus}</span><button class="primary" type="submit">{$t("Save widget")}</button></div>
+              <p class="field-note">Approved website origins and install code are in <a href={base+'/website?tenant='+encodeURIComponent(tenant)}>{$t("Website widget")}</a>.</p>
             </form>
             <div class="widget-stage" aria-label="Widget appearance preview">
-              <p class="widget-stage-label">Appearance preview</p>
+              <p class="widget-stage-label">{$t("Appearance preview")}</p>
               <div class="widget-preview" data-style={widget.style} style={`--preview-accent: ${widget.accent_color}`}>
                 <header><div class="widget-preview-identity"><span class="widget-preview-avatar">{#if widget.avatar}<img src={previewAssetUrl(widget.avatar)} alt="" />{:else}✦{/if}</span><span class="widget-preview-titles"><strong>{widget.assistant_name || widget.chat_title || 'Sales Assistant'}</strong>{#if (widget.chat_title || 'Sales Assistant') !== (widget.assistant_name || widget.chat_title || 'Sales Assistant')}<small>{widget.chat_title || 'Sales Assistant'}</small>{/if}</span></div>{#if widget.company_logo_url}<img class="widget-preview-logo" src={previewAssetUrl(widget.company_logo_url)} alt="Company logo" />{/if}</header>
                 <div class="widget-preview-body"><p>{widget.greeting || 'Hi! How can I help you today?'}</p><p class="widget-preview-customer">I have a question about your services.</p></div>
-                <div class="widget-preview-composer"><span>Type your message…</span><span class="widget-preview-send">Send</span></div>
+                <div class="widget-preview-composer"><span>{$t("Type your message\u2026")}</span><span class="widget-preview-send">{$t("Send")}</span></div>
               </div>
               <a href={`/chat_ui?tenant=${encodeURIComponent(tenant)}`} target="_blank" rel="noopener noreferrer">Open the live customer widget ↗</a>
             </div>
@@ -1269,7 +1378,7 @@
 
       {#if section === 'pipeline'}
       <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
-        <div class="surface-head pipeline-head"><div><p class="eyebrow">Sales pipeline</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>Refresh</button></div>
+        <div class="surface-head pipeline-head"><div><p class="eyebrow">{$t("Sales pipeline")}</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>{$t("Refresh")}</button></div>
         <div class="metric-grid" aria-label="Sales pipeline summary">
           <div><span>Active leads</span><strong>{insights.sales_funnel.active}</strong><small>Current pipeline</small></div>
           <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong><small>Ready for follow-up</small></div>
@@ -1312,9 +1421,9 @@
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
           <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
           <form class="team-form" on:submit|preventDefault={createAccount}>
-            <label>Email<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
+            <label>{$t("Email")}<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
             {#if isPlatform}
-              <label>Access level<select bind:value={accountRole}><option value="business_owner">Business owner</option><option value="business_staff">Business staff</option></select></label>
+              <label>Access level<select bind:value={accountRole}><option value="business_owner">{$t("Business owner")}</option><option value="business_staff">{$t("Business staff")}</option></select></label>
             {:else}
               <label>Access level<input value="Business staff" readonly aria-readonly="true" /></label>
             {/if}
@@ -1346,7 +1455,7 @@
       <div class="content-grid">
         {#if section === 'website'}
       <section id="widget" class="surface setup" aria-labelledby="widget-heading">
-          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">Widget settings</h2></div><a href={base+'/implementation'}>Implementation guide</a></div>
+          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">{$t("Widget settings")}</h2></div><a href={base+'/implementation'}>Implementation guide</a></div>
           <form class="settings-form" on:submit|preventDefault={saveWidget}>
             <label>AI assistant name<input bind:value={widget.assistant_name} maxlength="80" required /></label>
             <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
@@ -1354,7 +1463,7 @@
             <label>Company logo URL<input bind:value={widget.company_logo_url} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/logo.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
             <label>Assistant avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /></label>
             <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
-            <label>Widget style<select bind:value={widget.style}>{#each widgetStyles as option}<option value={option.id}>{option.name}</option>{/each}</select></label>
+            <label>{$t("Widget style")}<select bind:value={widget.style}>{#each widgetStyles as option}<option value={option.id}>{option.name}</option>{/each}</select></label>
             <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development. Leave blank to prevent embedding on external websites.</small></label>
             <div class="form-footer"><span class:error={formError} class="form-status">{formStatus}</span><button class="primary" type="submit">Save changes</button></div>
           </form>
@@ -1362,7 +1471,7 @@
       {/if}
 
         {#if section === 'integrations'}
-      <ConnectionSettings {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
+      {#key tenant}<ConnectionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
       <section id="install" class="surface install" aria-labelledby="install-heading">
           <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet} disabled={!snippet}>Copy</button></div>
           <div class="surface-body">
@@ -1379,7 +1488,7 @@
 
       {#if section === 'catalog'}
       <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
-        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">Catalogue</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
+        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">{$t("Catalogue")}</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
         <div class="catalog-toolbar">
           <label>Currency<input class="currency" bind:value={catalog.currency} maxlength="3" aria-label="Catalog currency" /></label>
           <button class="secondary" type="button" on:click={addCategory}>Add category</button>
@@ -1388,10 +1497,10 @@
           <section class="editor-group" aria-label={`Category ${category.name || categoryIndex + 1}`}>
             <div class="group-heading">
               <div class="category-fields"><label>Category name<input bind:value={category.name} required /></label><label>Category key<input bind:value={category.id} required /></label></div>
-              <button class="icon-button danger" type="button" title="Remove category" aria-label={`Remove ${category.name || 'category'}`} on:click={() => removeCategory(categoryIndex)}>Remove</button>
+              <button class="icon-button danger" type="button" title="Remove category" aria-label={`Remove ${category.name || 'category'}`} on:click={() => removeCategory(categoryIndex)}>{$t("Remove")}</button>
             </div>
             <div class="product-table" role="region" aria-label={`${category.name || 'Category'} offerings`}>
-              <div class="product-table-head" aria-hidden="true"><span>Offering</span><span>Reference</span><span>Price</span><span>Unit</span><span>Tags</span><span>Availability</span><span></span></div>
+              <div class="product-table-head" aria-hidden="true"><span>Offering</span><span>Reference</span><span>{$t("Price")}</span><span>Unit</span><span>Tags</span><span>Availability</span><span></span></div>
               {#each category.items as item, itemIndex}
                 <div class="product-row">
                   <input bind:value={item.name} aria-label="Offering name" required />
@@ -1400,7 +1509,7 @@
                   <input bind:value={item.unit} aria-label="Offering unit" required />
                   <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Offering tags" placeholder="gift, summer" />
                   <label class="stock-toggle"><input checked={item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0} on:change={(event)=>item.in_stock=event.currentTarget.checked} disabled={item.stock_quantity != null} type="checkbox" /><span>{(item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0) ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
-                  <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>Remove</button>
+                  <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>{$t("Remove")}</button>
                 </div>
                 <div class="inventory-fields">
                   <label>Stock quantity · {item.name}<input bind:value={item.stock_quantity} type="number" min="0" max="1000000000" step="any" placeholder="Not counted" /></label>
@@ -1412,7 +1521,7 @@
             <button class="add-row" type="button" on:click={() => addProduct(categoryIndex)}>Add offering</button>
           </section>
         {/each}
-        <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>Save catalog</button></div>
+        <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>{$t("Save catalog")}</button></div>
       </section>
       {/if}
 
@@ -1437,7 +1546,7 @@
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>
           {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
         </div>
-        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>Save offers</button></div>
+        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>{$t("Save offers")}</button></div>
       </section>
       {/if}
 
@@ -1450,13 +1559,13 @@
               <div class="faq-editor">
                 <label>Question<input bind:value={faq.q} required /></label>
                 <label>Answer<textarea bind:value={faq.a} required></textarea></label>
-                <div class="row-actions"><label>Topics<input value={faq.tags.join(', ')} on:input={(event) => (faq.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="delivery, opening hours" /></label><button class="icon-button danger" type="button" title="Remove FAQ" aria-label={`Remove FAQ ${index + 1}`} on:click={() => removeFaq(index)}>Remove</button></div>
+                <div class="row-actions"><label>Topics<input value={faq.tags.join(', ')} on:input={(event) => (faq.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="delivery, opening hours" /></label><button class="icon-button danger" type="button" title="Remove FAQ" aria-label={`Remove FAQ ${index + 1}`} on:click={() => removeFaq(index)}>{$t("Remove")}</button></div>
               </div>
             {:else}
               <p class="empty-state">No FAQs yet. Add the answers customers ask for most.</p>
             {/each}
           </div>
-          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs}>Save FAQs</button></div>
+          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs}>{$t("Save FAQs")}</button></div>
         </section>
       {/if}
 
@@ -1477,7 +1586,7 @@
                 {:else}
                   <label>ETA minutes<input bind:value={rule.eta_min} type="number" min="0" step="1" required /></label>
                 {/if}
-                <button class="icon-button danger" type="button" title="Remove delivery area" aria-label={`Remove delivery area ${index + 1}`} on:click={() => removeDeliveryRule(index)}>Remove</button>
+                <button class="icon-button danger" type="button" title="Remove delivery area" aria-label={`Remove delivery area ${index + 1}`} on:click={() => removeDeliveryRule(index)}>{$t("Remove")}</button>
               </div>
             {:else}
               <p class="empty-state">No delivery areas have been added.</p>
@@ -1487,7 +1596,7 @@
               <p class="field-note">{delivery.preservedExceptions.length} postcode-specific delivery exceptions also apply and will be kept when you save.</p>
             {/if}
             {#each delivery.exceptions as exception, index}
-              <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message{#if exception.source.postcode}<small>Applies to {String(exception.source.postcode)}</small>{/if}<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>Remove</button></div>
+              <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message{#if exception.source.postcode}<small>Applies to {String(exception.source.postcode)}</small>{/if}<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>{$t("Remove")}</button></div>
             {/each}
           </div>
           <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
@@ -1498,15 +1607,15 @@
       <div class="management-grid business-grid">
         {#if section === 'profile'}
       <section id="profile" class="surface workspace-section" aria-labelledby="profile-heading">
-          <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">Business profile</h2></div></div>
+          <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">{$t("Business profile")}</h2></div></div>
           <form class="profile-form" on:submit|preventDefault={saveProfile}>
             <label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
             <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What does your business do, and how do you help customers?"></textarea></label>
-            <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>Phone<input bind:value={profile.phone} type="tel" /></label></div>
-            <label>Website<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Test AI &amp; widget. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
+            <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>{$t("Phone")}<input bind:value={profile.phone} type="tel" /></label></div>
+            <label>{$t("Website")}<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Test AI &amp; widget. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
-            <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">Save profile</button></div>
+            <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">{$t("Save profile")}</button></div>
           </form>
         </section>
       {/if}
@@ -1526,7 +1635,7 @@
             <div class="qualification-editor">
               <div class="qualification-heading"><h3>Why customers choose you</h3><button class="secondary" type="button" on:click={addValueProposition} disabled={agentSettings.playbook.value_propositions.length >= 5}>Add point</button></div>
               {#each agentSettings.playbook.value_propositions as proposition, propositionIndex}
-                <div class="qualification-row"><label>{`Point ${propositionIndex + 1}`}<input bind:value={agentSettings.playbook.value_propositions[propositionIndex]} maxlength="160" placeholder="A real customer benefit or differentiator" /></label><button class="icon-button danger" type="button" title="Remove point" aria-label={`Remove point ${propositionIndex + 1}`} on:click={() => removeValueProposition(propositionIndex)}>Remove</button></div>
+                <div class="qualification-row"><label>{`Point ${propositionIndex + 1}`}<input bind:value={agentSettings.playbook.value_propositions[propositionIndex]} maxlength="160" placeholder="A real customer benefit or differentiator" /></label><button class="icon-button danger" type="button" title="Remove point" aria-label={`Remove point ${propositionIndex + 1}`} on:click={() => removeValueProposition(propositionIndex)}>{$t("Remove")}</button></div>
               {:else}
                 <p class="empty-state">No differentiators added.</p>
               {/each}
@@ -1534,7 +1643,7 @@
             <div class="qualification-editor">
               <div class="qualification-heading"><h3>Qualification questions</h3><button class="secondary" type="button" on:click={addQualificationQuestion} disabled={agentSettings.playbook.qualification_questions.length >= 4}>Add question</button></div>
               {#each agentSettings.playbook.qualification_questions as question, questionIndex}
-                <div class="qualification-row"><label>{`Question ${questionIndex + 1}`}<input bind:value={agentSettings.playbook.qualification_questions[questionIndex]} maxlength="180" placeholder="What should the assistant learn next?" /></label><button class="icon-button danger" type="button" title="Remove question" aria-label={`Remove question ${questionIndex + 1}`} on:click={() => removeQualificationQuestion(questionIndex)}>Remove</button></div>
+                <div class="qualification-row"><label>{`Question ${questionIndex + 1}`}<input bind:value={agentSettings.playbook.qualification_questions[questionIndex]} maxlength="180" placeholder="What should the assistant learn next?" /></label><button class="icon-button danger" type="button" title="Remove question" aria-label={`Remove question ${questionIndex + 1}`} on:click={() => removeQualificationQuestion(questionIndex)}>{$t("Remove")}</button></div>
               {:else}
                 <p class="empty-state">No qualification questions added.</p>
               {/each}
@@ -1552,15 +1661,15 @@
         <div class="branches-list">
           {#each branches as branch, branchIndex}
             <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
-              <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>Remove</button></div>
-              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>Phone<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div>
-              <div class="hours-grid"><h4>Opening hours</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
+              <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>{$t("Remove")}</button></div>
+              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>{$t("Phone")}<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div>
+              <div class="hours-grid"><h4>{$t("Opening hours")}</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
             </section>
           {:else}
             <p class="empty-state branches-empty">No branches yet. Add a location so the assistant can direct customers to the right place.</p>
           {/each}
         </div>
-        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>Save branches</button></div>
+        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>{$t("Save branches")}</button></div>
       </section>
       {/if}
 
@@ -1577,29 +1686,31 @@
   </div>
 {/if}
 
+<CookiePreferences />
+
 <style>
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#b8c8bd;padding:12px 12px 2px;grid-column:1/-1}
-  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#526359}.company-scope small{font-size:12px;color:#526359}
-  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce3dc;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#526359;margin:0;line-height:1.5}
+  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#5e6b82}.company-scope small{font-size:12px;color:#5e6b82}
+  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce2ed;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#5e6b82;margin:0;line-height:1.5}
 
-  :global(body) { background: #f7f7f2; }
-  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #67706b; }
+  :global(body) { background: #f3f5fa; }
+  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #5e6b82; }
   .login-shell { padding: 24px; }
   .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; box-shadow: 0 16px 40px rgba(31, 42, 35, .09); }
-  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #007d70; color: #fff; border-radius: 8px; font-weight: 800; }
+  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #3e53c4; color: #fff; border-radius: 8px; font-weight: 800; }
   h1, h2, h3, p { margin-top: 0; }
   .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
-  .login p { color: #67706b; line-height: 1.5; }
-  label { display: grid; min-width: 0; gap: 7px; color: #2f3833; font-size: 13px; font-weight: 700; }
+  .login p { color: #5e6b82; line-height: 1.5; }
+  label { display: grid; min-width: 0; gap: 7px; color: #17233c; font-size: 13px; font-weight: 700; }
   label span { color: #79837c; font-weight: 500; }
-  input, textarea, select { width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; font-weight: 400; }
+  input, textarea, select { width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bec9dc; border-radius: 6px; color: #17233c; background: #fff; font-weight: 400; }
   textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
-  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #007d70; }
+  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #3e53c4; }
   .primary, .secondary { min-height: 38px; border-radius: 6px; padding: 0 14px; font-weight: 700; font-size: 14px; }
-  .primary { border: 1px solid #007d70; background: #007d70; color: #fff; }
-  .primary:hover { background: #00695e; }
-  .secondary { border: 1px solid #bbc4bc; background: #fff; color: #2f3833; }
+  .primary { border: 1px solid #3e53c4; background: #3e53c4; color: #fff; }
+  .primary:hover { background: #3043ab; }
+  .secondary { border: 1px solid #bec9dc; background: #fff; color: #17233c; }
   .secondary:hover { background: #f1f4ef; }
   .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
   .error { color: #b42318; background: #fff2f0; }
@@ -1620,7 +1731,7 @@
   .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
   .workspace-actions { display: flex; flex-wrap: wrap; max-width: 100%; align-items: end; gap: 10px; }
   .sign-out { white-space: nowrap; }
-  .eyebrow { margin-bottom: 7px; color: #007d70; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .eyebrow { margin-bottom: 7px; color: #3e53c4; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
   .tenant-picker { min-width: 220px; }
   .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: #eefbf5; border: 1px solid #b9e9d0; border-radius: 8px; }
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
@@ -1629,7 +1740,7 @@
   .team-form, .account-control-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
   .account-control-form { grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(130px, .6fr) auto; background: #fbfcfa; }
   .account-active { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 8px; white-space: nowrap; }
-  .account-active input { width: 16px; min-height: 16px; accent-color: #007d70; }
+  .account-active input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
   .account-list { display: grid; }
   .account-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px 90px; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #edf0f4; color: #526172; font-size: 13px; }
   .account-row strong { color: #172033; overflow-wrap: anywhere; }
@@ -1650,34 +1761,34 @@
   .allowlist { padding: 20px 0 0; }
   .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
-  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #0b9a5f; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
+  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #3e53c4; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
   .workspace-section { scroll-margin-top: 18px; }
   .pipeline-head { background: #fcfdfb; }
   .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e4e8e1; }
   .metric-grid > div { display: grid; gap: 6px; min-height: 116px; align-content: center; padding: 20px; }
   .metric-grid > div + div { border-left: 1px solid #e4e8e1; }
-  .metric-grid span, .lead-row span, .lead-row time { color: #67706b; font-size: 12px; }
-  .metric-grid strong { color: #1f2923; font-size: 31px; line-height: 1; }
+  .metric-grid span, .lead-row span, .lead-row time { color: #5e6b82; font-size: 12px; }
+  .metric-grid strong { color: #17233c; font-size: 31px; line-height: 1; }
   .metric-grid small { color: #8a938d; font-size: 11px; font-weight: 600; }
   .funnel-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 14px 20px; background: #f1f5f0; border-bottom: 1px solid #e4e8e1; }
   .funnel-strip > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 12px; }
   .funnel-strip > div + div { border-left: 1px solid #d8dfd8; }
-  .funnel-strip span { color: #67706b; font-size: 12px; }
-  .funnel-strip strong { color: #2f3833; font-size: 17px; }
+  .funnel-strip span { color: #5e6b82; font-size: 12px; }
+  .funnel-strip strong { color: #17233c; font-size: 17px; }
   .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
   .activity-list { min-width: 0; padding: 20px; }
   .activity-list + .activity-list { border-left: 1px solid #e4e8e1; }
   .list-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .list-heading h3 { margin: 0; color: #2f3833; font-size: 14px; }
+  .list-heading h3 { margin: 0; color: #17233c; font-size: 14px; }
   .list-heading span { color: #8a938d; font-size: 11px; font-weight: 700; }
   .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #edf0eb; }
   .lead-row > div { display: grid; gap: 4px; min-width: 0; }
   .lead-row > div:last-child { text-align: right; }
   .lead-row select { min-width: 116px; min-height: 32px; font-size: 12px; }
-  .lead-row strong { color: #1f2923; font-size: 13px; overflow-wrap: anywhere; }
+  .lead-row strong { color: #17233c; font-size: 13px; overflow-wrap: anywhere; }
   .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #edf0eb; color: #4e5b52; font-size: 13px; text-transform: capitalize; }
-  .intent-row strong { color: #1f2923; }
-  .activity-status { margin: 0; padding: 0 20px 20px; color: #67706b; font-size: 13px; }
+  .intent-row strong { color: #17233c; }
+  .activity-status { margin: 0; padding: 0 20px 20px; color: #5e6b82; font-size: 13px; }
   .count-label { padding: 5px 8px; color: #526172; background: #f2f4f7; border: 1px solid #d8dee8; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
   .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ee; }
   .catalog-toolbar label { max-width: 112px; }
@@ -1690,12 +1801,12 @@
   .product-table-head { color: #667085; background: #f8fafc; border-bottom: 1px solid #e2e7ee; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .product-row input { min-width: 0; }
   .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
-  .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
+  .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
   .icon-button { min-height: 34px; padding: 0 8px; border: 1px solid #b9c3d2; border-radius: 6px; background: #fff; color: #526172; font-size: 12px; font-weight: 700; }
   .icon-button:hover { background: #f8fafc; }
   .icon-button.danger { color: #b42318; border-color: #f0b5af; }
   .icon-button.danger:hover { background: #fff2f0; }
-  .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #087b4c; background: transparent; font-size: 13px; font-weight: 800; }
+  .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #3043ab; background: transparent; font-size: 13px; font-weight: 800; }
   .add-row:hover { color: #065f3c; text-decoration: underline; }
   .section-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
   .section-footer .form-status { max-width: 68ch; }
@@ -1711,7 +1822,7 @@
   .offer-heading h3 { margin: 0; font-size: 16px; }
   .offer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   .offer-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
-  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #0b9a5f; }
+  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
   .surface-body { padding: 20px; }
   .surface-body > :last-child { margin-bottom: 0; }
   .surface-body > .empty-state { padding: 0; }
@@ -1845,4 +1956,59 @@
   .widget-stage > a { font-size:13px; }
   @media (max-width:900px) { .widget-studio-grid { grid-template-columns:1fr; } .widget-stage { position:static; } }
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
+  .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:#f3f5fa}
+  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:64px clamp(32px,6vw,100px);background:radial-gradient(ellipse at 20% 0%,#314287,transparent 65%),#111b35;color:#fff;min-width:0}
+  .login-brand {display:flex;align-items:center;gap:16px;margin-bottom:64px;text-decoration:none;color:white;font-size:24px;font-weight:700;letter-spacing:-.04em}
+  .login-brand span {font-size:13px;letter-spacing:.08em;color:#bbc8ff;border:1px solid #7888c7;border-radius:8px;padding:8px}
+  .login-intro .eyebrow {color:#b5c2f3;margin-bottom:20px}
+  .login-intro h2 {font-size:clamp(32px,3.5vw,50px);line-height:1.15;letter-spacing:-.035em;max-width:520px;margin-bottom:24px;color:#fff}
+  .login-intro p:not(.eyebrow) {font-size:16px;line-height:1.7;color:#c4cce4;max-width:480px}
+  .login-intro > a:last-child {font-size:13px;color:#c4cce4;margin-top:32px}
+  .intro-features {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;font-size:12px}
+  .intro-features span {padding:9px 12px;border:1px solid #475579;border-radius:99px}
+  .login-content {width:100%;max-width:620px;justify-self:center;align-self:center;padding:36px clamp(24px,5vw,64px)}
+  .login-tools {display:flex;justify-content:flex-end;margin-bottom:20px}
+  .login {width:100%;padding:32px;border-color:#dce2ed;border-radius:20px;box-shadow:0 16px 60px #17233c0a;gap:16px}
+  .login h1 {font-size:27px;line-height:1.25;letter-spacing:-.025em;margin-bottom:0}
+  .login p {font-size:13px;margin-bottom:0;line-height:1.6;color:#5e6b82}
+  .product-mark {background:#3e53c4;border-radius:12px;width:44px;height:44px}
+  .password-field {display:flex;position:relative}
+  .password-field input {padding-inline-end:124px}
+  .password-field button {position:absolute;inset-inline-end:6px;top:6px;bottom:6px;min-height:30px;padding:4px 8px;border:0;border-radius:6px;background:#f1f3fa;color:#3d4f9a;font-size:11px;max-width:118px}
+  .remember-choice {display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.5;font-weight:600}
+  .remember-choice input {width:17px;min-height:17px;margin:2px 0 0;flex-shrink:0}
+  .remember-choice span {color:#17233c}
+  .remember-choice small {display:block;margin-top:4px;font-size:11px;font-weight:400;color:#5e6b82}
+  .provider-divider {display:flex;align-items:center;gap:10px;font-size:11px;color:#5e6b82;margin:2px 0}
+  .provider-divider::before,.provider-divider::after {content:'';height:1px;flex:1;background:#dce2ed}
+  .provider-buttons {display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .login .provider-help,.login .login-policy {font-size:11px;line-height:1.5}
+  .login-policy a {color:#3e53c4}
+  .app-shell {grid-template-columns:250px minmax(0,1fr)}
+  .sidebar {background:#111b35;padding:28px 16px;gap:20px}
+  .side-brand {border-color:#33405d;padding-bottom:22px}
+  .side-brand span {color:#b7c4ff;letter-spacing:.15em}
+  .side-brand small {color:#adb9d5}
+  nav a {border-radius:9px;padding:11px 12px;color:#c3cce2}
+  nav a:hover {background:#253251;color:white}
+  nav a.active {background:#344789;color:white}
+  .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f3f5fa;min-width:0}
+  .workspace-head {padding-bottom:24px;border-bottom:1px solid #dce2ed;margin-bottom:24px}
+  .workspace-head h1 {font-size:28px;line-height:1.25;letter-spacing:-.03em;color:#17233c}
+  .workspace-head .eyebrow {color:#5e6b82;letter-spacing:.1em}
+  .workspace-actions {flex-wrap:wrap;justify-content:flex-end}
+  .surface {border-color:#dce2ed;border-radius:16px;box-shadow:0 4px 18px #17233c03}
+  .surface-head {background:#fff;padding:22px;border-color:#e5e9f2}
+  .surface-head h2 {color:#17233c;font-size:20px;letter-spacing:-.02em}
+  .primary {background:#3e53c4;border-color:#3e53c4;min-height:44px;border-radius:9px}
+  .primary:hover {background:#3043ab}
+  .secondary {color:#17233c;border-color:#bec9dc;min-height:44px;border-radius:9px}
+  .secondary:hover {background:#f3f5fc}
+  input,textarea,select {color:#17233c;border-color:#bec9dc;border-radius:8px;min-height:44px}
+  input:focus,textarea:focus,select:focus {border-color:#3e53c4;outline-color:#d5dbff}
+  .notice {background:#eaf0ff;color:#293d7a;border:1px solid #ced8f2;padding:12px;border-radius:10px}
+  .notice.error {background:#fff2f0;color:#a61b2b;border-color:#f1c5c6}
+  :global(body) {background:#f3f5fa}
+  @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
+  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;overflow:visible;padding:18px 16px}.workspace{padding:24px 16px 40px}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;gap:12px}.login{padding:24px}.login-intro h2{font-size:30px}}
 </style>

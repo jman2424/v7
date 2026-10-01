@@ -25,6 +25,15 @@ _FORMATS = {
 _MODELS = {"gpt-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"}
 
 
+def transcription_status() -> dict:
+    """Safe local setup details shared by management and transcription runtime."""
+    model = os.getenv("V7_TRANSCRIPTION_MODEL", "gpt-transcribe").strip()
+    missing = [] if os.getenv("OPENAI_API_KEY", "").strip() else ["OPENAI_API_KEY"]
+    if model not in _MODELS:
+        missing.append("V7_TRANSCRIPTION_MODEL")
+    return {"configured": not missing, "model": model if model in _MODELS else "", "missing_settings": missing}
+
+
 class SpeechTranscriptionError(Exception):
     """Safe error code for callers; provider details stay in server logs."""
 
@@ -63,9 +72,10 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise SpeechTranscriptionError("transcription_unavailable")
-    model = os.getenv("V7_TRANSCRIPTION_MODEL", "gpt-transcribe").strip()
-    if model not in _MODELS:
+    setup = transcription_status()
+    if not setup["configured"]:
         raise SpeechTranscriptionError("transcription_unavailable")
+    model = setup["model"]
     result = None
     status = "failed"
     try:
