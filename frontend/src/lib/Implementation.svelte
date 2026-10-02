@@ -112,11 +112,11 @@
   .implementation { display:grid; gap:20px; min-width:0; overflow-wrap:anywhere; }
   .intro, .heading, .code-tools, form, .links, nav { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
   .intro, .heading { justify-content:space-between; } .intro > div { flex:1 1 320px; }
-  h2, h3 { margin:0; } h2 { font-size:21px; } h3 { font-size:18px; } p, li { line-height:1.6; color:#5e6b82; }
+  h2, h3 { margin:0; } h2 { font-size:21px; } h3 { font-size:18px; } p, li { line-height:1.6; color:#67706b; }
   .panel { min-width:0; padding:24px; border:1px solid #d9ddd7; background:#fff; border-radius:8px; }
-  button, select, input, textarea { box-sizing:border-box; max-width:100%; border:1px solid #bec9dc; border-radius:6px; background:#fff; color:#26332b; padding:11px 13px; font:inherit; }
+  button, select, input, textarea { box-sizing:border-box; max-width:100%; border:1px solid #bbc4bc; border-radius:6px; background:#fff; color:#26332b; padding:11px 13px; font:inherit; }
   button { min-height:44px; cursor:pointer; font-weight:600; } button:disabled { opacity:.6; cursor:wait; }
-  button.active, .primary { background:#3e53c4; border-color:#3e53c4; color:#fff; } a { color:#3e53c4; }
+  button.active, .primary { background:#007d70; border-color:#007d70; color:#fff; } a { color:#007d70; }
   .primary { display:inline-block; padding:12px 16px; border-radius:6px; text-decoration:none; }
   label { display:grid; gap:8px; font-size:14px; font-weight:600; min-width:0; } form { align-items:end; } form label { flex:1 1 260px; }
   textarea { width:100%; font-family:ui-monospace,monospace; font-size:13px; resize:vertical; overflow-wrap:anywhere; }

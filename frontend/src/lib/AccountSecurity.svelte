@@ -213,7 +213,7 @@
   .card-heading h3 {margin:0 0 7px;font-size:18px;letter-spacing:-.02em}
   .provider-list {margin-top:20px}
   .provider-row {display:flex;align-items:center;gap:14px;padding:17px 0;border-top:1px solid #e8edf4}
-  .provider-mark {display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;background:#eff4fa;border:1px solid #dce4ef;border-radius:12px;font-size:19px;font-weight:800}
+  .provider-mark {display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;background:#f1f4ef;border:1px solid #dce4ef;border-radius:12px;font-size:19px;font-weight:800}
   .provider-copy {display:grid;gap:5px;flex:1;font-size:14px}
   .provider-copy span,.note,.empty,.loading {color:#607089;font-size:12px;line-height:1.7}
   .provider-actions {display:flex;gap:9px;flex-wrap:wrap}
@@ -221,10 +221,10 @@
   button.secondary {background:#fff;color:#263853;border-color:#cbd5e3}
   button:hover:not(:disabled) {filter:brightness(.94)}
   button:disabled {opacity:.45;cursor:not-allowed}
-  button:focus-visible {outline:3px solid #83b9ff;outline-offset:3px}
+  button:focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}
   .note {margin:14px 0 0}
   .trust-explanation {margin:18px 0;color:#4b5e78;font-size:13px;line-height:1.75}
-  .device-summary {display:flex;align-items:center;gap:14px;padding:16px 18px;background:#f5f8fc;border:1px solid #e5ebf4;border-radius:12px}
+  .device-summary {display:flex;align-items:center;gap:14px;padding:16px 18px;background:#f7faf7;border:1px solid #e5ebf4;border-radius:12px}
   .device-summary strong {font-size:29px;line-height:1;color:#173d31}
   .device-summary span {font-size:13px;font-weight:600}
   .device-list {list-style:none;padding:0;margin:15px 0 20px}

@@ -79,5 +79,5 @@
 </section>
 
 <style>
-  .registration{background:white;border:1px solid #dce2ed;border-radius:10px;padding:32px;max-width:520px;width:100%;box-sizing:border-box}h1{font-size:25px;margin:0 0 20px}h2{font-size:19px}p{line-height:1.6;color:#5e6b82}form,label{display:grid;gap:10px}form{gap:18px}input,select,button{font:inherit;padding:12px;border:1px solid #b8c6be;border-radius:6px;max-width:100%;box-sizing:border-box}button{cursor:pointer;background:#3e53c4;color:white;min-height:44px}button:disabled{opacity:.6;cursor:wait}small{font-weight:normal;color:#5e6b82}.error{color:#ad2020}:focus-visible{outline:3px solid #8bcdc0;outline-offset:2px}
+  .registration{background:white;border:1px solid #d9ddd7;border-radius:10px;padding:32px;max-width:520px;width:100%;box-sizing:border-box}h1{font-size:25px;margin:0 0 20px}h2{font-size:19px}p{line-height:1.6;color:#67706b}form,label{display:grid;gap:10px}form{gap:18px}input,select,button{font:inherit;padding:12px;border:1px solid #b8c6be;border-radius:6px;max-width:100%;box-sizing:border-box}button{cursor:pointer;background:#007d70;color:white;min-height:44px}button:disabled{opacity:.6;cursor:wait}small{font-weight:normal;color:#67706b}.error{color:#ad2020}:focus-visible{outline:3px solid #8bcdc0;outline-offset:2px}
 </style>

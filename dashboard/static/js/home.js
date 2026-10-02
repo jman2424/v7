@@ -16,3 +16,18 @@ document.querySelectorAll("[data-example]").forEach((button) => {
     });
   });
 });
+
+document.querySelectorAll('a[href="#demo"]').forEach((link) => {
+  link.addEventListener("click", (event) => {
+    const demo = document.getElementById("demo");
+    const nextExample = document.querySelector('[data-example="delivery"]');
+    if (!demo || !nextExample) return;
+    event.preventDefault();
+    nextExample.click();
+    nextExample.focus({ preventScroll: true });
+    demo.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+      block: "center"
+    });
+  });
+});

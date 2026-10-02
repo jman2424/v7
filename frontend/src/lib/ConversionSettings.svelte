@@ -127,7 +127,7 @@
   .slot-heading, .footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
   .slot { display:grid; grid-template-columns:minmax(120px,1fr) minmax(170px,1fr) auto; align-items:end; gap:10px; }
   .slot label { display:grid; gap:5px; font-size:12px; font-weight:700; }
-  .slot input { width:100%; min-height:39px; padding:7px; border:1px solid #bec9dc; border-radius:5px; }
+  .slot input { width:100%; min-height:39px; padding:7px; border:1px solid #bbc4bc; border-radius:5px; }
   button { min-height:39px; padding:7px 12px; border:1px solid #b8c8bd; border-radius:5px; color:#224333; background:#fff; font-weight:700; cursor:pointer; }
   button[type=submit] { color:#fff; background:#0b765b; border-color:#0b765b; }
   button:disabled { opacity:.55; cursor:default; }

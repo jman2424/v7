@@ -1,4 +1,4 @@
-# Vertex Seven security hardening — 1 October 2026
+# Vertex Seven security hardening — 2 October 2026
 
 ## Result and scope
 
@@ -64,7 +64,8 @@ attack or a substitute for an independent penetration test.
   accounts. Tenant archives require safe regular files. File
   backup/restore fails closed in PostgreSQL mode.
 - Runtime pins update PyJWT to 2.15.0 and constrain oauthlib to 4.0.0; the dev
-  formatter uses Black 26.3.1. Actions and the official secret-scanner image are
+  formatter uses Black 26.3.1. Setuptools 83.0.0 replaces vulnerable preinstalled
+  packaging tooling in the canonical runtime requirements. Actions and the official secret-scanner image are
   immutable pins. CI retains lint/tests/builds and adds dependency/SDK checks.
   Release tags enter shell through validated environment variables, checkout
   credentials are not persisted and source archives contain tracked files only.
@@ -83,17 +84,84 @@ attack or a substitute for an independent penetration test.
   does not substitute for database integration execution.
 - Console `npm run check`: zero errors/warnings; production `/console`
   `npm run build`: passed. Both widget SDK suites: **4 passed**.
-- Final Python dependency audit: **78 resolved dependencies, zero advisories,
-  zero skipped**. Final console lockfile audit: **83 dependencies, zero
+- Follow-up Python dependency audit: **106 installed dependencies, zero advisories,
+  zero skipped** in a fresh full development/runtime environment. A separate
+  Python 3.11 Linux resolution audited **87 dependencies, zero advisories,
+  zero skipped**. Console lockfile audit: **83 dependencies, zero
   vulnerabilities**. Runtime and dev dependencies are included.
 - Backup/archive/scanner regressions: **73 passed, 1 Windows symlink skip**.
   URL fixture follow-ups: **129 passed**; their exact hostile values and
   assertions are preserved. All three workflow YAML files, 28 Action SHA pins,
   12 Bash blocks and eight release-tag cases passed targeted checks.
-- Local pinned URI-pattern screening: zero matches across 386 publishable text
-  files. Docker is unavailable locally, so the full TruffleHog scanner and
-  CodeQL run through GitHub CI after publication; their results are reported
-  separately. Semgrep was unavailable as described below.
+- Follow-up security regressions through the pytest 9.0.3 console entry:
+  **297 passed, 1 PostgreSQL skip** across 14 directly relevant modules.
+- Final executable console authentication/state regressions: **17 passed**;
+  existing MFA/OIDC/trusted-device/signup/private-console subset: **131 passed**.
+  Final combined Svelte check: **zero errors/warnings**; `/console` production
+  build: **passed**.
+- Follow-up pinned URI-pattern screening: zero matches across 390 publishable
+  text files. GitHub security run `36893988511` completed the
+  full TruffleHog scan with **zero findings**. CodeQL completed successfully
+  and reported **28 open alerts**; its successful execution does not mean zero
+  findings. Docker is unavailable locally. Semgrep was unavailable as described below.
+
+## Sign-in and green branding fixes
+
+Anonymous company deep links now prefill their validated company key, including
+when the initial session request rejects a revoked cookie. Previously the form
+could submit to `EXAMPLE` instead of the requested company.
+
+The console previously required settings/catalog/offer reads after every successful
+sign-in, so restricted staff could complete MFA and then receive a false login
+error. Workspace loading now uses the account's server-derived permissions and
+reports loading failures separately. Cached company data is cleared on sign-out
+and before loading; responses from earlier accounts or workspace selections are
+discarded. Executable component regressions and independent delayed-response
+reproduction cover this client isolation boundary. Backend permissions and MFA
+remain unchanged.
+
+The homepage and console restore the established green palette while retaining
+their current layout and configurable tenant widget colors. Both homepage demo
+links now activate the existing delivery example, move keyboard focus to its
+control and scroll to the conversation. The example remains explicitly labeled
+as an illustrative fictional conversation. A local browser confirmed the updated
+sample text, pressed/focused Delivery button and green computed styles.
+The final `/console` build also passed browser owner/staff password and MFA
+enrollment/sign-in, logout and tenant deep-link checks with disposable accounts.
+Restricted staff reached the workspace without a false login error while private
+settings and cross-tenant activation requests still returned HTTP 403.
+
+These are local source and regression findings. The exact current live website
+origin/error was not supplied; live sign-in has not been verified by these checks.
+
+## CI and static-analysis follow-up
+
+The first published CI run (`36893988453`) passed dependency installation,
+Ruff, console checks/build and SDK tests, but failed pytest collection because
+`tests.conftest` imported a test helper before adding the repository to `sys.path`.
+The import now follows the existing path bootstrap; the pytest console entry
+collects the suite successfully. The security audit identified vulnerable
+preinstalled setuptools 79.0.1 (PYSEC-2026-3447); the canonical 83.0.0 pin fixes
+the installer rather than excluding the finding from the audit.
+
+CodeQL review identified three concrete improvements, each covered by hostile
+input regressions:
+
+- Account creation bounds email length before invoking its validation regex.
+- Credentialed WhatsApp audio downloads reject raw controls, whitespace,
+  backslashes and malformed URL ports/brackets before dispatch. Existing exact
+  provider-host/path allowlists and redirect denial remain in force; no arbitrary
+  host SSRF was reproduced. Signed Meta CDN query strings remain supported.
+- Shared Stripe URL validation handles parser failures with its existing safe
+  rejection result. Malformed provider netlocs cannot appear in public billing
+  errors; checkout and portal preserve `stripe_response_invalid`.
+
+The other reported flows were traced to bounded validation with fixed error
+codes, digests of random high-entropy challenges, or intentionally issued secure
+trusted-device proofs. No additional sensitive-data disclosure was established
+in those paths. Alerts were not suppressed or dismissed; remaining static-analysis
+findings require their normal review. This review does not establish that every
+alert is a false positive.
 
 Focused tests cover Company A/B tenant selectors, permissions, account races,
 MFA replay, OAuth refresh/revocation, all MCP tools, strict request parsing,
@@ -149,7 +217,6 @@ for behavior and recovery procedures.
 - `.github/workflows/release.yml`
 - `.github/workflows/security.yml`
 - `.gitignore`
-- `README.md`
 - `ai_modes/v7_tool_runtime.py`
 - `app/app_factory.py`
 - `app/config.py`
@@ -158,14 +225,42 @@ for behavior and recovery procedures.
 - `app/routes/route_helpers.py`
 - `connectors/sheets.py`
 - `connectors/web_widget.py`
+- `connectors/whatsapp_audio.py`
 - `connectors/whatsapp.py`
+- `dashboard/static/css/home.css`
+- `dashboard/static/js/home.js`
+- `dashboard/templates/home.html`
 - `docs/LIVE_BACKUP.md`
-- `docs/OPERATIONS.md`
-- `docs/SECURITY.md`
-- `docs/SECURITY_HARDENING.md`
-- `docs/SUPABASE_MIGRATION.md`
 - `docs/mcp.md`
+- `docs/OPERATIONS.md`
+- `docs/SECURITY_HARDENING.md`
+- `docs/SECURITY.md`
+- `docs/SUPABASE_MIGRATION.md`
+- `frontend/src/app.css`
+- `frontend/src/lib/AccountSecurity.svelte`
+- `frontend/src/lib/AgentTest.svelte`
+- `frontend/src/lib/AiParameters.svelte`
+- `frontend/src/lib/ApiUsage.svelte`
+- `frontend/src/lib/ConnectionSettings.svelte`
+- `frontend/src/lib/Console.svelte`
+- `frontend/src/lib/Conversations.svelte`
+- `frontend/src/lib/ConversionSettings.svelte`
+- `frontend/src/lib/CookiePreferences.svelte`
+- `frontend/src/lib/ErrorsHealth.svelte`
+- `frontend/src/lib/Implementation.svelte`
+- `frontend/src/lib/JoinRequests.svelte`
+- `frontend/src/lib/PerformanceStatistics.svelte`
+- `frontend/src/lib/PlatformOverview.svelte`
+- `frontend/src/lib/PrivacySettings.svelte`
+- `frontend/src/lib/ProductStatistics.svelte`
+- `frontend/src/lib/Registration.svelte`
+- `frontend/src/lib/Statistics.svelte`
+- `frontend/src/lib/Subscription.svelte`
+- `frontend/src/lib/TrendChart.svelte`
+- `frontend/src/lib/WhatsAppConnection.svelte`
+- `frontend/src/lib/WhatsAppQr.svelte`
 - `gunicorn.conf.py`
+- `README.md`
 - `requirement.txt`
 - `requirements-dev.txt`
 - `requirements.txt`
@@ -205,19 +300,24 @@ for behavior and recovery procedures.
 - `service/security.py`
 - `service/session_store.py`
 - `service/storage_readiness.py`
+- `service/subscriptions.py`
 - `service/trusted_devices.py`
 - `service/website_knowledge.py`
 - `supabase/migrations/202609300001_totp_replay_protection.sql`
 - `tests/conftest.py`
+- `tests/test_account_management.py`
 - `tests/test_account_mfa.py`
 - `tests/test_api_second_pass.py`
 - `tests/test_auth_second_pass.py`
 - `tests/test_auth_session_security.py`
+- `tests/test_billing_error_security.py`
 - `tests/test_business_access.py`
 - `tests/test_business_core.py`
+- `tests/test_codeql_api_audio_followup.py`
+- `tests/test_console_login_followup.py`
 - `tests/test_main_security_boundaries.py`
-- `tests/test_mcp.py`
 - `tests/test_mcp_security_followup.py`
+- `tests/test_mcp.py`
 - `tests/test_model_security_followup.py`
 - `tests/test_model_settings.py`
 - `tests/test_ops_second_pass.py`

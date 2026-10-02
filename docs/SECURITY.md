@@ -145,6 +145,10 @@ Do not use an online QR-code generator or commit the setup key.
 A `csrf_failed` response means the sign-in page expired or its session cookie
 was blocked. Reload the page and allow site cookies. The console refreshes an
 expired authenticated cookie before submitting a new login.
+Sign-in links retain their valid company key. The console loads only workspace
+data permitted by the authenticated account and clears cached company data before
+loading or signing out. Workspace loading failures are reported separately from
+successful authentication.
 
 SECRET_KEY must be random and at least 32 characters. Cookies are HttpOnly,
 SameSite=Lax and Secure when BASE_URL uses HTTPS. Management sessions expire

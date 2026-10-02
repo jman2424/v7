@@ -260,6 +260,9 @@
   let totp = '';
   let mfa: {enrollment:boolean;email:string;setup_key?:string;qr_image?:string}|null = null;
   let loginError = '';
+  let workspaceError = '';
+  let workspaceGeneration = 0;
+  type WorkspaceRequest = { generation: number; identity: User | null };
   let signingIn = false;
   let formStatus = '';
   let formError = false;
@@ -520,28 +523,58 @@
     return Number.isNaN(date.getTime()) ? 'Not available' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
   }
 
-  async function loadTenantWorkspace(selectedTenant = tenant) {
+  function clearTenantWorkspace() {
+    workspaceGeneration++;
     activation = null;
+    widget = { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
+    catalog = normalizeCatalog({}); faqs = []; offers = [];
+    delivery = normalizeDelivery({}); profile = normalizeProfile({}); branches = [];
+    agentSettings = normalizeAgentSettings({}); snippet = ''; originText = '';
+    accounts = []; selectedAccountId = ''; selectedAccountPassword = ''; accountPassword = ''; accountEmail = '';
+    selectedAccountActive = true; selectedViewCosts = false; selectedViewSubscriptions = false;
+    insights = normalizeInsights({}); activityStatus = '';
+    formStatus = ''; createStatus = ''; accountStatus = ''; catalogStatus = ''; faqStatus = '';
+    offersStatus = ''; deliveryStatus = ''; profileStatus = ''; branchesStatus = ''; agentStatus = '';
+  }
+
+  function workspaceRequest(): WorkspaceRequest {
+    return { generation: workspaceGeneration, identity: user };
+  }
+
+  function isCurrentWorkspace(request: WorkspaceRequest) {
+    return request.generation === workspaceGeneration && request.identity === user;
+  }
+
+  function beginWorkspaceLoad() {
+    clearTenantWorkspace();
+    return workspaceRequest();
+  }
+
+  async function loadTenantWorkspace(selectedTenant = tenant, activeLoad = beginWorkspaceLoad()) {
     const activationResponse = await fetch(apiPath('/admin/api/activation?tenant='+encodeURIComponent(selectedTenant)), {credentials:'same-origin'});
-    if(activationResponse.ok) activation = await activationResponse.json();
+    const activationData = activationResponse.ok ? await activationResponse.json() : null;
+    if (!isCurrentWorkspace(activeLoad)) return;
+    activation = activationData;
     const encodedTenant = encodeURIComponent(selectedTenant);
-    const responses = await Promise.all([
-      fetch(apiPath(`/admin/api/widget?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/catalog?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/faq?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/offers?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/delivery?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/profile?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/branches?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
-      fetch(apiPath(`/admin/api/agent-settings?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
-    ]);
-    const [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(readJson));
-    if (responses.some((response) => !response.ok)) {
-      const failed = [widgetData, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData].find((data, index) => !responses[index].ok);
-      throw new Error(failed?.error || 'Could not load this tenant workspace.');
+    const requests = [
+      ['widget', 'business_settings.read'], ['catalog', 'offerings.read'],
+      ['faq', 'business_settings.read'], ['offers', 'offers.read'],
+      ['delivery', 'business_settings.read'], ['profile', 'business_settings.read'],
+      ['branches', 'business_settings.read'], ['agent-settings', 'business_settings.read']
+    ];
+    const responses = await Promise.all(requests.map(([path, permission]) =>
+      activeLoad.identity?.permissions?.includes(permission)
+        ? fetch(apiPath(`/admin/api/${path}?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+        : Promise.resolve(null)
+    ));
+    const [widgetPayload, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(response => response ? readJson(response) : {}));
+    if (!isCurrentWorkspace(activeLoad)) return;
+    const widgetData = widgetPayload as { tenant?: string; widget?: Widget; embed?: { snippet?: string } };
+    if (responses.some((response) => response && !response.ok)) {
+      throw new Error('Could not load this tenant workspace.');
     }
-    tenant = widgetData.tenant;
-    widget = widgetData.widget;
+    tenant = widgetData.tenant || selectedTenant;
+    widget = widgetData.widget || { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
     originText = (widget.allowed_origins || []).join('\n');
     snippet = widgetData.embed?.snippet || '';
     catalog = normalizeCatalog(catalogData);
@@ -551,15 +584,31 @@
     profile = normalizeProfile(profileData);
     branches = normalizeBranches(branchesData);
     agentSettings = normalizeAgentSettings(agentData);
-    if (hasAccountManagementAccess()) await loadAccounts(selectedTenant);
+    if (hasAccountManagementAccess() && user?.permissions?.includes('users.read')) await loadAccounts(selectedTenant, activeLoad);
     else accounts = [];
-    await loadInsights(selectedTenant);
+    if (!isCurrentWorkspace(activeLoad)) return;
+    if (user?.permissions?.includes('analytics.read')) await loadInsights(selectedTenant, activeLoad);
+    else { insights = normalizeInsights({}); activityStatus = ''; }
   }
 
-  async function loadTenants() {
+  async function loadSignedInWorkspace() {
+    workspaceError = '';
+    tenants = [];
+    const activeLoad = beginWorkspaceLoad();
+    try {
+      await loadTenantWorkspace(tenant, activeLoad);
+      if (isCurrentWorkspace(activeLoad)) await loadTenants(activeLoad);
+    } catch {
+      if (isCurrentWorkspace(activeLoad)) workspaceError = 'You are signed in, but the workspace could not load. Refresh the page to try again.';
+    }
+  }
+
+  async function loadTenants(activeLoad = workspaceRequest()) {
+    tenants = [];
     if (!isPlatform && !isOwner) return;
     const response = await fetch(apiPath('/admin/api/tenants'), { credentials: 'same-origin' });
     const data = await readJson(response);
+    if (!isCurrentWorkspace(activeLoad)) return;
     if (response.ok) tenants = data.tenants || [];
   }
 
@@ -578,9 +627,10 @@
     return true;
   }
 
-  async function loadAccounts(selectedTenant = tenant) {
+  async function loadAccounts(selectedTenant = tenant, activeLoad = workspaceRequest()) {
     const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
     const data = await readJson(response);
+    if (!isCurrentWorkspace(activeLoad)) return;
     accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
     const selected = accounts.find((account) => account.id === selectedAccountId);
     const next = selected || accounts.find((account) => isPlatform || account.roles.includes('business_staff'));
@@ -600,10 +650,12 @@
     selectedAccountPassword = '';
   }
 
-  async function loadInsights(selectedTenant = tenant) {
+  async function loadInsights(selectedTenant = tenant, activeLoad = workspaceRequest()) {
+    insights = normalizeInsights({});
     activityStatus = 'Loading activity...';
     const response = await fetch(apiPath(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`), { credentials: 'same-origin' });
     const data = await readJson(response);
+    if (!isCurrentWorkspace(activeLoad)) return;
     if (!response.ok) {
       activityStatus = 'Sales activity is currently unavailable.';
       return;
@@ -613,11 +665,13 @@
   }
 
   async function updateLeadStatus(leadId: string, status: LeadStatus) {
+    const activeLoad = workspaceRequest();
     activityStatus = 'Updating lead...';
     const response = await fetch(apiPath(`/admin/api/leads/${encodeURIComponent(leadId)}?tenant=${encodeURIComponent(tenant)}`), {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify({ status })
     });
     const data = await readJson(response);
+    if (!isCurrentWorkspace(activeLoad)) return;
     if (!response.ok) {
       activityStatus = data.error || 'Could not update this lead.';
       return;
@@ -627,17 +681,18 @@
   }
 
   async function restoreSession() {
+    const requestedTenant = new URLSearchParams(window.location.search).get('tenant');
+    const validRequestedTenant = requestedTenant && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(requestedTenant) ? requestedTenant : null;
+    if (validRequestedTenant) tenant = validRequestedTenant;
     const response = await fetch(apiPath('/auth/session'), { credentials: 'same-origin' });
     if (!response.ok) return;
     const data = await readJson(response);
     user = data.user;
     mfa = data.mfa || null;
     csrf = data.csrf_token || '';
-    tenant = user?.tenant || tenant;
+    tenant = validRequestedTenant || user?.tenant || tenant;
     if (user) {
-      tenant = new URLSearchParams(window.location.search).get('tenant') || tenant;
-      await loadTenantWorkspace(tenant);
-      await loadTenants();
+      await loadSignedInWorkspace();
     }
   }
 
@@ -675,8 +730,7 @@
       user = data.user;
       csrf = data.csrf_token || '';
       tenant = user?.tenant || tenant;
-      await loadTenantWorkspace(tenant);
-      await loadTenants();
+      await loadSignedInWorkspace();
       await openDefaultWorkspace();
     } catch {
       loginError = 'Could not complete sign-in. Please try again.';
@@ -700,7 +754,7 @@
         return;
       }
       mfa = null; totp = ''; user = data.user; csrf = data.csrf_token; tenant = user?.tenant || tenant;
-      await loadTenantWorkspace(tenant); await loadTenants(); await openDefaultWorkspace();
+      await loadSignedInWorkspace(); await openDefaultWorkspace();
     } catch {loginError = 'Could not complete sign-in. Please try again.';}
     finally {signingIn = false;}
   }
@@ -770,6 +824,7 @@
   }
 
   async function logout() {
+    workspaceGeneration++;
     const response = await fetch(apiPath('/auth/logout'), {
       method: 'POST',
       headers: { 'X-CSRF-Token': csrf },
@@ -781,6 +836,9 @@
       return;
     }
     user = null;
+    workspaceError = '';
+    tenants = [];
+    clearTenantWorkspace();
     csrf = '';
     password = '';
     totp = '';
@@ -906,7 +964,9 @@
     profileStatus = '';
     branchesStatus = '';
     agentStatus = '';
-    await loadTenantWorkspace(nextTenant);
+    const activeLoad = beginWorkspaceLoad();
+    await loadTenantWorkspace(nextTenant, activeLoad);
+    if (!isCurrentWorkspace(activeLoad)) return;
     const url = new URL(window.location.href);
     url.searchParams.set('tenant', nextTenant);
     window.history.replaceState(window.history.state, '', url);
@@ -1281,6 +1341,8 @@
           <button class="secondary sign-out" type="button" on:click={logout}>{$t("Sign out")}</button>
         </div>
       </header>
+
+      {#if workspaceError}<p class="notice error" role="alert">{workspaceError}</p>{/if}
 
       {#if activation && !activation.active}
         <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
@@ -1691,26 +1753,26 @@
 <style>
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#b8c8bd;padding:12px 12px 2px;grid-column:1/-1}
-  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#5e6b82}.company-scope small{font-size:12px;color:#5e6b82}
-  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #dce2ed;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#5e6b82;margin:0;line-height:1.5}
+  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#67706b}.company-scope small{font-size:12px;color:#67706b}
+  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #d9ddd7;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#67706b;margin:0;line-height:1.5}
 
-  :global(body) { background: #f3f5fa; }
-  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #5e6b82; }
+  :global(body) { background: #f7f7f2; }
+  .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: #67706b; }
   .login-shell { padding: 24px; }
   .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; box-shadow: 0 16px 40px rgba(31, 42, 35, .09); }
-  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #3e53c4; color: #fff; border-radius: 8px; font-weight: 800; }
+  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: #007d70; color: #fff; border-radius: 8px; font-weight: 800; }
   h1, h2, h3, p { margin-top: 0; }
   .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
-  .login p { color: #5e6b82; line-height: 1.5; }
-  label { display: grid; min-width: 0; gap: 7px; color: #17233c; font-size: 13px; font-weight: 700; }
+  .login p { color: #67706b; line-height: 1.5; }
+  label { display: grid; min-width: 0; gap: 7px; color: #1f2923; font-size: 13px; font-weight: 700; }
   label span { color: #79837c; font-weight: 500; }
-  input, textarea, select { width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bec9dc; border-radius: 6px; color: #17233c; background: #fff; font-weight: 400; }
+  input, textarea, select { width: 100%; min-width: 0; max-width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; font-weight: 400; }
   textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
-  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #3e53c4; }
+  input:focus, textarea:focus, select:focus { outline: 3px solid rgba(0,125,112,.16); border-color: #007d70; }
   .primary, .secondary { min-height: 38px; border-radius: 6px; padding: 0 14px; font-weight: 700; font-size: 14px; }
-  .primary { border: 1px solid #3e53c4; background: #3e53c4; color: #fff; }
-  .primary:hover { background: #3043ab; }
-  .secondary { border: 1px solid #bec9dc; background: #fff; color: #17233c; }
+  .primary { border: 1px solid #007d70; background: #007d70; color: #fff; }
+  .primary:hover { background: #00695e; }
+  .secondary { border: 1px solid #bbc4bc; background: #fff; color: #1f2923; }
   .secondary:hover { background: #f1f4ef; }
   .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
   .error { color: #b42318; background: #fff2f0; }
@@ -1731,7 +1793,7 @@
   .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
   .workspace-actions { display: flex; flex-wrap: wrap; max-width: 100%; align-items: end; gap: 10px; }
   .sign-out { white-space: nowrap; }
-  .eyebrow { margin-bottom: 7px; color: #3e53c4; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+  .eyebrow { margin-bottom: 7px; color: #007d70; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
   .tenant-picker { min-width: 220px; }
   .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: #eefbf5; border: 1px solid #b9e9d0; border-radius: 8px; }
   .operator-panel h2 { margin-bottom: 8px; font-size: 18px; }
@@ -1740,7 +1802,7 @@
   .team-form, .account-control-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 20px; border-bottom: 1px solid #e2e7ee; }
   .account-control-form { grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(130px, .6fr) auto; background: #fbfcfa; }
   .account-active { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 8px; white-space: nowrap; }
-  .account-active input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
+  .account-active input { width: 16px; min-height: 16px; accent-color: #007d70; }
   .account-list { display: grid; }
   .account-row { display: grid; grid-template-columns: minmax(0, 1fr) 160px 90px; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #edf0f4; color: #526172; font-size: 13px; }
   .account-row strong { color: #172033; overflow-wrap: anywhere; }
@@ -1761,34 +1823,34 @@
   .allowlist { padding: 20px 0 0; }
   .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
   .allowlist p { margin-bottom: 0; color: #667085; font-size: 13px; }
-  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #3e53c4; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
+  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid #007d70; background: #f5faf7; color: #344054; font-size: 12px; overflow-wrap: anywhere; }
   .workspace-section { scroll-margin-top: 18px; }
   .pipeline-head { background: #fcfdfb; }
   .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid #e4e8e1; }
   .metric-grid > div { display: grid; gap: 6px; min-height: 116px; align-content: center; padding: 20px; }
   .metric-grid > div + div { border-left: 1px solid #e4e8e1; }
-  .metric-grid span, .lead-row span, .lead-row time { color: #5e6b82; font-size: 12px; }
-  .metric-grid strong { color: #17233c; font-size: 31px; line-height: 1; }
+  .metric-grid span, .lead-row span, .lead-row time { color: #67706b; font-size: 12px; }
+  .metric-grid strong { color: #1f2923; font-size: 31px; line-height: 1; }
   .metric-grid small { color: #8a938d; font-size: 11px; font-weight: 600; }
   .funnel-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 14px 20px; background: #f1f5f0; border-bottom: 1px solid #e4e8e1; }
   .funnel-strip > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 12px; }
   .funnel-strip > div + div { border-left: 1px solid #d8dfd8; }
-  .funnel-strip span { color: #5e6b82; font-size: 12px; }
-  .funnel-strip strong { color: #17233c; font-size: 17px; }
+  .funnel-strip span { color: #67706b; font-size: 12px; }
+  .funnel-strip strong { color: #1f2923; font-size: 17px; }
   .activity-details { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(260px, .9fr); }
   .activity-list { min-width: 0; padding: 20px; }
   .activity-list + .activity-list { border-left: 1px solid #e4e8e1; }
   .list-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .list-heading h3 { margin: 0; color: #17233c; font-size: 14px; }
+  .list-heading h3 { margin: 0; color: #1f2923; font-size: 14px; }
   .list-heading span { color: #8a938d; font-size: 11px; font-weight: 700; }
   .lead-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #edf0eb; }
   .lead-row > div { display: grid; gap: 4px; min-width: 0; }
   .lead-row > div:last-child { text-align: right; }
   .lead-row select { min-width: 116px; min-height: 32px; font-size: 12px; }
-  .lead-row strong { color: #17233c; font-size: 13px; overflow-wrap: anywhere; }
+  .lead-row strong { color: #1f2923; font-size: 13px; overflow-wrap: anywhere; }
   .intent-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #edf0eb; color: #4e5b52; font-size: 13px; text-transform: capitalize; }
-  .intent-row strong { color: #17233c; }
-  .activity-status { margin: 0; padding: 0 20px 20px; color: #5e6b82; font-size: 13px; }
+  .intent-row strong { color: #1f2923; }
+  .activity-status { margin: 0; padding: 0 20px 20px; color: #67706b; font-size: 13px; }
   .count-label { padding: 5px 8px; color: #526172; background: #f2f4f7; border: 1px solid #d8dee8; border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
   .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e2e7ee; }
   .catalog-toolbar label { max-width: 112px; }
@@ -1801,12 +1863,12 @@
   .product-table-head { color: #667085; background: #f8fafc; border-bottom: 1px solid #e2e7ee; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
   .product-row input { min-width: 0; }
   .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
-  .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
+  .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: #007d70; }
   .icon-button { min-height: 34px; padding: 0 8px; border: 1px solid #b9c3d2; border-radius: 6px; background: #fff; color: #526172; font-size: 12px; font-weight: 700; }
   .icon-button:hover { background: #f8fafc; }
   .icon-button.danger { color: #b42318; border-color: #f0b5af; }
   .icon-button.danger:hover { background: #fff2f0; }
-  .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #3043ab; background: transparent; font-size: 13px; font-weight: 800; }
+  .add-row { min-height: 34px; margin-top: 12px; padding: 0; border: 0; color: #00695e; background: transparent; font-size: 13px; font-weight: 800; }
   .add-row:hover { color: #065f3c; text-decoration: underline; }
   .section-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
   .section-footer .form-status { max-width: 68ch; }
@@ -1822,7 +1884,7 @@
   .offer-heading h3 { margin: 0; font-size: 16px; }
   .offer-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   .offer-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; align-self: end; min-height: 40px; gap: 7px; color: #344054; font-size: 12px; white-space: nowrap; }
-  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #3e53c4; }
+  .offer-toggle input { width: 16px; min-height: 16px; accent-color: #007d70; }
   .surface-body { padding: 20px; }
   .surface-body > :last-child { margin-bottom: 0; }
   .surface-body > .empty-state { padding: 0; }
@@ -1956,59 +2018,59 @@
   .widget-stage > a { font-size:13px; }
   @media (max-width:900px) { .widget-studio-grid { grid-template-columns:1fr; } .widget-stage { position:static; } }
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
-  .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:#f3f5fa}
-  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:64px clamp(32px,6vw,100px);background:radial-gradient(ellipse at 20% 0%,#314287,transparent 65%),#111b35;color:#fff;min-width:0}
+  .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:#f7f7f2}
+  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:64px clamp(32px,6vw,100px);background:radial-gradient(ellipse at 20% 0%,#355747,transparent 65%),#252c27;color:#fff;min-width:0}
   .login-brand {display:flex;align-items:center;gap:16px;margin-bottom:64px;text-decoration:none;color:white;font-size:24px;font-weight:700;letter-spacing:-.04em}
-  .login-brand span {font-size:13px;letter-spacing:.08em;color:#bbc8ff;border:1px solid #7888c7;border-radius:8px;padding:8px}
-  .login-intro .eyebrow {color:#b5c2f3;margin-bottom:20px}
+  .login-brand span {font-size:13px;letter-spacing:.08em;color:#7ee0c6;border:1px solid #527060;border-radius:8px;padding:8px}
+  .login-intro .eyebrow {color:#d6f58a;margin-bottom:20px}
   .login-intro h2 {font-size:clamp(32px,3.5vw,50px);line-height:1.15;letter-spacing:-.035em;max-width:520px;margin-bottom:24px;color:#fff}
-  .login-intro p:not(.eyebrow) {font-size:16px;line-height:1.7;color:#c4cce4;max-width:480px}
-  .login-intro > a:last-child {font-size:13px;color:#c4cce4;margin-top:32px}
+  .login-intro p:not(.eyebrow) {font-size:16px;line-height:1.7;color:#c0cec3;max-width:480px}
+  .login-intro > a:last-child {font-size:13px;color:#c0cec3;margin-top:32px}
   .intro-features {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;font-size:12px}
-  .intro-features span {padding:9px 12px;border:1px solid #475579;border-radius:99px}
+  .intro-features span {padding:9px 12px;border:1px solid #527060;border-radius:99px}
   .login-content {width:100%;max-width:620px;justify-self:center;align-self:center;padding:36px clamp(24px,5vw,64px)}
   .login-tools {display:flex;justify-content:flex-end;margin-bottom:20px}
-  .login {width:100%;padding:32px;border-color:#dce2ed;border-radius:20px;box-shadow:0 16px 60px #17233c0a;gap:16px}
+  .login {width:100%;padding:32px;border-color:#d9ddd7;border-radius:20px;box-shadow:0 16px 60px #1f29230a;gap:16px}
   .login h1 {font-size:27px;line-height:1.25;letter-spacing:-.025em;margin-bottom:0}
-  .login p {font-size:13px;margin-bottom:0;line-height:1.6;color:#5e6b82}
-  .product-mark {background:#3e53c4;border-radius:12px;width:44px;height:44px}
+  .login p {font-size:13px;margin-bottom:0;line-height:1.6;color:#67706b}
+  .product-mark {background:#007d70;border-radius:12px;width:44px;height:44px}
   .password-field {display:flex;position:relative}
   .password-field input {padding-inline-end:124px}
-  .password-field button {position:absolute;inset-inline-end:6px;top:6px;bottom:6px;min-height:30px;padding:4px 8px;border:0;border-radius:6px;background:#f1f3fa;color:#3d4f9a;font-size:11px;max-width:118px}
+  .password-field button {position:absolute;inset-inline-end:6px;top:6px;bottom:6px;min-height:30px;padding:4px 8px;border:0;border-radius:6px;background:#f1f4ef;color:#007d70;font-size:11px;max-width:118px}
   .remember-choice {display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.5;font-weight:600}
   .remember-choice input {width:17px;min-height:17px;margin:2px 0 0;flex-shrink:0}
-  .remember-choice span {color:#17233c}
-  .remember-choice small {display:block;margin-top:4px;font-size:11px;font-weight:400;color:#5e6b82}
-  .provider-divider {display:flex;align-items:center;gap:10px;font-size:11px;color:#5e6b82;margin:2px 0}
-  .provider-divider::before,.provider-divider::after {content:'';height:1px;flex:1;background:#dce2ed}
+  .remember-choice span {color:#1f2923}
+  .remember-choice small {display:block;margin-top:4px;font-size:11px;font-weight:400;color:#67706b}
+  .provider-divider {display:flex;align-items:center;gap:10px;font-size:11px;color:#67706b;margin:2px 0}
+  .provider-divider::before,.provider-divider::after {content:'';height:1px;flex:1;background:#d9ddd7}
   .provider-buttons {display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .login .provider-help,.login .login-policy {font-size:11px;line-height:1.5}
-  .login-policy a {color:#3e53c4}
+  .login-policy a {color:#007d70}
   .app-shell {grid-template-columns:250px minmax(0,1fr)}
-  .sidebar {background:#111b35;padding:28px 16px;gap:20px}
-  .side-brand {border-color:#33405d;padding-bottom:22px}
-  .side-brand span {color:#b7c4ff;letter-spacing:.15em}
-  .side-brand small {color:#adb9d5}
-  nav a {border-radius:9px;padding:11px 12px;color:#c3cce2}
-  nav a:hover {background:#253251;color:white}
-  nav a.active {background:#344789;color:white}
-  .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f3f5fa;min-width:0}
-  .workspace-head {padding-bottom:24px;border-bottom:1px solid #dce2ed;margin-bottom:24px}
-  .workspace-head h1 {font-size:28px;line-height:1.25;letter-spacing:-.03em;color:#17233c}
-  .workspace-head .eyebrow {color:#5e6b82;letter-spacing:.1em}
+  .sidebar {background:#252c27;padding:28px 16px;gap:20px}
+  .side-brand {border-color:#3d4940;padding-bottom:22px}
+  .side-brand span {color:#7ee0c6;letter-spacing:.15em}
+  .side-brand small {color:#acb8ae}
+  nav a {border-radius:9px;padding:11px 12px;color:#c9d2cb}
+  nav a:hover {background:#3b4940;color:white}
+  nav a.active {background:#3b4940;color:white}
+  .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f7f7f2;min-width:0}
+  .workspace-head {padding-bottom:24px;border-bottom:1px solid #d9ddd7;margin-bottom:24px}
+  .workspace-head h1 {font-size:28px;line-height:1.25;letter-spacing:-.03em;color:#1f2923}
+  .workspace-head .eyebrow {color:#67706b;letter-spacing:.1em}
   .workspace-actions {flex-wrap:wrap;justify-content:flex-end}
-  .surface {border-color:#dce2ed;border-radius:16px;box-shadow:0 4px 18px #17233c03}
+  .surface {border-color:#d9ddd7;border-radius:16px;box-shadow:0 4px 18px #1f292303}
   .surface-head {background:#fff;padding:22px;border-color:#e5e9f2}
-  .surface-head h2 {color:#17233c;font-size:20px;letter-spacing:-.02em}
-  .primary {background:#3e53c4;border-color:#3e53c4;min-height:44px;border-radius:9px}
-  .primary:hover {background:#3043ab}
-  .secondary {color:#17233c;border-color:#bec9dc;min-height:44px;border-radius:9px}
-  .secondary:hover {background:#f3f5fc}
-  input,textarea,select {color:#17233c;border-color:#bec9dc;border-radius:8px;min-height:44px}
-  input:focus,textarea:focus,select:focus {border-color:#3e53c4;outline-color:#d5dbff}
-  .notice {background:#eaf0ff;color:#293d7a;border:1px solid #ced8f2;padding:12px;border-radius:10px}
+  .surface-head h2 {color:#1f2923;font-size:20px;letter-spacing:-.02em}
+  .primary {background:#007d70;border-color:#007d70;min-height:44px;border-radius:9px}
+  .primary:hover {background:#00695e}
+  .secondary {color:#1f2923;border-color:#bbc4bc;min-height:44px;border-radius:9px}
+  .secondary:hover {background:#f1f4ef}
+  input,textarea,select {color:#1f2923;border-color:#bbc4bc;border-radius:8px;min-height:44px}
+  input:focus,textarea:focus,select:focus {border-color:#007d70;outline-color:#8bcdc0}
+  .notice {background:#e7f5ef;color:#203b30;border:1px solid #c0dfd3;padding:12px;border-radius:10px}
   .notice.error {background:#fff2f0;color:#a61b2b;border-color:#f1c5c6}
-  :global(body) {background:#f3f5fa}
+  :global(body) {background:#f7f7f2}
   @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
   @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;overflow:visible;padding:18px 16px}.workspace{padding:24px 16px 40px}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;gap:12px}.login{padding:24px}.login-intro h2{font-size:30px}}
 </style>

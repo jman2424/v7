@@ -28,5 +28,5 @@
   <button disabled={busy} on:click={refresh}>Refresh requests</button>
 </section>
 <style>
-  section{padding:24px}article{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 0;border-bottom:1px solid #dce2ed}strong{overflow-wrap:anywhere}p{line-height:1.6;color:#5e6b82}button{font:inherit;padding:10px 14px;border:1px solid #bec9dc;border-radius:6px;background:white;color:#20332a;cursor:pointer;min-height:44px}button:disabled{opacity:.6}button:focus-visible{outline:3px solid #008879;outline-offset:3px}
+  section{padding:24px}article{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 0;border-bottom:1px solid #d9ddd7}strong{overflow-wrap:anywhere}p{line-height:1.6;color:#67706b}button{font:inherit;padding:10px 14px;border:1px solid #bbc4bc;border-radius:6px;background:white;color:#20332a;cursor:pointer;min-height:44px}button:disabled{opacity:.6}button:focus-visible{outline:3px solid #008879;outline-offset:3px}
 </style>
