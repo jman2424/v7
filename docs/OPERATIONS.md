@@ -177,11 +177,15 @@ were logged with query strings, inspect protected old logs and rotate
 ## Dependency and CI security
 
 Runtime pins include patched PyJWT 2.15.0 and oauthlib 4.0.0; the development
-formatter is pinned to Black 26.3.1. Maintainer advisories document the fixes:
+formatter is pinned to Black 26.3.1. The canonical requirements also pin setuptools
+83.0.0, replacing vulnerable preinstalled packaging tooling in CI, Docker and
+native installers. Maintainer advisories document the fixes:
 [PyJWT payload recursion](https://github.com/jpadilla/pyjwt/security/advisories/GHSA-42vr-xj54-vc7v),
 [OAuthlib PKCE timing](https://github.com/oauthlib/oauthlib/security/advisories/GHSA-xpv3-w29h-x7cv),
 [Black cache path validation](https://github.com/psf/black/security/advisories/GHSA-3936-cmfr-pm3m),
 [Black action version input](https://github.com/psf/black/security/advisories/GHSA-v53h-f6m7-xcgm).
+[Setuptools release history](https://setuptools.pypa.io/en/latest/history.html#v83-0-0)
+documents the source-distribution exclusion fix for PYSEC-2026-3447.
 `requirement.txt` is a compatibility alias for the canonical `requirements.txt`.
 
 Security CI audits resolved Python runtime/development dependencies and the

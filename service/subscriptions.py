@@ -79,8 +79,13 @@ def configured():
 
 def _safe_url(value, host):
     from urllib.parse import urlsplit
-    parsed = urlsplit(value or '')
-    return value if parsed.scheme == 'https' and parsed.hostname == host and not parsed.username else None
+    try:
+        parsed = urlsplit(value or '')
+        return value if parsed.scheme == 'https' and parsed.hostname == host and not parsed.username else None
+    except ValueError:
+        # Invalid provider netlocs can appear in parser messages. Preserve the
+        # existing rejected-URL result instead of passing those details onward.
+        return None
 
 
 def _contract(tenant, kind):

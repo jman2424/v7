@@ -38,7 +38,7 @@ class AccountService:
         password = str(payload.get("password") or "")
         roles = self._roles(payload.get("roles"))
 
-        if not _EMAIL_RE.fullmatch(email) or len(email) > 254:
+        if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
             raise ValueError("invalid_account_email")
         if len(password) < 12 or len(password) > 256:
             raise ValueError("password_must_be_at_least_12_characters")

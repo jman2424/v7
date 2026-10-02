@@ -71,6 +71,24 @@ def _get(url: str, *, headers: dict[str, str] | None = None,
         raise AudioMediaError("media_unavailable") from exc
 
 
+def _media_url(value: object, hosts: set[str], *, allow_query: bool = False):
+    # Reject characters URL parsers remove or reinterpret before applying the
+    # provider allowlist; the exact checked URL reaches the HTTP client.
+    if (not isinstance(value, str) or "\\" in value
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)):
+        raise AudioMediaError("invalid_media_url")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise AudioMediaError("invalid_media_url") from None
+    if (parsed.scheme != "https" or parsed.hostname not in hosts or port is not None
+            or parsed.username or parsed.password or parsed.fragment
+            or (parsed.query and not allow_query)):
+        raise AudioMediaError("invalid_media_url")
+    return parsed
+
+
 def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
     audio = event.get("audio") or {}
     media_id = audio.get("id")
@@ -81,9 +99,11 @@ def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
         raise AudioMediaError("invalid_phone_id")
     if not settings.WHATSAPP_TOKEN:
         raise AudioMediaError("media_not_configured")
-    base = settings.WHATSAPP_API_URL.rstrip("/")
-    if not valid_meta_api_url(base, media=True):
+    base = settings.WHATSAPP_API_URL
+    if (not valid_meta_api_url(base, media=True) or "\\" in base
+            or any(char.isspace() for char in base)):
         raise AudioMediaError("invalid_media_api")
+    base = base.rstrip("/")
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
     metadata_bytes = _get(f"{base}/{media_id}?phone_number_id={phone_id}",
                           headers=headers, limit=16 * 1024)
@@ -100,13 +120,7 @@ def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
     if audio.get("mime_type") and _mime(audio["mime_type"]) != mime:
         raise AudioMediaError("audio_type_mismatch")
     url = metadata.get("url")
-    if not isinstance(url, str):
-        raise AudioMediaError("invalid_media_url")
-    parsed_url = urlsplit(url)
-    if (parsed_url.scheme != "https" or parsed_url.hostname not in
-            {"lookaside.fbsbx.com", "graph.facebook.com"} or parsed_url.port or
-            parsed_url.username or parsed_url.password):
-        raise AudioMediaError("invalid_media_url")
+    _media_url(url, {"lookaside.fbsbx.com", "graph.facebook.com"}, allow_query=True)
     data = _get(url, headers=headers)
     if len(data) != size:
         raise AudioMediaError("media_size_mismatch")
@@ -117,13 +131,9 @@ def _twilio(event: dict, settings: Settings) -> tuple[bytes, str]:
     audio = event.get("audio") or {}
     mime = _mime(audio.get("mime_type"))
     url = audio.get("url")
-    if not isinstance(url, str):
-        raise AudioMediaError("invalid_media_url")
-    parsed = urlsplit(url)
+    parsed = _media_url(url, {"api.twilio.com"})
     match = _TWILIO_PATH.fullmatch(parsed.path)
-    if (parsed.scheme != "https" or parsed.hostname != "api.twilio.com" or
-            parsed.port or parsed.username or parsed.password or parsed.query or
-            parsed.fragment or not match):
+    if not match:
         raise AudioMediaError("invalid_media_url")
     account_sid, message_sid, _ = match.groups()
     if (account_sid != audio.get("account_sid") or

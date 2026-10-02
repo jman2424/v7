@@ -47,3 +47,7 @@ pytest==9.0.3
 # --- Optional: YAML support for schemas/openapi.yaml ---
 pyyaml==6.0.1
 bcrypt==4.2.0
+
+# --- Packaging tooling security (production and CI installers) ---
+# PYSEC-2026-3447: keep preinstalled tooling from bypassing sdist exclusions.
+setuptools==83.0.0

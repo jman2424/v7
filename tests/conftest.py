@@ -16,7 +16,6 @@ from typing import Dict, Any
 import pytest
 from flask.testing import FlaskClient
 from werkzeug.security import generate_password_hash
-from tests.pg_runtime_fixtures import native_database, pg_runtime
 
 
 class CsrfClient(FlaskClient):
@@ -67,6 +66,7 @@ if str(ROOT) not in sys.path:
 
 from app import create_app  # type: ignore
 from retrieval.storage import Storage  # type: ignore
+from tests.pg_runtime_fixtures import native_database, pg_runtime
 
 # ---------------------------------------------------------------------------
 # Pytest Hooks

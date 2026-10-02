@@ -1,4 +1,5 @@
 from __future__ import annotations
+from unittest.mock import Mock
 import pytest
 
 from service.account_service import ACCOUNT_FILE, AccountService
@@ -203,6 +204,21 @@ def test_managed_account_email_validation_matches_signup(app, email):
     with pytest.raises(ValueError, match='invalid_account_email'):
         service.create_account('EXAMPLE', {'email': email, 'password': 'Account-test-password-123',
                                           'roles': ['business_staff']})
+    assert service.list_accounts('EXAMPLE') == []
+
+
+@pytest.mark.parametrize('email', ['!' * 8192, 'owner@' + '-.' * 8192 + '!'])
+def test_oversized_account_email_is_rejected_before_regex_evaluation(app, monkeypatch, email):
+    from service import account_service
+
+    regex = Mock()
+    regex.fullmatch.side_effect = AssertionError('Oversized account email reached regex evaluation')
+    monkeypatch.setattr(account_service, '_EMAIL_RE', regex)
+    service = AccountService(app.container.storage)
+    with pytest.raises(ValueError, match='invalid_account_email'):
+        service.create_account('EXAMPLE', {'email': email, 'password': 'Account-test-password-123',
+                                          'roles': ['business_staff']})
+    regex.fullmatch.assert_not_called()
     assert service.list_accounts('EXAMPLE') == []
 
 
