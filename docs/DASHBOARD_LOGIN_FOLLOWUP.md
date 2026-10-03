@@ -63,6 +63,9 @@ The local full suite passed with 1,318 passed and 35 skipped. The skips require 
 disposable PostgreSQL database (32), OS symlink permission (2), or a case-sensitive
 filesystem (1). Final loading changes were checked separately: 58 login/workspace
 scenarios passed, followed by all 13 workspace scenarios after the last role update.
+All four login compatibility scenarios also passed after changing the registry
+fixture to exercise server-side MFA enrollment without writing a generated MFA
+seed into the registry file.
 Ruff passed; Svelte check reported zero errors and warnings; the production build
 passed. The final repository contains 1,356 collected tests. CI results for the
 published commit are recorded in the separate verification report.

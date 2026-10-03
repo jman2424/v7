@@ -14,9 +14,9 @@ from service.security import generate_totp_secret, generate_totp_token
 def test_existing_bcrypt_operator_can_sign_in_with_mfa_over_https(client, monkeypatch, source):
     app = client.application
     app.container.settings = replace(app.container.settings, BASE_URL='https://console.example.test')
-    secret = generate_totp_secret()
     hashed = bcrypt.hashpw(b'Existing-test-password-123', bcrypt.gensalt()).decode()
     if source == 'environment':
+        secret = generate_totp_secret()
         identifier = 'legacy-admin'
         monkeypatch.setenv('ADMIN_USERNAME', identifier)
         monkeypatch.setenv('ADMIN_PASSWORD_HASH', hashed)
@@ -25,7 +25,6 @@ def test_existing_bcrypt_operator_can_sign_in_with_mfa_over_https(client, monkey
         identifier = 'legacy-operator@example.test'
         Path(os.environ['ADMIN_USERS_FILE']).write_text(json.dumps({'users': [{
             'email': identifier, 'role': 'platform_admin', 'password_hash': hashed,
-            'totp_secret': secret,
         }]}), encoding='utf-8')
     rejected = client.post('/auth/login', json={
         'email': identifier, 'password': 'Wrong-test-password-123', 'tenant': 'EXAMPLE',
@@ -36,6 +35,9 @@ def test_existing_bcrypt_operator_can_sign_in_with_mfa_over_https(client, monkey
         'email': identifier, 'password': 'Existing-test-password-123', 'tenant': 'EXAMPLE',
     })
     assert response.status_code == 202
+    if source == 'registry':
+        assert response.json['mfa']['enrollment'] is True
+        secret = response.json['mfa']['setup_key']
     assert client.get('/admin/api/platform').status_code == 401
     verified = client.post('/auth/mfa/confirm', json={'code': generate_totp_token(secret)})
     assert verified.status_code == 200
