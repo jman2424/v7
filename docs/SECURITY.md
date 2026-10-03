@@ -17,7 +17,11 @@ Public registration requires email verification; tenant join requests additional
 require owner approval. See [Registration](REGISTRATION.md) for mail setup.
 Account creation and sign-in accept email addresses up to 254 characters;
 managed-account creation validates ASCII mailbox syntax. New and reset managed
-passwords use scrypt. Existing bcrypt hashes remain supported for sign-in.
+passwords use scrypt. Existing bcrypt hashes remain supported for sign-in,
+including `ADMIN_PASSWORD_HASH` and the protected operator registry. The console
+accepts existing usernames as well as email addresses; public signup still requires
+an email address. The anonymous session response supplies the configured default
+company key, while a valid company key in a sign-in link takes precedence.
 
 Staff have no API cost or subscription access by default. Owners grant the
 independent `view_costs` and `view_subscriptions` permissions through Team access.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
   import PlatformOverview from './PlatformOverview.svelte';
@@ -26,6 +26,14 @@
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
+  const navigationGroups: { id: string; label: string; keys: string[] }[] = [
+    { id: 'businesses', label: 'Businesses', keys: ['platform', 'companies'] },
+    { id: 'activity', label: 'Sales activity', keys: ['pipeline', 'statistics', 'conversations', 'errors'] },
+    { id: 'setup', label: 'Agent and channels', keys: ['test', 'agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
+    { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
+    { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'usage'] },
+    { id: 'account', label: 'Account and access', keys: ['team', 'account', 'privacy'] }
+  ];
 
 
   type User = {
@@ -261,8 +269,18 @@
   let mfa: {enrollment:boolean;email:string;setup_key?:string;qr_image?:string}|null = null;
   let loginError = '';
   let workspaceError = '';
+  let tenantDirectoryError = '';
+  let tenantDirectoryBusy = false;
+  let tenantDirectorySequence = 0;
+  let workspaceBusy = false;
   let workspaceGeneration = 0;
   type WorkspaceRequest = { generation: number; identity: User | null };
+  type WorkspaceResource = 'activation' | 'widget' | 'catalog' | 'faq' | 'offers' | 'delivery' | 'profile' | 'branches' | 'agent-settings' | 'accounts' | 'insights';
+  const workspaceControllers = new Set<AbortController>();
+  const loadedWorkspaceResources = new Set<WorkspaceResource>();
+  const pendingWorkspaceResources = new Map<WorkspaceResource, Promise<void>>();
+  let workspaceLoadSequence = 0;
+  let requestedWorkspaceSection = '';
   let signingIn = false;
   let formStatus = '';
   let formError = false;
@@ -305,9 +323,6 @@
   const leadStatuses: LeadStatus[] = ['Open', 'Contacted', 'Qualified', 'Won', 'Lost'];
 
   $: isPlatform = Boolean(user?.roles?.some((role) => role === 'platform_admin' || role === 'admin'));
-  $: navigationSections = isPlatform
-    ? [['platform','Platform overview'], ['companies','Companies'], ['subscription','Subscriptions'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','subscription','usage'].includes(key))]
-    : Object.entries(sections).filter(([key])=>key!=='platform');
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
   $: canViewCosts = Boolean(user?.permissions?.includes('view_costs'));
   $: canViewSubscriptions = Boolean(user?.permissions?.includes('view_subscriptions'));
@@ -318,6 +333,7 @@
   let activation:{active:boolean;status:string}|null=null;
   $: canManageAccounts = hasAccountManagementAccess() && Boolean(user?.permissions?.includes('users.read'));
   $: if (user) accountRole = isPlatform ? 'business_owner' : 'business_staff';
+  $: if (!loading && !signingIn && user && section !== requestedWorkspaceSection) void loadWorkspaceSection(section);
 
   function apiPath(path: string) {
     // The dev server proxies API requests. In production Flask serves this
@@ -327,6 +343,21 @@
 
   async function readJson(response: Response) {
     return response.json().catch(() => ({}));
+  }
+
+  async function requestJson(path: string, options: RequestInit = {}, activeLoad?: WorkspaceRequest) {
+    const controller = new AbortController();
+    workspaceControllers.add(controller);
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(apiPath(path), { ...options, signal: controller.signal });
+      const data = await response.json();
+      if (controller.signal.aborted) throw new Error('request_cancelled');
+      return { response, data };
+    } finally {
+      clearTimeout(timeout);
+      workspaceControllers.delete(controller);
+    }
   }
 
   function stringList(value: unknown) {
@@ -525,6 +556,16 @@
 
   function clearTenantWorkspace() {
     workspaceGeneration++;
+    workspaceLoadSequence++;
+    tenantDirectorySequence++;
+    tenantDirectoryBusy = false;
+    tenantDirectoryError = '';
+    for (const controller of workspaceControllers) controller.abort();
+    workspaceControllers.clear();
+    loadedWorkspaceResources.clear();
+    pendingWorkspaceResources.clear();
+    workspaceBusy = false;
+    requestedWorkspaceSection = section;
     activation = null;
     widget = { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
     catalog = normalizeCatalog({}); faqs = []; offers = [];
@@ -550,66 +591,113 @@
     return workspaceRequest();
   }
 
-  async function loadTenantWorkspace(selectedTenant = tenant, activeLoad = beginWorkspaceLoad()) {
-    const activationResponse = await fetch(apiPath('/admin/api/activation?tenant='+encodeURIComponent(selectedTenant)), {credentials:'same-origin'});
-    const activationData = activationResponse.ok ? await activationResponse.json() : null;
+  function initialWorkspaceSection() {
+    const next = new URLSearchParams(window.location.search).get('next');
+    if (next && mayOpenScreen(next)) return next;
+    if (user?.roles.some(role => role === 'platform_admin' || role === 'admin') && window.location.pathname.replace(/\/$/, '') === base) return defaultWorkspaceScreen();
+    return mayOpenScreen(section) ? section : defaultWorkspaceScreen();
+  }
+
+  function sectionResources(screen: string, identity: User | null): WorkspaceResource[] {
+    const resources: Partial<Record<string, WorkspaceResource[]>> = {
+      pipeline: ['insights'], team: ['accounts'], catalog: ['catalog', 'agent-settings'],
+      test: ['widget', 'profile'], website: ['widget'], integrations: ['widget'],
+      agent: ['agent-settings'], offers: ['offers'], faqs: ['faq'], delivery: ['delivery'],
+      profile: ['profile'], branches: ['branches']
+    };
+    const permissions: Partial<Record<WorkspaceResource, string>> = {
+      widget: 'business_settings.read', catalog: 'offerings.read', faq: 'business_settings.read',
+      offers: 'offers.read', delivery: 'business_settings.read', profile: 'business_settings.read',
+      branches: 'business_settings.read', 'agent-settings': 'business_settings.read',
+      accounts: 'users.read', insights: 'analytics.read'
+    };
+    return (resources[screen] || []).filter(resource =>
+      identity?.permissions?.includes(permissions[resource] || '') && (resource !== 'accounts' || hasAccountManagementAccess())
+    );
+  }
+
+  async function loadWorkspaceResource(resource: WorkspaceResource, selectedTenant: string, activeLoad: WorkspaceRequest) {
+    if (!isCurrentWorkspace(activeLoad) || loadedWorkspaceResources.has(resource)) return;
+    const pending = pendingWorkspaceResources.get(resource);
+    if (pending) return pending;
+    const request = (async () => {
+      if (resource === 'accounts') { if (!await loadAccounts(selectedTenant, activeLoad)) throw new Error('accounts_unavailable'); }
+      else if (resource === 'insights') { if (!await loadInsights(selectedTenant, activeLoad)) throw new Error('insights_unavailable'); }
+      else {
+        const { response, data } = await requestJson(`/admin/api/${resource}?tenant=${encodeURIComponent(selectedTenant)}`, {
+          headers: { Accept: 'application/json' }, credentials: 'same-origin'
+        }, activeLoad);
+        if (!isCurrentWorkspace(activeLoad)) return;
+        if (!response.ok) throw new Error('workspace_unavailable');
+        switch (resource) {
+          case 'activation': activation = data; break;
+          case 'widget':
+            widget = data.widget || { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
+            originText = (widget.allowed_origins || []).join('\n'); snippet = data.embed?.snippet || ''; break;
+          case 'catalog': catalog = normalizeCatalog(data); break;
+          case 'faq': faqs = normalizeFaqs(data); break;
+          case 'offers': offers = normalizeOffers(data); break;
+          case 'delivery': delivery = normalizeDelivery(data); break;
+          case 'profile': profile = normalizeProfile(data); break;
+          case 'branches': branches = normalizeBranches(data); break;
+          case 'agent-settings': agentSettings = normalizeAgentSettings(data); break;
+        }
+      }
+      if (isCurrentWorkspace(activeLoad)) loadedWorkspaceResources.add(resource);
+    })();
+    pendingWorkspaceResources.set(resource, request);
+    try { await request; }
+    finally { if (pendingWorkspaceResources.get(resource) === request) pendingWorkspaceResources.delete(resource); }
+  }
+
+  async function loadTenantWorkspace(selectedTenant = tenant, activeLoad = beginWorkspaceLoad(), screen = initialWorkspaceSection()) {
     if (!isCurrentWorkspace(activeLoad)) return;
-    activation = activationData;
-    const encodedTenant = encodeURIComponent(selectedTenant);
-    const requests = [
-      ['widget', 'business_settings.read'], ['catalog', 'offerings.read'],
-      ['faq', 'business_settings.read'], ['offers', 'offers.read'],
-      ['delivery', 'business_settings.read'], ['profile', 'business_settings.read'],
-      ['branches', 'business_settings.read'], ['agent-settings', 'business_settings.read']
-    ];
-    const responses = await Promise.all(requests.map(([path, permission]) =>
-      activeLoad.identity?.permissions?.includes(permission)
-        ? fetch(apiPath(`/admin/api/${path}?tenant=${encodedTenant}`), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
-        : Promise.resolve(null)
-    ));
-    const [widgetPayload, catalogData, faqData, offersData, deliveryData, profileData, branchesData, agentData] = await Promise.all(responses.map(response => response ? readJson(response) : {}));
-    if (!isCurrentWorkspace(activeLoad)) return;
-    const widgetData = widgetPayload as { tenant?: string; widget?: Widget; embed?: { snippet?: string } };
-    if (responses.some((response) => response && !response.ok)) {
-      throw new Error('Could not load this tenant workspace.');
-    }
-    tenant = widgetData.tenant || selectedTenant;
-    widget = widgetData.widget || { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
-    originText = (widget.allowed_origins || []).join('\n');
-    snippet = widgetData.embed?.snippet || '';
-    catalog = normalizeCatalog(catalogData);
-    faqs = normalizeFaqs(faqData);
-    offers = normalizeOffers(offersData);
-    delivery = normalizeDelivery(deliveryData);
-    profile = normalizeProfile(profileData);
-    branches = normalizeBranches(branchesData);
-    agentSettings = normalizeAgentSettings(agentData);
-    if (hasAccountManagementAccess() && user?.permissions?.includes('users.read')) await loadAccounts(selectedTenant, activeLoad);
-    else accounts = [];
-    if (!isCurrentWorkspace(activeLoad)) return;
-    if (user?.permissions?.includes('analytics.read')) await loadInsights(selectedTenant, activeLoad);
-    else { insights = normalizeInsights({}); activityStatus = ''; }
+    tenant = selectedTenant;
+    await Promise.all(['activation' as const, ...sectionResources(screen, activeLoad.identity)].map(resource => loadWorkspaceResource(resource, selectedTenant, activeLoad)));
+  }
+
+  async function loadWorkspaceSection(screen = section, activeLoad = workspaceRequest()) {
+    if (!isCurrentWorkspace(activeLoad) || !mayOpenScreen(screen)) return;
+    const sequence = ++workspaceLoadSequence;
+    requestedWorkspaceSection = screen;
+    workspaceBusy = true;
+    workspaceError = '';
+    try { await loadTenantWorkspace(tenant, activeLoad, screen); }
+    catch { if (isCurrentWorkspace(activeLoad) && sequence === workspaceLoadSequence) workspaceError = 'You are signed in, but this page could not load. Check your connection and try again.'; }
+    finally { if (isCurrentWorkspace(activeLoad) && sequence === workspaceLoadSequence) workspaceBusy = false; }
+  }
+
+  async function retryWorkspace() {
+    await loadWorkspaceSection(section);
   }
 
   async function loadSignedInWorkspace() {
     workspaceError = '';
     tenants = [];
     const activeLoad = beginWorkspaceLoad();
-    try {
-      await loadTenantWorkspace(tenant, activeLoad);
-      if (isCurrentWorkspace(activeLoad)) await loadTenants(activeLoad);
-    } catch {
-      if (isCurrentWorkspace(activeLoad)) workspaceError = 'You are signed in, but the workspace could not load. Refresh the page to try again.';
-    }
+    // Company navigation is independent of the current page and must not delay it.
+    void loadTenants(activeLoad);
+    await loadWorkspaceSection(initialWorkspaceSection(), activeLoad);
   }
 
   async function loadTenants(activeLoad = workspaceRequest()) {
-    tenants = [];
-    if (!isPlatform && !isOwner) return;
-    const response = await fetch(apiPath('/admin/api/tenants'), { credentials: 'same-origin' });
-    const data = await readJson(response);
     if (!isCurrentWorkspace(activeLoad)) return;
-    if (response.ok) tenants = data.tenants || [];
+    const sequence = ++tenantDirectorySequence;
+    tenantDirectoryError = '';
+    if (!hasAccountManagementAccess()) return;
+    tenantDirectoryBusy = true;
+    try {
+      const { response, data } = await requestJson('/admin/api/tenants', { credentials: 'same-origin' }, activeLoad);
+      if (!isCurrentWorkspace(activeLoad) || sequence !== tenantDirectorySequence) return;
+      if (!response.ok) throw new Error('company_list_unavailable');
+      tenants = data.tenants || [];
+    } catch {
+      if (isCurrentWorkspace(activeLoad) && sequence === tenantDirectorySequence) tenantDirectoryError = 'The company list could not load. Check your connection and try again.';
+    } finally { if (isCurrentWorkspace(activeLoad) && sequence === tenantDirectorySequence) tenantDirectoryBusy = false; }
+  }
+
+  async function retryTenantDirectory() {
+    if (!tenantDirectoryBusy) await loadTenants();
   }
 
   function hasAccountManagementAccess() {
@@ -654,10 +742,11 @@
   }
 
   async function loadAccounts(selectedTenant = tenant, activeLoad = workspaceRequest()) {
-    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`), { credentials: 'same-origin' });
-    const data = await readJson(response);
+    try {
+    const { response, data } = await requestJson(`/admin/api/accounts?tenant=${encodeURIComponent(selectedTenant)}`, { credentials: 'same-origin' }, activeLoad);
     if (!isCurrentWorkspace(activeLoad)) return;
     accounts = response.ok && Array.isArray(data.accounts) ? data.accounts : [];
+    if (!response.ok) { accountStatus = 'Team access could not load. Try refreshing.'; accountError = true; return false; }
     const selected = accounts.find((account) => account.id === selectedAccountId);
     const next = selected || accounts.find((account) => isPlatform || account.roles.includes('business_staff'));
     selectedAccountId = next?.id || '';
@@ -665,6 +754,15 @@
     selectedViewCosts = next?.permissions?.includes('view_costs') ?? false;
     selectedViewSubscriptions = next?.permissions?.includes('view_subscriptions') ?? false;
     selectedAccountPassword = '';
+    return true;
+    } catch {
+      if (isCurrentWorkspace(activeLoad)) {
+        accounts = []; selectedAccountId = '';
+        accountStatus = 'Team access could not load. Check your connection and try again.';
+        accountError = true;
+      }
+      return false;
+    }
   }
 
   function selectManagedAccount(accountId: string) {
@@ -679,15 +777,17 @@
   async function loadInsights(selectedTenant = tenant, activeLoad = workspaceRequest()) {
     insights = normalizeInsights({});
     activityStatus = 'Loading activity...';
-    const response = await fetch(apiPath(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`), { credentials: 'same-origin' });
-    const data = await readJson(response);
-    if (!isCurrentWorkspace(activeLoad)) return;
-    if (!response.ok) {
-      activityStatus = 'Sales activity is currently unavailable.';
-      return;
+    try {
+      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`, { credentials: 'same-origin' }, activeLoad);
+      if (!isCurrentWorkspace(activeLoad)) return;
+      if (!response.ok) { activityStatus = 'Sales activity is currently unavailable. Try refreshing.'; return false; }
+      insights = normalizeInsights(data);
+      activityStatus = '';
+      return true;
+    } catch {
+      if (isCurrentWorkspace(activeLoad)) activityStatus = 'Sales activity could not load. Check your connection and try refreshing.';
+      return false;
     }
-    insights = normalizeInsights(data);
-    activityStatus = '';
   }
 
   async function updateLeadStatus(leadId: string, status: LeadStatus) {
@@ -710,16 +810,18 @@
     const requestedTenant = new URLSearchParams(window.location.search).get('tenant');
     const validRequestedTenant = requestedTenant && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(requestedTenant) ? requestedTenant : null;
     if (validRequestedTenant) tenant = validRequestedTenant;
-    const response = await fetch(apiPath('/auth/session'), { credentials: 'same-origin' });
+    let sessionResult = await requestJson('/auth/session', { credentials: 'same-origin' });
+    if (sessionResult.response.status === 401) sessionResult = await requestJson('/auth/session', { credentials: 'same-origin' });
+    const { response, data } = sessionResult;
     if (!response.ok) {
       if (response.status === 401) return;
       throw new Error('session_unavailable');
     }
-    const data = await readJson(response);
     user = data.user;
     mfa = data.mfa || null;
     csrf = data.csrf_token || '';
-    tenant = validRequestedTenant || user?.tenant || tenant;
+    const configuredTenant = typeof data.login_tenant === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(data.login_tenant) ? data.login_tenant : null;
+    tenant = validRequestedTenant || user?.tenant || configuredTenant || tenant;
     if (user) {
       await loadSignedInWorkspace();
     }
@@ -749,25 +851,23 @@
     signingIn = true;
     loginError = '';
     try {
-      let sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      let session = await requestJson('/auth/session', {credentials:'same-origin'});
       // A revoked cookie is cleared by the first request. Get a fresh anonymous
       // CSRF token before submitting credentials, without retrying the login.
-      if (sessionResponse.status === 401) {
-        sessionResponse = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
+      if (session.response.status === 401) {
+        session = await requestJson('/auth/session', {credentials:'same-origin'});
       }
-      const sessionData = await readJson(sessionResponse);
-      csrf = sessionData.csrf_token || '';
-      if (!sessionResponse.ok || !csrf) {
+      csrf = session.data.csrf_token || '';
+      if (!session.response.ok || !csrf) {
         loginError = 'Could not start a secure sign-in session. Reload the page and allow cookies for this site.';
         return;
       }
-      const response = await fetch(apiPath('/auth/login'), {
+      const { response, data } = await requestJson('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         credentials: 'same-origin',
         body: JSON.stringify({ email, password, totp, tenant, remember_device: rememberDevice })
       });
-      const data = await readJson(response);
       if (response.status === 202 && data.mfa_required) {
         mfa = data.mfa; csrf = data.csrf_token; password = ''; totp = ''; return;
       }
@@ -792,8 +892,7 @@
     signingIn = true;
     loginError = '';
     try {
-      const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp,remember_device:rememberDevice})});
-      const data = await readJson(response);
+      const { response, data } = await requestJson('/auth/mfa/confirm', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp,remember_device:rememberDevice})});
       if (!response.ok) {
         loginError = signInFailure(response, data, 'authenticator');
         return;
@@ -809,7 +908,7 @@
     signingIn = true;
     loginError = '';
     try {
-      const response = await fetch(apiPath('/auth/logout'), {method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf}});
+      const { response } = await requestJson('/auth/logout', {method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':csrf}});
       if (!response.ok) throw new Error();
       mfa = null; totp = ''; password = ''; await restoreSession();
     } catch {loginError = 'Could not restart sign-in. Please try again.';}
@@ -832,9 +931,8 @@
 
   async function loadProviders() {
     try {
-      const response = await fetch(apiPath('/auth/oidc/providers'), {credentials:'same-origin'});
+      const { response, data } = await requestJson('/auth/oidc/providers', {credentials:'same-origin'});
       if (!response.ok) return;
-      const data = await readJson(response);
       providers = Array.isArray(data.providers) ? data.providers.filter((item: {id?:string}) => item.id === 'google' || item.id === 'microsoft') : [];
     } catch { providers = []; }
   }
@@ -843,13 +941,11 @@
     if (signingIn) return;
     signingIn = true; loginError = '';
     try {
-      let response = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
-      if (response.status === 401) response = await fetch(apiPath('/auth/session'), {credentials:'same-origin'});
-      const data = await readJson(response);
-      if (!response.ok || !data.csrf_token) throw new Error();
-      csrf = data.csrf_token;
-      response = await fetch(apiPath('/auth/oidc/'+provider+'/start'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({intent:'login',tenant})});
-      const start = await readJson(response);
+      let session = await requestJson('/auth/session', {credentials:'same-origin'});
+      if (session.response.status === 401) session = await requestJson('/auth/session', {credentials:'same-origin'});
+      if (!session.response.ok || !session.data.csrf_token) throw new Error();
+      csrf = session.data.csrf_token;
+      const { response, data: start } = await requestJson('/auth/oidc/'+provider+'/start', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({intent:'login',tenant})});
       if (!response.ok) {
         loginError = signInFailure(response, start, 'provider');
         signingIn = false;
@@ -871,15 +967,16 @@
   }
 
   async function logout() {
-    workspaceGeneration++;
-    const response = await fetch(apiPath('/auth/logout'), {
-      method: 'POST',
-      headers: { 'X-CSRF-Token': csrf },
-      credentials: 'same-origin'
-    });
-    if (!response.ok) {
+    clearTenantWorkspace();
+    try {
+      const { response } = await requestJson('/auth/logout', {
+        method: 'POST', headers: { 'X-CSRF-Token': csrf }, credentials: 'same-origin'
+      });
+      if (!response.ok) throw new Error('sign_out_unavailable');
+    } catch {
       formStatus = 'Could not sign out. Please refresh and try again.';
       formError = true;
+      workspaceError = 'Could not sign out. Refresh to reload your workspace before making changes.';
       return;
     }
     user = null;
@@ -1011,8 +1108,11 @@
     profileStatus = '';
     branchesStatus = '';
     agentStatus = '';
+    const directoryWasLoading = tenantDirectoryBusy;
     const activeLoad = beginWorkspaceLoad();
-    await loadTenantWorkspace(nextTenant, activeLoad);
+    tenant = nextTenant;
+    if (directoryWasLoading) void loadTenants(activeLoad);
+    await loadWorkspaceSection(section, activeLoad);
     if (!isCurrentWorkspace(activeLoad)) return;
     const url = new URL(window.location.href);
     url.searchParams.set('tenant', nextTenant);
@@ -1293,9 +1393,9 @@
     oidcNotice = notices[params.get('oidc') || ''] || '';
     params.delete('oidc'); params.delete('provider');
     window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params.toString():''));
+    void loadProviders();
     try {
       await restoreSession();
-      await loadProviders();
       await openDefaultWorkspace();
     } catch {
       loginError = 'Could not load your sign-in session. Check your connection, reload the page and try again.';
@@ -1303,6 +1403,7 @@
       loading = false;
     }
   });
+  onDestroy(() => { workspaceGeneration++; for (const controller of workspaceControllers) controller.abort(); });
 </script>
 
 <svelte:head>
@@ -1343,7 +1444,7 @@
       {:else}
       <p>{$t('Sign in to manage your business and customer conversations.')}</p>
       <label>{$t("Company key")}<input disabled={signingIn} bind:value={tenant} maxlength="64" autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
-      <label>{$t("Email")}<input disabled={signingIn} bind:value={email} type="email" maxlength="254" autocomplete="username" required /></label>
+      <label>{$t("Email or username")}<input disabled={signingIn} bind:value={email} type="text" maxlength="254" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
       <label>{$t('Password')}<span class="password-field"><input id="login-password" disabled={signingIn} bind:value={password} type={showPassword ? 'text' : 'password'} maxlength="1024" autocomplete="current-password" required /><button disabled={signingIn} type="button" aria-controls="login-password" aria-pressed={showPassword} on:click={() => showPassword = !showPassword}>{$t(showPassword ? 'Hide password' : 'Show password')}</button></span></label>
       {/if}
       <label class="remember-choice"><input type="checkbox" disabled={signingIn} bind:checked={rememberDevice}/><span>{$t('Remember this device for 30 days')}<small>{$t('Use only on your own device. You will still need your password or linked provider account.')}</small></span></label>
@@ -1367,11 +1468,16 @@
       <div class="side-brand"><span>V7</span><strong>{isPlatform ? 'Platform admin' : tenant}</strong><small>{isPlatform ? 'All-business management' : 'Sales agent workspace'}</small></div>
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
-        {#each navigationSections as [key,label]}
-          {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
-          {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
-          {#if mayOpenScreen(key)}
-            <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(label)}</a>
+        {#each navigationGroups as group}
+          {#if group.keys.some(mayOpenScreen)}
+            <div class="nav-section" role="group" aria-labelledby={`console-nav-${group.id}`}>
+              <h2 class="nav-group" id={`console-nav-${group.id}`}>{$t(isPlatform && group.id === 'businesses' ? 'Platform management' : group.label)}</h2>
+              {#each group.keys as key}
+                {#if mayOpenScreen(key)}
+                  <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(sections[key])}</a>
+                {/if}
+              {/each}
+            </div>
           {/if}
         {/each}
       </nav>
@@ -1392,8 +1498,18 @@
         </div>
       </header>
 
-      {#if workspaceError}<p class="notice error" role="alert">{workspaceError}</p>{/if}
+      {#if tenantDirectoryError}
+        <div class="workspace-retry notice error"><p role="alert">{tenantDirectoryError}</p><button class="secondary" type="button" disabled={tenantDirectoryBusy} on:click={retryTenantDirectory}>{$t(tenantDirectoryBusy ? 'Please wait…' : 'Retry company list')}</button></div>
+      {/if}
 
+      {#if workspaceBusy}
+        <div class="workspace-progress" role="status"><span class="loading-indicator" aria-hidden="true"></span><span>Loading {$t(pageTitle).toLowerCase()}…</span></div>
+      {:else if workspaceError}
+        <div class="workspace-retry notice error"><p role="alert">{workspaceError}</p><button class="secondary" type="button" on:click={retryWorkspace}>Try again</button></div>
+      {/if}
+
+      <fieldset class="workspace-content" disabled={workspaceBusy || Boolean(workspaceError)} aria-busy={workspaceBusy}>
+      <legend class="sr-only">{$t(pageTitle)}</legend>
       {#if activation && !activation.active}
         <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
       {/if}
@@ -1794,6 +1910,7 @@
         <ErrorsHealth {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
       {/if}
       {/if}
+      </fieldset>
     </main>
   </div>
 {/if}
@@ -1802,7 +1919,17 @@
 
 <style>
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
-  .nav-group{font-size:11px;font-weight:700;letter-spacing:.04em;color:#b8c8bd;padding:12px 12px 2px;grid-column:1/-1}
+  .nav-section { display:grid; gap:4px; min-width:0; }
+  .nav-group { margin:18px 12px 6px; font-size:10px; font-weight:750; letter-spacing:.11em; text-transform:uppercase; color:#b8c8bd; grid-column:1/-1; }
+  .nav-section:first-child .nav-group { margin-top:0; }
+  .workspace-content { min-width:0; padding:0; margin:0; border:0; }
+  .workspace-progress,.workspace-retry { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:20px; padding:14px 18px; border:1px solid var(--v7-line); border-radius:12px; }
+  .workspace-progress { justify-content:flex-start; color:var(--v7-brand); background:var(--v7-soft); font-size:13px; }
+  .workspace-retry p { margin:0; font-size:13px; line-height:1.6; }
+  .workspace-retry button { flex-shrink:0; }
+  .loading-indicator { width:16px; height:16px; flex-shrink:0; border:2px solid #c0dfd3; border-top-color:var(--v7-accent); border-radius:50%; animation:workspace-spin .8s linear infinite; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
+  @keyframes workspace-spin { to { transform:rotate(360deg); } }
   .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:#67706b}.company-scope small{font-size:12px;color:#67706b}
   .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid #d9ddd7;align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:#67706b;margin:0;line-height:1.5}
 
@@ -2101,7 +2228,7 @@
   .side-brand {border-color:#3d4940;padding-bottom:22px}
   .side-brand span {color:#7ee0c6;letter-spacing:.15em}
   .side-brand small {color:#acb8ae}
-  nav a {border-radius:10px;padding:11px 12px;color:#d9e4dc;min-height:44px;transition:background-color .15s}
+  nav a {border-radius:10px;padding:10px 12px;color:#d9e4dc;min-height:42px;transition:background-color .15s}
   nav a:hover {background:#ffffff14;color:white}
   nav a.active {background:var(--v7-lime);color:var(--v7-brand);font-weight:750}
   .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f7f7f2;min-width:0}
@@ -2153,4 +2280,5 @@
   @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
   @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;overflow:visible;padding:18px 16px}.workspace{padding:24px 16px 40px}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;gap:12px}.login{padding:24px}.login-intro h2{font-size:30px}}
   @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:20px}.metric-grid{padding:20px;gap:10px}.metric-grid>div{min-height:128px;padding:16px}.metric-grid strong{font-size:32px}.funnel-strip{margin:0 20px}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:20px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
+  @media(max-width:720px){nav.open{grid-template-columns:1fr}.nav-section{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.nav-group{margin:14px 8px 4px}.nav-section:first-child .nav-group{margin-top:6px}.nav-section a{min-height:44px;font-size:13px}.workspace-retry{align-items:flex-start;flex-direction:column}}
 </style>

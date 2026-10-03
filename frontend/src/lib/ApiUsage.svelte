@@ -84,6 +84,13 @@
   {#if savedMessage}<p class="notice" role="status">{savedMessage}</p>{/if}
   {#if busy}<p class="notice" role="status">Loading API usage…</p>{/if}
   {#if data}
+    <p class="scope-note">{scope === 'all' ? 'All companies' : tenant} · {days === 1 ? 'Last 24 hours' : `Last ${days} days`}</p>
+    <div class="metrics" aria-label="Usage totals for the selected period">
+      <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.calls === 0 ? 'No API calls recorded in this period' : data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>
+      <article class="panel"><span>Recorded tokens</span><strong class="value">{number(data.totals.total_tokens)}</strong><small>{number(data.totals.input_tokens)} input · {number(data.totals.output_tokens)} output</small></article>
+      <article class="panel"><span>Cached input tokens</span><strong class="value">{number(data.totals.cached_tokens)}</strong><small>{number(data.totals.cache_write_tokens)} cache-write tokens · both included in input tokens</small></article>
+      <article class="panel"><span>API calls</span><strong class="value">{number(data.totals.calls)}</strong><small>{number(data.totals.failed_calls)} failed · {number(data.totals.missing_usage_calls)} without token counts</small></article>
+    </div>
     <article class="panel">
       <h3>Current setup · {tenant}</h3>
       <div class="models">
@@ -114,18 +121,12 @@
         {/if}
       {/if}
     </article>
-    <div class="metrics">
-      <article class="panel"><span>Estimated cost · GBP</span><strong class="value">{money(data.totals.estimated_cost_gbp)}</strong><small>{data.totals.calls === 0 ? 'No API calls recorded in this period' : data.totals.unpriced_calls ? `${number(data.totals.unpriced_calls)} calls excluded: price or usage unavailable` : 'Based on recorded, priced calls'}</small></article>
-      <article class="panel"><span>Recorded tokens</span><strong class="value">{number(data.totals.total_tokens)}</strong><small>{number(data.totals.input_tokens)} input · {number(data.totals.output_tokens)} output</small></article>
-      <article class="panel"><span>Cached input tokens</span><strong class="value">{number(data.totals.cached_tokens)}</strong><small>{number(data.totals.cache_write_tokens)} cache-write tokens · both included in input tokens</small></article>
-      <article class="panel"><span>API calls</span><strong class="value">{number(data.totals.calls)}</strong><small>{number(data.totals.failed_calls)} failed · {number(data.totals.missing_usage_calls)} without token counts</small></article>
-    </div>
     <article class="panel">
       <h3>Estimated cost by agent mode</h3>
       {#if data.mode_totals.length}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
         <div class="table-wrap" role="region" aria-label="Usage by agent mode" tabindex="0">
-          <table><thead><tr><th>Mode</th><th>Calls</th><th>Input</th><th>Output</th><th>Est. GBP</th></tr></thead>
+          <table><caption>Recorded calls and estimated costs by mode</caption><thead><tr><th scope="col">Mode</th><th scope="col">Calls</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Est. GBP</th></tr></thead>
             <tbody>{#each data.mode_totals as row}<tr><td><strong>{row.mode === 'unknown' ? 'Earlier or direct calls' : row.mode.toUpperCase()}</strong></td><td>{number(row.calls)}</td><td>{number(row.input_tokens)}</td><td>{number(row.output_tokens)}</td><td>{money(row.estimated_cost_gbp)}{#if row.unpriced_calls}<small>{row.unpriced_calls} without an estimate</small>{/if}</td></tr>{/each}</tbody></table>
         </div>
       {:else}<p class="empty">No paid API calls recorded for any agent mode in this period.</p>{/if}
@@ -136,7 +137,7 @@
       {#if data.breakdown.length}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
         <div class="table-wrap" role="region" aria-label="Usage by model and channel" tabindex="0">
-          <table><thead><tr>{#if scope === 'all'}<th>{$t("Company")}</th>{/if}<th>Mode</th><th>Response model</th><th>Use</th><th>Calls</th><th>Input</th><th>Cached</th><th>Cache writes</th><th>Output</th><th>Est. GBP</th></tr></thead>
+          <table><caption>Recorded usage grouped by model and channel</caption><thead><tr>{#if scope === 'all'}<th scope="col">{$t("Company")}</th>{/if}<th scope="col">Mode</th><th scope="col">Response model</th><th scope="col">Use</th><th scope="col">Calls</th><th scope="col">Input</th><th scope="col">Cached</th><th scope="col">Cache writes</th><th scope="col">Output</th><th scope="col">Est. GBP</th></tr></thead>
             <tbody>{#each data.breakdown as row}<tr>
               {#if scope === 'all'}<td>{row.tenant}</td>{/if}
               <td>{row.mode === 'unknown' ? 'Earlier / direct' : row.mode.toUpperCase()}</td>
@@ -176,13 +177,15 @@
   span, small { color: var(--v7-muted); } small { margin-top: 7px; font-size: 12px; line-height: 1.5; }
   .value { margin: 10px 0; color: var(--v7-accent); font-size:32px;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
   .table-wrap { max-width: 100%; overflow-x: auto;border-radius:12px;border:1px solid var(--v7-line);}
+  caption { padding:12px; text-align:left; color:var(--v7-muted); font-size:12px; border-bottom:1px solid var(--v7-line); }
+  .scope-note { font-size:13px; font-weight:600; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding:14px 12px; border-bottom: 1px solid var(--v7-line); vertical-align: top;line-height:1.55;font-variant-numeric:tabular-nums;}
   th { background: var(--v7-soft, #f0f6f2); font-size: 12px; } td { min-width: 75px; } td:has(strong) { min-width: 160px; }
   .empty { padding:20px;background:var(--v7-soft, #f0f6f2);border-radius:12px;} .notice { padding: 20px; background: #fff; border-radius:14px;border:1px solid var(--v7-line);}
   .error { color: #a12622; } .footnote { font-size: 12px; } a { color: var(--v7-accent); }
   @media(max-width: 1100px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media(max-width: 600px) { .models, .metrics { grid-template-columns: minmax(0, 1fr); } .panel { padding:16px; } .controls { width: 100%; } }
+  @media(max-width: 600px) { .models, .metrics { grid-template-columns: minmax(0, 1fr); } .panel { padding:16px; } .controls { width: 100%; } .controls label { flex:1 1 140px; } .controls select { width:100%; } }
   .models > div { padding:16px; background:var(--v7-soft, #f0f6f2); border-radius:12px; min-width:0; }
     .metrics .panel { border-top:3px solid var(--v7-accent); }
     .notice label:has(input[type="checkbox"]) { display:flex; align-items:flex-start; gap:10px; margin-block:16px; }

@@ -274,7 +274,7 @@ def api_activation_get():
 @bp.get("/api-usage")
 def api_usage_get():
     from service.api_usage import summary
-    from service.usage_currency import gbp_rate
+    from service.usage_currency import cached_gbp_rate, gbp_rate
 
     from service.security import require_permission
     require_permission('view_costs')
@@ -287,7 +287,7 @@ def api_usage_get():
     days = _int_arg("days", 30, maximum=90)
     container = get_container().for_tenant(tenant)
     result = summary(None if scope == "all" else tenant, days)
-    exchange = gbp_rate()
+    exchange = gbp_rate() if result["totals"]["calls"] else cached_gbp_rate()
     for row in [result["totals"], *result["mode_totals"], *result["breakdown"]]:
         usd = row.pop("estimated_cost_usd")
         row["estimated_cost_gbp"] = (0.0 if usd == 0 else round(usd * exchange["rate"], 9)

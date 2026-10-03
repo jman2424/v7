@@ -45,11 +45,13 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a plaintext password against a bcrypt or scrypt hash."""
+    if not isinstance(password, str) or not password or len(password) > 1024 or not isinstance(password_hash, str):
+        return False
     try:
         if password_hash.startswith("scrypt:"):
             return _verify_password(password, password_hash)
         return bcrypt.checkpw((password or "").encode("utf-8"), password_hash.encode("utf-8"))
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -447,7 +449,7 @@ def resolve_linked_account(reference: Mapping[str, object], container=None) -> O
         role = record.get('role')
         password_hash = record.get('password_hash')
         if (record.get('disabled') or not isinstance(role, str) or role not in _MANAGEMENT_ROLES
-                or not isinstance(password_hash, str) or not password_hash.startswith('scrypt:')):
+                or not isinstance(password_hash, str) or not password_hash.startswith(('scrypt:', '$2a$', '$2b$', '$2y$'))):
             return None
         try:
             assigned = _account_tenant(c, record.get('tenant') or '') if role in {'business_owner', 'business_staff'} else ''
@@ -532,7 +534,7 @@ def _authenticate_user(
             not isinstance(tenant, str) or not _TENANT_KEY.fullmatch(tenant)
         ):
             return None
-        if not isinstance(password_hash, str) or not _verify_password(password, password_hash):
+        if not isinstance(password_hash, str) or not verify_password(password, password_hash):
             return None
         secret = record.get("totp_secret") or ""
         if not isinstance(secret, str):
@@ -555,7 +557,7 @@ def _authenticate_user(
         return _authenticate_configured(c, email=email, password=password, tenant=tenant)
     admin_hash = environment["ADMIN_PASSWORD_HASH"]
     if admin_hash:
-        valid = _verify_password(password, admin_hash)
+        valid = verify_password(password, admin_hash)
     else:
         # Plaintext legacy credentials are confined to local HTTP compatibility.
         settings = getattr(c, "settings", None)

@@ -138,7 +138,10 @@ def session_get():
     user = session.get("user")
     if not isinstance(user, dict):
         from service.account_mfa import pending
-        return jsonify({"ok": True, "user": None, "mfa": pending(), "csrf_token": session.get("_csrf", "")})
+        container = get_container()
+        login_tenant = container.storage.canonical_tenant_key(container.settings.BUSINESS_KEY)
+        return jsonify({"ok": True, "user": None, "mfa": pending(), "csrf_token": session.get("_csrf", ""),
+                        "login_tenant": login_tenant})
     if not is_authenticated_account_active(get_container().storage):
         clear_authenticated_session()
         abort(401, description="unauthorized")

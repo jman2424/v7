@@ -25,7 +25,7 @@
   $: if (mounted) refresh(tenant, view, minutes);
 
   onMount(() => { mounted = true; });
-  onDestroy(() => controller?.abort());
+  onDestroy(() => { controller?.abort(); controller = undefined; });
 
   function dateLabel(value: string) {
     const date = new Date(value);
@@ -36,6 +36,7 @@
     controller?.abort();
     const request = new AbortController();
     controller = request;
+    const timeout = setTimeout(() => request.abort(), 20000);
     busy = true;
     error = '';
     if (!before) {
@@ -55,7 +56,7 @@
       });
       if (!response.ok) throw new Error(response.status === 401 ? 'Your session expired. Sign in again to view conversations.' : 'Could not load conversations. Try refreshing.');
       const data = await response.json();
-      if (request.signal.aborted) return;
+      if (controller !== request || request.signal.aborted) return;
       if (selectedView === 'messages') {
         messages = [...(before ? messages : []), ...(Array.isArray(data.messages) ? data.messages : [])];
         nextBefore = data.has_more && Number.isSafeInteger(data.next_before) ? data.next_before : null;
@@ -65,9 +66,10 @@
         questions = Array.isArray(data) ? data : [];
       }
     } catch (failure) {
-      if (!request.signal.aborted) error = failure instanceof Error ? failure.message : 'Unable to load conversations.';
+      if (controller === request) error = request.signal.aborted ? 'Loading timed out. Try refreshing.' : failure instanceof Error ? failure.message : 'Unable to load conversations.';
     } finally {
-      if (!request.signal.aborted) busy = false;
+      clearTimeout(timeout);
+      if (controller === request) { busy = false; controller = undefined; }
     }
   }
 </script>
@@ -90,28 +92,31 @@
     </div>
   </header>
   <div class="content" aria-busy={busy}>
+    <div class="content-heading">
+      <div><h2>{view === 'messages' ? 'Recent messages' : view === 'leads' ? 'Latest leads' : 'Common questions'}</h2>
+        <p class="hint">{view === 'messages' ? 'Customer and agent messages in the selected period.' : view === 'leads' ? 'The most recent 50 leads across all dates. Manage follow-ups in Sales pipeline.' : 'The most frequent recorded questions in the selected period.'}</p></div>
+      {#if !busy && !error}<span class="result-count">{view === 'messages' ? `${messages.length} loaded` : view === 'leads' ? `${leads.length} leads` : `${questions.length} questions`}</span>{/if}
+    </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if busy && !messages.length}<p class="empty" role="status">{$t("Loading\u2026")}</p>
-    {:else if !error && view === 'messages'}
-      <h2>Recent messages</h2>
+    {#if busy}<p class="loading" role="status">{view === 'messages' && messages.length ? 'Loading older messages…' : view === 'messages' ? 'Loading messages…' : view === 'leads' ? 'Loading leads…' : 'Loading common questions…'}</p>{/if}
+    {#if !busy || (view === 'messages' && messages.length)}
+    {#if !error && view === 'messages'}
       {#each messages as message (message.id)}
         <article class="message">
           <div class="message-meta"><strong>{message.event_type === 'msg_in' ? 'Customer' : 'Agent'}</strong><span>{message.channel}</span><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div>
           <p>{message.text}</p>
         </article>
-      {:else}<p class="empty">No messages recorded in this period.</p>{/each}
+      {:else}<div class="empty"><strong>No messages recorded</strong><p>Try a longer time period to find earlier customer conversations.</p></div>{/each}
       {#if nextBefore}<button type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes, nextBefore ?? undefined)}>Load older messages</button>{/if}
     {:else if !error && view === 'leads'}
-      <h2>Latest leads</h2>
-      <p class="hint">The most recent 50 leads. Manage follow-ups in Sales pipeline.</p>
       {#each leads as lead (lead.lead_id)}
         <article class="lead"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong>{#if lead.name && lead.phone}<span>{lead.phone}</span>{/if}</div><span class="status">{lead.status || 'Open'}</span><time datetime={lead.updated_utc}>{dateLabel(lead.updated_utc)}</time></article>
-      {:else}<p class="empty">No leads recorded yet.</p>{/each}
+      {:else}<div class="empty"><strong>No leads recorded yet</strong><p>Customers who share contact details will appear here.</p></div>{/each}
     {:else if !error}
-      <h2>Common questions</h2>
       {#each questions as question}
         <div class="question"><span>{question.question}</span><strong>{question.count}</strong></div>
-      {:else}<p class="empty">No questions recorded in this period.</p>{/each}
+      {:else}<div class="empty"><strong>No questions recorded</strong><p>Try a longer time period to review earlier customer questions.</p></div>{/each}
+    {/if}
     {/if}
   </div>
 </section>
@@ -127,9 +132,15 @@
   label { display: grid; gap: 6px; min-width: 0; color: var(--v7-ink); font-size: 12px; font-weight: 600; }
   select { max-width: 100%; min-width: 0; min-height:44px; padding: 8px 10px; border: 1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; color: var(--v7-ink); background: #fff; }
   .content { padding:24px; }
-  h2 { margin: 0 0 16px; font-size:21px;letter-spacing:-.025em;}
+  h2 { margin: 0; font-size:21px;letter-spacing:-.025em;}
+  .content-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+  .content-heading .hint { margin:6px 0 0; }
+  .result-count { color:var(--v7-accent); background:var(--v7-soft, #f0f6f2); border-radius:20px; padding:6px 10px; font-size:12px; font-weight:600; }
   .empty, .hint { color: var(--v7-muted); font-size: 14px; line-height: 1.5; }
   .empty { margin: 0; padding:24px;background:var(--v7-soft, #f0f6f2);border-radius:14px;}
+  .empty strong { color:var(--v7-ink); font-size:15px; }
+  .empty p { margin:6px 0 0; }
+  .loading { margin:0 0 16px; padding:14px 16px; background:var(--v7-soft, #f0f6f2); border-radius:12px; font-size:14px; color:var(--v7-accent); }
   .message, .lead, .question { padding:18px 0; border-top: 1px solid var(--v7-line); }
   .message-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; font-size: 13px; }
   .message-meta span, time { color: var(--v7-muted); font-size: 12px; }

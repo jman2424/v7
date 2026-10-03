@@ -18,30 +18,31 @@
   $: if(mounted)load(page,minutes);
   $: companies=report?.companies.filter(company=>(company.name+' '+company.tenant).toLowerCase().includes(search.toLowerCase())&&(!attentionOnly||company.status==='needs_attention'))||[];
   onMount(()=>{mounted=true;});
-  onDestroy(()=>controller?.abort());
+  onDestroy(()=>{controller?.abort();controller=undefined;});
   async function load(selectedPage:number,period:number){
     controller?.abort();const request=new AbortController();controller=request;busy=true;error='';
     const timer=setTimeout(()=>request.abort(),20000);
     try{const response=await fetch(apiPrefix+'/admin/api/platform?'+new URLSearchParams({page:String(selectedPage),minutes:String(period)}),{credentials:'same-origin',signal:request.signal});
       if(!response.ok)throw new Error(response.status===403?'Platform administrator access is required.':'Could not load the company overview. Refresh and try again.');
-      const result:Report=await response.json();if(controller===request)report=result;
+      const result:Report=await response.json();if(controller===request&&!request.signal.aborted)report=result;
     }catch(failure){if(controller===request)error=request.signal.aborted?'Loading timed out. Try again.':failure instanceof Error?failure.message:'Overview unavailable.';}
     finally{clearTimeout(timer);if(controller===request)busy=false;}
   }
 </script>
-<section class="platform" aria-label="Platform management overview">
+<section class="platform" aria-label="Platform management overview" aria-busy={busy}>
   <article class="intro"><div><h2>Manage all your businesses</h2><p>Your platform account can oversee every company. Open a company below to manage its agent, owner accounts and data.</p></div><a href={base+'/companies'}>Add a company</a></article>
   <div class="controls"><label>Activity period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label><label>Search this page<input bind:value={search} placeholder="Company name or key"/></label><label class="toggle"><input type="checkbox" bind:checked={attentionOnly}/>Needs attention only</label><button disabled={busy} on:click={()=>load(page,minutes)}>{$t("Refresh")}</button></div>
-  {#if busy}<p role="status">Loading businesses…</p>{/if}{#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if report}
+  {#if busy}<p class="loading" role="status">{report ? 'Updating the business overview… Displayed figures are from the previous check.' : 'Loading businesses…'}</p>{/if}{#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if report && !error}
     <div class="totals"><article><h3>Businesses on the platform</h3><strong>{report.company_count}</strong></article><article><h3>Need attention · this page</h3><strong>{report.companies.filter(company=>company.status==='needs_attention').length}</strong></article><article><h3>Recorded errors · this page</h3><strong>{report.companies.reduce((sum,company)=>sum+(company.kpis?.errors||0),0)}</strong></article></div>
+    <div class="results-heading"><p>{companies.length} of {report.companies.length} businesses shown on this page</p>{#if search || attentionOnly}<button type="button" on:click={()=>{search='';attentionOnly=false;}}>Clear filters</button>{/if}</div>
     <div class="companies">{#each companies as company}<article class="company"><header><div><h3>{company.name}</h3><p>{company.tenant} · Agent {company.mode.toUpperCase()}</p></div><span class:attention={company.status==='needs_attention'}>{company.status==='needs_attention'?'Needs attention':company.status==='activity_recorded'?'Activity recorded':'No recent activity'}</span></header>
       <dl><div><dt>Customer messages</dt><dd>{company.kpis?.inbound??'Unavailable'}</dd></div><div><dt>Agent replies</dt><dd>{company.kpis?.outbound??'Unavailable'}</dd></div><div><dt>{$t("Conversations")}</dt><dd>{company.kpis?.sessions??'Unavailable'}</dd></div><div><dt>Recorded errors</dt><dd>{company.kpis?.errors??'Unavailable'}</dd></div></dl>
       <p>Readable knowledge files: {company.knowledge_files}/{company.knowledge_files_expected}. This is a configuration check, not a live uptime guarantee.</p>
       {#if company.issues.length}<ul>{#each company.issues as issue}<li>{issue}</li>{/each}</ul>{/if}
       <div class="actions"><button on:click={()=>dispatch('open',{tenant:company.tenant,section:'pipeline'})}>Open workspace</button><button on:click={()=>dispatch('open',{tenant:company.tenant,section:'team'})}>Owner &amp; staff accounts</button><button on:click={()=>dispatch('open',{tenant:company.tenant,section:'statistics'})}>{$t("Statistics")}</button><button on:click={()=>dispatch('open',{tenant:company.tenant,section:'errors'})}>{$t("Errors & health")}</button></div>
-    </article>{:else}<article><p>No companies match these filters on this page.</p></article>{/each}</div>
-    <div class="controls"><button disabled={busy||page===1} on:click={()=>page-=1}>Previous</button><span>Page {report.page} of {Math.max(1,Math.ceil(report.company_count/report.page_size))}</span><button disabled={busy||!report.has_next} on:click={()=>page+=1}>Next</button></div>
+    </article>{:else}<article class="empty"><h3>{report.company_count ? 'No businesses match these filters' : 'No businesses added yet'}</h3><p>{report.company_count ? 'Search and attention filters apply to this page. Clear the filters or check another page.' : 'Use Add a company above to create the first workspace.'}</p></article>{/each}</div>
+    <footer><nav class="pagination" aria-label="Business pages"><button disabled={busy||page===1} on:click={()=>page-=1}>Previous</button><span>Page {report.page} of {Math.max(1,Math.ceil(report.company_count/report.page_size))}</span><button disabled={busy||!report.has_next} on:click={()=>page+=1}>Next</button></nav><p>Last checked <time datetime={report.generated_at}>{new Date(report.generated_at).toLocaleString()}</time></p></footer>
   {/if}
 </section>
 <style>
@@ -56,4 +57,15 @@
     .company header > span.attention { color:#9c3a10; background:#fff3e7; }
     .actions button:first-child { background:var(--v7-accent); color:white; border-color:var(--v7-accent); }
   input[type="checkbox"] { width:18px; height:18px; min-height:18px; padding:0; accent-color:var(--v7-accent); }
+  .controls { padding:18px; background:var(--v7-surface); border:1px solid var(--v7-line); border-radius:14px; }
+  .controls label:has(input:not([type="checkbox"])) { flex:1 1 240px; }
+  .loading,.error { padding:16px 18px; border-radius:12px; font-size:14px; margin:0; }
+  .loading { color:var(--v7-accent); background:var(--v7-soft, #f0f6f2); }
+  .error { background:#fff2f0; }
+  .results-heading,footer,.pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+  .results-heading p,footer p { margin:0; font-size:12px; }
+  .pagination { justify-content:start; font-size:13px; }
+  .actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .empty { background:var(--v7-soft, #f0f6f2); border-style:dashed; }
+  @media(max-width:600px) { .controls { padding:14px; } footer { justify-content:center; } .pagination { justify-content:center; width:100%; } }
 </style>

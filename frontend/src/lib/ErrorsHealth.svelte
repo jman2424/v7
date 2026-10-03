@@ -36,6 +36,7 @@
     activityController?.abort();
     const controller = new AbortController();
     activityController = controller;
+    const timeout = setTimeout(() => controller.abort(), 20000);
     loading = true; activityError = ''; totals = null; errors = []; fallbacks = [];
     const query = '?tenant=' + encodeURIComponent(selectedTenant) + '&minutes=' + period;
     try {
@@ -44,7 +45,7 @@
         get('/admin/api/fallbacks' + query + '&top=50', controller.signal),
         get('/admin/api/kpis' + query, controller.signal)
       ]);
-      if (controller.signal.aborted) return;
+      if (activityController !== controller || controller.signal.aborted) return;
       const parsedErrors = groups(errorRows), parsedFallbacks = groups(fallbackRows);
       if (!kpis || typeof kpis !== 'object' || !('errors' in kpis) || !('fallbacks' in kpis)
           || typeof kpis.errors !== 'number' || !Number.isFinite(kpis.errors) || kpis.errors < 0
@@ -52,9 +53,11 @@
       errors = parsedErrors; fallbacks = parsedFallbacks;
       totals = { errors: kpis.errors, fallbacks: kpis.fallbacks };
     } catch {
-      if (!controller.signal.aborted) activityError = 'Activity could not be loaded. Retry, or sign in again if your session has expired.';
+      if (activityController === controller) activityError = controller.signal.aborted ? 'Activity loading timed out. Refresh activity to try again.' : 'Activity could not be loaded. Retry, or sign in again if your session has expired.';
     } finally {
-      if (!controller.signal.aborted) loading = false;
+      clearTimeout(timeout);
+      if (activityController === controller) { loading = false; activityController = undefined; }
+      controller.abort();
     }
   }
 
@@ -62,10 +65,11 @@
     healthController?.abort();
     const controller = new AbortController();
     healthController = controller;
+    const timeout = setTimeout(() => controller.abort(), 20000);
     checking = true; healthError = ''; checks = null;
     try {
       const payload = await get('/__diag/validate?tenant=' + encodeURIComponent(selectedTenant), controller.signal);
-      if (controller.signal.aborted) return;
+      if (healthController !== controller || controller.signal.aborted) return;
       if (!payload || typeof payload !== 'object' || !('validation' in payload)
           || !payload.validation || typeof payload.validation !== 'object' || !('files' in payload.validation)
           || !payload.validation.files || typeof payload.validation.files !== 'object' || Array.isArray(payload.validation.files)) throw new Error('Invalid health response');
@@ -74,14 +78,16 @@
           && (typeof result.valid === 'boolean' || result.valid === null))) throw new Error('Invalid checks');
       checks = entries.map(([name, result]) => [name, { exists: result.exists, valid: result.valid }]);
     } catch {
-      if (!controller.signal.aborted) healthError = 'Business data checks could not be completed. Retry, or sign in again if your session has expired.';
+      if (healthController === controller) healthError = controller.signal.aborted ? 'Business data checking timed out. Run the data check again to retry.' : 'Business data checks could not be completed. Retry, or sign in again if your session has expired.';
     } finally {
-      if (!controller.signal.aborted) checking = false;
+      clearTimeout(timeout);
+      if (healthController === controller) { checking = false; healthController = undefined; }
+      controller.abort();
     }
   }
 
   onMount(() => { mounted = true; });
-  onDestroy(() => { activityController?.abort(); healthController?.abort(); });
+  onDestroy(() => { activityController?.abort(); healthController?.abort(); activityController = undefined; healthController = undefined; });
   $: if (mounted && tenant) loadActivity(tenant, minutes);
   $: if (mounted && tenant) checkHealth(tenant);
 </script>
@@ -90,9 +96,9 @@
   <div class="heading">
     <div><h2>{$t("Errors & health")}</h2><p>Recorded failures and saved business data for {tenant}.</p></div>
     <div class="controls"><label>Activity period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
-      <button type="button" disabled={loading} on:click={() => loadActivity(tenant, minutes)}>Refresh activity</button></div>
+      <button type="button" disabled={loading} on:click={() => loadActivity(tenant, minutes)}>{loading ? 'Loading…' : 'Refresh activity'}</button></div>
   </div>
-  {#if loading}<p role="status">Loading recorded activity…</p>{/if}
+  {#if loading}<p class="loading" role="status">Loading recorded activity…</p>{/if}
   {#if activityError}<p class="failure" role="alert">{activityError}</p>{/if}
   <div class="metrics"><article class="panel"><h3>Recorded errors</h3><strong>{totals ? totals.errors.toLocaleString() : '—'}</strong></article>
     <article class="panel"><h3>Fallback replies</h3><strong>{totals ? totals.fallbacks.toLocaleString() : '—'}</strong><p>Replies where the agent needed more help.</p></article></div>
@@ -101,7 +107,7 @@
       {#each [{ title: 'Errors by cause', rows: errors }, { title: 'Fallbacks by topic', rows: fallbacks }] as group}
         <article class="panel"><h3>{group.title}</h3>
           {#if group.rows.length}<ul>{#each group.rows as row}<li><span>{row.label}</span><strong>{row.count.toLocaleString()}</strong></li>{/each}</ul><p>Up to 50 groups for the selected period.</p>
-          {:else}<p>No recorded activity in this period.</p>{/if}
+          {:else}<p class="empty">{group.title === 'Errors by cause' ? 'No errors recorded in this period.' : 'No fallback replies recorded in this period.'}</p>{/if}
         </article>
       {/each}
     </div>
@@ -109,12 +115,13 @@
   <article class="panel" aria-labelledby="business-health-title">
     <div class="heading"><div><h3 id="business-health-title">Business data checks</h3><p>Check saved files without leaving your workspace.</p></div>
       <button type="button" disabled={checking} on:click={() => checkHealth(tenant)}>{checking ? 'Checking…' : 'Run data check'}</button></div>
-    {#if checking}<p role="status">Checking this company's saved data…</p>{/if}
+    {#if checking}<p class="loading" role="status">Checking this company's saved data…</p>{/if}
     {#if healthError}<p class="failure" role="alert">{healthError}</p>{/if}
     {#if checks}
-      <p role="status">{checks.filter(([, result]) => result.exists && result.valid === true).length} files passed · {checks.filter(([, result]) => result.valid === false).length} need attention · {checks.filter(([, result]) => !result.exists).length} not configured.</p>
-      <div class="table-wrap"><table><caption>Current business data</caption><thead><tr><th>File</th><th>Result</th><th>Next step</th></tr></thead>
-        <tbody>{#each checks as [name, result]}<tr><th>{name}</th><td>{!result.exists ? 'Not configured' : result.valid === true ? 'Passed' : result.valid === false ? 'Needs attention' : 'Not checked'}</td><td>{!result.exists ? 'Add this information if your business uses it.' : result.valid === false ? 'Review the saved format with your platform operator.' : result.valid === true ? 'No action required.' : 'No schema check is available.'}</td></tr>{/each}</tbody>
+      <p class="check-summary" role="status">{checks.filter(([, result]) => result.exists && result.valid === true).length} files passed · {checks.filter(([, result]) => result.valid === false).length} need attention · {checks.filter(([, result]) => !result.exists).length} not configured.</p>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
+      <div class="table-wrap" role="region" aria-label="Business data check results" tabindex="0"><table><caption>Current business data</caption><thead><tr><th scope="col">File</th><th scope="col">Result</th><th scope="col">Next step</th></tr></thead>
+        <tbody>{#each checks as [name, result]}<tr><th scope="row">{name}</th><td><span class="check-result" class:passed={result.exists && result.valid === true} class:attention={result.exists && result.valid === false}>{!result.exists ? 'Not configured' : result.valid === true ? 'Passed' : result.valid === false ? 'Needs attention' : 'Not checked'}</span></td><td>{!result.exists ? 'Add this information if your business uses it.' : result.valid === false ? 'Review the saved format with your platform operator.' : result.valid === true ? 'No action required.' : 'No schema check is available.'}</td></tr>{/each}</tbody>
       </table></div>
     {/if}
     <p class="note">These checks cover stored business data. They do not verify live WhatsApp delivery or external provider availability.</p>
@@ -125,4 +132,13 @@
   .health-workspace{display:grid;gap:20px;min-width:0}.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}h2,h3{margin:0 0 8px;color:var(--v7-ink)}h2{font-size:22px}h3{font-size:16px}p{color:var(--v7-muted);line-height:1.5;margin:8px 0}.controls{display:flex;gap:12px;align-items:end;flex-wrap:wrap}label{display:grid;gap:6px;font-size:13px;font-weight:600}select,button{font:inherit;padding:10px 14px;border:1px solid var(--v7-control-line, #b5c5bc);border-radius:10px;background:#fff;color:var(--v7-ink);min-height:44px;}button{cursor:pointer;font-weight:600}button:disabled{opacity:.65;cursor:wait}:focus-visible{outline:3px solid var(--v7-accent);outline-offset:3px}.metrics,.breakdowns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.panel{background:#fff;border:1px solid var(--v7-line);border-radius:18px;padding:24px;min-width:0;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}.metrics strong{font-size:34px;display:block;margin-top:16px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;}.panel ul{list-style:none;padding:0;margin:16px 0}.panel li{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #edf0ec}.panel li span{overflow-wrap:anywhere}.table-wrap{overflow-x:auto;border:1px solid var(--v7-line);border-radius:12px;margin-top:16px;}table{width:100%;border-collapse:collapse;text-align:left}caption{text-align:left;font-weight:600;padding:12px 0}th,td{padding:14px 12px;border-bottom:1px solid #e5e9e4;vertical-align:top;font-size:14px;overflow-wrap:anywhere;line-height:1.55;}.failure{color:#a92b34;background:#fff0f0;padding:14px;border-radius:6px}.note{font-size:13px;margin-top:18px}@media(max-width:700px){.metrics,.breakdowns{grid-template-columns:1fr}.panel{padding:16px}.controls{width:100%}th,td{min-width:110px;line-height:1.55;padding:14px 12px;}}
   thead th { background:var(--v7-soft, #f0f6f2); font-size:12px; }
     .metrics .panel { border-top:3px solid var(--v7-accent); }
+  .loading,.empty { padding:14px 16px; background:var(--v7-soft, #f0f6f2); border-radius:12px; font-size:14px; }
+  .loading { margin:0; color:var(--v7-accent); }
+  .check-summary { margin-top:20px; font-size:13px; font-weight:600; }
+  .check-result { display:inline-block; padding:5px 9px; border-radius:20px; background:var(--v7-soft, #f0f6f2); color:var(--v7-muted); font-size:12px; font-weight:600; white-space:nowrap; }
+  .check-result.passed { background:#e7f5ef; color:var(--v7-accent); }
+  .check-result.attention { background:#fff3e7; color:#9c3a10; }
+  caption { padding:12px; font-size:13px; color:var(--v7-muted); border-bottom:1px solid var(--v7-line); }
+  tbody th { font-weight:500; }
+  @media(max-width:700px) { .controls label { flex:1 1 160px; } .controls select { width:100%; } }
 </style>

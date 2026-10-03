@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from './i18n';
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   export let csrf = '';
   export let apiPrefix = '';
   const dispatch = createEventDispatcher<{login: {tenant:string;email:string}}>();
@@ -9,41 +9,60 @@
   let error = '', email = '', password = '', tenant = '', businessName = '', code = '';
   let kind = 'owner';
   let state:RequestState|null = null;
+  let alive = true;
+  const requests = new Set<AbortController>();
+  async function requestJson(path: string, options: RequestInit = {}) {
+    const controller = new AbortController();
+    requests.add(controller);
+    const deadline = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(apiPrefix + path, {...options, credentials:'same-origin', signal:controller.signal});
+      const data = await response.json();
+      if (controller.signal.aborted) throw new Error('Request timed out. Check request status before trying again.');
+      return {response, data};
+    } catch (failure) {
+      if (controller.signal.aborted) throw new Error('Request timed out. Check request status before trying again.');
+      throw failure;
+    } finally { clearTimeout(deadline); requests.delete(controller); }
+  }
+  onDestroy(() => { alive = false; for (const controller of requests) controller.abort(); });
   async function refresh() {
     if(busy)return;
     busy=true;error='';
     try {
-      const response=await fetch(apiPrefix+'/auth/registration',{credentials:'same-origin'});
+      const {response, data}=await requestJson('/auth/registration');
       if(!response.ok)throw new Error();
-      const data=await response.json(); enabled=data.enabled; sender=typeof data.sender==='string'?data.sender:''; state=data.request; loaded=true;
-    } catch {error='Signup status could not be loaded. Try again.';}
-    finally {busy=false;}
+      if(!alive)return;
+      enabled=data.enabled; sender=typeof data.sender==='string'?data.sender:''; state=data.request; loaded=true;
+    } catch {if(alive)error='Signup status could not be loaded. Try again.';}
+    finally {if(alive)busy=false;}
   }
   onMount(refresh);
   async function submit() {
     if(busy)return;
     busy=true;error='';
     try {
-      let sessionResponse=await fetch(apiPrefix+'/auth/session',{credentials:'same-origin'});
-      if(sessionResponse.status===401)sessionResponse=await fetch(apiPrefix+'/auth/session',{credentials:'same-origin'});
-      if(!sessionResponse.ok)throw new Error('Reload the page to start a secure signup session.');
-      csrf=(await sessionResponse.json()).csrf_token;
+      let sessionResult=await requestJson('/auth/session');
+      if(sessionResult.response.status===401)sessionResult=await requestJson('/auth/session');
+      if(!alive)return;
+      if(!sessionResult.response.ok)throw new Error('Reload the page to start a secure signup session.');
+      csrf=sessionResult.data.csrf_token;
       if(typeof csrf!=='string'||!csrf)throw new Error('Reload the page to start a secure signup session.');
       const verifying=state?.status==='verification';
-      const response=await fetch(apiPrefix+(verifying?'/auth/register/confirm':'/auth/register'),{
+      const {response,data}=await requestJson(verifying?'/auth/register/confirm':'/auth/register',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
         body:JSON.stringify(verifying?{code}:{email,password,tenant,business_name:businessName,kind})});
-      const data=await response.json();
+      if(!alive)return;
       if(!response.ok)throw new Error(data.error || 'The request could not be completed.');
       state=data.request;password='';code='';
-    } catch(failure) {error=failure instanceof Error?failure.message:'Could not connect. Try again.';}
-    finally {busy=false;}
+    } catch(failure) {if(alive)error=failure instanceof Error?failure.message:'Could not connect. Try again.';}
+    finally {if(alive)busy=false;}
   }
 </script>
 
 <section class="registration" aria-labelledby="signup-title">
   <h1 id="signup-title">Create your V7 account</h1>
-  {#if error}<p role="alert" class="error">{error}</p>{/if}
+  {#if error}<p role="alert" class="error">{error}</p>{#if loaded}<button disabled={busy} type="button" on:click={refresh}>Check request status</button>{/if}{/if}
   {#if !loaded}<p>Checking signup availability…</p><button disabled={busy} on:click={refresh}>Retry</button>
   {:else if state?.status==='approved'}
     <h2>Account ready</h2><p>Your company key is <strong>{state.tenant}</strong>. Sign in with your password and set up your authenticator. New business owners can then complete payment before adding business data.</p>

@@ -32,10 +32,10 @@ for (const statement of [...ast.statements].reverse()) {
 source = source.replace('export let section', 'let section').replaceAll('import.meta.env.DEV', 'false');
 source += `
 globalThis.harness = {
-  restoreSession, login, confirmMfa, providerLogin, logout, loadInsights, loadTenantWorkspace, loadAccounts, loadTenants,
+  restoreSession, login, confirmMfa, providerLogin, logout, loadInsights, loadTenantWorkspace, loadWorkspaceSection, loadAccounts, loadTenants,
   mayOpenScreen, defaultWorkspaceScreen, mayReadModelParameters, mayReadConversionSettings, openDefaultWorkspace,
   identity: (value) => { user = value; tenant = value.tenant; },
-  credentials: () => { email = 'synthetic@example.test'; password = 'Synthetic-fixture-password-123'; csrf = 'stale'; totp = '123456';
+    credentials: () => { email = scenario === 'username-sign-in' ? 'legacy-admin' : 'synthetic@example.test'; password = 'Synthetic-fixture-password-123'; csrf = 'stale'; totp = '123456';
     catalog = {version:1,categories:[{id:'old',name:'old',items:[]}]}; profile.name = 'Old company'; accounts = [{id:'old',email:'old@synthetic.test',roles:['business_owner'],active:true,permissions:[]}];
     tenants = [{key:'OLD',name:'Old company',valid:true,widget_configured:false,activation:{active:true,status:'active'}}];
     insights.leads = [{lead_id:'old',name:null,phone:null,status:'Open',updated_utc:''}]; },
@@ -75,16 +75,17 @@ const oldStarted = new Promise(resolve => { announceOld = resolve; });
 const oldResponse = new Promise(resolve => { releaseOld = resolve; });
 const json = (status, value) => ({ok:status >= 200 && status < 300, status, json:async () => value});
 const context = vm.createContext({
-  URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
-  window:{location:{search:scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP'}, history:{replaceState:()=>{}}},
+  scenario,
+  AbortController, setTimeout, clearTimeout, URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, onDestroy:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
+  window:{location:{search:scenario.includes('configured-company') ? '' : scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP'}, history:{replaceState:()=>{}}},
   fetch:async (path, options={}) => {
     calls.push({path, options});
     if (path === '/auth/session') {
       sessionReads++;
       if (scenario === 'mount-session-network-error') throw Error('private-provider-detail');
       if (scenario === 'mount-session-service-error') return json(503,{error:'private-provider-detail'});
-      if (['revoked-cookie', 'revoked-tenant-deep-link'].includes(scenario) && sessionReads === 1) return json(401, {error:'unauthorized'});
-      return json(200, {user:null, csrf_token:'fresh', mfa:null});
+      if (['revoked-cookie', 'revoked-tenant-deep-link', 'revoked-configured-company-key'].includes(scenario) && sessionReads === 1) return json(401, {error:'unauthorized'});
+      return json(200, {user:null, csrf_token:'fresh', mfa:null, login_tenant:['configured-company-key','revoked-configured-company-key'].includes(scenario) ? 'DEPLOYED' : scenario === 'invalid-configured-company-key' ? '../SHOP' : 'EXAMPLE'});
     }
     if (path === '/auth/login') {
       if (scenario.startsWith('password-') && failure) return json(failure.status,failure);
@@ -165,6 +166,10 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     assert.ok(h.state().loginError.includes(failure.expected),h.state().loginError);
     assert.ok(!h.state().loginError.includes('private-provider-detail'));
     if (scenario.startsWith('mfa-')) assert.ok(h.state().mfa);
+  } else if (scenario.includes('configured-company')) {
+    await h.restoreSession();
+    assert.equal(h.state().tenant, scenario === 'invalid-configured-company-key' ? 'EXAMPLE' : 'DEPLOYED');
+    if (scenario === 'revoked-configured-company-key') assert.equal(sessionReads,2);
   } else if (['tenant-deep-link', 'revoked-tenant-deep-link', 'invalid-tenant-deep-link'].includes(scenario)) {
     await h.restoreSession();
     assert.equal(h.state().tenant, scenario === 'invalid-tenant-deep-link' ? 'EXAMPLE' : 'SHOP');
@@ -172,7 +177,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     h.identity({email:'old@synthetic.test',roles:['business_owner'],tenant:'OLD',permissions:['business_settings.read','offerings.read','offers.read']});
     const pending = scenario === 'stale-accounts-response' ? h.loadAccounts('OLD')
       : scenario === 'stale-insights-response' ? h.loadInsights('OLD')
-      : scenario === 'stale-directory-response' ? h.loadTenants() : h.loadTenantWorkspace('OLD');
+      : scenario === 'stale-directory-response' ? h.loadTenants() : h.loadWorkspaceSection(scenario === 'stale-workspace-response' ? 'website' : 'pipeline');
     await oldStarted;
     await h.logout();
     await h.login();
@@ -190,8 +195,12 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     await h.login(); await h.confirmMfa();
     assert.ok(h.state().user);
     assert.equal(h.state().workspaceError, '');
+    assert.equal(h.state().catalog.categories.length, 0);
+    assert.equal(h.state().profile.name, '');
+    assert.ok(!calls.some(call => call.path === '/admin/api/catalog?tenant=SHOP'));
+    await h.loadWorkspaceSection('catalog');
     assert.equal(h.state().catalog.categories.length, 1);
-    assert.equal(h.state().profile.name, 'SHOP company');
+    assert.equal(h.state().profile.name, '');
     assert.ok(calls.some(call => call.path === '/admin/api/catalog?tenant=SHOP'));
   } else if (scenario === 'logout-clears-workspace') {
     await h.logout();
@@ -243,6 +252,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
       const attempt = calls.find(call => call.path === '/auth/login');
       assert.equal(attempt.options.headers['X-CSRF-Token'], 'fresh');
       assert.equal(attempt.options.credentials, 'same-origin');
+      if (scenario === 'username-sign-in') assert.equal(JSON.parse(attempt.options.body).email, 'legacy-admin');
       if (scenario === 'revoked-cookie') assert.equal(sessionReads, 2);
     }
   }
@@ -252,6 +262,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
 
 @pytest.mark.parametrize('scenario', [
     'tenant-deep-link', 'revoked-tenant-deep-link', 'invalid-tenant-deep-link',
+    'configured-company-key', 'revoked-configured-company-key', 'invalid-configured-company-key', 'username-sign-in',
     'password-challenge', 'revoked-cookie', 'restricted-mfa',
     'trusted-login', 'workspace-network-error', 'login-network-error',
     'logout-clears-workspace', 'insights-failure-clears-leads',

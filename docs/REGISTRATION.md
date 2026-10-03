@@ -32,6 +32,11 @@ providers, it also checks the TLS mode and port. It cannot verify provider domai
 status until sending. It returns only the configured From address so applicants
 can identify the message in their inbox; it never returns credentials.
 
+Console signup reads and submissions have a 20-second deadline, including reading
+the response body. Leaving the signup form cancels pending requests. A timed-out
+submission is not retried automatically: use **Check request status** before
+submitting again, since the server might have completed it.
+
 For an existing Render service, add the four required `SMTP_*` settings in
 the service's Environment settings and redeploy. The `render.yaml` entries prompt
 for secrets when creating a new Blueprint, but Render does not add `sync: false`
