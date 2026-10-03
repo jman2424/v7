@@ -8,11 +8,16 @@ sessions, MFA, signup, billing, CRM, audits, webhook deduplication and analytics
 through `v7_private`. It does not fall back to local files on a database error.
 The runtime driver is included in `requirements.txt`.
 
-**The current live V7 deployment has not been switched to PostgreSQL.** Obtain and
-verify a complete independent export of its actual current data, rehearse import
-and runtime checks, and configure a verified mail sender before enabling it live.
+**As of 3 October 2026, the live PostgreSQL cutover is pending.** After the data-loss
+warning, the operator explicitly waived preservation of the original ephemeral
+data. The selected Supabase project now has a neutral `EXAMPLE` workspace seeded
+through the application, and its restricted runtime connection and storage
+readiness checks passed with verified TLS. Real password/authenticator sign-in
+and verification-email receipt have not yet been verified. This is a fresh
+workspace, not a recovered copy of the original accounts or business data.
 Pushing code or applying a schema does not preserve Render's ephemeral files.
-See [complete live backup](LIVE_BACKUP.md) and the cutover gates below.
+For migrations retaining existing data, see [complete live backup](LIVE_BACKUP.md)
+and the cutover gates below.
 Existing password/authenticator verification, tenant permissions and Stripe
 activation checks remain required. Supabase Auth and Google login are not part
 of this database migration.
@@ -89,6 +94,15 @@ Official references: [database connections](https://supabase.com/docs/guides/dat
 [SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement),
 [securing data](https://supabase.com/docs/guides/database/secure-data).
 
+The public Supabase Root 2021 CA is bundled at
+`certificates/supabase-prod-ca-2021.crt` from the
+[official Supabase download](https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt).
+Its DER SHA-256 fingerprint is
+`807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa`.
+For this Render Docker deployment, set
+`V7_SUPABASE_CA_FILE=/app/certificates/supabase-prod-ca-2021.crt` so the runtime
+trusts that CA while retaining `sslmode=verify-full` and hostname verification.
+
 ## Rehearse the data copy
 
 Obtain the actual current source files and quiesce all application and webhook
@@ -136,8 +150,9 @@ rejected records. A failed import rolls back; schema preparation remains in plac
 
 ## Required before live cutover
 
-- Keep source-only pushes from deploying the current Render Free service while
-  its local account and business data remains unbacked. The service tracks
+- For a migration retaining existing data, keep source-only pushes from deploying
+  the Render Free service while its local account and business data remains
+  unbacked. The service tracks
   `main`; automatic deploys are currently off. A database schema alone does not
   make its local files durable. Render Free does not provide Shell or SSH access
   for exporting those files. Obtain and verify a complete independent backup
