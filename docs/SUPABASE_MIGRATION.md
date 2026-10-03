@@ -8,12 +8,17 @@ sessions, MFA, signup, billing, CRM, audits, webhook deduplication and analytics
 through `v7_private`. It does not fall back to local files on a database error.
 The runtime driver is included in `requirements.txt`.
 
-**As of 3 October 2026, the live PostgreSQL cutover is pending.** After the data-loss
+**The PostgreSQL configuration is live on Render as of 3 October 2026.** Deployment
+`dep-db0nqtou01pc73b6hu80` of `1d435c02ebaf79541cdaaa61bb3a421895f4a4b0`
+completed at 22:11:57 UTC. After the data-loss
 warning, the operator explicitly waived preservation of the original ephemeral
 data. The selected Supabase project now has a neutral `EXAMPLE` workspace seeded
 through the application, and its restricted runtime connection and storage
-readiness checks passed with verified TLS. Real password/authenticator sign-in
-and verification-email receipt have not yet been verified. This is a fresh
+readiness checks passed with verified TLS. Live readiness, anonymous login
+bootstrap, console assets and denied anonymous management access also passed.
+Real password/authenticator sign-in and verification-email receipt have not yet
+been verified. Signup remains disabled pending the Resend DNS records and private
+application mail key. This is a fresh
 workspace, not a recovered copy of the original accounts or business data.
 Pushing code or applying a schema does not preserve Render's ephemeral files.
 For migrations retaining existing data, see [complete live backup](LIVE_BACKUP.md)
