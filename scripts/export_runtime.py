@@ -21,8 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
+    from scripts.backup_utils import is_linked_path
     from scripts.prepare_supabase import prepare, strict_json, _protect_directory
 except ModuleNotFoundError:
+    from backup_utils import is_linked_path
     from prepare_supabase import prepare, strict_json, _protect_directory
 
 
@@ -47,7 +49,7 @@ def _safe_path(path: Path, *, directory: bool = False) -> Path:
     # Check before resolving: resolution must never hide a link/junction.
     absolute = path.absolute()
     for part in [absolute, *absolute.parents]:
-        if part.is_symlink() or getattr(part, 'is_junction', lambda: False)():
+        if is_linked_path(part):
             raise ValueError('Linked source or destination paths require review')
     resolved = absolute.resolve(strict=True)
     if directory and not resolved.is_dir():

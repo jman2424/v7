@@ -61,13 +61,13 @@
 </section>
 
 <style>
-  .knowledge { display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; padding:20px; border:1px solid #d9ddd7; border-radius:8px; background:#fff; }
+  .knowledge { display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; padding:24px; border:1px solid var(--v7-line); border-radius:var(--v7-radius, 18px); background:#fff;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
   .knowledge > div:first-child { flex:1 1 350px; }
-  h2 { margin:0 0 8px; font-size:17px; }
-  p { margin:0; color:#667085; font-size:13px; line-height:1.5; }
-  .source { margin-top:12px; color:#344054; overflow-wrap:anywhere; }
+  h2 { margin:0 0 8px; font-size:21px; }
+  p { margin:0; color:var(--v7-muted); font-size:14px; line-height:1.65; }
+  .source { margin-top:12px; color:var(--v7-ink); overflow-wrap:anywhere; }
   .controls { flex:0 1 260px; display:grid; align-content:start; gap:8px; }
-  button { min-height:40px; padding:8px 14px; border:0; border-radius:6px; color:#fff; background:#0b765b; font-weight:700; cursor:pointer; }
+  button { min-height:44px; padding:8px 14px; border:0; border-radius:10px; color:#fff; background:var(--v7-accent); font-weight:700; cursor:pointer; }
   button:disabled { opacity:.55; cursor:default; }
   button:focus-visible { outline:3px solid #8bcdc0; outline-offset:2px; }
   .error { color:#b42318; }

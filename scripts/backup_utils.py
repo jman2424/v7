@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path, PurePosixPath
 
@@ -15,11 +16,23 @@ def require_sqlite_files() -> None:
         raise ValueError("This file backup tool supports SQLite only; use a verified PostgreSQL backup for PostgreSQL storage")
 
 
+def is_linked_path(path: Path) -> bool:
+    """Detect junctions before resolving paths, including on Python 3.11."""
+    if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+        return True
+    try:
+        metadata = path.lstat()
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    # Path.is_junction was added in 3.12; lstat exposes this Windows tag in 3.8+.
+    return getattr(metadata, "st_reparse_tag", None) == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", -1)
+
+
 def checked_path(path: Path) -> Path:
     """Do not follow directory aliases when reading or replacing operator files."""
     path = path.absolute()
     for component in (path, *path.parents):
-        if component.is_symlink() or (hasattr(component, "is_junction") and component.is_junction()):
+        if is_linked_path(component):
             raise ValueError("Symlinks and junctions are not supported by backups")
     return path
 

@@ -149,6 +149,13 @@ Sign-in links retain their valid company key. The console loads only workspace
 data permitted by the authenticated account and clears cached company data before
 loading or signing out. Workspace loading failures are reported separately from
 successful authentication.
+Password, authenticator and provider failures show guidance for company keys,
+expired cookies, consumed codes and rate limits. Unknown server failures use a
+generic message; internal provider details are never copied into sign-in errors.
+Session-loading failures are shown on the sign-in page.
+Console navigation and sign-in redirects respect the account's explicit read
+grants. Accounts without workspace read access open Account & security. Optional
+model and conversion panels require their own permitted reads.
 
 SECRET_KEY must be random and at least 32 characters. Cookies are HttpOnly,
 SameSite=Lax and Secure when BASE_URL uses HTTPS. Management sessions expire
@@ -190,6 +197,8 @@ Raw-file editors require JSON content types and validate settings field allowlis
 Tenant files, legacy loaders, audit reads and snapshots reject symlink/junction
 aliases, traversal and Windows device names. Spreadsheet imports require an exact,
 nonblank tenant column; blank rows do not become shared tenant data.
+Offline backup, export, restore and import preparation check junction metadata
+before resolving paths, including on Windows Python 3.11.
 
 Management writes record an attempt before mutation; document edits also record
 prepared revisions and a success outcome. Audit preparation failure blocks the

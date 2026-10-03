@@ -3,6 +3,11 @@ from pathlib import Path
 import os
 import re
 
+try:
+    from scripts.backup_utils import is_linked_path
+except ModuleNotFoundError:
+    from backup_utils import is_linked_path
+
 _TENANT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _DEVICES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
             *(f"LPT{i}" for i in range(1, 10))}
@@ -16,7 +21,7 @@ def validate_tenant(tenant: str) -> str:
 
 def reject_links(path: Path) -> None:
     absolute = path.absolute()
-    if any(part.is_symlink() or getattr(part, "is_junction", lambda: False)()
+    if any(is_linked_path(part)
            for part in [absolute, *absolute.parents]):
         raise ValueError("Linked snapshot paths require review")
 

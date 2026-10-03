@@ -7,13 +7,19 @@
   --v7-muted: #67706b;
   --v7-accent: #007d70;
   --v7-line: #d9ddd7;
+  --v7-control-line: #bbc4bc;
   --v7-surface: #fff;
+  --v7-brand: #203b30;
+  --v7-lime: #d6f58a;
+  --v7-soft: #f1f5ef;
+  --v7-radius: 18px;
+  --v7-card-shadow: 0 4px 20px #203b3008;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 320px; line-height: 1.5; }
 button, input, textarea, select { font: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; transition: background-color .15s, border-color .15s; }
 button:disabled { cursor: default; opacity: .6; }
 a { text-underline-offset: .2em; }
 :focus-visible { outline: 3px solid #8bcdc0; outline-offset: 3px; }

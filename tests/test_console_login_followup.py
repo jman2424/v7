@@ -32,13 +32,14 @@ for (const statement of [...ast.statements].reverse()) {
 source = source.replace('export let section', 'let section').replaceAll('import.meta.env.DEV', 'false');
 source += `
 globalThis.harness = {
-  restoreSession, login, confirmMfa, logout, loadInsights, loadTenantWorkspace, loadAccounts, loadTenants,
+  restoreSession, login, confirmMfa, providerLogin, logout, loadInsights, loadTenantWorkspace, loadAccounts, loadTenants,
+  mayOpenScreen, defaultWorkspaceScreen, mayReadModelParameters, mayReadConversionSettings, openDefaultWorkspace,
   identity: (value) => { user = value; tenant = value.tenant; },
   credentials: () => { email = 'synthetic@example.test'; password = 'Synthetic-fixture-password-123'; csrf = 'stale'; totp = '123456';
     catalog = {version:1,categories:[{id:'old',name:'old',items:[]}]}; profile.name = 'Old company'; accounts = [{id:'old',email:'old@synthetic.test',roles:['business_owner'],active:true,permissions:[]}];
     tenants = [{key:'OLD',name:'Old company',valid:true,widget_configured:false,activation:{active:true,status:'active'}}];
     insights.leads = [{lead_id:'old',name:null,phone:null,status:'Open',updated_utc:''}]; },
-  state: () => ({user, csrf, tenant, mfa, loginError, passwordCleared: password === '', catalog,
+  state: () => ({user, csrf, tenant, mfa, loginError, signingIn, loading, passwordCleared: password === '', catalog,
     profile, accounts, insights, tenants,
     workspaceError: typeof workspaceError === 'undefined' ? '' : workspaceError}),
 };`;
@@ -48,29 +49,54 @@ if (scenario === 'owner-workspace') {
   identity.permissions = ['business_settings.read','offerings.read','offers.read','analytics.read','users.read'];
 }
 const calls = [];
+const navigations = [];
 let sessionReads = 0;
+let mount;
+const failures = {
+  'password-invalid':{status:401,error:'invalid_credentials',expected:'Check your company key, email and password'},
+  'password-company':{status:404,error:'unknown_tenant',expected:'Check the company key'},
+  'password-csrf':{status:403,error:'csrf_failed',expected:'Reload the page, allow cookies'},
+  'password-rate-limit':{status:429,error:'try_again_later',retry_after:900,expected:'900 seconds'},
+  'password-global-rate-limit':{status:429,error:'too_many_requests',expected:'60 seconds'},
+  'password-private-error':{status:503,error:'private-provider-detail',message:'private-provider-detail',expected:'temporarily unavailable'},
+  'mfa-expired':{status:401,error:'sign_in_again',expected:'Start again'},
+  'mfa-reused':{status:401,error:'authenticator_code_reused',expected:'Wait for the next code'},
+  'mfa-csrf':{status:403,error:'forbidden',expected:'Reload the page, allow cookies'},
+  'mfa-rate-limit':{status:429,error:'try_again_later',retry_after:900,expected:'900 seconds'},
+  'mfa-invalid-rate-limit':{status:429,error:'try_again_later',retry_after:'private-provider-detail',expected:'60 seconds'},
+  'mfa-private-error':{status:503,error:'private-provider-detail',expected:'temporarily unavailable'},
+  'provider-unconfigured':{status:400,error:'provider_not_configured',expected:'awaiting server setup'},
+  'provider-company':{status:400,error:'unknown_tenant',expected:'Check the company key'},
+  'provider-rate-limit':{status:429,error:'try_again_later',expected:'60 seconds'},
+};
+const failure = failures[scenario];
 let releaseOld, announceOld;
 const oldStarted = new Promise(resolve => { announceOld = resolve; });
 const oldResponse = new Promise(resolve => { releaseOld = resolve; });
 const json = (status, value) => ({ok:status >= 200 && status < 300, status, json:async () => value});
 const context = vm.createContext({
-  URLSearchParams, URL, Object, Intl, Date, onMount:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async()=>{},
+  URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
   window:{location:{search:scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP'}, history:{replaceState:()=>{}}},
   fetch:async (path, options={}) => {
     calls.push({path, options});
     if (path === '/auth/session') {
       sessionReads++;
+      if (scenario === 'mount-session-network-error') throw Error('private-provider-detail');
+      if (scenario === 'mount-session-service-error') return json(503,{error:'private-provider-detail'});
       if (['revoked-cookie', 'revoked-tenant-deep-link'].includes(scenario) && sessionReads === 1) return json(401, {error:'unauthorized'});
       return json(200, {user:null, csrf_token:'fresh', mfa:null});
     }
     if (path === '/auth/login') {
+      if (scenario.startsWith('password-') && failure) return json(failure.status,failure);
       if (scenario === 'login-network-error') throw Error('private-provider-detail');
       if (scenario === 'trusted-login' || scenario.startsWith('stale-')) return json(200, {user:identity, csrf_token:'signed-in'});
       return json(202, {mfa_required:true, mfa:{enrollment:true,email:identity.email,setup_key:'synthetic'}, csrf_token:'challenge'});
     }
     if (path === '/auth/mfa/confirm') {
+      if (scenario.startsWith('mfa-') && failure) return json(failure.status,failure);
       return json(200, {user:identity, csrf_token:'signed-in'});
     }
+    if (path === '/auth/oidc/google/start') return json(failure.status,failure);
     if (path === '/auth/logout') return json(200, {ok:true});
     const oldTarget = {
       'stale-workspace-response':'/admin/api/widget?tenant=OLD',
@@ -99,7 +125,47 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
 (async () => {
   const h = context.harness;
   h.credentials();
-  if (['tenant-deep-link', 'revoked-tenant-deep-link', 'invalid-tenant-deep-link'].includes(scenario)) {
+  if (scenario.startsWith('navigation-')) {
+    const subsets = {
+      'navigation-staff-no-grants':{roles:['business_staff'],permissions:[],allowed:['account'],fallback:'account'},
+      'navigation-staff-reads':{roles:['business_staff'],permissions:['analytics.read','conversations.read','offerings.read','offers.read','integrations.read'],allowed:['pipeline','statistics','conversations','catalog','offers','whatsapp-qr','account'],fallback:'pipeline'},
+      'navigation-owner-subset':{roles:['business_owner'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'website',models:true},
+      'navigation-operator-subset':{roles:['platform_admin'],permissions:['view_costs'],allowed:['companies','usage','account'],fallback:'usage'},
+      'navigation-composite':{roles:['business_owner'],permissions:['business_settings.read','customers.read','integrations.read','analytics.read','errors.read','users.read'],allowed:['companies','team','pipeline','statistics','test','agent','website','faqs','delivery','profile','branches','privacy','integrations','implementation','whatsapp-qr','errors','account'],fallback:'pipeline',models:true,conversion:true},
+      'navigation-mixed-owner':{roles:['business_owner','business_staff'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'website'},
+      'navigation-next-denied':{roles:['business_staff'],permissions:['conversations.read'],allowed:['conversations','account'],fallback:'conversations'},
+      'navigation-next-granted':{roles:['business_staff'],permissions:['analytics.read'],allowed:['pipeline','statistics','account'],fallback:'pipeline'},
+    };
+    const subset=subsets[scenario];
+    h.identity({...identity,roles:subset.roles,permissions:subset.permissions});
+    const sectionNames=['subscription','platform','pipeline','statistics','test','implementation','whatsapp-qr','usage','conversations','agent','website','integrations','catalog','offers','faqs','delivery','profile','branches','team','companies','errors','account','privacy'];
+    assert.deepEqual(sectionNames.filter(h.mayOpenScreen).sort(),subset.allowed.sort());
+    assert.equal(h.mayOpenScreen('unknown-section'),false);
+    assert.equal(h.defaultWorkspaceScreen(),subset.fallback);
+    assert.equal(h.mayReadModelParameters(),Boolean(subset.models));
+    assert.equal(h.mayReadConversionSettings(),Boolean(subset.conversion));
+    if (scenario === 'navigation-next-denied' || scenario === 'navigation-next-granted') {
+      context.window.location.search='?tenant=SHOP&next='+(scenario === 'navigation-next-denied' ? 'platform' : 'statistics');
+      await h.openDefaultWorkspace();
+      assert.deepEqual(navigations,['/console/'+(scenario === 'navigation-next-denied' ? 'conversations' : 'statistics')+'?tenant=SHOP']);
+    }
+    assert.equal(calls.length,0);
+  } else if (scenario.startsWith('mount-session-')) {
+    await mount();
+    assert.equal(h.state().loading, false);
+    assert.equal(h.state().user, null);
+    assert.ok(h.state().loginError.includes('Could not load your sign-in session'));
+    assert.ok(!h.state().loginError.includes('private-provider-detail'));
+  } else if (failure) {
+    if (scenario.startsWith('mfa-')) {await h.login();await h.confirmMfa();}
+    else if (scenario.startsWith('provider-')) await h.providerLogin('google');
+    else await h.login();
+    assert.equal(h.state().user, null);
+    assert.equal(h.state().signingIn, false);
+    assert.ok(h.state().loginError.includes(failure.expected),h.state().loginError);
+    assert.ok(!h.state().loginError.includes('private-provider-detail'));
+    if (scenario.startsWith('mfa-')) assert.ok(h.state().mfa);
+  } else if (['tenant-deep-link', 'revoked-tenant-deep-link', 'invalid-tenant-deep-link'].includes(scenario)) {
     await h.restoreSession();
     assert.equal(h.state().tenant, scenario === 'invalid-tenant-deep-link' ? 'EXAMPLE' : 'SHOP');
   } else if (scenario.startsWith('stale-')) {
@@ -152,6 +218,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
       assert.equal(h.state().workspaceError, '');
       assert.ok(!calls.some(call => /\/(widget|catalog|offers|insights)\?/.test(call.path)));
       assert.equal(h.state().tenant, 'SHOP');
+      assert.deepEqual(navigations,['/console/account?tenant=SHOP']);
     } else {
       assert.equal(h.state().tenants.length, 0);
       assert.ok(h.state().workspaceError);
@@ -166,6 +233,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     } else if (scenario === 'trusted-login') {
       assert.ok(h.state().user);
       assert.equal(h.state().loginError, '');
+      assert.deepEqual(navigations,['/console/account?tenant=SHOP']);
     } else {
       assert.equal(h.state().user, null);
       assert.ok(h.state().mfa?.enrollment);
@@ -189,6 +257,14 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     'logout-clears-workspace', 'insights-failure-clears-leads',
     'owner-workspace', 'stale-workspace-response', 'stale-activation-response',
     'stale-accounts-response', 'stale-insights-response', 'stale-directory-response',
+    'password-invalid', 'password-company', 'password-csrf', 'password-rate-limit',
+    'password-global-rate-limit', 'password-private-error', 'mfa-expired', 'mfa-reused',
+    'mfa-csrf', 'mfa-rate-limit', 'mfa-invalid-rate-limit', 'mfa-private-error',
+    'provider-unconfigured', 'provider-company', 'provider-rate-limit',
+    'mount-session-network-error', 'mount-session-service-error',
+    'navigation-staff-no-grants', 'navigation-staff-reads', 'navigation-owner-subset',
+    'navigation-operator-subset', 'navigation-composite', 'navigation-mixed-owner',
+    'navigation-next-denied', 'navigation-next-granted',
 ])
 def test_console_authentication_flow(scenario):
     result = subprocess.run(

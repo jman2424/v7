@@ -117,28 +117,32 @@
 </section>
 
 <style>
-  .surface { min-width: 0; background: #fff; border: 1px solid #d9ddd7; border-radius: 8px; overflow-wrap: anywhere; }
-  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 20px; padding: 20px; border-bottom: 1px solid #e4e8e1; }
-  nav, .tools { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; max-width: 100%; }
-  button, a { min-height: 40px; padding: 9px 12px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; font-size: 14px; font-weight: 600; text-decoration: none; }
-  button.active { color: #fff; background: #007d70; border-color: #007d70; }
+  .surface { min-width: 0; background: #fff; border: 1px solid var(--v7-line); border-radius:18px; overflow-wrap: anywhere;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items:center; gap: 20px; padding:24px; border-bottom: 1px solid var(--v7-line); }
+  nav, .tools { display: flex; flex-wrap: wrap; align-items: end; gap:10px; max-width: 100%; }
+  button, a { min-height:44px; padding: 9px 12px; border: 1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; color: var(--v7-ink); background: #fff; font-size: 14px; font-weight: 600; text-decoration: none; }
+  button.active { color: #fff; background: var(--v7-accent); border-color: var(--v7-accent); }
   button:disabled { opacity: .6; cursor: wait; }
   button:focus-visible, a:focus-visible, select:focus-visible { outline: 3px solid #8bcdc0; outline-offset: 2px; }
-  label { display: grid; gap: 6px; min-width: 0; color: #1f2923; font-size: 12px; font-weight: 600; }
-  select { max-width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid #bbc4bc; border-radius: 6px; color: #1f2923; background: #fff; }
-  .content { padding: 20px; }
-  h2 { margin: 0 0 16px; font-size: 17px; }
-  .empty, .hint { color: #67706b; font-size: 14px; line-height: 1.5; }
-  .empty { margin: 0; padding: 12px 0; }
-  .message, .lead, .question { padding: 16px 0; border-top: 1px solid #e4e8e1; }
+  label { display: grid; gap: 6px; min-width: 0; color: var(--v7-ink); font-size: 12px; font-weight: 600; }
+  select { max-width: 100%; min-width: 0; min-height:44px; padding: 8px 10px; border: 1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; color: var(--v7-ink); background: #fff; }
+  .content { padding:24px; }
+  h2 { margin: 0 0 16px; font-size:21px;letter-spacing:-.025em;}
+  .empty, .hint { color: var(--v7-muted); font-size: 14px; line-height: 1.5; }
+  .empty { margin: 0; padding:24px;background:var(--v7-soft, #f0f6f2);border-radius:14px;}
+  .message, .lead, .question { padding:18px 0; border-top: 1px solid var(--v7-line); }
   .message-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; font-size: 13px; }
-  .message-meta span, time { color: #67706b; font-size: 12px; }
+  .message-meta span, time { color: var(--v7-muted); font-size: 12px; }
   .message-meta time { margin-left: auto; }
   .message p { margin: 10px 0 0; white-space: pre-wrap; line-height: 1.6; }
   .lead { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; font-size: 14px; }
   .lead > div { display: grid; gap: 6px; min-width: 0; }
-  .status { padding: 5px 9px; background: #f1f5f0; border-radius: 6px; }
+  .status { padding: 5px 9px; background:#e7f5ef; border-radius:20px;color:var(--v7-accent);font-size:12px;font-weight:650;}
   .question { display: flex; justify-content: space-between; gap: 20px; line-height: 1.5; }
   .error { color: #b42318; padding: 12px; background: #fff2f0; border-radius: 6px; }
   @media (max-width: 720px) { .lead { grid-template-columns: minmax(0, 1fr) auto; } .lead time { grid-column: 1 / -1; } .message-meta time { width: 100%; margin-left: 0; } }
+  nav { padding:6px; background:var(--v7-soft, #f0f6f2); border-radius:14px; }
+    .message-meta strong { color:var(--v7-accent); }
+    .message-meta span { padding:4px 9px; background:var(--v7-soft, #f0f6f2); border-radius:20px; }
+    @media(max-width:520px) { header,.content { padding:16px; } nav { width:100%; } nav button { flex:1 1 120px; } .tools { width:100%; } .tools label { flex:1; } }
 </style>

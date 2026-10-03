@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+try:
+    from scripts.backup_utils import is_linked_path
+except ModuleNotFoundError:
+    from backup_utils import is_linked_path
+
 
 SECURITY_TABLES = {
     'management_sessions', 'login_attempts', 'account_authenticators', 'mfa_challenges',
@@ -70,7 +75,7 @@ def strict_json(text):
 
 def _reject_linked_source(path):
     absolute = path.absolute()
-    if any(part.is_symlink() or getattr(part, 'is_junction', lambda: False)()
+    if any(is_linked_path(part)
            for part in [absolute, *absolute.parents]):
         raise ValueError('Linked source paths require review')
 
@@ -133,7 +138,7 @@ def _sqlite_source_state(path):
         if suffix and not source.exists() and not source.is_symlink():
             continue
         if (not source.is_file()
-                or any(part.is_symlink() or getattr(part, 'is_junction', lambda: False)()
+                or any(is_linked_path(part)
                        for part in [source.absolute(), *source.absolute().parents])):
             raise ValueError('Required SQLite backup is missing or not a regular file')
         state[suffix] = _file_digest(source)

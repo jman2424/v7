@@ -309,14 +309,14 @@
     ? [['platform','Platform overview'], ['companies','Companies'], ['subscription','Subscriptions'], ['usage','API usage & cost'], ...Object.entries(sections).filter(([key])=>!['platform','companies','subscription','usage'].includes(key))]
     : Object.entries(sections).filter(([key])=>key!=='platform');
   $: isOwner = Boolean(user?.roles?.includes('business_owner'));
-  $: canViewCosts = isPlatform || isOwner || Boolean(user?.permissions?.includes('view_costs'));
-  $: canViewSubscriptions = isPlatform || isOwner || Boolean(user?.permissions?.includes('view_subscriptions'));
+  $: canViewCosts = Boolean(user?.permissions?.includes('view_costs'));
+  $: canViewSubscriptions = Boolean(user?.permissions?.includes('view_subscriptions'));
   let accountViewCosts=false;
   let accountViewSubscriptions=false;
   let selectedViewCosts=false;
   let selectedViewSubscriptions=false;
   let activation:{active:boolean;status:string}|null=null;
-  $: canManageAccounts = Boolean(user?.roles?.some(role=>role==='platform_admin'||role==='admin'||role==='business_owner'));
+  $: canManageAccounts = hasAccountManagementAccess() && Boolean(user?.permissions?.includes('users.read'));
   $: if (user) accountRole = isPlatform ? 'business_owner' : 'business_staff';
 
   function apiPath(path: string) {
@@ -620,11 +620,37 @@
     if (!user || !Object.hasOwn(sections, key)) return false;
     const operator = user.roles.some(role => role === 'platform_admin' || role === 'admin');
     const owner = user.roles.includes('business_owner');
-    if (key === 'platform') return operator;
-    if (key === 'companies' || key === 'team') return operator || owner;
-    if (key === 'usage') return operator || owner || Boolean(user.permissions?.includes('view_costs'));
-    if (key === 'subscription') return operator || owner || Boolean(user.permissions?.includes('view_subscriptions'));
-    return true;
+    if (key === 'platform') return operator && Boolean(user.permissions?.includes('platform.read'));
+    if (key === 'companies') return operator || owner;
+    if (key === 'team') return (operator || owner) && Boolean(user.permissions?.includes('users.read'));
+    if (key === 'account') return true;
+    // Match the permissions required by each section's actual API reads.
+    const requiredPermissions: Record<string, string[]> = {
+      usage: ['view_costs'], subscription: ['view_subscriptions'],
+      pipeline: ['analytics.read'], statistics: ['analytics.read'],
+      conversations: ['conversations.read'], catalog: ['offerings.read'], offers: ['offers.read'],
+      test: ['business_settings.read'], website: ['business_settings.read'], agent: ['business_settings.read'],
+      faqs: ['business_settings.read'], delivery: ['business_settings.read'], profile: ['business_settings.read'],
+      branches: ['business_settings.read'], privacy: ['business_settings.read'],
+      implementation: ['business_settings.read', 'integrations.read'], integrations: ['business_settings.read', 'integrations.read'],
+      'whatsapp-qr': ['integrations.read'], errors: ['errors.read', 'analytics.read'],
+    };
+    const required = requiredPermissions[key];
+    return Boolean(required && required.every(permission => user?.permissions?.includes(permission)));
+  }
+
+  function mayReadModelParameters() {
+    if (!user) return false;
+    if (user.roles.some(role => role === 'platform_admin' || role === 'admin')) return Boolean(user.permissions?.includes('models.read'));
+    return user.roles.length === 1 && user.roles[0] === 'business_owner' && Boolean(user.permissions?.includes('business_settings.read'));
+  }
+
+  function mayReadConversionSettings() {
+    return hasAccountManagementAccess() && Boolean(user?.permissions?.includes('business_settings.read') && user?.permissions?.includes('customers.read'));
+  }
+
+  function defaultWorkspaceScreen() {
+    return ['platform', 'pipeline', 'statistics', 'conversations', 'catalog', 'offers', 'website', 'integrations', 'implementation', 'whatsapp-qr', 'usage', 'subscription', 'account'].find(mayOpenScreen) || 'account';
   }
 
   async function loadAccounts(selectedTenant = tenant, activeLoad = workspaceRequest()) {
@@ -685,7 +711,10 @@
     const validRequestedTenant = requestedTenant && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(requestedTenant) ? requestedTenant : null;
     if (validRequestedTenant) tenant = validRequestedTenant;
     const response = await fetch(apiPath('/auth/session'), { credentials: 'same-origin' });
-    if (!response.ok) return;
+    if (!response.ok) {
+      if (response.status === 401) return;
+      throw new Error('session_unavailable');
+    }
     const data = await readJson(response);
     user = data.user;
     mfa = data.mfa || null;
@@ -694,6 +723,25 @@
     if (user) {
       await loadSignedInWorkspace();
     }
+  }
+
+  function signInFailure(response: Response, data: {error?: unknown; retry_after?: unknown}, phase: 'password'|'authenticator'|'provider') {
+    if (data.error === 'csrf_failed' || response.status === 403) {
+      return 'Your sign-in page expired or its cookie was blocked. Reload the page, allow cookies for this site, and try again.';
+    }
+    if (data.error === 'sign_in_again') return 'This sign-in expired. Start again.';
+    if (data.error === 'authenticator_code_reused') return 'That code has already been used. Wait for the next code in your authenticator.';
+    if (data.error === 'try_again_later' || response.status === 429) {
+      const seconds = typeof data.retry_after === 'number' && Number.isSafeInteger(data.retry_after) && data.retry_after > 0 ? data.retry_after : 60;
+      return `Too many sign-in attempts. Try again in ${seconds} seconds.`;
+    }
+    if (response.status >= 500) return 'Sign-in is temporarily unavailable. Please try again shortly.';
+    if (data.error === 'unknown_tenant' || data.error === 'invalid_tenant') return 'Check the company key supplied with your account and try again.';
+    if (data.error === 'provider_not_configured') return 'This sign-in provider is awaiting server setup. Use your password instead.';
+    if (data.error === 'invalid_credentials' && phase === 'password') return 'Sign-in details were not accepted. Check your company key, email and password.';
+    return phase === 'authenticator' ? 'Code not accepted. Check your authenticator and try again.'
+      : phase === 'provider' ? 'Could not start provider sign-in. Check the company key or use your password.'
+      : 'Could not complete sign-in. Please try again.';
   }
 
   async function login() {
@@ -724,7 +772,7 @@
         mfa = data.mfa; csrf = data.csrf_token; password = ''; totp = ''; return;
       }
       if (!response.ok) {
-        loginError = data.message || data.error || 'Sign-in failed.';
+        loginError = signInFailure(response, data, 'password');
         return;
       }
       user = data.user;
@@ -747,10 +795,7 @@
       const response = await fetch(apiPath('/auth/mfa/confirm'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({code:totp,remember_device:rememberDevice})});
       const data = await readJson(response);
       if (!response.ok) {
-        loginError = data.error === 'sign_in_again' ? 'This sign-in expired. Start again.'
-          : data.error === 'authenticator_code_reused' ? 'That code has already been used. Wait for the next code in your authenticator.'
-          : data.error === 'try_again_later' ? `Too many sign-in attempts. Try again in ${data.retry_after || 60} seconds.`
-          : 'Code not accepted. Check your authenticator and try again.';
+        loginError = signInFailure(response, data, 'authenticator');
         return;
       }
       mfa = null; totp = ''; user = data.user; csrf = data.csrf_token; tenant = user?.tenant || tenant;
@@ -775,17 +820,14 @@
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
     const next = params.get('next');
-    if (next && mayOpenScreen(next)) {
-      params.delete('next');
-      params.delete('oidc');
-      params.delete('provider');
-      params.set('tenant', tenant);
-      await goto(base+'/'+next+'?'+params.toString(), {replaceState:true});
-      return;
+    let destination = next && mayOpenScreen(next) ? next : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
+    if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
+      destination = defaultWorkspaceScreen();
     }
-    if (user?.roles?.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
-      await goto(base+'/platform', {replaceState:true});
-    }
+    if (!destination) return;
+    params.delete('next'); params.delete('oidc'); params.delete('provider');
+    params.set('tenant', tenant);
+    await goto(base+'/'+destination+'?'+params.toString(), {replaceState:true});
   }
 
   async function loadProviders() {
@@ -808,7 +850,12 @@
       csrf = data.csrf_token;
       response = await fetch(apiPath('/auth/oidc/'+provider+'/start'), {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({intent:'login',tenant})});
       const start = await readJson(response);
-      if (!response.ok || typeof start.authorization_url !== 'string') throw new Error();
+      if (!response.ok) {
+        loginError = signInFailure(response, start, 'provider');
+        signingIn = false;
+        return;
+      }
+      if (typeof start.authorization_url !== 'string') throw new Error();
       const url = new URL(start.authorization_url);
       if (url.protocol !== 'https:' || !['accounts.google.com','login.microsoftonline.com'].includes(url.hostname)) throw new Error();
       window.location.assign(url.href);
@@ -1250,6 +1297,8 @@
       await restoreSession();
       await loadProviders();
       await openDefaultWorkspace();
+    } catch {
+      loginError = 'Could not load your sign-in session. Check your connection, reload the page and try again.';
     } finally {
       loading = false;
     }
@@ -1312,6 +1361,7 @@
     </div>
   </main>
 {:else}
+  <a class="skip-link" href="#workspace">{$t('Skip to workspace')}</a>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="side-brand"><span>V7</span><strong>{isPlatform ? 'Platform admin' : tenant}</strong><small>{isPlatform ? 'All-business management' : 'Sales agent workspace'}</small></div>
@@ -1320,7 +1370,7 @@
         {#each navigationSections as [key,label]}
           {#if isPlatform && key === 'platform'}<span class="nav-group">Platform management</span>{/if}
           {#if isPlatform && key === 'pipeline'}<span class="nav-group">Selected company · {tenant}</span>{/if}
-          {#if (key!=='usage'||canViewCosts) && (key!=='subscription'||canViewSubscriptions) && (key !== 'companies' || isPlatform || isOwner) && (key !== 'team' || canManageAccounts)}
+          {#if mayOpenScreen(key)}
             <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(label)}</a>
           {/if}
         {/each}
@@ -1328,7 +1378,7 @@
       <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : user.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span></div>
     </aside>
 
-    <main class="workspace">
+    <main id="workspace" class="workspace" tabindex="-1">
       <header class="workspace-head">
         <div><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1></div>
         <div class="workspace-actions">
@@ -1349,14 +1399,14 @@
       {/if}
 
       {#if !mayOpenScreen(section)}
-        <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/pipeline?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
+        <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/'+defaultWorkspaceScreen()+'?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
       {:else if !isPlatform && activation && !activation.active && !['subscription','companies','account','privacy'].includes(section)}
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if section === 'account'}<AccountSecurity {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
       {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
-      {#if section === 'agent' && (isPlatform || isOwner)}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
@@ -1412,7 +1462,7 @@
           </div>
         </section>
         {#key tenant}<WebsiteKnowledge {tenant} {csrf} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
-        {#if isPlatform || isOwner}{#key tenant}<ConversionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}{/if}
+        {#if mayReadConversionSettings()}{#key tenant}<ConversionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}{/if}
         {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'implementation'}
@@ -1458,7 +1508,7 @@
           <div class="activity-list">
             <div class="list-heading"><h3>Recent leads</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
             {#each insights.leads as lead}
-              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} disabled={!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}
@@ -1472,7 +1522,7 @@
             {/each}
           </div>
         </div>
-        {#if activityStatus}<p class="activity-status">{activityStatus}</p>{/if}
+        {#if activityStatus}<p class="activity-status" role="status">{activityStatus}</p>{/if}
       </section>
       {/if}
 
@@ -2047,20 +2097,20 @@
   .login .provider-help,.login .login-policy {font-size:11px;line-height:1.5}
   .login-policy a {color:#007d70}
   .app-shell {grid-template-columns:250px minmax(0,1fr)}
-  .sidebar {background:#252c27;padding:28px 16px;gap:20px}
+  .sidebar {background:linear-gradient(165deg,#294b3d,var(--v7-brand));padding:28px 16px;gap:20px}
   .side-brand {border-color:#3d4940;padding-bottom:22px}
   .side-brand span {color:#7ee0c6;letter-spacing:.15em}
   .side-brand small {color:#acb8ae}
-  nav a {border-radius:9px;padding:11px 12px;color:#c9d2cb}
-  nav a:hover {background:#3b4940;color:white}
-  nav a.active {background:#3b4940;color:white}
+  nav a {border-radius:10px;padding:11px 12px;color:#d9e4dc;min-height:44px;transition:background-color .15s}
+  nav a:hover {background:#ffffff14;color:white}
+  nav a.active {background:var(--v7-lime);color:var(--v7-brand);font-weight:750}
   .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f7f7f2;min-width:0}
   .workspace-head {padding-bottom:24px;border-bottom:1px solid #d9ddd7;margin-bottom:24px}
   .workspace-head h1 {font-size:28px;line-height:1.25;letter-spacing:-.03em;color:#1f2923}
   .workspace-head .eyebrow {color:#67706b;letter-spacing:.1em}
   .workspace-actions {flex-wrap:wrap;justify-content:flex-end}
-  .surface {border-color:#d9ddd7;border-radius:16px;box-shadow:0 4px 18px #1f292303}
-  .surface-head {background:#fff;padding:22px;border-color:#e5e9f2}
+  .surface {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:var(--v7-card-shadow);margin-bottom:20px}
+  .surface-head {background:#fff;padding:24px;border-color:var(--v7-line);border-radius:var(--v7-radius) var(--v7-radius) 0 0}
   .surface-head h2 {color:#1f2923;font-size:20px;letter-spacing:-.02em}
   .primary {background:#007d70;border-color:#007d70;min-height:44px;border-radius:9px}
   .primary:hover {background:#00695e}
@@ -2070,7 +2120,37 @@
   input:focus,textarea:focus,select:focus {border-color:#007d70;outline-color:#8bcdc0}
   .notice {background:#e7f5ef;color:#203b30;border:1px solid #c0dfd3;padding:12px;border-radius:10px}
   .notice.error {background:#fff2f0;color:#a61b2b;border-color:#f1c5c6}
+  .skip-link {position:fixed;inset-inline-start:16px;top:12px;z-index:100;transform:translateY(-200%);padding:12px 18px;background:var(--v7-lime);color:var(--v7-brand);border-radius:10px;font-weight:700}
+  .skip-link:focus {transform:translateY(0)}
+  .metric-grid {padding:24px;gap:14px;border-bottom:0}
+  .metric-grid > div {min-height:138px;padding:20px;border:1px solid var(--v7-line);border-radius:14px;background:var(--v7-soft)}
+  .metric-grid > div + div {border-left:1px solid var(--v7-line)}
+  .metric-grid strong {font-size:36px;color:var(--v7-brand);font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+  .metric-grid small,.list-heading span {color:var(--v7-muted)}
+  .funnel-strip {margin:0 24px;border:1px solid var(--v7-line);border-radius:12px;background:var(--v7-soft)}
+  .count-label {padding:6px 10px;background:var(--v7-soft);border-color:var(--v7-line);color:var(--v7-brand)}
+  .operator-panel {padding:24px;border-radius:var(--v7-radius);background:#edf5e8;border-color:#cadfc0}
+  .operator-panel p:not(.eyebrow) {color:var(--v7-muted);line-height:1.6}
+  .account-row strong {color:var(--v7-ink)}
+  .account-row:nth-child(even),.company-row:nth-child(odd) {background:var(--v7-soft)}
+  .company-row {padding:20px 24px}
+  .company-row:last-child {border-bottom:0;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
+  .company-row strong {flex:1 1 180px}
+  .company-row span {color:var(--v7-muted);font-size:13px}
+  .editor-group,.offer-editor,.branch-editor {padding:24px}
+  .product-table {border-radius:12px;border-color:var(--v7-line)}
+  .product-table-head {background:var(--v7-soft);color:var(--v7-muted);padding:12px}
+  .inventory-fields {background:#fafbf8}
+  .icon-button,.add-row {min-height:44px}
+  .section-footer {padding:20px 24px;background:#fafbf8;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
+  .profile-footer {padding:0;background:transparent}
+  .empty-state {padding:24px 0;line-height:1.7}
+  .settings-form,.profile-form,.agent-form,.team-form,.account-control-form {gap:20px}
+  .activity-list {padding:24px}
+  .lead-row select {min-height:40px}
+  .widget-stage {border-color:var(--v7-line);border-radius:14px}
   :global(body) {background:#f7f7f2}
   @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
   @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;overflow:visible;padding:18px 16px}.workspace{padding:24px 16px 40px}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;gap:12px}.login{padding:24px}.login-intro h2{font-size:30px}}
+  @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:20px}.metric-grid{padding:20px;gap:10px}.metric-grid>div{min-height:128px;padding:16px}.metric-grid strong{font-size:32px}.funnel-strip{margin:0 20px}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:20px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
 </style>

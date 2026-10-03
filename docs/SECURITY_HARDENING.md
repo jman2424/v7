@@ -1,11 +1,12 @@
-# Vertex Seven security hardening — 2 October 2026
+# Vertex Seven security hardening — 3 October 2026
 
 ## Result and scope
 
 This pass implements additional controls on current `main`, based on commit
 `2331a086cb7c7637107e11111e9cced53b52be7b`, rebased onto
 `1c0fa7d` when main advanced, preserving its Docker translation build fix and
-migration documentation updates. It preserves Flask, both storage
+migration documentation updates, and onto `9a37492` before final publication,
+preserving its CI command and audit-tool updates. It preserves Flask, both storage
 runtimes, the owner console, mandatory MFA, multi-business ownership, activation,
 MCP/REST, OIDC, trusted devices, privacy, business-core records, website chat,
 per-tenant WhatsApp/audio and sales behavior.
@@ -95,7 +96,7 @@ attack or a substitute for an independent penetration test.
   12 Bash blocks and eight release-tag cases passed targeted checks.
 - Follow-up security regressions through the pytest 9.0.3 console entry:
   **297 passed, 1 PostgreSQL skip** across 14 directly relevant modules.
-- Final executable console authentication/state regressions: **17 passed**;
+- Final executable console authentication/state regressions: **42 passed**;
   existing MFA/OIDC/trusted-device/signup/private-console subset: **131 passed**.
   Final combined Svelte check: **zero errors/warnings**; `/console` production
   build: **passed**.
@@ -131,8 +132,58 @@ enrollment/sign-in, logout and tenant deep-link checks with disposable accounts.
 Restricted staff reached the workspace without a false login error while private
 settings and cross-tenant activation requests still returned HTTP 403.
 
-These are local source and regression findings. The exact current live website
-origin/error was not supplied; live sign-in has not been verified by these checks.
+Read-only public checks of `v7-sales-agent.onrender.com` and
+`v7-52g3.onrender.com` confirmed anonymous session-cookie continuity. Both
+advertise Google/Microsoft sign-in as unconfigured and registration as disabled.
+Their served console bundles lack the workspace-error separation, and their
+homepage scripts lack the demo-button behavior above. Their initial HTTP 503
+responses subsequently recovered to HTTP 200. Actual live password/MFA sign-in
+remains unverified; no real credentials or production configuration were changed.
+
+## Dashboard and sign-in completion
+
+The green console shell and 22 secondary dashboard components now share design
+tokens, consistent cards, readable metrics, larger controls, contained tables and
+responsive layouts. Selected navigation uses dark green and lime. A keyboard
+skip link opens the workspace. Tenant-custom widget themes remain configurable;
+component data/API handling is preserved.
+
+Password, authenticator and provider errors now explain incorrect company keys,
+expired cookies, consumed codes, rate limits and unavailable providers. Unknown
+server details are never echoed into sign-in errors. A failed session load is
+visible on the sign-in form. The executable authentication suite covers 42 cases.
+
+Navigation and landing pages now match the permissions required by the actual
+section APIs, including composite settings/integration/health screens. Explicitly
+restricted owners/operators retain their restrictions. Optional model and
+conversion panels mount only when their API access is permitted. Accounts with
+no dashboard read grants can still open their own Account & security page.
+
+The production build passed a fresh synthetic owner password/MFA enrollment
+and sign-in in a disposable loopback runtime. Desktop and phone-width pipeline
+and catalogue layouts were reviewed, including the mobile menu and contained
+catalogue scrolling. Rapid full-page navigation triggered the existing analytics
+rate limiter; normal console navigation was reviewed without weakening it.
+
+## Final dependency and platform repairs
+
+The console lockfile updates only transitive devalue 5.9.2 to 5.9.3, the
+[maintainer's security patch](https://github.com/sveltejs/devalue/releases/tag/v5.9.3)
+for the six advisories reported by the second published audit. The exact
+lockfile-only audit then reported 83 dependencies and zero vulnerabilities.
+Svelte check reported zero errors/warnings and the `/console` build passed.
+
+Two Python 3.11 CI portability failures are repaired. The watchdog regression now
+tests the actual importer across trickled status/header/chunk lines, rejecting
+expired fetches whether shutdown produces EOF or an exception. Its 150 ms budget
+and bounded-interruption assertion remain. The backup mock supports an absent
+`Path.is_junction` method. These two modules passed all 68 focused tests.
+
+A real Windows junction with the Python 3.12-only junction API removed reproduced
+an offline path-check bypass. Backup/export/import preparation/snapshot guards
+now inspect `lstat` junction metadata before resolution. The relevant five-module
+suite passed 120 tests with four environment skips; regular and missing paths
+remain supported. This does not contact a live database or read live files.
 
 ## CI and static-analysis follow-up
 
@@ -217,6 +268,7 @@ for behavior and recovery procedures.
 - `.github/workflows/release.yml`
 - `.github/workflows/security.yml`
 - `.gitignore`
+- `README.md`
 - `ai_modes/v7_tool_runtime.py`
 - `app/app_factory.py`
 - `app/config.py`
@@ -225,17 +277,18 @@ for behavior and recovery procedures.
 - `app/routes/route_helpers.py`
 - `connectors/sheets.py`
 - `connectors/web_widget.py`
-- `connectors/whatsapp_audio.py`
 - `connectors/whatsapp.py`
+- `connectors/whatsapp_audio.py`
 - `dashboard/static/css/home.css`
 - `dashboard/static/js/home.js`
 - `dashboard/templates/home.html`
 - `docs/LIVE_BACKUP.md`
-- `docs/mcp.md`
 - `docs/OPERATIONS.md`
-- `docs/SECURITY_HARDENING.md`
 - `docs/SECURITY.md`
+- `docs/SECURITY_HARDENING.md`
 - `docs/SUPABASE_MIGRATION.md`
+- `docs/mcp.md`
+- `frontend/package-lock.json`
 - `frontend/src/app.css`
 - `frontend/src/lib/AccountSecurity.svelte`
 - `frontend/src/lib/AgentTest.svelte`
@@ -257,10 +310,10 @@ for behavior and recovery procedures.
 - `frontend/src/lib/Statistics.svelte`
 - `frontend/src/lib/Subscription.svelte`
 - `frontend/src/lib/TrendChart.svelte`
+- `frontend/src/lib/WebsiteKnowledge.svelte`
 - `frontend/src/lib/WhatsAppConnection.svelte`
 - `frontend/src/lib/WhatsAppQr.svelte`
 - `gunicorn.conf.py`
-- `README.md`
 - `requirement.txt`
 - `requirements-dev.txt`
 - `requirements.txt`
@@ -282,11 +335,13 @@ for behavior and recovery procedures.
 - `routes/whatsapp_routes.py`
 - `schemas/catalog-sheet.schema.json`
 - `scripts/backup_utils.py`
+- `scripts/export_runtime.py`
 - `scripts/manage_account.py`
 - `scripts/platform_backup.py`
 - `scripts/prepare_supabase.py`
 - `scripts/restore_snapshot.py`
 - `scripts/snapshot_backup.py`
+- `scripts/snapshot_paths.py`
 - `sdk/js/package.json`
 - `sdk/js/security.test.js`
 - `sdk/js/tests/security.test.js`
@@ -316,10 +371,11 @@ for behavior and recovery procedures.
 - `tests/test_codeql_api_audio_followup.py`
 - `tests/test_console_login_followup.py`
 - `tests/test_main_security_boundaries.py`
-- `tests/test_mcp_security_followup.py`
 - `tests/test_mcp.py`
+- `tests/test_mcp_security_followup.py`
 - `tests/test_model_security_followup.py`
 - `tests/test_model_settings.py`
+- `tests/test_offline_junction_security.py`
 - `tests/test_ops_second_pass.py`
 - `tests/test_postgres_auth_runtime.py`
 - `tests/test_privacy_permission_followup.py`

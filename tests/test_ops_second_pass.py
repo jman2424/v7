@@ -66,8 +66,8 @@ def test_reserved_backup_paths_are_rejected(tmp_path, relative):
 @pytest.mark.parametrize("kind", ["is_symlink", "is_junction"])
 def test_backup_paths_reject_parent_directory_alias(tmp_path, monkeypatch, kind):
     alias = tmp_path / "aliased-directory"
-    original = getattr(Path, kind)
-    monkeypatch.setattr(Path, kind, lambda path: path == alias or original(path))
+    original = getattr(Path, kind, lambda path: False)
+    monkeypatch.setattr(Path, kind, lambda path: path == alias or original(path), raising=False)
     with pytest.raises(ValueError, match="junctions"):
         checked_path(alias / "private/accounts.json")
 

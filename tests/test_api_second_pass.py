@@ -1,5 +1,6 @@
 """Public origin, website import and fail-closed management write regressions."""
 import http.client
+import io
 import json
 import socket
 import time
@@ -273,16 +274,40 @@ def test_website_body_reader_bounds_size_before_accumulating_more(monkeypatch):
     response.read1.assert_called_once_with(9)
 
 
-@pytest.mark.parametrize("phase", ["headers", "chunk_line"])
+@pytest.mark.parametrize("phase", ["status_line", "headers", "chunk_line"])
 def test_website_watchdog_interrupts_continuously_trickled_protocol_lines(monkeypatch, phase):
     monkeypatch.setattr(website, "MAX_FETCH_SECONDS", 0.15)
+    monkeypatch.setattr(website, "_resolve_public_ip", lambda _: "8.8.8.8")
     receiver, sender = socket.socketpair()
     stop = Event()
+    deadlines = []
+    responses = []
+
+    def build_opener(*handlers):
+        handler = next(item for item in handlers if isinstance(item, website._PinnedHTTPSHandler))
+        deadline = handler.deadline
+        deadlines.append(deadline)
+        deadline.watch(receiver)
+        response = http.client.HTTPResponse(receiver)
+        responses.append(response)
+
+        def open_response(*args, **kwargs):
+            response.begin()
+            return response
+
+        opener = Mock()
+        opener.open.side_effect = open_response
+        return opener
+
+    monkeypatch.setattr(website.urllib.request, "build_opener", build_opener)
 
     def trickle():
         try:
-            initial = (b"HTTP/1.1 200 OK\r\nX-Slow: " if phase == "headers" else
-                       b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1;")
+            initial = {
+                "status_line": b"HTTP/1.1 200 ",
+                "headers": b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Slow: ",
+                "chunk_line": b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n1;",
+            }[phase]
             sender.sendall(initial)
             while not stop.wait(0.005):
                 sender.sendall(b"a")
@@ -293,18 +318,39 @@ def test_website_watchdog_interrupts_continuously_trickled_protocol_lines(monkey
     writer.start()
     started = time.monotonic()
     try:
-        with website._FetchDeadline() as deadline:
-            deadline.watch(receiver)
-            response = http.client.HTTPResponse(receiver)
-            with pytest.raises((http.client.HTTPException, OSError)):
-                response.begin()
-                response.read1(1)
-            assert deadline.expired.is_set()
-            response.close()
+        # Shutdown may become EOF rather than an exception. The importer must
+        # reject the expired fetch on either platform, including tolerated EOF.
+        with pytest.raises(website.WebsiteImportError, match="No readable public pages"):
+            website.import_website("https://example.test/")
+        assert deadlines[0].expired.is_set()
+        with pytest.raises(TimeoutError, match="fetch deadline"):
+            deadlines[0].timeout()
         assert time.monotonic() - started < 3
     finally:
         stop.set()
+        for response in responses:
+            response.close()
         receiver.close()
         sender.close()
         writer.join(3)
     assert not writer.is_alive()
+
+
+def test_expired_website_fetch_rejects_buffered_body_returned_at_eof(monkeypatch):
+    monkeypatch.setattr(website, "_resolve_public_ip", lambda _: "8.8.8.8")
+    body = b"<html><p>Readable business information must not be accepted after the fetch deadline.</p></html>"
+
+    class Response(io.BytesIO):
+        status = 200
+        headers = {"Content-Type": "text/html"}
+
+    def build_opener(*handlers):
+        handler = next(item for item in handlers if isinstance(item, website._PinnedHTTPSHandler))
+        handler.deadline._expire()
+        opener = Mock()
+        opener.open.return_value = Response(body)
+        return opener
+
+    monkeypatch.setattr(website.urllib.request, "build_opener", build_opener)
+    with pytest.raises(website.WebsiteImportError, match="No readable public pages"):
+        website.import_website("https://example.test/")
