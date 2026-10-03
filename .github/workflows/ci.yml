@@ -61,11 +61,11 @@ jobs:
         run: npm test
 
       - name: Unit & integration tests
-        run: pytest -v
+        run: python -m pytest -v
 
       - name: Coverage (xml)
         run: |
-          pytest --cov=. --cov-report=xml
+          python -m pytest --cov=. --cov-report=xml
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
