@@ -57,6 +57,22 @@ def test_native_crm_persists_and_cannot_cross_tenants(pg_runtime):
     assert not (pg_runtime['root']/'logs/crm_snapshot.json').exists()
 
 
+def test_native_document_batch_preserves_tenant_scope_and_missing_values(pg_runtime):
+    tenant, other = pg_runtime['tenant'], pg_runtime['other']
+    storage = Storage(tenant)
+    storage.write_json(tenant, 'null.json', None)
+    names = ('store_info.json', 'null.json', 'missing.json')
+    assert storage.read_json_many(tenant, names) == {
+        'store_info.json': storage.read_json(tenant, 'store_info.json'), 'null.json': None,
+    }
+    other_documents = storage.read_json_many(other, names)
+    assert other_documents == {'store_info.json': storage.read_json(other, 'store_info.json')}
+    assert other_documents['store_info.json']['name'] != storage.read_json(tenant, 'store_info.json')['name']
+    with session_store.postgres_connection(tenant) as db:
+        assert db.execute('SELECT filename, payload FROM v7_private.business_documents '
+                          'WHERE tenant=%s AND filename=ANY(%s)', (other, list(names))).fetchall() == []
+
+
 def test_native_events_usage_and_append_only_audit(pg_runtime, monkeypatch):
     tenant, other = pg_runtime['tenant'], pg_runtime['other']
     analytics_db.log_message(tenant=tenant, channel='web', direction='inbound',

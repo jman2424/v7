@@ -167,6 +167,25 @@ class PostgresBusinessDocuments:
             raise FileNotFoundError(filename)
         return row[0]
 
+    def read_documents(self, filenames: tuple[str, ...]) -> dict[str, Any]:
+        """Read a bounded selection in one checked, tenant-scoped transaction.
+
+        Missing documents are omitted; JSON null remains a present value. The
+        caller still decides which missing documents are required.
+        """
+        if len(filenames) > 32:
+            raise ValueError("too_many_documents")
+        names = [_valid_filename(name) for name in filenames]
+        if not names:
+            return {}
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT filename, payload FROM v7_private.business_documents "
+                "WHERE tenant = %s AND filename = ANY(%s)",
+                (self.tenant_key, names),
+            ).fetchall()
+        return dict(rows)
+
     def list_documents(self) -> list[str]:
         with self._connection() as connection:
             rows = connection.execute(

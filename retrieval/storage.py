@@ -284,6 +284,23 @@ class Storage:
         path = self.file_path(tenant, filename)
         return _read_json(path)
 
+    def read_json_many(self, tenant: Optional[str], filenames: Tuple[str, ...]) -> Dict[str, Any]:
+        """Read selected documents together, omitting only missing files."""
+        if len(filenames) > 32:
+            raise ValueError("too_many_documents")
+        if self._using_postgres():
+            return self._postgres_repository(tenant).read_documents(filenames)
+        # Validate every name before reading any document. Malformed JSON and
+        # inaccessible paths retain the single-document reader's error behavior.
+        paths = {name: self.file_path(tenant, name) for name in filenames}
+        documents = {}
+        for name, path in paths.items():
+            try:
+                documents[name] = _read_json(path)
+            except FileNotFoundError:
+                continue
+        return documents
+
     def load_json(self, path: str) -> Any:
         """
         Backwards-compatible loader for paths like ``EXAMPLE/catalog.json``.

@@ -88,19 +88,20 @@ def _postgres_platform_overview(container: Any, *, minutes: int, page: int) -> d
     for tenant in keys[start:start + PAGE_SIZE]:
         issues = []
         name, mode, valid_files = tenant, str(container.settings.MODE), 0
+        documents = container.storage.read_json_many(tenant, KNOWLEDGE_FILES)
         for filename in KNOWLEDGE_FILES:
-            try:
-                data = container.storage.read_json(tenant, filename)
-                if not isinstance(data, (dict, list)):
-                    issues.append(f"{filename}: expected structured data")
-                    continue
-                valid_files += 1
-                if filename == 'overrides.json' and isinstance(data, dict) and isinstance(data.get('ai'), dict):
-                    mode = str(data['ai'].get('mode') or mode)
-                if filename == 'store_info.json' and isinstance(data, dict):
-                    name = str(data.get('name') or name)[:200]
-            except FileNotFoundError:
+            if filename not in documents:
                 issues.append(f"{filename}: missing")
+                continue
+            data = documents[filename]
+            if not isinstance(data, (dict, list)):
+                issues.append(f"{filename}: expected structured data")
+                continue
+            valid_files += 1
+            if filename == 'overrides.json' and isinstance(data, dict) and isinstance(data.get('ai'), dict):
+                mode = str(data['ai'].get('mode') or mode)
+            if filename == 'store_info.json' and isinstance(data, dict):
+                name = str(data.get('name') or name)[:200]
         kpis = get_kpis(tenant=tenant, minutes=minutes)
         errors = get_errors(tenant=tenant, minutes=minutes, top=5)
         status = 'needs_attention' if issues or kpis.get('errors') else (

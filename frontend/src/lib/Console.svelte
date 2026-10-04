@@ -1511,7 +1511,7 @@
       <fieldset class="workspace-content" disabled={workspaceBusy || Boolean(workspaceError)} aria-busy={workspaceBusy}>
       <legend class="sr-only">{$t(pageTitle)}</legend>
       {#if activation && !activation.active}
-        <section class="surface"><div class="surface-body"><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions</a>{/if}</div></section>
+        <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions <span aria-hidden="true">↗</span></a>{/if}</section>
       {/if}
 
       {#if !mayOpenScreen(section)}
@@ -1919,6 +1919,11 @@
 
 <style>
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
+  .activation-notice {display:flex;align-items:center;gap:14px;padding:16px 20px;margin-bottom:20px;border:1px solid #dce5d4;border-radius:16px;background:#f0f5e9;color:var(--v7-brand)}
+  .activation-notice>div {flex:1;min-width:0}.activation-notice strong {font-size:12px;font-weight:700}.activation-notice p {margin:5px 0 0;font-size:11px;line-height:1.6;color:var(--v7-muted)}
+  .activation-icon {display:grid;place-items:center;width:35px;height:35px;border:1px solid #d7e3c7;border-radius:10px;background:#e6efd8;flex:none}.activation-icon svg {width:19px;height:19px;fill:none;stroke:#537046;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .activation-notice a {display:flex;align-items:center;gap:10px;padding:10px 12px;min-height:44px;border:1px solid #cfdcc3;border-radius:10px;font-size:11px;font-weight:700;color:var(--v7-brand);text-decoration:none;flex:none;background:#fff}.activation-notice a:hover {background:#e6efd8}.activation-notice a:focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}
+  @media(max-width:650px){.activation-notice{flex-wrap:wrap;align-items:flex-start;padding:15px}.activation-notice>div{flex-basis:calc(100% - 50px)}.activation-notice a{margin-inline-start:49px;min-height:40px}}
   .nav-section { display:grid; gap:4px; min-width:0; }
   .nav-group { margin:18px 12px 6px; font-size:10px; font-weight:750; letter-spacing:.11em; text-transform:uppercase; color:#b8c8bd; grid-column:1/-1; }
   .nav-section:first-child .nav-group { margin-top:0; }

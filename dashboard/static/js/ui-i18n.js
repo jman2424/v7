@@ -28,7 +28,10 @@
       node.textContent = translate(source);
     });
     const banner = document.getElementById('site-cookie-banner');
-    if (banner) banner.setAttribute('aria-label', translate('Cookie preferences'));
+    if (banner) {
+      banner.setAttribute('aria-label', translate('Cookie preferences'));
+      banner.querySelector('[data-close-cookie-preferences]')?.setAttribute('aria-label', translate('Close cookie preferences'));
+    }
     document.querySelectorAll('[data-language-picker]').forEach(select => select.setAttribute('aria-label', translate('Language')));
     window.dispatchEvent(new CustomEvent('v7-language-changed', {detail:{language}}));
   };
@@ -42,18 +45,38 @@
     writeCookie('v7_preferences', choice, 180 * 86400);
     if (choice === 'essential') writeCookie('v7_language', '', 0);
     else writeCookie('v7_language', language, 180 * 86400);
-    const banner = document.getElementById('site-cookie-banner');
-    if (banner) banner.hidden = true;
+    closePreferences();
+  };
+  const banner = document.getElementById('site-cookie-banner');
+  let preferenceOpener = null;
+  const reserveBannerSpace = () => {
+    document.body.style.paddingBottom = banner && !banner.hidden ? Math.ceil(banner.getBoundingClientRect().height) + 28 + 'px' : '';
+  };
+  const setBannerOpen = open => {
+    if (banner) banner.hidden = !open;
+    document.querySelectorAll('[data-open-cookie-preferences]').forEach(button => {
+      button.setAttribute('aria-expanded', String(open));
+      button.setAttribute('aria-controls', 'site-cookie-banner');
+    });
+    reserveBannerSpace();
+  };
+  const closePreferences = () => {
+    setBannerOpen(false);
+    preferenceOpener?.focus();
+    preferenceOpener = null;
   };
   window.V7UI = {t: translate, language: () => language, setLanguage};
   document.querySelectorAll('[data-language-picker]').forEach(select => select.addEventListener('change', () => setLanguage(select.value)));
   document.querySelectorAll('[data-open-cookie-preferences]').forEach(button => button.addEventListener('click', () => {
-    const banner = document.getElementById('site-cookie-banner');
-    if (banner) banner.hidden = false;
+    preferenceOpener = button;
+    setBannerOpen(true);
+    banner?.querySelector('[data-close-cookie-preferences]')?.focus();
   }));
+  document.querySelectorAll('[data-close-cookie-preferences]').forEach(button => button.addEventListener('click', closePreferences));
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && banner && !banner.hidden) closePreferences(); });
   document.querySelectorAll('[data-preferences]').forEach(button => button.addEventListener('click', () => choose(button.dataset.preferences)));
-  const banner = document.getElementById('site-cookie-banner');
-  if (banner) banner.hidden = !!preference();
+  if (banner && typeof ResizeObserver !== 'undefined') new ResizeObserver(reserveBannerSpace).observe(banner);
+  setBannerOpen(!preference());
   apply();
   Promise.all(dictionaryUrls.map(url => fetch(url, {credentials:'omit'}).then(response => response.ok ? response.json() : {}).catch(() => ({})))).then(values => {
     for (const value of values) {
