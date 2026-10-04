@@ -28,7 +28,7 @@
     {label:'Businesses',value:report?.company_count,detail:'Across your platform',icon:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',featured:true},
     {label:'Customer messages',value:summary?.available ? summary.inbound : null,detail:'Recorded activity · this page',icon:'M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9H13a8.5 8.5 0 0 1 8 8v.5Z',featured:false},
     {label:'Conversations',value:summary?.available ? summary.sessions : null,detail:'Recorded sessions · this page',icon:'M4 4h16v12H9l-5 4V4Z M8 8h8 M8 12h5',featured:false},
-    {label:'Need attention',value:summary?.attention,detail:'Configuration checks · this page',icon:'M12 8v5 M12 16h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',featured:false}
+    {label:'Need attention',value:summary?.attention,detail:'Configuration or recorded errors · this page',icon:'M12 8v5 M12 16h.01 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z',featured:false}
   ];
   onMount(() => { mounted = true; });
   onDestroy(() => { controller?.abort(); controller = undefined; });
