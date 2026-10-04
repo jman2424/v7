@@ -22,6 +22,8 @@
   import LanguagePicker from './LanguagePicker.svelte';
   import CookiePreferences from './CookiePreferences.svelte';
   import { initialiseLanguage, t } from './i18n';
+  let cookiePreferences: CookiePreferences | undefined;
+  let cookiePreferencesOpen = false;
   let signupOpen = false;
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
@@ -1456,7 +1458,7 @@
         <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
       {/if}
       {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>{$t("Create an account or request to join")}</button>{/if}
-      <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a></p>
+      <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a> · <button class="cookie-login-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button></p>
     </form>
     {/if}
     </div>
@@ -1477,6 +1479,9 @@
                   <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(sections[key])}</a>
                 {/if}
               {/each}
+              {#if group.id === 'account'}
+                <button class="cookie-nav-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button>
+              {/if}
             </div>
           {/if}
         {/each}
@@ -1915,7 +1920,7 @@
   </div>
 {/if}
 
-<CookiePreferences />
+<CookiePreferences bind:this={cookiePreferences} bind:open={cookiePreferencesOpen} />
 
 <style>
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
@@ -1927,6 +1932,11 @@
   .nav-section { display:grid; gap:4px; min-width:0; }
   .nav-group { margin:18px 12px 6px; font-size:10px; font-weight:750; letter-spacing:.11em; text-transform:uppercase; color:#b8c8bd; grid-column:1/-1; }
   .nav-section:first-child .nav-group { margin-top:0; }
+  .cookie-nav-trigger {width:100%;min-height:44px;border:0;border-radius:10px;padding:10px 12px;background:transparent;color:#d9e4dc;text-align:start;font:inherit;font-size:14px;cursor:pointer}
+  .cookie-nav-trigger:hover {background:#ffffff14;color:#fff}
+  .cookie-login-trigger {min-height:44px;padding:0;border:0;background:transparent;color:var(--v7-accent);font:inherit;cursor:pointer}
+  .cookie-login-trigger:hover {text-decoration:underline;text-underline-offset:3px}
+  .cookie-nav-trigger:focus-visible,.cookie-login-trigger:focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}
   .workspace-content { min-width:0; padding:0; margin:0; border:0; }
   .workspace-progress,.workspace-retry { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:20px; padding:14px 18px; border:1px solid var(--v7-line); border-radius:12px; }
   .workspace-progress { justify-content:flex-start; color:var(--v7-brand); background:var(--v7-soft); font-size:13px; }
