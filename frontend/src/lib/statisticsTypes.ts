@@ -6,3 +6,11 @@ export type Commerce = {products:Product[];interest_daily:{day:string;sku:string
   sales_daily:{day:string;sku:string;units:number;amount_pence:number;entries:number}[];
   inventory:{sku:string;ts_utc:string;quantity:number|null;threshold:number;in_stock:number}[];
   recent_sales:Sale[];interest_tracking_since:string|null};
+export type Metrics = {inbound:number;outbound:number;sessions:number;fallbacks:number;errors:number;handoffs:number;contacts:number};
+export type Breakdown = {label:string;count:number};
+export type Stats = {tenant:string;start:string;end:string;previous_start:string;current:Metrics;previous:Metrics;
+  daily:(Metrics & {day:string})[];channels:(Metrics & {channel:string})[];
+  intents:Breakdown[];errors:Breakdown[];fallbacks:Breakdown[];pipeline:Record<string,number>;
+  replies:ReplyReport;previous_replies:ReplyReport;hours:{hour:string;inbound:number;outbound:number}[];
+  topics_daily:{day:string;topic:string;count:number}[];commerce:Commerce;
+  offers:{offer_replies:number;conversations:number;items:{id:string;title:string;status:string;terms:string;replies:number;conversations:number}[]}};
