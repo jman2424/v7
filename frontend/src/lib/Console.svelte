@@ -21,6 +21,7 @@
   import AiParameters from './AiParameters.svelte';
   import LanguagePicker from './LanguagePicker.svelte';
   import CookiePreferences from './CookiePreferences.svelte';
+  import NavigationIcon from './NavigationIcon.svelte';
   import { initialiseLanguage, t } from './i18n';
   let cookiePreferences: CookiePreferences | undefined;
   let cookiePreferencesOpen = false;
@@ -28,6 +29,31 @@
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
+  const pageDescriptions: Record<string, string> = {
+    platform: 'A clear view of your businesses, activity and setup.',
+    companies: 'Manage business workspaces and onboarding.',
+    pipeline: 'Prioritise leads and keep your next steps clear.',
+    statistics: 'Track customer conversations, interest and recorded outcomes.',
+    conversations: 'Review customer conversations and the context behind each enquiry.',
+    agent: 'Tailor how your assistant understands customers and guides the next step.',
+    test: 'Preview the customer experience and test your business knowledge.',
+    catalog: 'Keep the products and services your assistant recommends up to date.',
+    offers: 'Manage the offers your assistant can share with customers.',
+    faqs: 'Give customers clear answers from your saved business information.',
+    delivery: 'Set the delivery and collection information customers need.',
+    profile: 'The business details your assistant uses in customer conversations.',
+    branches: 'Manage locations, contact details and opening hours.',
+    website: 'Configure your branded widget and approved websites.',
+    integrations: 'Manage the connections that support your customer channels.',
+    implementation: 'Prepare your business information and install your assistant.',
+    'whatsapp-qr': 'Manage your WhatsApp connection and customer entry points.',
+    usage: 'Review recorded AI usage and estimated costs.',
+    subscription: 'Manage subscriptions, payments and invoices.',
+    team: 'Control who can access this business workspace.',
+    errors: 'Review service health and issues that need attention.',
+    account: 'Manage your sign-in and account security.',
+    privacy: 'Manage business data and privacy preferences.'
+  };
   const navigationGroups: { id: string; label: string; keys: string[] }[] = [
     { id: 'businesses', label: 'Businesses', keys: ['platform', 'companies'] },
     { id: 'activity', label: 'Sales activity', keys: ['pipeline', 'statistics', 'conversations', 'errors'] },
@@ -1516,7 +1542,7 @@
   <a class="skip-link" href="#workspace">{$t('Skip to workspace')}</a>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="side-brand"><span>V7</span><strong>{isPlatform ? 'Platform admin' : tenant}</strong><small>{isPlatform ? 'All-business management' : 'Sales agent workspace'}</small></div>
+      <div class="side-brand"><span class="brand-mark">V7</span><div><strong>Vertex Seven</strong><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div></div>
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each navigationGroups as group}
@@ -1525,26 +1551,26 @@
               <h2 class="nav-group" id={`console-nav-${group.id}`}>{$t(isPlatform && group.id === 'businesses' ? 'Platform management' : group.label)}</h2>
               {#each group.keys as key}
                 {#if mayOpenScreen(key)}
-                  <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}>{$t(sections[key])}</a>
+                  <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}><NavigationIcon section={key}/><span>{$t(sections[key])}</span></a>
                 {/if}
               {/each}
               {#if group.id === 'account'}
-                <button class="cookie-nav-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button>
+                <button class="cookie-nav-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}><NavigationIcon section="privacy"/><span>{$t('Cookie preferences')}</span></button>
               {/if}
             </div>
           {/if}
         {/each}
       </nav>
-      <div class="account"><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : user.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span></div>
+      <div class="account"><span class="account-avatar" aria-hidden="true">{user.email.charAt(0).toUpperCase() || 'V'}</span><div><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : user.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span></div></div>
     </aside>
 
     <main id="workspace" class="workspace" tabindex="-1">
       <header class="workspace-head">
-        <div><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1></div>
+        <div class="workspace-title"><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1>{#if pageDescriptions[section]}<p class="page-description">{$t(pageDescriptions[section])}</p>{/if}</div>
         <div class="workspace-actions">
           <LanguagePicker />
         {#if (isPlatform || isOwner) && tenants.length > 0 && !['platform','companies'].includes(section)}
-          <label class="tenant-picker">{$t("Tenant")}<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
+          <label class="tenant-picker">{$t("Company")}<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
         {:else if !isPlatform}
           <div class="company-scope"><span>{$t("Company")}</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
         {/if}
@@ -2304,62 +2330,99 @@
   .provider-buttons {display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .login .provider-help,.login .login-policy {font-size:11px;line-height:1.5}
   .login-policy a {color:#007d70}
-  .app-shell {grid-template-columns:250px minmax(0,1fr)}
-  .sidebar {background:linear-gradient(165deg,#294b3d,var(--v7-brand));padding:28px 16px;gap:20px}
-  .side-brand {border-color:#3d4940;padding-bottom:22px}
-  .side-brand span {color:#7ee0c6;letter-spacing:.15em}
-  .side-brand small {color:#acb8ae}
-  nav a {border-radius:10px;padding:10px 12px;color:#d9e4dc;min-height:42px;transition:background-color .15s}
-  nav a:hover {background:#ffffff14;color:white}
-  nav a.active {background:var(--v7-lime);color:var(--v7-brand);font-weight:750}
-  .workspace {padding:32px clamp(20px,3vw,48px) 48px;background:#f7f7f2;min-width:0}
-  .workspace-head {padding-bottom:24px;border-bottom:1px solid #d9ddd7;margin-bottom:24px}
-  .workspace-head h1 {font-size:28px;line-height:1.25;letter-spacing:-.03em;color:#1f2923}
-  .workspace-head .eyebrow {color:#67706b;letter-spacing:.1em}
-  .workspace-actions {flex-wrap:wrap;justify-content:flex-end}
+  .app-shell {grid-template-columns:238px minmax(0,1fr)}
+  .sidebar {background:#163d31;padding:22px 14px 16px;gap:20px;overflow:hidden}
+  .side-brand {display:flex;align-items:center;gap:12px;flex:none;padding:0 10px 20px;border-color:#ffffff19}
+  .side-brand .brand-mark {display:grid;place-items:center;width:38px;height:38px;flex:none;border:1px solid #ffffff28;border-radius:10px;background:#ffffff0c;color:#fff;font-size:15px;letter-spacing:-.04em}
+  .side-brand > div {display:grid;gap:3px;min-width:0}
+  .side-brand strong {font-size:16px;font-weight:650;letter-spacing:-.02em;color:#fff}
+  .side-brand small {color:#aac5b9;font-size:11px;letter-spacing:0}
+  nav {flex:1;min-height:0;overflow-y:auto;align-content:start;gap:18px;padding:0 3px;scrollbar-width:thin;scrollbar-color:#ffffff2b transparent}
+  .nav-section {gap:2px}
+  .nav-group {margin:0 10px 6px;color:#96b4a5;font-size:10px;font-weight:650;letter-spacing:.08em}
+  nav a,.cookie-nav-trigger {display:flex;align-items:center;gap:11px;border-radius:7px;padding:10px;color:#c8ddd2;min-height:40px;font-size:12px;line-height:1.4;transition:background-color .15s}
+  nav a span,.cookie-nav-trigger span {min-width:0}
+  nav a:hover,.cookie-nav-trigger:hover {background:#ffffff0d;color:white}
+  nav a.active {background:#ffffff12;color:#fff;font-weight:650;box-shadow:inset 3px 0 #5cbd93}
+  .account {display:flex;align-items:center;gap:10px;flex:none;margin-top:0;padding:16px 10px 0;border-color:#ffffff19}
+  .account-avatar {display:grid;place-items:center;width:32px;height:32px;flex:none;border-radius:8px;background:#ffffff12;color:#d4e7dd;font-size:12px;font-weight:650}
+  .account > div {display:grid;gap:3px;min-width:0}
+  .account strong {font-size:11px;font-weight:600;color:#e8f1ec}
+  .account > div span {color:#aac5b9;font-size:10px}
+  .workspace {padding:28px clamp(20px,2.6vw,40px) 48px;background:var(--v7-canvas);min-width:0}
+  .workspace-head {align-items:center;padding-bottom:22px;border-bottom:1px solid var(--v7-line);margin-bottom:24px;gap:18px}
+  .workspace-title {min-width:0;flex:1 1 340px}
+  .workspace-head h1 {font-size:28px;line-height:1.2;letter-spacing:-.035em;color:var(--v7-ink);font-weight:650}
+  .workspace-head .eyebrow {color:var(--v7-muted);letter-spacing:.08em;font-size:10px;font-weight:650;margin-bottom:8px}
+  .page-description {margin:8px 0 0;color:var(--v7-muted);font-size:13px;line-height:1.55;max-width:620px}
+  .workspace-actions {flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:12px}
+  .workspace-actions :global(.language-picker) {display:grid;gap:5px;align-items:start;color:var(--v7-muted);font-size:11px;line-height:1.5;font-weight:600}
+  .workspace-actions :global(.language-picker select) {border-color:var(--v7-control-line);border-radius:7px;min-height:40px;font-size:12px;color:var(--v7-ink);padding:8px 10px}
+  .tenant-picker {min-width:160px;font-size:11px;color:var(--v7-muted);gap:5px;font-weight:600}
+  .tenant-picker select {min-height:40px;font-size:12px}
+  .sign-out {margin-top:21px;min-height:40px;font-size:12px}
   .surface {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:var(--v7-card-shadow);margin-bottom:20px}
-  .surface-head {background:#fff;padding:24px;border-color:var(--v7-line);border-radius:var(--v7-radius) var(--v7-radius) 0 0}
-  .surface-head h2 {color:#1f2923;font-size:20px;letter-spacing:-.02em}
-  .primary {background:#007d70;border-color:#007d70;min-height:44px;border-radius:9px}
-  .primary:hover {background:#00695e}
-  .secondary {color:#1f2923;border-color:#bbc4bc;min-height:44px;border-radius:9px}
-  .secondary:hover {background:#f1f4ef}
-  input,textarea,select {color:#1f2923;border-color:#bbc4bc;border-radius:8px;min-height:44px}
-  input:focus,textarea:focus,select:focus {border-color:#007d70;outline-color:#8bcdc0}
-  .notice {background:#e7f5ef;color:#203b30;border:1px solid #c0dfd3;padding:12px;border-radius:10px}
+  .workspace :global(.panel) {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:var(--v7-card-shadow)}
+  .surface-head {background:#fff;padding:20px 22px;border-color:var(--v7-line);border-radius:var(--v7-radius) var(--v7-radius) 0 0}
+  .surface-head h2 {color:var(--v7-ink);font-size:18px;letter-spacing:-.02em;font-weight:650}
+  .surface-head .eyebrow {font-size:10px;font-weight:650;letter-spacing:.08em;margin-bottom:5px}
+  .primary {background:var(--v7-accent);border-color:var(--v7-accent);min-height:44px;border-radius:7px;font-weight:600;font-size:13px}
+  .primary:hover {background:var(--v7-accent-hover);border-color:var(--v7-accent-hover)}
+  .secondary {color:var(--v7-ink);border-color:var(--v7-control-line);min-height:44px;border-radius:7px;font-weight:600;font-size:13px}
+  .secondary:hover {background:var(--v7-soft)}
+  input,textarea,select {color:var(--v7-ink);border-color:var(--v7-control-line);border-radius:7px;min-height:44px;font-size:13px}
+  input:focus,textarea:focus,select:focus {border-color:var(--v7-accent);outline:2px solid #82bda755;outline-offset:1px}
+  label {font-size:12px;font-weight:600;color:var(--v7-ink)}
+  small,.field-note,.form-status {color:var(--v7-muted);line-height:1.6}
+  .eyebrow {color:var(--v7-accent)}
+  .notice {background:var(--v7-soft);color:var(--v7-brand);border:1px solid #cfe1d7;padding:12px;border-radius:8px}
   .notice.error {background:#fff2f0;color:#a61b2b;border-color:#f1c5c6}
-  .skip-link {position:fixed;inset-inline-start:16px;top:12px;z-index:100;transform:translateY(-200%);padding:12px 18px;background:var(--v7-lime);color:var(--v7-brand);border-radius:10px;font-weight:700}
+  .skip-link {position:fixed;inset-inline-start:16px;top:12px;z-index:100;transform:translateY(-200%);padding:12px 18px;background:var(--v7-soft);color:var(--v7-brand);border:1px solid var(--v7-control-line);border-radius:8px;font-weight:600}
   .skip-link:focus {transform:translateY(0)}
-  .metric-grid {padding:24px;gap:14px;border-bottom:0}
-  .metric-grid > div {min-height:138px;padding:20px;border:1px solid var(--v7-line);border-radius:14px;background:var(--v7-soft)}
+  .metric-grid {padding:0;gap:0;border-bottom:1px solid var(--v7-line)}
+  .metric-grid > div {min-height:120px;padding:22px;border:0;border-radius:0;background:#fff;gap:8px}
   .metric-grid > div + div {border-left:1px solid var(--v7-line)}
-  .metric-grid strong {font-size:36px;color:var(--v7-brand);font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+  .metric-grid strong {font-size:32px;color:var(--v7-ink);font-variant-numeric:tabular-nums;letter-spacing:-.04em;font-weight:650}
   .metric-grid small,.list-heading span {color:var(--v7-muted)}
-  .funnel-strip {margin:0 24px;border:1px solid var(--v7-line);border-radius:12px;background:var(--v7-soft)}
+  .funnel-strip {margin:18px 22px 0;padding:10px 8px;border:1px solid var(--v7-line);border-radius:8px;background:var(--v7-canvas)}
   .count-label {padding:6px 10px;background:var(--v7-soft);border-color:var(--v7-line);color:var(--v7-brand)}
-  .operator-panel {padding:24px;border-radius:var(--v7-radius);background:#edf5e8;border-color:#cadfc0}
+  .operator-panel {padding:22px;border-radius:var(--v7-radius);background:#fff;border-color:var(--v7-line)}
   .operator-panel p:not(.eyebrow) {color:var(--v7-muted);line-height:1.6}
   .account-row strong {color:var(--v7-ink)}
-  .account-row:nth-child(even),.company-row:nth-child(odd) {background:var(--v7-soft)}
-  .company-row {padding:20px 24px}
+  .account-row:nth-child(even),.company-row:nth-child(odd) {background:#fafcfb}
+  .company-row {padding:18px 22px}
   .company-row:last-child {border-bottom:0;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
   .company-row strong {flex:1 1 180px}
   .company-row span {color:var(--v7-muted);font-size:13px}
-  .editor-group,.offer-editor,.branch-editor {padding:24px}
-  .product-table {border-radius:12px;border-color:var(--v7-line)}
-  .product-table-head {background:var(--v7-soft);color:var(--v7-muted);padding:12px}
-  .inventory-fields {background:#fafbf8}
+  .editor-group,.offer-editor,.branch-editor {padding:22px}
+  .product-table {border-radius:8px;border-color:var(--v7-line)}
+  .product-table-head {background:var(--v7-canvas);color:var(--v7-muted);padding:12px}
+  .inventory-fields {background:#fafcfb}
   .icon-button,.add-row {min-height:44px}
-  .section-footer {padding:20px 24px;background:#fafbf8;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
+  .section-footer {padding:18px 22px;background:#fafcfb;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
   .profile-footer {padding:0;background:transparent}
-  .empty-state {padding:24px 0;line-height:1.7}
-  .settings-form,.profile-form,.agent-form,.team-form,.account-control-form {gap:20px}
-  .activity-list {padding:24px}
+  .empty-state {padding:22px 16px;line-height:1.6;border:1px dashed var(--v7-line);border-radius:8px;background:#fafcfb;font-size:13px}
+  .settings-form,.profile-form,.agent-form,.team-form,.account-control-form {gap:18px}
+  .activity-list {padding:22px}
   .lead-row select {min-height:40px}
-  .widget-stage {border-color:var(--v7-line);border-radius:14px}
-  :global(body) {background:#f7f7f2}
+  .widget-stage {border-color:var(--v7-line);border-radius:var(--v7-radius)}
+  .agent-starter {padding:18px;border-radius:10px;background:var(--v7-soft);border-color:#d6e6dd}
+  .activation-notice {padding:14px 16px;gap:12px;border-color:var(--v7-line);border-radius:10px;background:#fff}
+  .activation-icon {border:0;border-radius:8px;background:var(--v7-soft)}
+  .activation-icon svg {stroke:var(--v7-accent)}
+  .activation-notice strong {font-size:12px;color:var(--v7-ink);font-weight:650}
+  .activation-notice p {font-size:12px;line-height:1.5;margin-top:3px}
+  .activation-notice a {font-size:12px;font-weight:600;border-color:var(--v7-control-line);border-radius:7px;color:var(--v7-accent);padding:8px 12px}
+  .activation-notice a:hover {background:var(--v7-soft)}
+  .login {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:0 6px 24px #172b2606}
+  .product-mark {background:var(--v7-accent);border-radius:10px}
+  .password-field button,.login-policy a {color:var(--v7-accent)}
+  .login-intro {background:var(--v7-brand)}
+  .login-intro .eyebrow {color:#acd6bd}
+  :global(body) {background:var(--v7-canvas)}
   @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
-  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{position:relative;height:auto;overflow:visible;padding:18px 16px}.workspace{padding:24px 16px 40px}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;gap:12px}.login{padding:24px}.login-intro h2{font-size:30px}}
-  @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:20px}.metric-grid{padding:20px;gap:10px}.metric-grid>div{min-height:128px;padding:16px}.metric-grid strong{font-size:32px}.funnel-strip{margin:0 20px}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:20px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
-  @media(max-width:720px){nav.open{grid-template-columns:1fr}.nav-section{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.nav-group{margin:14px 8px 4px}.nav-section:first-child .nav-group{margin-top:6px}.nav-section a{min-height:44px;font-size:13px}.workspace-retry{align-items:flex-start;flex-direction:column}}
+  @media(max-width:1100px){.workspace-title{flex-basis:100%}.workspace-actions{justify-content:flex-start}}
+  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0;position:relative;height:auto;overflow:visible;padding:16px}.side-brand{padding:0;border:0;gap:10px;grid-template-columns:none}.side-brand small{grid-column:auto}.menu-toggle{justify-self:end;margin-top:0;color:#e8f1ec;background:#ffffff10;border-color:#ffffff26;border-radius:7px;min-height:44px}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.sign-out{margin-top:0}.page-description{font-size:12px}.login{padding:24px}.login-intro h2{font-size:30px}.account{display:none}}
+  @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:18px}.metric-grid{padding:0;gap:0}.metric-grid>div{min-height:112px;padding:18px}.metric-grid strong{font-size:29px}.metric-grid>div:nth-child(3){border-inline-start:0;border-top:1px solid var(--v7-line)}.metric-grid>div:nth-child(4){border-top:1px solid var(--v7-line)}.funnel-strip{margin:16px 18px 0}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:18px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
+  @media(max-width:720px){nav{grid-column:1/-1;flex:none;overflow:visible;gap:14px;padding:0}nav.open{grid-template-columns:1fr;margin-top:16px}.nav-section{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.nav-group{margin:4px 8px}.nav-section:first-child .nav-group{margin-top:4px}.nav-section a,.cookie-nav-trigger{min-height:44px;font-size:12px;gap:8px}.workspace-retry{align-items:flex-start;flex-direction:column}}
 </style>

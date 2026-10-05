@@ -117,11 +117,14 @@
 </script>
 
 <section class="test-card" aria-label="Agent testing">
-  <header><div><h2>Try your agent</h2><p>Testing <strong>{tenant}</strong> using its saved business information. These chats do not create sales leads or customer analytics.</p></div><button type="button" on:click={restart}>New conversation</button></header>
+  <header>
+    <div><p class="eyebrow">Conversation preview</p><h2>Try your agent</h2><p>Check how <strong>{tenant}</strong> responds using its saved business information.</p></div>
+    <button type="button" on:click={restart}>New conversation</button>
+  </header>
   <div class="transcript" bind:this={transcript} role="log" aria-label="Test conversation" aria-live="polite" aria-busy={busy}>
     {#each messages as message}<article class:customer={message.from === 'You'}><strong>{message.from}</strong><p>{message.text}</p></article>
-    {:else}<div class="empty"><h3>Ask a question as a customer</h3><p>Try products, prices, opening hours or delivery. Ask follow-up questions to check the agent remembers the conversation.</p></div>{/each}
-    {#if busy}<p class="waiting" role="status">The agent is replying…</p>{/if}
+    {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>See the conversation from your customer’s side</h3><p>Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.</p></div>{/each}
+    {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>The agent is replying…</p>{/if}
   </div>
   <form on:submit|preventDefault={send}>
     {#if suggestions.length}<div class="suggestions" aria-label="Suggested test questions">{#each suggestions as question}<button type="button" disabled={busy} on:click={() => { draft = question; composer.focus(); }}>{question}</button>{/each}</div>{/if}
@@ -130,32 +133,51 @@
     <div class="actions"><div class="voice-controls"><button type="button" disabled={!recognition || busy} aria-pressed={listening} on:click={dictate}>{listening ? 'Stop listening' : 'Use microphone'}</button><label class="read-aloud"><input type="checkbox" bind:checked={readAloud} disabled={!canReadAloud} on:change={(event) => { if (!event.currentTarget.checked && canReadAloud) window.speechSynthesis.cancel(); }} />Read replies aloud</label></div><button class="send" type="submit" disabled={busy || !draft.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if voiceStatus}<p class="hint" role="status">{voiceStatus}</p>{/if}
-    <p class="hint">Microphone dictation needs your permission and may use your browser’s speech service. Review the text before sending. Save business changes before testing them.</p>
+    <div class="test-notes"><p>These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.</p><p>Microphone dictation needs your permission and may use your browser’s speech service. Review the text before sending.</p></div>
   </form>
 </section>
 
 <style>
-  .test-card { min-width: 0; border: 1px solid var(--v7-line); border-radius:18px; background: #fff; overflow-wrap: anywhere;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
-  header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; padding:24px; border-bottom: 1px solid var(--v7-line); }
-  header > div { flex: 1 1 300px; min-width: 0; }
-  h2 { margin: 0 0 8px; font-size:22px; } h3 { margin: 0 0 10px; font-size: 17px; }
-  p { margin: 0; line-height: 1.6; } header p, .empty p { color: var(--v7-muted); font-size: 14px; }
-  button { border: 1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; min-height:44px; padding: 8px 12px; background: #fff; color: var(--v7-ink); font-size: 14px; font-weight: 600; }
-  button:disabled { opacity: .55; cursor: default; } button[aria-pressed='true'] { background: #e7f5ef; border-color: var(--v7-accent); }
-  button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid #8bcdc0; outline-offset: 2px; }
-  .transcript { height:clamp(300px, 42vh, 540px); overflow-y: auto; padding:24px; background: var(--v7-soft, #f0f6f2); }
-  article { max-width: 88%; width: fit-content; margin-bottom: 16px; padding: 14px 16px; background: #fff; border: 1px solid var(--v7-line); border-radius:16px; font-size: 14px;line-height:1.65;}
-  article strong { display: block; margin-bottom: 6px; font-size: 12px; color: var(--v7-accent); } article p { white-space: pre-wrap; }
-  article.customer { margin-left: auto; background: #e7f5ef; border-color: #c0dfd3;border-end-end-radius:5px;}
-  .empty { max-width:52ch; margin: 32px auto; text-align: center;padding:24px;border:1px dashed var(--v7-control-line, #b5c5bc);border-radius:16px;background:var(--v7-surface);} .waiting { color: var(--v7-muted); font-size: 14px; }
-  form { display: grid; gap: 12px; padding:24px; border-top: 1px solid var(--v7-line); }
-  label { color: var(--v7-ink); font-size: 13px; font-weight: 600; }
-  textarea { width: 100%; min-width: 0; resize: vertical; padding: 12px; border: 1px solid var(--v7-control-line, #b5c5bc); border-radius:12px; color: var(--v7-ink); background: #fff; line-height:1.5;}
-  .suggestions, .actions, .voice-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-  .suggestions button { min-height:40px; font-size: 12px; color: var(--v7-accent); background: var(--v7-soft, #f0f6f2);border-radius:20px;}
-  .actions { justify-content: space-between; } .read-aloud { display: inline-flex; align-items: center; gap: 7px; }
-  .read-aloud input { width: 16px; height: 16px; accent-color: var(--v7-accent); }
-  .send { padding-inline: 24px; background: var(--v7-accent); color: #fff; border-color: var(--v7-accent); }
-  .hint { color: var(--v7-muted); font-size: 12px; } .error { padding: 12px; border-radius: 6px; background: #fff2f0; color: #b42318; font-size: 14px; }
-  @media (max-width: 520px) { header, form, .transcript { padding: 16px; } .transcript { height:260px; } .empty { margin-block:16px; padding:18px; } article { max-width:95%; } .send { width: 100%; } }
+  .test-card { min-width:0; border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; background:var(--v7-surface, #fff); color:var(--v7-ink, #172b26); overflow:hidden; overflow-wrap:anywhere; }
+  header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:18px; padding:24px; border-bottom:1px solid var(--v7-line, #e1e7e4); }
+  header > div { flex:1 1 320px; min-width:0; }
+  h2 { margin:0 0 8px; font-size:22px; font-weight:650; letter-spacing:-.025em; }
+  h3 { margin:0 0 10px; font-size:18px; font-weight:650; letter-spacing:-.015em; }
+  p { margin:0; line-height:1.65; }
+  header p, .empty p { color:var(--v7-muted, #64716d); font-size:14px; }
+  header .eyebrow { margin:0 0 8px; color:var(--v7-accent, #087f5b); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  button { border:1px solid var(--v7-control-line, #c7d2cc); border-radius:8px; min-height:44px; padding:10px 14px; background:var(--v7-surface, #fff); color:var(--v7-ink, #172b26); font-size:13px; font-weight:600; }
+  button:hover:not(:disabled) { background:var(--v7-soft, #edf6f1); border-color:var(--v7-accent, #087f5b); }
+  button:disabled { opacity:.55; cursor:default; }
+  button[aria-pressed='true'] { background:var(--v7-soft, #edf6f1); border-color:var(--v7-accent, #087f5b); }
+  button:focus-visible, textarea:focus-visible, input:focus-visible { outline:3px solid #8bcdc0; outline-offset:3px; }
+  .transcript { height:clamp(320px, 42vh, 540px); overflow-y:auto; padding:28px; background:var(--v7-canvas, #f5f7f7); }
+  article { max-width:86%; width:fit-content; margin-bottom:18px; padding:16px 18px; background:var(--v7-surface, #fff); border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; border-end-start-radius:4px; font-size:14px; line-height:1.65; }
+  article strong { display:block; margin-bottom:7px; font-size:11px; font-weight:700; color:var(--v7-accent, #087f5b); letter-spacing:.025em; }
+  article p { white-space:pre-wrap; }
+  article.customer { margin-inline-start:auto; background:var(--v7-soft, #edf6f1); border-color:#d4e7dd; border-end-start-radius:12px; border-end-end-radius:4px; }
+  article.customer strong { color:var(--v7-ink, #172b26); }
+  .empty { max-width:50ch; margin:22px auto; text-align:center; padding:28px 16px; }
+  .conversation-icon { display:grid; place-items:center; width:48px; height:48px; margin:0 auto 18px; border:1px solid #d4e7dd; border-radius:12px; background:var(--v7-soft, #edf6f1); color:var(--v7-accent, #087f5b); }
+  .waiting { display:flex; align-items:center; gap:10px; width:fit-content; padding:12px 16px; background:var(--v7-surface, #fff); border:1px solid var(--v7-line, #e1e7e4); border-radius:10px; color:var(--v7-muted, #64716d); font-size:13px; }
+  .reply-indicator { width:14px; height:14px; border:2px solid #d4e7dd; border-top-color:var(--v7-accent, #087f5b); border-radius:50%; animation:reply-spin .8s linear infinite; }
+  form { display:grid; gap:12px; padding:24px; border-top:1px solid var(--v7-line, #e1e7e4); }
+  label { color:var(--v7-ink, #172b26); font-size:13px; font-weight:600; }
+  textarea { width:100%; min-width:0; min-height:96px; resize:vertical; padding:12px 14px; border:1px solid var(--v7-control-line, #c7d2cc); border-radius:8px; color:var(--v7-ink, #172b26); background:var(--v7-surface, #fff); line-height:1.6; }
+  textarea::placeholder { color:var(--v7-muted, #64716d); }
+  .suggestions, .actions, .voice-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .suggestions { margin-bottom:4px; }
+  .suggestions button { min-height:40px; padding:8px 12px; font-size:12px; font-weight:500; color:var(--v7-accent, #087f5b); background:var(--v7-soft, #edf6f1); border-color:#d4e7dd; }
+  .actions { justify-content:space-between; }
+  .voice-controls { gap:12px; }
+  .read-aloud { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:4px 0; font-size:12px; font-weight:500; color:var(--v7-muted, #64716d); cursor:pointer; }
+  .read-aloud input { width:17px; height:17px; accent-color:var(--v7-accent, #087f5b); }
+  .send { min-width:104px; padding-inline:24px; background:var(--v7-accent, #087f5b); color:#fff; border-color:var(--v7-accent, #087f5b); }
+  .send:hover:not(:disabled) { background:var(--v7-brand, #176044); border-color:var(--v7-brand, #176044); }
+  .hint, .test-notes { color:var(--v7-muted, #64716d); font-size:12px; }
+  .test-notes { display:grid; gap:6px; padding-top:16px; margin-top:4px; border-top:1px solid var(--v7-line, #e1e7e4); }
+  .error { padding:12px 14px; border:1px solid #f0cfca; border-radius:8px; background:#fff5f3; color:#a12622; font-size:13px; }
+  @keyframes reply-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .reply-indicator { animation:none; } }
+  @media (max-width:600px) { header, form, .transcript { padding:18px; } header > button { width:100%; } .transcript { height:320px; } .empty { margin-block:10px; padding:18px 8px; } article { max-width:95%; padding:14px; } .send { width:100%; } .voice-controls { width:100%; justify-content:space-between; } .suggestions { gap:8px; } }
 </style>

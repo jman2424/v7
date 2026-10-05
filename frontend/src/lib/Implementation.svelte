@@ -66,29 +66,29 @@
 </script>
 
 <section class="implementation" aria-label="Implementation guide">
-  <div class="intro"><div><h2>Connect your agent to your website</h2><p>For {tenant}. Follow the steps for your website builder, then test before sharing with customers.</p></div><button on:click={refresh} disabled={busy}>Refresh setup</button></div>
+  <div class="intro"><div><p class="eyebrow">Website setup</p><h2>Connect your agent to your website</h2><p>Set up chat for <strong>{tenant}</strong>, then check the experience before sharing it with customers.</p></div><button on:click={refresh} disabled={busy}>Refresh setup</button></div>
   <nav aria-label="Implementation steps">{#each views as item}<button class:active={view === item.id} aria-pressed={view === item.id} on:click={() => view = item.id}>{item.label}</button>{/each}</nav>
-  {#if busy}<p role="status">Loading saved setup…</p>{/if}
+  {#if busy}<p class="loading" role="status"><span class="loading-indicator" aria-hidden="true"></span>Loading saved setup…</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if data && connection}
     {#if view === 'install'}
-      <article class="panel"><h3>Start with your business information</h3><p>Add your products or services, prices, FAQs and contact details before launch. The agent uses the saved information for this company; website installation does not automatically import your website or shop inventory.</p><div class="links"><a href={base+'/profile'}>{$t("Business profile")}</a><a href={base+'/catalog'}>Products &amp; services</a><a href={base+'/agent'}>{$t("Agent playbook")}</a></div></article>
-      <article class="panel"><div class="heading"><h3>Approve your website</h3><a href={base+'/website'}>Edit website settings</a></div><p>Approve each exact website address that will host the chat. Addresses with and without “www” are different; include both if customers use both.</p>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><h3>Start with your business information</h3></div><p>Add your products or services, prices, FAQs and contact details before launch. The agent uses the saved information for this company; website installation does not automatically import your website or shop inventory.</p><div class="links"><a href={base+'/profile'}>{$t("Business profile")}</a><a href={base+'/catalog'}>Products &amp; services</a><a href={base+'/agent'}>{$t("Agent playbook")}</a></div></article>
+      <article class="panel"><div class="heading"><div class="panel-heading"><span class="step-number" aria-hidden="true">02</span><h3>Approve your website</h3></div><a href={base+'/website'}>Edit website settings</a></div><p>Approve each exact website address that will host the chat. Addresses with and without “www” are different; include both if customers use both.</p>
         <div class="origins">{#each data.widget.allowed_origins as origin}<code>{origin}</code>{:else}<p class="notice">No websites approved yet. Add your website before installing an embedded chat.</p>{/each}</div>
         <form on:submit|preventDefault={checkOrigin}><label for="setup-site">Check a website address<input id="setup-site" type="url" bind:value={website} placeholder="https://www.yourcompany.com" required /></label><button type="submit">Check approval</button></form>
-        <p class="hint">This checks the saved domain list only. It does not scan or verify installation on your website.</p>{#if originResult}<p role="status">{originResult}</p>{/if}
+        <p class="hint">This checks the saved domain list only. It does not scan or verify installation on your website.</p>{#if originResult}<p class="result" role="status">{originResult}</p>{/if}
       </article>
-      <article class="panel"><h3>Add the chat</h3><label>Website platform<select bind:value={platform}>{#each Object.entries(guides) as [key, guide]}<option value={key}>{guide.name}</option>{/each}</select></label>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">03</span><h3>Add the chat</h3></div><label class="platform-picker">Website platform<select bind:value={platform}>{#each Object.entries(guides) as [key, guide]}<option value={key}>{guide.name}</option>{/each}</select></label>
         <ol>{#each guides[platform].steps as step}<li>{step}</li>{/each}</ol>
         {#if guides[platform].url}<a href={guides[platform].url} target="_blank" rel="noreferrer">Official {guides[platform].name} instructions ↗</a>{/if}
         <div class="code-tools"><label>Installation type<select bind:value={format}><option value="floating">Floating chat button</option><option value="panel">Embedded panel</option><option value="link">Direct chat link</option></select></label><button disabled={!code} on:click={copy}>{format === 'link' ? 'Copy link' : 'Copy code'}</button></div>
         <label>{format === 'link' ? 'Public customer chat link' : 'Company installation code'}<textarea readonly value={code} rows={format === 'panel' ? 5 : 3} spellcheck="false"></textarea></label>
-        {#if copyStatus}<p role="status">{copyStatus}</p>{/if}
+        {#if copyStatus}<p class="result" role="status">{copyStatus}</p>{/if}
         <p class="hint">{format === 'floating' ? 'Adds a floating button. Install it once per page.' : format === 'panel' ? 'Place this in an HTML area where the chat should appear. Adjust the height to fit your page.' : 'Use this as the destination of a website button, or share it with customers. No script installation is needed.'} The code contains a public company identifier, never an API key.</p>
       </article>
     {:else if view === 'test'}
-      <article class="panel"><h3>Test the agent’s answers</h3><p>Use Test agent for private setup conversations. These do not create sales leads, but AI calls still appear in API usage.</p><ul><li>Ask about a product or service, then ask a follow-up price question.</li><li>Check your hours, locations, policies and delivery conditions where relevant.</li><li>Ask something you have not configured. The agent should ask for clarification or offer human help rather than invent details.</li><li>Try typing and speech in a supported browser.</li></ul><a class="primary" href={base+'/test'} data-sveltekit-reload>Open Test agent</a></article>
-      <article class="panel"><h3>Check the published website</h3><ol><li>Open your published website on desktop and mobile. Check that the chat fits without covering essential controls.</li><li>Open and close the widget, send a sample message and check the company name and reply.</li><li>Confirm the expected conversation appears in Conversations. Public chat tests count as customer activity.</li><li>Verify your human contact path. A quote or booking request is not a confirmed booking or payment unless you have connected that workflow.</li></ol><div class="links"><a href={data.embed.chat_url} target="_blank" rel="noreferrer">Open public chat ↗</a><a href={base+'/conversations'}>{$t("Conversations")}</a><a href={base+'/faqs'}>Update answers</a></div></article>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><h3>Test the agent’s answers</h3></div><p>Use Test agent for private setup conversations. These do not create sales leads, but AI calls still appear in API usage.</p><ul><li>Ask about a product or service, then ask a follow-up price question.</li><li>Check your hours, locations, policies and delivery conditions where relevant.</li><li>Ask something you have not configured. The agent should ask for clarification or offer human help rather than invent details.</li><li>Try typing and speech in a supported browser.</li></ul><a class="primary" href={base+'/test'} data-sveltekit-reload>Open Test agent</a></article>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">02</span><h3>Check the published website</h3></div><ol><li>Open your published website on desktop and mobile. Check that the chat fits without covering essential controls.</li><li>Open and close the widget, send a sample message and check the company name and reply.</li><li>Confirm the expected conversation appears in Conversations. Public chat tests count as customer activity.</li><li>Verify your human contact path. A quote or booking request is not a confirmed booking or payment unless you have connected that workflow.</li></ol><div class="links"><a href={data.embed.chat_url} target="_blank" rel="noreferrer">Open public chat ↗</a><a href={base+'/conversations'}>{$t("Conversations")}</a><a href={base+'/faqs'}>Update answers</a></div></article>
     {:else if view === 'channels'}
       <article class="panel"><h3>Website and AI</h3><p>Website installation is independent of WhatsApp. {connection.ai_configured ? 'An AI provider key is configured; use Test agent to verify responses.' : 'An AI provider key is not configured. Saved-data responses can still work; ask the platform operator to enable AI planning when needed.'}</p><p class="hint">Configuration status is not a live provider connection test.</p><a href={base+'/integrations'}>Open integration settings</a></article>
       <article class="panel"><h3>WhatsApp · optional</h3><p><a href={base+'/whatsapp-qr'}>Create a WhatsApp link and QR code</a> for your website, shop or printed materials.</p><p>{connection.meta_configured ? 'Meta credentials are configured for this company.' : connection.twilio_configured ? 'Twilio credentials are configured for this company.' : 'WhatsApp is awaiting setup. You can launch website chat first.'}</p><ol><li>Choose Meta Cloud API or Twilio with the platform operator.</li><li>Connect the business number and map it to this company on the server.</li><li>Configure the signed incoming-message webhook and delivery-status callback in the provider account.</li><li>Test an incoming message, reply and delivery status before advertising the number.</li></ol><a href={base+'/integrations?tenant='+encodeURIComponent(tenant)}>WhatsApp routes &amp; status</a><p class="hint">Provider credentials stay on the server. Never paste them into your website or the chat.</p></article>
@@ -109,24 +109,61 @@
 </section>
 
 <style>
-  .implementation { display:grid; gap:20px; min-width:0; overflow-wrap:anywhere; }
-  .intro, .heading, .code-tools, form, .links, nav { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
-  .intro, .heading { justify-content:space-between; } .intro > div { flex:1 1 320px; }
-  h2, h3 { margin:0; } h2 { font-size:22px; } h3 { font-size:18px; } p, li { line-height:1.6; color:var(--v7-muted); }
-  .panel { min-width:0; padding:24px; border:1px solid var(--v7-line); background:#fff; border-radius:18px;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
-  button, select, input, textarea { box-sizing:border-box; max-width:100%; border:1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; background:#fff; color:var(--v7-ink); padding:11px 13px; font:inherit; }
-  button { min-height:44px; cursor:pointer; font-weight:600; } button:disabled { opacity:.6; cursor:wait; }
-  button.active, .primary { background:var(--v7-accent); border-color:var(--v7-accent); color:#fff; } a { color:var(--v7-accent); }
-  .primary { display:inline-block; padding:12px 16px; border-radius:10px; text-decoration:none; }
-  label { display:grid; gap:8px; font-size:14px; font-weight:600; min-width:0; } form { align-items:end; } form label { flex:1 1 260px; }
-  textarea { width:100%; font-family:ui-monospace,monospace; font-size:13px; resize:vertical; overflow-wrap:anywhere;background:var(--v7-soft, #f0f6f2);line-height:1.7;}
-  .code-tools { align-items:end; margin:24px 0 16px; } .code-tools label { flex:1 1 220px; }
-  .origins { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0; } code { background:var(--v7-soft, #f0f6f2); padding:7px 10px; border-radius:8px; }
-  .hint { font-size:13px; } .error { color:#a12622; } .notice { margin:0; }
-  ol, ul { padding-left:24px; } li { padding:5px 0 5px 4px; }
-  details { border-bottom:1px solid var(--v7-line); padding:16px 0; } summary { cursor:pointer; font-weight:600; line-height:1.5; } details p { margin:12px 0 0; }
-  .links { margin-top:18px; } :is(button, a, input, textarea, select, summary):focus-visible { outline:3px solid #8bcdc0; outline-offset:3px; }
-  @media(max-width:600px) { .panel { padding:16px; } nav button { flex:1 1 130px; } }
-  nav { padding:6px; background:var(--v7-surface); border:1px solid var(--v7-line); border-radius:14px; gap:6px; }
-    nav button:not(.active) { border-color:transparent; }
+  .implementation { display:grid; gap:20px; min-width:0; color:var(--v7-ink, #172b26); overflow-wrap:anywhere; }
+  .intro, .heading, .panel-heading, .code-tools, form, .links, nav { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+  .intro, .heading { justify-content:space-between; }
+  .intro > div { flex:1 1 320px; min-width:0; }
+  .intro p { margin-bottom:0; }
+  .intro .eyebrow { margin:0 0 8px; color:var(--v7-accent, #087f5b); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+  h2, h3 { margin:0; color:var(--v7-ink, #172b26); font-weight:650; }
+  h2 { font-size:22px; letter-spacing:-.025em; }
+  h3 { font-size:17px; letter-spacing:-.015em; }
+  p, li { font-size:14px; line-height:1.7; color:var(--v7-muted, #64716d); }
+  p { margin:12px 0; }
+  .panel { min-width:0; padding:24px; border:1px solid var(--v7-line, #e1e7e4); background:var(--v7-surface, #fff); border-radius:12px; }
+  .panel > p:last-child { margin-bottom:0; }
+  .panel-heading { flex-wrap:nowrap; gap:12px; }
+  .step-number { display:grid; place-items:center; flex-shrink:0; width:32px; height:32px; border-radius:8px; background:var(--v7-soft, #edf6f1); color:var(--v7-accent, #087f5b); font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }
+  button, select, input, textarea { box-sizing:border-box; max-width:100%; border:1px solid var(--v7-control-line, #c7d2cc); border-radius:8px; background:var(--v7-surface, #fff); color:var(--v7-ink, #172b26); padding:10px 12px; font:inherit; font-size:13px; }
+  button, select, input { min-height:44px; }
+  button { cursor:pointer; font-weight:600; }
+  button:disabled { opacity:.6; cursor:default; }
+  button:hover:not(:disabled) { background:var(--v7-soft, #edf6f1); border-color:var(--v7-accent, #087f5b); }
+  button.active, .primary { background:var(--v7-accent, #087f5b); border-color:var(--v7-accent, #087f5b); color:#fff; }
+  button.active:hover, .primary:hover { background:var(--v7-brand, #176044); border-color:var(--v7-brand, #176044); }
+  a { color:var(--v7-accent, #087f5b); font-size:13px; font-weight:500; text-underline-offset:.2em; }
+  .primary { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 16px; border:1px solid var(--v7-accent, #087f5b); border-radius:8px; font-weight:600; text-decoration:none; }
+  label { display:grid; gap:8px; font-size:13px; font-weight:600; min-width:0; }
+  form { align-items:end; padding:16px; border:1px solid var(--v7-line, #e1e7e4); border-radius:8px; background:var(--v7-canvas, #f5f7f7); }
+  form label { flex:1 1 260px; }
+  .platform-picker { max-width:380px; margin-top:20px; }
+  textarea { width:100%; min-width:0; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; resize:vertical; overflow-wrap:anywhere; background:var(--v7-canvas, #f5f7f7); line-height:1.75; padding:14px; }
+  .code-tools { align-items:end; margin:24px 0 16px; padding-top:20px; border-top:1px solid var(--v7-line, #e1e7e4); }
+  .code-tools label { flex:1 1 220px; }
+  .origins { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0; }
+  code { max-width:100%; border:1px solid var(--v7-line, #e1e7e4); background:var(--v7-canvas, #f5f7f7); padding:7px 10px; border-radius:6px; font-size:12px; color:var(--v7-ink, #172b26); }
+  .hint { font-size:12px; }
+  .notice { width:100%; margin:0; padding:12px 14px; border:1px solid var(--v7-line, #e1e7e4); border-radius:8px; background:var(--v7-canvas, #f5f7f7); font-size:13px; }
+  .result { padding:12px 14px; border-inline-start:3px solid var(--v7-control-line, #c7d2cc); border-radius:0 6px 6px 0; background:var(--v7-canvas, #f5f7f7); font-size:13px; color:var(--v7-ink, #172b26); }
+  .error { padding:14px 16px; margin:0; border:1px solid #f0cfca; border-radius:8px; background:#fff5f3; color:#a12622; font-size:13px; }
+  .loading { display:flex; align-items:center; gap:10px; padding:18px; margin:0; border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; background:var(--v7-surface, #fff); font-size:13px; }
+  .loading-indicator { width:14px; height:14px; border:2px solid #d4e7dd; border-top-color:var(--v7-accent, #087f5b); border-radius:50%; animation:setup-spin .8s linear infinite; }
+  ol, ul { margin:16px 0; padding-inline-start:22px; }
+  li { padding:5px 0 5px 6px; }
+  li::marker { color:var(--v7-accent, #087f5b); font-size:12px; font-weight:600; }
+  details { border-bottom:1px solid var(--v7-line, #e1e7e4); padding:4px 0; }
+  details:first-of-type { margin-top:16px; }
+  summary { min-height:44px; padding:12px 0; cursor:pointer; font-size:13px; font-weight:600; line-height:1.6; }
+  details p { margin:0 0 16px; max-width:84ch; }
+  .links { margin-top:18px; gap:8px; }
+  .links a, .heading > a { display:inline-flex; align-items:center; min-height:40px; padding:8px 12px; border:1px solid var(--v7-line, #e1e7e4); border-radius:8px; background:var(--v7-surface, #fff); text-decoration:none; }
+  .links a:hover, .heading > a:hover { background:var(--v7-soft, #edf6f1); border-color:#d4e7dd; }
+  nav { padding:6px; background:var(--v7-surface, #fff); border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; gap:6px; }
+  nav button { flex:1 1 auto; }
+  nav button:not(.active) { border-color:transparent; background:transparent; color:var(--v7-muted, #64716d); }
+  nav button:not(.active):hover { background:var(--v7-canvas, #f5f7f7); color:var(--v7-ink, #172b26); }
+  :is(button, a, input, textarea, select, summary):focus-visible { outline:3px solid #8bcdc0; outline-offset:3px; }
+  @keyframes setup-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce) { .loading-indicator { animation:none; } }
+  @media (max-width:600px) { .implementation { gap:16px; } .panel { padding:18px; } .intro > button { width:100%; } nav button { flex:1 1 130px; } form { padding:12px; } form > button { width:100%; } .code-tools > button { width:100%; } .platform-picker { max-width:none; } }
 </style>
