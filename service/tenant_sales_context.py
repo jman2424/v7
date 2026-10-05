@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 
@@ -53,8 +54,64 @@ def build_tenant_sales_context(
         ),
         "offering_type": _text(playbook.get("offering_type"), 24),
         "primary_goal": _text(playbook.get("primary_goal"), 40),
+        "business_model": _text(playbook.get("business_model") or "general", 40),
+        "fulfilment_mode": _text(playbook.get("fulfilment_mode") or "auto", 24),
+        "customer_type": _text(playbook.get("customer_type") or "both", 24),
+        "response_guidance": _text(playbook.get("response_guidance"), 600),
         "categories": category_names,
     }
+
+
+def planning_business_context(context: Any, message: str) -> Dict[str, Any]:
+    """Allowlist and bound public facts/preferences before an external planner call."""
+    source = context if isinstance(context, dict) else {}
+    result = {
+        "name": _text(source.get("name"), 120),
+        "about": _text(source.get("about"), 600),
+        "focus": _text(source.get("business_focus"), 240),
+        "ideal_customer": _text(source.get("ideal_customer"), 240),
+        "offering_type": _text(source.get("offering_type"), 24),
+        "primary_goal": _text(source.get("primary_goal"), 40),
+        "business_model": _text(source.get("business_model"), 40),
+        "fulfilment_mode": _text(source.get("fulfilment_mode"), 24),
+        "customer_type": _text(source.get("customer_type"), 24),
+        "response_guidance": _text(source.get("response_guidance"), 600),
+        "categories": _string_list(source.get("categories"), limit=8, item_maximum=80),
+    }
+    core = source.get("business_core")
+    if not isinstance(core, dict):
+        return result
+
+    # Prefer records related to the question rather than always sending the first
+    # records. No work, accounts, analytics or arbitrary nested fields are copied.
+    words = set(re.findall(r"\w+", message.casefold())) - {
+        "the", "a", "an", "and", "for", "to", "of", "i", "you", "is", "do", "can",
+    }
+    public: Dict[str, Any] = {"industry": _text(core.get("industry"), 200)}
+    for collection, fields, limit in (
+        ("offerings", {"name": 200, "category": 80, "type": 24, "price_type": 24, "description": 240}, 8),
+        ("locations", {"name": 200, "type": 32, "service_area": 200}, 5),
+        ("business_rules", {"title": 200, "description": 360}, 5),
+    ):
+        rows = core.get(collection)
+        if not isinstance(rows, list):
+            continue
+        candidates = []
+        for row in rows[:1000]:
+            if not isinstance(row, dict) or row.get("active") is not True:
+                continue
+            record = {key: _text(row.get(key), maximum) for key, maximum in fields.items()
+                      if isinstance(row.get(key), str)}
+            if collection == "business_rules":
+                record["requires_manual_review"] = row.get("requires_manual_review") is True
+            score = len(words & set(re.findall(r"\w+", " ".join(
+                value for value in record.values() if isinstance(value, str)
+            ).casefold())))
+            candidates.append((score, record))
+        candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        public[collection] = [record for _, record in candidates[:limit]]
+    result["business_core"] = public
+    return result
 
 
 def conversation_scope(context: Dict[str, Any], plural: str) -> str:

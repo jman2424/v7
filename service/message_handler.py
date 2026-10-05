@@ -402,6 +402,7 @@ class MessageHandler:
             "last_intent": self.memory.get(ctx.session_id, "last_intent"),
             "last_product_query": self.memory.get(ctx.session_id, "last_product_query"),
             "last_items": self.memory.get(ctx.session_id, "last_items", []),
+            "last_items_source": self.memory.get(ctx.session_id, "last_items_source", "catalog"),
             "last_product_names": self.memory.get(ctx.session_id, "last_product_names", []),
             "sales_agent": self.memory.get(ctx.session_id, "sales_agent", {}),
         }
@@ -463,6 +464,9 @@ class MessageHandler:
 
             if item_skus:
                 self.memory.set(ctx.session_id, "last_items", item_skus, ttl)
+                knowledge = facts.get("business_knowledge")
+                source = "business_core" if isinstance(knowledge, dict) and knowledge.get("source") == "business_core" else "catalog"
+                self.memory.set(ctx.session_id, "last_items_source", source, ttl)
             if item_names:
                 self.memory.set(ctx.session_id, "last_product_names", item_names, ttl)
 

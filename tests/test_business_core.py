@@ -83,7 +83,9 @@ def test_core_validation_and_grounded_service_answer(tmp_path):
     storage.write_json('DETAIL','business_core.json',core)
     business = BusinessCore(storage,'DETAIL')
     answer = business.answer('Full Interior Detail')
-    assert 'From GBP 120' in answer and '180 minutes' in answer and 'SUVs cost GBP 20' in answer
+    assert 'From GBP 120' in answer and '180 minutes' in answer
+    assert 'SUVs cost GBP 20' not in answer
+    assert 'SUVs cost GBP 20' in business.answer('Full Interior Detail for an SUV')
     assert business.answer('unrelated astronomy') is None
     invalid = copy.deepcopy(core)
     invalid['offerings'].append(invalid['offerings'][0])

@@ -136,13 +136,27 @@ The console gives each owner structured controls for their business profile,
 branches and opening hours, website widget, catalogue, current offers, FAQs,
 delivery areas, fees, minimum orders, collection availability, service
 exceptions, and V7 sales playbook. A catalogue can represent products,
-services, or both. The playbook sets the business focus, ideal customer,
-verified customer benefits, catalogue type, primary conversion goal, optional
-qualification questions, handoff wording, and reply tone without exposing a
-free-form system prompt. V7 uses those structured fields locally to choose
-grounded discovery questions and catalogue suggestions; tenant profile,
-catalogue, policy, and playbook data are not sent to an external model by the
-planner. Offers can be scoped
+services, or both. In **Agent playbook**, owners can explicitly apply a starter
+for retail, appointments, professional services, projects/trades, subscriptions,
+hospitality, property, or a custom model, then save it. Starters preserve written
+business details and existing qualification questions; they do not create
+products, prices or business claims. Owners can set business focus, ideal customer,
+verified customer benefits, customer audience, fulfilment method, catalogue type,
+conversion goal, qualification questions, handoff wording and reply tone.
+Goals include quotes, appointments and subscription enquiries as well as sales,
+consultations, leads and answering questions. Response guidance is a bounded
+wording/discovery preference, not a free-form system prompt or source of facts.
+
+V7 uses these settings for local discovery and follow-up. When an AI planner is
+configured, it receives an allowlisted, bounded subset of the public profile,
+playbook and relevant public generic offerings/locations/rules. Private work,
+accounts, staff notes and analytics are excluded. Generic replies retain offering
+identifiers for a subsequent selection; missing prices stay unknown, starting and
+unit prices retain their conditions, and subscriptions do not invent a billing
+interval. Remote services avoid unsolicited delivery suggestions. Customers can
+decline qualification, and handoff/FAQ requests take precedence over loose offering
+matches. The agent can request a quote or appointment; completion still requires
+the configured integration or team confirmation. Offers can be scoped
 to catalogue references and given start/end dates; only active, in-date offers
 are shown to customers.
 Owners can also move a captured lead through Open, Contacted, Qualified, Won,

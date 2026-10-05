@@ -6,11 +6,15 @@ from flask import abort
 from jsonschema import Draft202012Validator
 
 from service.sales_playbook import (
+    BUSINESS_MODELS,
+    CUSTOMER_TYPES,
+    FULFILMENT_MODES,
     MAX_BUSINESS_FOCUS_LENGTH,
     MAX_HANDOFF_MESSAGE_LENGTH,
     MAX_IDEAL_CUSTOMER_LENGTH,
     MAX_QUALIFICATION_QUESTION_LENGTH,
     MAX_QUALIFICATION_QUESTIONS,
+    MAX_RESPONSE_GUIDANCE_LENGTH,
     MAX_VALUE_PROPOSITION_LENGTH,
     MAX_VALUE_PROPOSITIONS,
     SalesPlaybookValidationError,
@@ -65,6 +69,10 @@ _SETTINGS = {
         "filters": _object({"exclude_tags": _strings(100, 200)}),
         "self_repair": _object({"auto_suggest_synonyms": _BOOL, "log_issues_only": _BOOL}),
         "sales_playbook": _object({
+            "business_model": {"type": "string", "enum": sorted(BUSINESS_MODELS)},
+            "fulfilment_mode": {"type": "string", "enum": sorted(FULFILMENT_MODES)},
+            "customer_type": {"type": "string", "enum": sorted(CUSTOMER_TYPES)},
+            "response_guidance": _text(MAX_RESPONSE_GUIDANCE_LENGTH),
             "business_focus": _text(MAX_BUSINESS_FOCUS_LENGTH),
             "ideal_customer": _text(MAX_IDEAL_CUSTOMER_LENGTH),
             "value_propositions": _strings(MAX_VALUE_PROPOSITIONS, MAX_VALUE_PROPOSITION_LENGTH),

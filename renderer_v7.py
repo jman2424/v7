@@ -66,6 +66,9 @@ class RendererV7:
 
         # 1) Brain explicitly asked for a clarifier
         if needs_clarification:
+            focused_question = self._safe_clarification_question(plan.get('clarification_question'))
+            if focused_question:
+                return focused_question
             return self._fallback_clarifier(intent, plan, session)
 
         # 2) Simple / cheap actions that don't depend much on facts
@@ -418,12 +421,16 @@ class RendererV7:
         if price is None:
             return f"I couldn’t find a price for {sku}. It might be missing or not available right now."
 
-        stock_str = self._availability_label(bool(in_stock))
         label = name or sku
         if unit:
             label = f"{label} ({unit})"
 
-        base = f"{label} is {self._format_money(float(price), currency)} and {stock_str}."
+        base = f"{label} is {self._format_money(float(price), currency)}"
+        if isinstance(in_stock, bool):
+            base += f" and {self._availability_label(in_stock)}"
+        else:
+            base += '; availability needs confirmation from the team'
+        base += '.'
         return self._append_cta(base)
 
     # ------------------------------------------------------------------ #
@@ -507,6 +514,26 @@ class RendererV7:
     # ------------------------------------------------------------------ #
     # CLARIFIERS                                                         #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _safe_clarification_question(value: Any) -> Optional[str]:
+        """Allow one short question, never model-generated links or credentials requests."""
+        if not isinstance(value, str) or any(ord(character) < 32 for character in value):
+            return None
+        question = ' '.join(value.split())
+        if not question or len(question) > 240 or not question.endswith('?') or question.count('?') != 1:
+            return None
+        if re.search(
+            r'://|www\.|@|[<>]|\b[\w-]+\.[a-z]{2,}(?:[/\s?]|$)|\b(?:password|passcode|otp|token|secret|api[ -]?key|'
+            r'credit[ -]?card|card[ -]?(?:number|details)|cvv|pin|security[ -]?code|'
+            r'credentials|login|log[ -]?in|one[ -]?time[ -]?code|(?:mfa|2fa|authentication)[ -]?code|'
+            r'bank[ -]?account|social[ -]?security|'
+            r'passport|authenticator|verification[ -]?code|seed[ -]?phrase|ignore|override|'
+            r'system[ -]?prompt|instructions|download|click|guaranteed|confirmed|completed)\b',
+            question, re.I,
+        ):
+            return None
+        return question
 
     def _fallback_clarifier(
         self,

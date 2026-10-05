@@ -178,8 +178,10 @@ def test_agent_playbook_round_trip_and_validation(client):
     )
 
     assert saved.status_code == 200
-    assert saved.get_json()["playbook"] == payload["playbook"]
-    assert loaded.get_json()["playbook"] == payload["playbook"]
+    from service.sales_playbook import default_sales_playbook
+    expected = {**default_sales_playbook(), **payload["playbook"]}
+    assert saved.get_json()["playbook"] == expected
+    assert loaded.get_json()["playbook"] == expected
     assert invalid.status_code == 400
     assert invalid.get_json()["error"] == "invalid_offering_type"
 

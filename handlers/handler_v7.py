@@ -130,6 +130,7 @@ class MessageHandlerV7:
         "schedule a call",
         "book an appointment",
         "schedule an appointment",
+        "arrange an appointment",
         "get a quote",
         "request a quote",
         "request a callback",
@@ -279,12 +280,6 @@ class MessageHandlerV7:
                     }[action_type]}],
                 )
 
-            # Generic public facts stay local; private work records never enter chat.
-            if self.business_core:
-                generic_reply = self.business_core.answer(user_text)
-                if generic_reply:
-                    return self._wrap_reply(request_id=request_id, t0=t0, reply=generic_reply,
-                                            intent='business_knowledge', plan=None, facts={}, entities={}, items=[])
             # 0) Greeting only
             if self._is_greeting(user_text):
                 reply_text = self._greeting_reply()
@@ -320,7 +315,7 @@ class MessageHandlerV7:
                 plan = self._simple_plan("handoff_contact_captured", "HUMAN_HANDOFF", session_snapshot)
                 reply_text = (
                     "Thanks, I’ve recorded those contact details for the team. "
-                    "You can add any product or delivery details that would help them."
+                    "You can add any details about what you need that would help them."
                 )
                 return self._wrap_reply(
                     request_id=request_id,
@@ -564,9 +559,16 @@ class MessageHandlerV7:
 
             # 3) Heuristic plan only if product-ish
             plan: Optional[Dict[str, Any]] = None
+            plan_from_heuristic = False
             product_query = self._looks_like_product_query(user_text)
             faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
-            if faq and not (product_query and self._is_explicit_shopping_request(user_text)):
+            sales_data_request = bool(self._PRICE_REQUEST.search(user_text) or re.search(
+                r'\b(?:stock|delivery|shipping|collection|pick[ -]?up|offers|deals?|discounts?|promotions?|coupons?)\b',
+                user_text, re.I,
+            ))
+            exact_faq = bool(faq and not sales_data_request
+                             and self._normalize_text(faq['question']) == self._normalize_text(user_text))
+            if faq and (exact_faq or not (product_query and self._is_explicit_shopping_request(user_text))):
                 plan = self._simple_plan("faq", "FAQ_LOOKUP", session_snapshot)
                 facts = {"faq": faq}
                 reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
@@ -581,6 +583,14 @@ class MessageHandlerV7:
                     items=[],
                 )
 
+            # Specific customer actions and authoritative price/FAQ answers take
+            # precedence over a generic offering-name match.
+            if self.business_core:
+                selected_ids = self._selected_generic_offering_ids(user_text, sess)
+                generic = self.business_core.answer_details(user_text, selected_ids=selected_ids)
+                if generic:
+                    return self._wrap_generic_reply(generic, request_id=request_id, t0=t0)
+
             if not re.search(r"\b(price|cost|stock|available|book|schedule|order|buy|purchase|deliver|delivery)\b",
                              user_text, re.I):
                 website_answer = self._answer_from_website(user_text)
@@ -593,6 +603,7 @@ class MessageHandlerV7:
 
             if product_query:
                 plan = self._heuristic_plan(user_text, request_id=request_id)
+                plan_from_heuristic = bool(plan)
 
             # Tenant FAQs and imported facts can cover otherwise unrelated topics.
             if not plan and self._looks_out_of_scope(user_text):
@@ -633,7 +644,9 @@ class MessageHandlerV7:
                 )
 
             # 6) Unknown but not product-ish
-            if intent_norm == "unknown" and not self._looks_like_product_query(user_text):
+            focused_clarifier = bool(plan.get('needs_clarification') and
+                                     self.renderer._safe_clarification_question(plan.get('clarification_question')))
+            if intent_norm == "unknown" and not focused_clarifier and not self._looks_like_product_query(user_text):
                 reply_text = self._discovery_reply()
                 safe_plan = self._simple_plan("unknown", "DO_NOTHING", session_snapshot)
                 return self._wrap_reply(
@@ -647,6 +660,12 @@ class MessageHandlerV7:
                     items=[],
                 )
 
+            # Model wording selects an offering only after a current public
+            # name lookup. The model cannot invent its price or terms.
+            native = self._planned_generic_offering(plan)
+            if native:
+                return self._wrap_generic_reply(native, request_id=request_id, t0=t0, plan=plan)
+
             # 7) Execute
             facts = self._execute_plan(plan, user_text, session_snapshot, request_id=request_id)
 
@@ -656,6 +675,20 @@ class MessageHandlerV7:
                     retry = self._retry_search_if_worth_it(plan, user_text=user_text, request_id=request_id)
                     if retry is not None:
                         facts["items"] = retry
+
+            if (plan_from_heuristic and not facts.get('items') and self.business_core
+                    and self.business_core.public_context()['offerings']):
+                # One semantic fallback after a real catalog miss; successful
+                # catalog searches keep their existing local response path.
+                semantic_plan = self._normalize_plan(
+                    self._safe_plan(user_text, session_snapshot, request_id), user_text,
+                )
+                native = self._planned_generic_offering(semantic_plan)
+                if native:
+                    return self._wrap_generic_reply(native, request_id=request_id, t0=t0, plan=semantic_plan)
+                if (semantic_plan.get('needs_clarification')
+                        and self.renderer._safe_clarification_question(semantic_plan.get('clarification_question'))):
+                    plan, facts = semantic_plan, {}
 
             reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
 
@@ -769,6 +802,12 @@ class MessageHandlerV7:
         goal = str(self.sales_playbook.get("primary_goal") or "drive_sales")
         if goal == "book_consultation":
             return "What would you like to discuss with the team?"
+        if goal == 'book_appointment':
+            return 'Which service would you like an appointment for?'
+        if goal == 'request_quote':
+            return 'What do you need a quote for?'
+        if goal == 'start_subscription':
+            return 'What would you like your subscription to include?'
         if goal == "capture_leads":
             return "What can the team help you with today?"
         if goal == "answer_questions":
@@ -934,7 +973,16 @@ class MessageHandlerV7:
 
     def _requests_handoff(self, user_text: str) -> bool:
         text = self._clean_text(user_text)
-        return any(phrase in text for phrase in self._HANDOFF_PHRASES)
+        if any(phrase in text for phrase in self._HANDOFF_PHRASES):
+            return True
+        subscriptions = self.sales_playbook.get('primary_goal') == 'start_subscription'
+        if self.business_core and not subscriptions:
+            subscriptions = any(row.get('type') == 'subscription'
+                                for row in self.business_core.public_context()['offerings'])
+        return bool(subscriptions and re.search(
+            r'\b(?:start|join|begin|discuss|sign up for|subscribe to)\s+(?:a |the |your )?(?:subscription|membership|plan)\b',
+            text,
+        ))
 
     def _store_info_answer(self, user_text: str) -> Optional[str]:
         text = self._clean_text(user_text)
@@ -973,7 +1021,8 @@ class MessageHandlerV7:
 
         is_contact_question = (
             any(phrase in text for phrase in self._STORE_INFO_PHRASES)
-            or bool(re.search(r"\b(contact|phone|telephone|email|website)\b", text))
+            or bool(re.fullmatch(r'(?:contact|phone|telephone|email|website)(?: details| address| number)?', text))
+            or bool(re.search(r'\b(?:contact|phone|telephone|email)\s+(?:you|the team|your team|someone)\b', text))
         )
         is_about_question = "about" in text and any(word in text for word in ("business", "company", "store"))
         if not is_contact_question and not is_about_question:
@@ -1127,8 +1176,31 @@ class MessageHandlerV7:
             return None
         return self._exact_catalog_item_in_text(user_text)
 
+    def _selected_generic_offering_ids(self, user_text: str, session: Dict[str, Any]) -> List[str]:
+        """Interpret a choice only against the session's prior public results."""
+        if session.get('last_items_source') != 'business_core':
+            return []
+        agent = session.get('sales_agent') if isinstance(session.get('sales_agent'), dict) else {}
+        if agent.get('next_action') not in self._SELECTION_ACTIONS:
+            return []
+        previous = session.get('last_items')
+        if not isinstance(previous, list):
+            return []
+        identifiers = [identifier for identifier in previous[:12] if isinstance(identifier, str)]
+        number = self._SELECTION_NUMBER.match(user_text or '')
+        if number and int(number.group(1)) <= len(identifiers):
+            return [identifiers[int(number.group(1)) - 1]]
+        if len(identifiers) == 1 and re.fullmatch(
+            r"\s*(?:how much(?: is (?:it|that|this))?|what(?:'s| is) (?:its|the) price)\s*[?.!]*\s*",
+            user_text or '', re.I,
+        ):
+            return identifiers
+        return []
+
     def _selected_product_from_session(self, user_text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Resolve a click or numbered choice only within the current session's last results."""
+        if session.get('last_items_source') == 'business_core':
+            return None
         if not self.catalog:
             return None
         agent = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
@@ -1375,6 +1447,48 @@ class MessageHandlerV7:
     # Wrappers / request helpers
     # ------------------------------------------------------------------
 
+    def _planned_generic_offering(self, plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Resolve a model-selected name to active local facts, never inferred terms."""
+        if not self.business_core or plan.get('needs_clarification'):
+            return None
+        if str(plan.get('action') or '').upper() not in {'SEARCH_PRODUCTS', 'PRICE_CHECK'}:
+            return None
+        name = plan.get('product_name')
+        if not isinstance(name, str) or not name.strip() or len(name) > 240:
+            return None
+        # A current retail record retains its existing price and availability path.
+        if self._exact_catalog_item_in_text(name):
+            return None
+        normalized_name = ' '.join(name.casefold().split())
+        rows = self.business_core.document()['offerings']
+        identifiers = [row['id'] for row in rows
+                       if row['active'] and ' '.join(row['name'].casefold().split()) == normalized_name]
+        if not identifiers:
+            return None
+        return self.business_core.answer_details(name, selected_ids=identifiers)
+
+    def _wrap_generic_reply(
+        self, generic: Dict[str, Any], *, request_id: str, t0: float,
+        plan: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        offerings = generic['offerings']
+        facts = {
+            'items': offerings,
+            'business_knowledge': {
+                'source': 'business_core',
+                'locations': generic['locations'],
+                'business_rules': generic['business_rules'],
+            },
+        }
+        entities = {'offering_ids': [item['id'] for item in offerings]}
+        if len(offerings) == 1:
+            entities['offering_id'] = offerings[0]['id']
+        return self._wrap_reply(
+            request_id=request_id, t0=t0, reply=generic['reply'],
+            intent='business_knowledge', plan=plan, facts=facts,
+            entities=entities, items=[],
+        )
+
     def _wrap_reply(
         self,
         *,
@@ -1558,8 +1672,8 @@ class MessageHandlerV7:
 
     def _safe_plan(self, user_text: str, session: Dict[str, Any], request_id: str) -> Dict[str, Any]:
         try:
-            # Hints are consumed only by the local fallback planner. They are
-            # intentionally not included in the external model request.
+            # BrainV7 allowlists and bounds the public planning context before
+            # including it in an external model request.
             hints: Dict[str, Any] = {
                 "business": self.sales_context,
                 "categories": self._catalog_categories(),
@@ -1593,7 +1707,10 @@ class MessageHandlerV7:
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
 
-        if p.get("needs_clarification") and self._looks_like_product_query(user_text):
+        focused_question = self.renderer._safe_clarification_question(p.get('clarification_question'))
+        if action == 'ASK_SLOT' and focused_question:
+            p['needs_clarification'] = True
+        if p.get("needs_clarification") and not focused_question and self._looks_like_product_query(user_text):
             p["needs_clarification"] = False
             p["clarification_question"] = ""
 
@@ -1629,6 +1746,30 @@ class MessageHandlerV7:
 
         raw_postcode = plan.get("postcode") or session.get("postcode")
         postcode = self._normalize_postcode(str(raw_postcode)) if raw_postcode else None
+
+        if action == 'PRICE_CHECK' or intent == 'price_check':
+            item = None
+            sku = plan.get('sku')
+            if self.catalog and isinstance(sku, str):
+                item = self.catalog.get_item_by_sku(sku)
+            if not item:
+                item = self._exact_catalog_item_in_text(str(product_name or user_text))
+            if isinstance(item, dict):
+                facts['price'] = {key: item.get(key) for key in ('sku', 'name', 'price', 'unit', 'in_stock')}
+                facts['currency'] = self._catalog_currency()
+            return facts
+
+        if action == 'FAQ_LOOKUP' or intent == 'faq':
+            faq = self._find_faq(user_text, session, request_id=request_id)
+            if faq:
+                facts['faq'] = faq
+            return facts
+
+        if action == 'STORE_INFO' or intent == 'store_info':
+            answer = self._store_info_answer(user_text) or self._delivery_information_answer(user_text)
+            if answer:
+                facts['store_info'] = {'answer': answer}
+            return facts
 
         if action == "CHECK_DELIVERY" or intent == "check_delivery":
             if postcode:

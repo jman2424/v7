@@ -20,6 +20,27 @@ _GENERIC_CTA = re.compile(
     re.IGNORECASE,
 )
 
+_GOAL_STEPS = {
+    "request_quote": {
+        "objective": "Help the team prepare a quote for the customer's requirement.",
+        "next_action": "request_quote",
+        "next_question": "Would you like the team to prepare a quote?",
+        "suggested_replies": ["Request a quote", "Ask another question"],
+    },
+    "book_appointment": {
+        "objective": "Offer an appointment request for the team to confirm.",
+        "next_action": "request_appointment",
+        "next_question": "Would you like the team to arrange an appointment?",
+        "suggested_replies": ["Arrange an appointment", "Ask another question"],
+    },
+    "start_subscription": {
+        "objective": "Help the customer discuss a suitable subscription with the team.",
+        "next_action": "discuss_subscription",
+        "next_question": "Would you like the team to help you choose a subscription?",
+        "suggested_replies": ["Discuss a subscription", "Ask another question"],
+    },
+}
+
 
 class SalesAgentPolicy:
     """Turn a grounded answer into the next useful sales conversation step."""
@@ -201,6 +222,14 @@ class SalesAgentPolicy:
                 next_question="Would you like to check delivery or compare another option?",
                 suggested_replies=["Check delivery"],
             )
+        elif intent == "business_knowledge" and not items:
+            state.update(
+                stage="assist",
+                objective="Answer the business question using configured public facts.",
+                next_action="await_customer_question",
+                next_question="",
+                suggested_replies=[f"Browse {plural}", "Ask a question"],
+            )
         elif items:
             suggestions = self._item_names(items)
             state.update(
@@ -233,6 +262,7 @@ class SalesAgentPolicy:
             playbook=playbook,
             singular=singular,
             plural=plural,
+            items=items,
         )
         self._apply_qualification_question(
             state,
@@ -253,6 +283,19 @@ class SalesAgentPolicy:
 
     def _default_state(self, playbook: Dict[str, Any], singular: str, plural: str) -> Dict[str, Any]:
         goal = playbook["primary_goal"]
+        if goal in _GOAL_STEPS:
+            questions = {
+                "request_quote": "What would you like the team to quote for?",
+                "book_appointment": "What would you like an appointment for?",
+                "start_subscription": "What do you need from a subscription?",
+            }
+            return {
+                "stage": "discover",
+                "objective": _GOAL_STEPS[goal]["objective"],
+                "next_action": "discover_need",
+                "next_question": questions[goal],
+                "suggested_replies": [f"Browse {plural}", "Ask a question"],
+            }
         if goal == "book_consultation":
             return {
                 "stage": "discover",
@@ -315,6 +358,7 @@ class SalesAgentPolicy:
         playbook: Dict[str, Any],
         singular: str,
         plural: str,
+        items: List[Any],
     ) -> None:
         if singular != "product":
             state["objective"] = self._replace_customer_terms(str(state["objective"]), singular, plural)
@@ -324,11 +368,30 @@ class SalesAgentPolicy:
                 for reply in state["suggested_replies"]
             ]
 
-        if intent != "price_check":
+        mode = playbook.get("fulfilment_mode", "auto")
+        supports_delivery = mode == "delivery" or (mode in {"auto", "hybrid"} and singular == "product")
+        if not supports_delivery:
+            state["suggested_replies"] = [reply for reply in state["suggested_replies"]
+                                          if reply.casefold() not in {"check delivery", "nearest branch"}]
+            if state["next_action"] == "confirm_fulfilment":
+                state.update(
+                    objective="Help the customer arrange the appropriate next step with the team.",
+                    next_action="arrange_team_handoff",
+                    next_question="Would you like the team to help with the next step?",
+                    suggested_replies=["Speak to someone", f"Browse more {plural}"],
+                )
+            elif not state["suggested_replies"] and state["stage"] not in {"handoff", "qualify"}:
+                state["suggested_replies"] = [f"Browse {plural}", "Ask a question"]
+
+        if intent != "price_check" and not (intent == "business_knowledge" and len(items) == 1):
             return
 
         goal = playbook["primary_goal"]
-        if goal == "book_consultation":
+        if goal in _GOAL_STEPS:
+            state.update(stage="convert", **_GOAL_STEPS[goal])
+        elif goal == "drive_sales" and len(items) == 1 and isinstance(items[0], dict) and items[0].get("price_type") == "quote":
+            state.update(stage="convert", **_GOAL_STEPS["request_quote"])
+        elif goal == "book_consultation":
             state.update(
                 objective="Move from a selected option to a consultation with the team.",
                 next_action="book_consultation",
@@ -385,6 +448,11 @@ class SalesAgentPolicy:
         if not questions or intent in {"human_handoff", "handoff", "handoff_contact_captured", "out_of_scope", "system_error"}:
             return
 
+        if re.fullmatch(r"(?:no thanks|not now|skip(?: (?:this|that|question))?|stop asking|don't ask)[.! ]*", user_text.strip(), re.I):
+            state.update(stage="assist", next_action="await_customer_question", next_question="",
+                         suggested_replies=["Ask a question"], qualification_complete=True)
+            return
+
         previous_action = str(previous.get("next_action") or "")
         continuing = previous_action == "ask_qualification_question" or bool(previous.get("qualification_pending"))
         starting = has_items or intent == "price_check"
@@ -438,7 +506,9 @@ class SalesAgentPolicy:
         plural: str,
     ) -> None:
         goal = playbook["primary_goal"]
-        if goal == "book_consultation":
+        if goal in _GOAL_STEPS:
+            state.update(stage="convert", **_GOAL_STEPS[goal])
+        elif goal == "book_consultation":
             state.update(
                 stage="convert",
                 objective="Move a qualified customer to a consultation with the team.",

@@ -6,12 +6,26 @@ from typing import Any, Dict, Tuple
 
 
 OFFERING_TYPES = frozenset({"products", "services", "mixed"})
+BUSINESS_MODELS = frozenset(
+    {
+        "general", "retail", "appointments", "professional_services",
+        "project_services", "subscriptions", "hospitality", "property", "custom",
+    }
+)
+FULFILMENT_MODES = frozenset(
+    {"auto", "delivery", "collection", "at_location", "on_site", "remote", "hybrid"}
+)
+CUSTOMER_TYPES = frozenset({"individuals", "businesses", "both"})
 PRIMARY_GOALS = frozenset(
-    {"drive_sales", "book_consultation", "capture_leads", "answer_questions"}
+    {
+        "drive_sales", "book_consultation", "capture_leads", "answer_questions",
+        "request_quote", "book_appointment", "start_subscription",
+    }
 )
 MAX_BUSINESS_FOCUS_LENGTH = 240
 MAX_IDEAL_CUSTOMER_LENGTH = 240
 MAX_HANDOFF_MESSAGE_LENGTH = 360
+MAX_RESPONSE_GUIDANCE_LENGTH = 600
 MAX_VALUE_PROPOSITIONS = 5
 MAX_VALUE_PROPOSITION_LENGTH = 160
 MAX_QUALIFICATION_QUESTIONS = 4
@@ -25,6 +39,10 @@ class SalesPlaybookValidationError(ValueError):
 def default_sales_playbook() -> Dict[str, Any]:
     """Return a new, backwards-compatible playbook for an existing tenant."""
     return {
+        "business_model": "general",
+        "fulfilment_mode": "auto",
+        "customer_type": "both",
+        "response_guidance": "",
         "business_focus": "",
         "ideal_customer": "",
         "value_propositions": [],
@@ -61,6 +79,8 @@ def validate_sales_playbook(value: Any) -> Dict[str, Any]:
     """Validate and normalize the supported tenant playbook fields."""
     if not isinstance(value, dict):
         raise SalesPlaybookValidationError("sales_playbook_must_be_object")
+    if set(value) - set(default_sales_playbook()):
+        raise SalesPlaybookValidationError("unsupported_sales_playbook_fields")
 
     questions_value = value.get("qualification_questions", [])
     if not isinstance(questions_value, list):
@@ -109,6 +129,29 @@ def validate_sales_playbook(value: Any) -> Dict[str, Any]:
         raise SalesPlaybookValidationError("too_many_value_propositions")
 
     return {
+        "business_model": _enum(
+            value.get("business_model"),
+            field="business_model",
+            allowed=BUSINESS_MODELS,
+            default="general",
+        ),
+        "fulfilment_mode": _enum(
+            value.get("fulfilment_mode"),
+            field="fulfilment_mode",
+            allowed=FULFILMENT_MODES,
+            default="auto",
+        ),
+        "customer_type": _enum(
+            value.get("customer_type"),
+            field="customer_type",
+            allowed=CUSTOMER_TYPES,
+            default="both",
+        ),
+        "response_guidance": _clean_text(
+            value.get("response_guidance"),
+            field="response_guidance",
+            maximum=MAX_RESPONSE_GUIDANCE_LENGTH,
+        ),
         "business_focus": _clean_text(
             value.get("business_focus"),
             field="business_focus",

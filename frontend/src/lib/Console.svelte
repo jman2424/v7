@@ -227,11 +227,15 @@
   };
 
   type AgentPlaybook = {
+    business_model: 'general' | 'retail' | 'appointments' | 'professional_services' | 'project_services' | 'subscriptions' | 'hospitality' | 'property' | 'custom';
+    fulfilment_mode: 'auto' | 'delivery' | 'collection' | 'at_location' | 'on_site' | 'remote' | 'hybrid';
+    customer_type: 'individuals' | 'businesses' | 'both';
+    response_guidance: string;
     business_focus: string;
     ideal_customer: string;
     value_propositions: string[];
     offering_type: 'products' | 'services' | 'mixed';
-    primary_goal: 'drive_sales' | 'book_consultation' | 'capture_leads' | 'answer_questions';
+    primary_goal: 'drive_sales' | 'book_consultation' | 'capture_leads' | 'answer_questions' | 'request_quote' | 'book_appointment' | 'start_subscription';
     qualification_questions: string[];
     handoff_message: string;
   };
@@ -244,6 +248,24 @@
     playbook: AgentPlaybook;
   };
 
+  const agentStarters: Record<Exclude<AgentPlaybook['business_model'], 'general'>, {
+    label: string;
+    offering_type: AgentPlaybook['offering_type'];
+    primary_goal: AgentPlaybook['primary_goal'];
+    fulfilment_mode: AgentPlaybook['fulfilment_mode'];
+    qualification_questions: string[];
+  }> = {
+    retail: { label: 'Retail and online shops', offering_type: 'products', primary_goal: 'drive_sales', fulfilment_mode: 'auto', qualification_questions: ['What will you use it for?', 'Do you have a budget in mind?'] },
+    appointments: { label: 'Appointments and personal services', offering_type: 'services', primary_goal: 'book_appointment', fulfilment_mode: 'at_location', qualification_questions: ['Which service are you interested in?', 'When would you prefer an appointment?'] },
+    professional_services: { label: 'Professional and consulting services', offering_type: 'services', primary_goal: 'book_consultation', fulfilment_mode: 'hybrid', qualification_questions: ['What would you like help with?', 'When do you need the work completed?'] },
+    project_services: { label: 'Projects, trades and custom work', offering_type: 'services', primary_goal: 'request_quote', fulfilment_mode: 'on_site', qualification_questions: ['What work do you need?', 'Where would the work take place?', 'When would you like it completed?'] },
+    subscriptions: { label: 'Subscriptions and memberships', offering_type: 'services', primary_goal: 'start_subscription', fulfilment_mode: 'remote', qualification_questions: ['What would you like the plan to help you achieve?', 'How many people need access?'] },
+    hospitality: { label: 'Hospitality, events and venues', offering_type: 'mixed', primary_goal: 'capture_leads', fulfilment_mode: 'at_location', qualification_questions: ['What occasion are you planning?', 'What date do you have in mind?', 'How many guests are you expecting?'] },
+    property: { label: 'Property and viewings', offering_type: 'services', primary_goal: 'book_appointment', fulfilment_mode: 'at_location', qualification_questions: ['Which property or area are you interested in?', 'When would you prefer a viewing?'] },
+    custom: { label: 'Custom or combined business model', offering_type: 'mixed', primary_goal: 'answer_questions', fulfilment_mode: 'hybrid', qualification_questions: [] }
+  };
+  let selectedAgentStarter: keyof typeof agentStarters = 'retail';
+
   let user: User | null = null;
   let csrf = '';
   let widget: Widget = { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
@@ -255,7 +277,7 @@
   let branches: Branch[] = [];
   let agentSettings: AgentSettings = {
     tone: { style: 'friendly', max_sentences: 2 },
-    playbook: { business_focus: '', ideal_customer: '', value_propositions: [], offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
+    playbook: { business_model: 'general', fulfilment_mode: 'auto', customer_type: 'both', response_guidance: '', business_focus: '', ideal_customer: '', value_propositions: [], offering_type: 'products', primary_goal: 'drive_sales', qualification_questions: [], handoff_message: '' }
   };
   let snippet = '';
   let tenant = 'EXAMPLE';
@@ -484,7 +506,10 @@
     const style = ['friendly', 'professional', 'concise'].includes(String(tone.style)) ? String(tone.style) as AgentSettings['tone']['style'] : 'friendly';
     const max = Number(tone.max_sentences || 2);
     const offeringType = ['products', 'services', 'mixed'].includes(String(playbook.offering_type)) ? String(playbook.offering_type) as AgentPlaybook['offering_type'] : 'products';
-    const primaryGoal = ['drive_sales', 'book_consultation', 'capture_leads', 'answer_questions'].includes(String(playbook.primary_goal)) ? String(playbook.primary_goal) as AgentPlaybook['primary_goal'] : 'drive_sales';
+    const primaryGoal = ['drive_sales', 'book_consultation', 'capture_leads', 'answer_questions', 'request_quote', 'book_appointment', 'start_subscription'].includes(String(playbook.primary_goal)) ? String(playbook.primary_goal) as AgentPlaybook['primary_goal'] : 'drive_sales';
+    const businessModel = ['general', ...Object.keys(agentStarters)].includes(String(playbook.business_model)) ? String(playbook.business_model) as AgentPlaybook['business_model'] : 'general';
+    const fulfilmentMode = ['auto', 'delivery', 'collection', 'at_location', 'on_site', 'remote', 'hybrid'].includes(String(playbook.fulfilment_mode)) ? String(playbook.fulfilment_mode) as AgentPlaybook['fulfilment_mode'] : 'auto';
+    const customerType = ['individuals', 'businesses', 'both'].includes(String(playbook.customer_type)) ? String(playbook.customer_type) as AgentPlaybook['customer_type'] : 'both';
     const qualificationQuestions = Array.isArray(playbook.qualification_questions)
       ? playbook.qualification_questions.map((question) => String(question).trim()).filter(Boolean).slice(0, 4)
       : [];
@@ -494,6 +519,10 @@
     return {
       tone: { style, max_sentences: Number.isInteger(max) && max >= 1 && max <= 4 ? max : 2 },
       playbook: {
+        business_model: businessModel,
+        fulfilment_mode: fulfilmentMode,
+        customer_type: customerType,
+        response_guidance: String(playbook.response_guidance || ''),
         business_focus: String(playbook.business_focus || ''),
         ideal_customer: String(playbook.ideal_customer || ''),
         value_propositions: valuePropositions,
@@ -503,6 +532,26 @@
         handoff_message: String(playbook.handoff_message || '')
       }
     };
+  }
+
+  function applyAgentStarter() {
+    const starter = agentStarters[selectedAgentStarter];
+    const current = agentSettings.playbook;
+    agentSettings = {
+      ...agentSettings,
+      playbook: {
+        ...current,
+        business_model: selectedAgentStarter,
+        offering_type: starter.offering_type,
+        primary_goal: starter.primary_goal,
+        fulfilment_mode: starter.fulfilment_mode,
+        qualification_questions: current.qualification_questions.some((question) => question.trim())
+          ? [...current.qualification_questions]
+          : [...starter.qualification_questions]
+      }
+    };
+    agentError = false;
+    agentStatus = `${starter.label} starter applied. Review the settings and save playbook.`;
   }
 
   function addQualificationQuestion() {
@@ -1857,14 +1906,23 @@
       <section id="agent" class="surface workspace-section" aria-labelledby="agent-heading">
           <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="agent-heading">Sales playbook</h2></div></div>
           <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>
+            <div class="agent-starter">
+              <div><h3>Start with your business model</h3><p>Apply a starter, then tailor every setting. It sets the model, catalogue type, goal and fulfilment. Your written details and guidance stay unchanged; questions are added only when none exist.</p></div>
+              <div class="agent-starter-controls"><label>Starter profile<select bind:value={selectedAgentStarter}>{#each Object.entries(agentStarters) as [key, starter]}<option value={key}>{starter.label}</option>{/each}</select></label><button class="secondary" type="button" on:click={applyAgentStarter}>Apply starter</button></div>
+              <small>Starters do not add products, prices or business claims. Review your settings and save when ready.</small>
+            </div>
             <div class="agent-settings-grid">
+              <label>Business model<select bind:value={agentSettings.playbook.business_model}><option value="general">General business</option>{#each Object.entries(agentStarters) as [key, starter]}<option value={key}>{starter.label}</option>{/each}</select></label>
+              <label>Customers<select bind:value={agentSettings.playbook.customer_type}><option value="both">Individuals and businesses</option><option value="individuals">Individuals</option><option value="businesses">Businesses</option></select></label>
               <label class="agent-wide">Business focus<textarea bind:value={agentSettings.playbook.business_focus} maxlength="240" placeholder="What do you help customers buy, book, or achieve?"></textarea></label>
               <label class="agent-wide">Ideal customer<textarea bind:value={agentSettings.playbook.ideal_customer} maxlength="240" placeholder="Who do you most want the assistant to help?"></textarea></label>
               <label>Catalogue type<select bind:value={agentSettings.playbook.offering_type}><option value="products">Products</option><option value="services">Services</option><option value="mixed">Products and services</option></select></label>
-              <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Book a consultation</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
+              <label>Primary conversation goal<select bind:value={agentSettings.playbook.primary_goal}><option value="drive_sales">Drive a sale</option><option value="book_consultation">Arrange a consultation</option><option value="book_appointment">Arrange an appointment or viewing</option><option value="request_quote">Request a quote</option><option value="start_subscription">Explore a subscription or membership</option><option value="capture_leads">Capture a lead</option><option value="answer_questions">Answer questions</option></select></label>
+              <label class="agent-wide">How you fulfil customer needs<select bind:value={agentSettings.playbook.fulfilment_mode}><option value="auto">Use configured business information</option><option value="delivery">Delivery</option><option value="collection">Collection</option><option value="at_location">At a business location</option><option value="on_site">At the customer's location</option><option value="remote">Remote or online</option><option value="hybrid">A mix of locations and remote service</option></select><small>This guides the conversation. Prices, availability and service coverage still come from your saved business information.</small></label>
               <label>Conversation style<select bind:value={agentSettings.tone.style}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="concise">Concise</option></select></label>
               <label>Preferred reply length<select bind:value={agentSettings.tone.max_sentences}><option value={1}>1 sentence</option><option value={2}>2 sentences</option><option value={3}>3 sentences</option><option value={4}>4 sentences</option></select><small>Business answers and delivery conditions stay complete when they need more detail.</small></label>
             </div>
+            <label>Response guidance<textarea bind:value={agentSettings.playbook.response_guidance} maxlength="600" placeholder="For example: use plain language, explain trade-offs and ask one relevant question at a time."></textarea><small>Set how the assistant explains and qualifies. Add customer-facing facts in your catalogue, FAQs and business profile. Guidance cannot override security or confirm an action that has not happened.</small></label>
             <div class="qualification-editor">
               <div class="qualification-heading"><h3>Why customers choose you</h3><button class="secondary" type="button" on:click={addValueProposition} disabled={agentSettings.playbook.value_propositions.length >= 5}>Add point</button></div>
               {#each agentSettings.playbook.value_propositions as proposition, propositionIndex}
@@ -2092,6 +2150,14 @@
   .profile-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profile-wide, .profile-form > .two-fields, .profile-footer { grid-column: 1 / -1; }
   .agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .agent-starter { display: grid; gap: 12px; padding: 18px; border: 1px solid #c8ddd1; border-radius: 14px; background: #f2f8f4; }
+  .agent-starter h3 { margin: 0; color: #214e3b; font-size: 16px; }
+  .agent-starter p { margin: 6px 0 0; color: #54675c; font-size: 14px; line-height: 1.5; }
+  .agent-starter-controls { display: flex; align-items: end; gap: 12px; }
+  .agent-starter-controls label { flex: 1; min-width: 0; }
+  .agent-starter-controls button { flex-shrink: 0; }
+  .agent-starter small { color: #54675c; }
+  @media (max-width: 720px) { .agent-starter-controls { align-items: stretch; flex-direction: column; } }
   .agent-wide { grid-column: 1 / -1; }
   .qualification-editor { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid #e2e7ee; }
   .qualification-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
