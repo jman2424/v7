@@ -49,16 +49,12 @@
   };
   const banner = document.getElementById('site-cookie-banner');
   let preferenceOpener = null;
-  const reserveBannerSpace = () => {
-    document.body.style.paddingBottom = banner && !banner.hidden ? Math.ceil(banner.getBoundingClientRect().height) + 28 + 'px' : '';
-  };
   const setBannerOpen = open => {
     if (banner) banner.hidden = !open;
     document.querySelectorAll('[data-open-cookie-preferences]').forEach(button => {
       button.setAttribute('aria-expanded', String(open));
       button.setAttribute('aria-controls', 'site-cookie-banner');
     });
-    reserveBannerSpace();
   };
   const closePreferences = () => {
     setBannerOpen(false);
@@ -75,7 +71,6 @@
   document.querySelectorAll('[data-close-cookie-preferences]').forEach(button => button.addEventListener('click', closePreferences));
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && banner && !banner.hidden) closePreferences(); });
   document.querySelectorAll('[data-preferences]').forEach(button => button.addEventListener('click', () => choose(button.dataset.preferences)));
-  if (banner && typeof ResizeObserver !== 'undefined') new ResizeObserver(reserveBannerSpace).observe(banner);
   setBannerOpen(!preference());
   apply();
   Promise.all(dictionaryUrls.map(url => fetch(url, {credentials:'omit'}).then(response => response.ok ? response.json() : {}).catch(() => ({})))).then(values => {

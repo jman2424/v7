@@ -22,7 +22,7 @@ const banner=node(),opener=node(),close=node(),essential=node(),all=node();
 essential.dataset.preferences='essential';all.dataset.preferences='all';
 banner.querySelector=()=>close;
 const document={currentScript:{src:'https://synthetic.test/static/js/ui-i18n.js'},
- documentElement:{lang:'en',dir:'ltr'},body:{style:{}},
+ documentElement:{lang:'en',dir:'ltr'},body:{style:{paddingBottom:'24px'}},
  getElementById:()=>banner,
  querySelectorAll(selector){return {
   '[data-open-cookie-preferences]':[opener],'[data-close-cookie-preferences]':[close],
@@ -38,11 +38,13 @@ const context=vm.createContext({document,URL,navigator:{language:'en-GB'},locati
 vm.runInContext(fs.readFileSync('dashboard/static/js/ui-i18n.js','utf8'),context);
 if(scenario==='saved')assert.equal(banner.hidden,true);
 else assert.equal(banner.hidden,false);
+assert.equal(document.body.style.paddingBottom,'24px');
 if(scenario==='dismiss') {
  close.events.click();assert.equal(banner.hidden,true);assert.equal(cookies.has('v7_preferences'),false);
  opener.events.click();assert.equal(banner.hidden,false);assert.equal(close.focused,true);
+ assert.equal(document.body.style.paddingBottom,'24px');
  listeners.get('keydown')({key:'Escape'});assert.equal(banner.hidden,true);assert.equal(opener.focused,true);
- assert.equal(cookies.has('v7_preferences'),false);assert.equal(document.body.style.paddingBottom,'');
+ assert.equal(cookies.has('v7_preferences'),false);
 } else if(scenario==='essential') {
  cookies.set('v7_language','fr');essential.events.click();assert.equal(banner.hidden,true);
  assert.equal(cookies.get('v7_preferences'),'essential');assert.equal(cookies.has('v7_language'),false);
@@ -54,6 +56,7 @@ if(scenario==='dismiss') {
  assert.equal(cookies.get('v7_preferences'),'all');
 }
 assert.equal(cookies.get('session'),'synthetic-session');
+assert.equal(document.body.style.paddingBottom,'24px');
 """
 
 

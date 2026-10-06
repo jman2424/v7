@@ -13,7 +13,9 @@ The console palette is defined in `frontend/src/app.css`. Green `#087f5b`
 remains the primary action colour; neutral `#f3f4f4` canvases, `#dce0e2` borders
 and `#656d71` secondary text complement it. Public landing and policy styles use
 the same neutral palette in `dashboard/static/css/home.css` and `privacy.css`.
-The landing page's secondary information band uses charcoal.
+The landing page uses a white canvas, green actions and light grey information
+sections. Keep its conversation preview and content cards compact, with clear
+spacing between headings, descriptions and controls.
 
 Platform logo references include a version query so existing browsers reload
 the revised static SVGs. Company-specific logos, avatars, favicons and widget

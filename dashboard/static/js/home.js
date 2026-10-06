@@ -5,12 +5,18 @@ const examples = {
   delivery: ["Can you help me check delivery?", "Of course. Which area would you like it delivered to? I can use the store’s delivery information to help you check the options before you decide."],
   handoff: ["I’m buying lamps for the whole team. Who can help?", "For a larger order, the store team can help you with the details. Would you like the store’s contact information so you can discuss quantities and requirements?"]
 };
+const exampleLabels = {
+  product: "FICTIONAL STORE · PRODUCT ENQUIRY",
+  delivery: "FICTIONAL STORE · DELIVERY ENQUIRY",
+  handoff: "FICTIONAL STORE · TEAM HANDOFF"
+};
 
 document.querySelectorAll("[data-example]").forEach((button) => {
   button.addEventListener("click", () => {
     const [question, answer] = examples[button.dataset.example];
     document.getElementById("sample-question").textContent = question;
     document.getElementById("sample-answer").textContent = answer;
+    document.querySelector(".sample-label").textContent = exampleLabels[button.dataset.example];
     document.querySelectorAll("[data-example]").forEach((item) => {
       item.setAttribute("aria-pressed", String(item === button));
     });
