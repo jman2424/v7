@@ -2,7 +2,6 @@
   import { onMount, tick } from 'svelte';
   import { choosePreferences, preferenceChoice, t } from './i18n';
   export let open = false;
-  let panelHeight = 0;
   let reopened = false;
   let opener: HTMLButtonElement | undefined;
   let closeButton: HTMLButtonElement;
@@ -29,23 +28,15 @@
     choosePreferences(choice);
     dismiss();
   }
-  function measurePanel(node: HTMLElement) {
-    const measure = () => { panelHeight = Math.ceil(node.getBoundingClientRect().height) + 28; };
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(node);
-    return { destroy() { observer?.disconnect(); panelHeight = 0; } };
-  }
 </script>
 <svelte:window on:keydown={(event) => { if (open && event.key === 'Escape') dismiss(); }} />
 {#if open}
-  <aside id="workspace-cookie-preferences" class="cookie-panel" aria-label={$t('Cookie preferences')} use:measurePanel>
+  <aside id="workspace-cookie-preferences" class="cookie-panel" aria-label={$t('Cookie preferences')}>
     <div class="cookie-heading"><strong>{$t('Your privacy choices')}</strong><button class="close-choice" type="button" aria-label={$t('Close cookie preferences')} bind:this={closeButton} on:click={dismiss}><span aria-hidden="true">×</span></button></div>
     <p>{$t('Sign-in and security cookies are essential. Saving your language is optional. No advertising cookies are used.')}</p>
     <div class="cookie-actions"><button type="button" on:click={() => save('essential')}>{$t('Essential only')}</button><button class="primary" type="button" on:click={() => save('all')}>{$t('Save my preferences')}</button></div>
     <a href="/cookies" target="_blank" rel="noopener">{$t('Cookie information')} <span aria-hidden="true">↗</span></a>
   </aside>
-  <div class="cookie-space" aria-hidden="true" style:height={panelHeight + 'px'}></div>
 {/if}
 <style>
   .cookie-panel{position:fixed;bottom:max(16px,env(safe-area-inset-bottom));inset-inline-end:16px;z-index:1000;display:grid;gap:12px;width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:18px 20px;border:1px solid #c9ddcf;border-radius:18px;background:#fff;box-shadow:0 12px 45px #203b3024;color:var(--v7-ink);box-sizing:border-box}
