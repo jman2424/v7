@@ -75,13 +75,16 @@ def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path
     assert client.get("/console/%2e%2e/AGENTS.md").status_code == 404
 
 
-def test_console_microphone_policy_is_limited_to_test_page(client, app, tmp_path):
+def test_console_microphone_policy_is_limited_to_widget_and_test_pages(client, app, tmp_path):
     sign_in(client)
     app.config["OWNER_CONSOLE_DIR"] = str(tmp_path)
-    for name in ("test", "profile"):
+    for name in ("test", "website", "profile", "statistics"):
         (tmp_path / f"{name}.html").write_text("<main>Console</main>", encoding="utf-8")
-    assert "microphone=(self)" in client.get("/console/test").headers["Permissions-Policy"]
-    assert "microphone=()" in client.get("/console/profile").headers["Permissions-Policy"]
+    for path in ("/chat_ui", "/console/test", "/console/test/", "/console/test.html",
+                 "/console/website", "/console/website/", "/console/website.html"):
+        assert "microphone=(self)" in client.get(path).headers["Permissions-Policy"]
+    for path in ("/console/profile", "/console/statistics", "/console/", "/"):
+        assert "microphone=()" in client.get(path).headers["Permissions-Policy"]
 
 
 @pytest.mark.parametrize('section', sorted(SECTIONS))

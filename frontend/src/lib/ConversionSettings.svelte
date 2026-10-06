@@ -5,6 +5,7 @@
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
+  export let canEdit = false;
 
   type Slot = { id: string; label: string; start_at: string };
   type Settings = { consultation: { enabled: boolean; slots: Slot[] }; quote: { enabled: boolean }; callback: { enabled: boolean } };
@@ -62,6 +63,7 @@
   }
 
   async function save() {
+    if (!canEdit || busy) return;
     busy = true;
     failed = false;
     status = 'Saving customer actions…';
@@ -91,6 +93,7 @@
   {#if loading}<p class="notice" role="status">Loading customer actions…</p>
   {:else}
     <form on:submit|preventDefault={save}>
+      <fieldset disabled={!canEdit || busy}>
       <label class="toggle"><input type="checkbox" bind:checked={settings.consultation.enabled} />Book consultations</label>
       {#if settings.consultation.enabled}
         <div class="slots"><div class="slot-heading"><h3>Available time slots</h3><button type="button" on:click={addSlot}>Add time</button></div>
@@ -105,6 +108,8 @@
       <label class="toggle"><input type="checkbox" bind:checked={settings.quote.enabled} />Request quotes</label>
       <label class="toggle"><input type="checkbox" bind:checked={settings.callback.enabled} />Request callbacks</label>
       <div class="footer"><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save next steps'}</button><span class:error={failed} role="status">{status}</span></div>
+      </fieldset>
+      {#if !canEdit}<p>You have viewing access. Ask your owner to update customer next steps.</p>{/if}
     </form>
     <div class="requests"><div class="slot-heading"><h3>Recent customer requests</h3><button type="button" on:click={load}>{$t("Refresh")}</button></div>
       {#each requests as item}<article><strong>{item.action} · {item.status}</strong><span>{item.name} · {item.contact}</span>{#if item.slot_label}<span>{item.slot_label}</span>{/if}{#if item.details}<p>{item.details}</p>{/if}<small>{new Date(item.created_at).toLocaleString()} · {item.reference}</small></article>
@@ -121,6 +126,7 @@
   h2 { margin-bottom:8px; font-size:22px; } h3 { font-size:16px; }
   p, small { color:var(--v7-muted); font-size:13px; line-height:1.5; }
   form { display:grid; gap:15px; }
+  fieldset {display:grid;gap:15px;border:0;padding:0;margin:0;min-width:0}
   .toggle { display:flex; align-items:center; gap:9px; font-weight:700; }
   .toggle input { width:17px; height:17px; accent-color:var(--v7-accent); }
   .slots { display:grid; gap:12px; padding:16px; border:1px solid var(--v7-line); border-radius:14px;background:var(--v7-soft, #f0f6f2);}

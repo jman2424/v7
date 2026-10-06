@@ -35,7 +35,8 @@ def _strings(maximum, length):
 
 
 _BOOL = {"type": "boolean"}
-_COLOR = {"type": "string", "pattern": r"^#[0-9a-fA-F]{6}$"}
+_COLOR = {"type": "string", "pattern": r"^#[0-9a-fA-F]{6}$", "maxLength": 7}
+_OPTIONAL_COLOR = {"type": "string", "pattern": r"^(?:#[0-9a-fA-F]{6})?$", "maxLength": 7}
 _ORIGINS = {"type": "array", "maxItems": 30, "uniqueItems": True, "items": _text(2048)}
 _SETTINGS = {
     "branding.json": _object({
@@ -45,8 +46,9 @@ _SETTINGS = {
         "widget": _object({
             "avatar": _text(500), "greeting": _text(240), "chat_title": _text(80),
             "assistant_name": _text(80), "company_logo_url": _text(500),
-            "style": {"type": "string", "enum": ["midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"]},
+            "style": {"type": "string", "enum": ["midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass", "studio", "soft", "bold"]},
             "accent_color": _COLOR, "allowed_origins": _ORIGINS,
+            **{key: _OPTIONAL_COLOR for key in ("background_color", "surface_color", "text_color", "bubble_color")},
         }),
         "logo": _object({"light": _text(2000), "dark": _text(2000)}),
         "favicon": _text(2000), "allowed_origins": _ORIGINS,

@@ -6,6 +6,8 @@
   import Subscription from './Subscription.svelte';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
+  import WidgetDesigner from './WidgetDesigner.svelte';
+  import type { Widget, PreviewTheme } from './widgetAppearance';
   import WebsiteKnowledge from './WebsiteKnowledge.svelte';
   import ConversionSettings from './ConversionSettings.svelte';
   import ApiUsage from './ApiUsage.svelte';
@@ -27,7 +29,7 @@
   let cookiePreferencesOpen = false;
   let signupOpen = false;
   export let section = 'pipeline';
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Test AI & widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
   const pageDescriptions: Record<string, string> = {
     platform: 'A clear view of your businesses, activity and setup.',
@@ -36,14 +38,14 @@
     statistics: 'Track customer conversations, interest and recorded outcomes.',
     conversations: 'Review customer conversations and the context behind each enquiry.',
     agent: 'Tailor how your assistant understands customers and guides the next step.',
-    test: 'Preview the customer experience and test your business knowledge.',
+    test: 'Design your customer chat, test your agent and prepare website installation.',
     catalog: 'Keep the products and services your assistant recommends up to date.',
     offers: 'Manage the offers your assistant can share with customers.',
     faqs: 'Give customers clear answers from your saved business information.',
     delivery: 'Set the delivery and collection information customers need.',
     profile: 'The business details your assistant uses in customer conversations.',
     branches: 'Manage locations, contact details and opening hours.',
-    website: 'Configure your branded widget and approved websites.',
+    website: 'Design your customer chat, test your agent and prepare website installation.',
     integrations: 'Manage the connections that support your customer channels.',
     implementation: 'Prepare your business information and install your assistant.',
     'whatsapp-qr': 'Manage your WhatsApp connection and customer entry points.',
@@ -57,7 +59,7 @@
   const navigationGroups: { id: string; label: string; keys: string[] }[] = [
     { id: 'businesses', label: 'Businesses', keys: ['platform', 'companies'] },
     { id: 'activity', label: 'Sales activity', keys: ['pipeline', 'statistics', 'conversations', 'errors'] },
-    { id: 'setup', label: 'Agent and channels', keys: ['test', 'agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
+    { id: 'setup', label: 'Agent and channels', keys: ['agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
     { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
     { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'usage'] },
     { id: 'account', label: 'Account and access', keys: ['team', 'account', 'privacy'] }
@@ -71,29 +73,18 @@
     tenant: string;
   };
 
-  type Widget = {
-    chat_title: string;
-    assistant_name: string;
-    greeting: string;
-    avatar: string;
-    company_logo_url: string;
-    style: string;
-    accent_color: string;
-    allowed_origins: string[];
-  };
-
-  const widgetStyles = [
-    { id: 'midnight', name: 'Midnight', description: 'Dark and focused' },
-    { id: 'daylight', name: 'Daylight', description: 'Bright and familiar' },
-    { id: 'minimal', name: 'Minimal', description: 'Open and quiet' },
-    { id: 'editorial', name: 'Editorial', description: 'Classic and structured' },
-    { id: 'neon', name: 'Neon', description: 'Bold and electric' },
-    { id: 'warm', name: 'Warm', description: 'Soft and welcoming' },
-    { id: 'glass', name: 'Glass', description: 'Layered and modern' }
-  ];
-
-  const previewAssetUrl = (url: string) =>
-    import.meta.env.DEV && url.startsWith('/') && !url.startsWith('//') ? '/api' + url : url;
+  const isWidgetSection = (screen: string) => screen === 'website' || screen === 'test';
+  let widgetView: 'appearance' | 'test' | 'install' = section === 'test' ? 'test' : 'appearance';
+  let widgetSaving = false;
+  let widgetSaveSequence = 0;
+  let savedWidgetFingerprint = '';
+  let previewTheme: PreviewTheme = {};
+  let iframeSnippet = '';
+  let widgetChatUrl = '';
+  let installationFormat = 'floating';
+  $: widgetDirty = Boolean(savedWidgetFingerprint && savedWidgetFingerprint !== JSON.stringify({ ...widget, allowed_origins: originText.split('\n').map(value => value.trim()).filter(Boolean) }));
+  $: installationCode = installationFormat === 'panel' ? iframeSnippet : installationFormat === 'link' ? widgetChatUrl : snippet;
+  $: canEditWidget = Boolean(user?.permissions?.includes('business_settings.write'));
 
   type Tenant = {
     activation: {active:boolean;status:string};
@@ -294,7 +285,7 @@
 
   let user: User | null = null;
   let csrf = '';
-  let widget: Widget = { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
+  let widget: Widget = normalizeWidget({});
   let catalog: Catalog = { version: 1, currency: 'GBP', categories: [] };
   let faqs: Faq[] = [];
   let offers: Offer[] = [];
@@ -412,6 +403,17 @@
 
   function stringList(value: unknown) {
     return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+  }
+
+  function normalizeWidget(value: unknown): Widget {
+    const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    const text = (key: string, fallback = '') => typeof source[key] === 'string' ? source[key] as string : fallback;
+    const colour = (key: string, fallback = '') => /^#[0-9a-f]{6}$/i.test(text(key)) ? text(key).toUpperCase() : fallback;
+    return { chat_title:text('chat_title'), assistant_name:text('assistant_name'), greeting:text('greeting'),
+      avatar:text('avatar'), company_logo_url:text('company_logo_url'), style:text('style','midnight'),
+      accent_color:colour('accent_color','#3EEA8C'), background_color:colour('background_color'),
+      surface_color:colour('surface_color'), text_color:colour('text_color'), bubble_color:colour('bubble_color'),
+      allowed_origins:stringList(source.allowed_origins) };
   }
 
   function normalizeCatalog(value: unknown): Catalog {
@@ -644,7 +646,10 @@
     workspaceBusy = false;
     requestedWorkspaceSection = section;
     activation = null;
-    widget = { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
+    widget = normalizeWidget({});
+    previewTheme = {};
+    widgetSaveSequence++; widgetSaving = false; savedWidgetFingerprint = '';
+    iframeSnippet = ''; widgetChatUrl = '';
     catalog = normalizeCatalog({}); faqs = []; offers = [];
     delivery = normalizeDelivery({}); profile = normalizeProfile({}); branches = [];
     agentSettings = normalizeAgentSettings({}); snippet = ''; originText = '';
@@ -678,7 +683,7 @@
   function sectionResources(screen: string, identity: User | null): WorkspaceResource[] {
     const resources: Partial<Record<string, WorkspaceResource[]>> = {
       pipeline: ['insights'], team: ['accounts'], catalog: ['catalog', 'agent-settings'],
-      test: ['widget', 'profile'], website: ['widget'], integrations: ['widget'],
+      test: ['widget', 'profile'], website: ['widget', 'profile'], integrations: ['widget'],
       agent: ['agent-settings'], offers: ['offers'], faqs: ['faq'], delivery: ['delivery'],
       profile: ['profile'], branches: ['branches']
     };
@@ -709,8 +714,11 @@
         switch (resource) {
           case 'activation': activation = data; break;
           case 'widget':
-            widget = data.widget || { chat_title: '', assistant_name: '', greeting: '', avatar: '', company_logo_url: '', style: 'midnight', accent_color: '#3EEA8C', allowed_origins: [] };
-            originText = (widget.allowed_origins || []).join('\n'); snippet = data.embed?.snippet || ''; break;
+            widget = normalizeWidget(data.widget);
+            previewTheme = data.preview_theme || {};
+            originText = widget.allowed_origins.join('\n'); snippet = data.embed?.snippet || '';
+            iframeSnippet = data.embed?.iframe_snippet || ''; widgetChatUrl = data.embed?.chat_url || '';
+            savedWidgetFingerprint = JSON.stringify(widget); break;
           case 'catalog': catalog = normalizeCatalog(data); break;
           case 'faq': faqs = normalizeFaqs(data); break;
           case 'offers': offers = normalizeOffers(data); break;
@@ -1003,7 +1011,10 @@
     if (!destination) return;
     params.delete('next'); params.delete('oidc'); params.delete('provider');
     params.set('tenant', tenant);
-    await goto(base+'/'+destination+'?'+params.toString(), {replaceState:true});
+    const target = base+'/'+destination+'?'+params.toString();
+    // A full document load applies the widget page's microphone policy.
+    if (isWidgetSection(destination) || isWidgetSection(section)) window.location.replace(target);
+    else await goto(target, {replaceState:true});
   }
 
   async function loadProviders() {
@@ -1040,7 +1051,9 @@
 
   async function openCompanyWorkspace(company: string, screen: string) {
     await selectTenant(company);
-    await goto(base+'/'+screen+'?tenant='+encodeURIComponent(company));
+    const target = base+'/'+screen+'?tenant='+encodeURIComponent(company);
+    if (isWidgetSection(screen) || isWidgetSection(section)) window.location.assign(target);
+    else await goto(target);
   }
 
   async function logout() {
@@ -1065,11 +1078,17 @@
     totp = '';
     rememberDevice = false;
     showPassword = false;
-    await goto(base+'/', {replaceState:true});
+    if (isWidgetSection(section)) window.location.replace(base+'/');
+    else await goto(base+'/', {replaceState:true});
   }
 
   async function saveWidget() {
-    formStatus = 'Saving...';
+    if (widgetSaving || !user?.permissions?.includes('business_settings.write')) return;
+    const activeLoad = workspaceRequest();
+    const selectedTenant = tenant;
+    const sequence = ++widgetSaveSequence;
+    widgetSaving = true;
+    formStatus = 'Saving…';
     formError = false;
     const payload = {
       chat_title: widget.chat_title,
@@ -1079,35 +1098,51 @@
       company_logo_url: widget.company_logo_url,
       style: widget.style,
       accent_color: widget.accent_color,
+      background_color: widget.background_color,
+      surface_color: widget.surface_color,
+      text_color: widget.text_color,
+      bubble_color: widget.bubble_color,
       allowed_origins: originText.split('\n').map((value) => value.trim()).filter(Boolean)
     };
-    const response = await fetch(apiPath(`/admin/api/widget?tenant=${encodeURIComponent(tenant)}`), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-      credentials: 'same-origin',
-      body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
-    if (!response.ok) {
-      formStatus = data.error || 'Could not save changes.';
-      formError = true;
-      return;
-    }
-    widget = data.widget;
-    snippet = data.embed?.snippet || '';
-    originText = (widget.allowed_origins || []).join('\n');
-    formStatus = 'Saved. New widget loads use these settings.';
-    await loadTenants();
+    try {
+      const { response, data } = await requestJson('/admin/api/widget?tenant='+encodeURIComponent(selectedTenant), {
+        method:'PUT', headers:{ 'Content-Type':'application/json', 'X-CSRF-Token':csrf },
+        credentials:'same-origin', body:JSON.stringify(payload)
+      }, activeLoad);
+      if (!isCurrentWorkspace(activeLoad) || sequence !== widgetSaveSequence) return;
+      if (!response.ok) {
+        formStatus = response.status === 401 ? 'Your session expired. Reload and sign in again.' :
+          response.status === 403 ? 'Your account cannot change these widget settings.' :
+          response.status === 409 ? 'Settings changed while saving. Refresh the page before trying again.' :
+          response.status === 402 ? 'An active subscription is needed to save widget changes.' :
+          'Could not save. Check the colour hex values, image URLs and approved website origins.';
+        formError = true; return;
+      }
+      if (!data.widget || typeof data.widget !== 'object') throw new Error('invalid_widget_response');
+      widget = normalizeWidget(data.widget);
+      previewTheme = data.preview_theme || {};
+      snippet = data.embed?.snippet || ''; iframeSnippet = data.embed?.iframe_snippet || ''; widgetChatUrl = data.embed?.chat_url || '';
+      originText = widget.allowed_origins.join('\n'); savedWidgetFingerprint = JSON.stringify(widget);
+      formStatus = 'Saved. New widget loads use these settings.';
+      void loadTenants(activeLoad);
+    } catch {
+      if (isCurrentWorkspace(activeLoad) && sequence === widgetSaveSequence) {
+        formStatus = 'Widget changes could not be saved. Check your connection and try again.'; formError = true;
+      }
+    } finally { if (isCurrentWorkspace(activeLoad) && sequence === widgetSaveSequence) widgetSaving = false; }
   }
 
   async function copySnippet() {
+    await copyWidgetCode(snippet, 'Install script');
+  }
+
+  async function copyWidgetCode(code: string, label: string) {
+    const activeLoad = workspaceRequest();
     try {
-      await navigator.clipboard.writeText(snippet);
-      formStatus = 'Install script copied.';
-      formError = false;
+      await navigator.clipboard.writeText(code);
+      if (isCurrentWorkspace(activeLoad)) { formStatus = label+' copied.'; formError = false; }
     } catch {
-      formStatus = 'Copy is unavailable. Select the install script and copy it manually.';
-      formError = true;
+      if (isCurrentWorkspace(activeLoad)) { formStatus = 'Copy is unavailable. Select the code and copy it manually.'; formError = true; }
     }
   }
 
@@ -1551,7 +1586,7 @@
               <h2 class="nav-group" id={`console-nav-${group.id}`}>{$t(isPlatform && group.id === 'businesses' ? 'Platform management' : group.label)}</h2>
               {#each group.keys as key}
                 {#if mayOpenScreen(key)}
-                  <a class:active={section === key} aria-current={section === key ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={key === 'test' || section === 'test' ? true : undefined} on:click={() => navigationOpen = false}><NavigationIcon section={key}/><span>{$t(sections[key])}</span></a>
+                  <a class:active={section === key || (key === 'website' && isWidgetSection(section))} aria-current={section === key || (key === 'website' && isWidgetSection(section)) ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={isWidgetSection(key) || isWidgetSection(section) ? true : undefined} on:click={() => navigationOpen = false}><NavigationIcon section={key}/><span>{$t(sections[key])}</span></a>
                 {/if}
               {/each}
               {#if group.id === 'account'}
@@ -1623,43 +1658,29 @@
           <section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view API usage and costs.</p></div></section>
         {/if}
       {/if}
-      {#if section === 'test'}
-        <section class="surface widget-studio" aria-labelledby="studio-heading">
-          <div class="surface-head"><div><p class="eyebrow">Preview and configure</p><h2 id="studio-heading">{$t("Test AI & widget")}</h2><p>Changes in this preview are saved for this company only. The conversation below uses the real agent with test memory.</p></div></div>
-          <div class="widget-studio-grid">
-            <form class="settings-form" on:submit|preventDefault={saveWidget}>
-              <label>AI assistant name<input bind:value={widget.assistant_name} maxlength="80" placeholder="e.g. Alex" required /></label>
-              <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /><small>A short description shown below the assistant name.</small></label>
-              <label>{$t("Welcome message")}<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
-              <label>Company logo URL<input bind:value={widget.company_logo_url} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/logo.png" /><small>Use an HTTPS image URL or an image path hosted by V7. The logo appears in the chat header and website launcher.</small></label>
-              <label>Assistant avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /></label>
-              <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
-              <fieldset class="widget-style-picker"><legend>{$t("Widget style")}</legend><div class="widget-style-grid">
-                {#each widgetStyles as option}
-                  <label class:selected={widget.style === option.id}>
-                    <input type="radio" name="widget-style" value={option.id} bind:group={widget.style} />
-                    <span class="style-swatch" data-style={option.id} aria-hidden="true"><span></span><i></i><b></b></span>
-                    <strong>{option.name}</strong><small>{option.description}</small>
-                  </label>
-                {/each}
-              </div></fieldset>
-              <div class="form-footer"><span class:error={formError} class="form-status" role="status">{formStatus}</span><button class="primary" type="submit">{$t("Save widget")}</button></div>
-              <p class="field-note">Approved website origins and install code are in <a href={base+'/website?tenant='+encodeURIComponent(tenant)}>{$t("Website widget")}</a>.</p>
-            </form>
-            <div class="widget-stage" aria-label="Widget appearance preview">
-              <p class="widget-stage-label">{$t("Appearance preview")}</p>
-              <div class="widget-preview" data-style={widget.style} style={`--preview-accent: ${widget.accent_color}`}>
-                <header><div class="widget-preview-identity"><span class="widget-preview-avatar">{#if widget.avatar}<img src={previewAssetUrl(widget.avatar)} alt="" />{:else}✦{/if}</span><span class="widget-preview-titles"><strong>{widget.assistant_name || widget.chat_title || 'Sales Assistant'}</strong>{#if (widget.chat_title || 'Sales Assistant') !== (widget.assistant_name || widget.chat_title || 'Sales Assistant')}<small>{widget.chat_title || 'Sales Assistant'}</small>{/if}</span></div>{#if widget.company_logo_url}<img class="widget-preview-logo" src={previewAssetUrl(widget.company_logo_url)} alt="Company logo" />{/if}</header>
-                <div class="widget-preview-body"><p>{widget.greeting || 'Hi! How can I help you today?'}</p><p class="widget-preview-customer">I have a question about your services.</p></div>
-                <div class="widget-preview-composer"><span>{$t("Type your message\u2026")}</span><span class="widget-preview-send">{$t("Send")}</span></div>
-              </div>
-              <a href={`/chat_ui?tenant=${encodeURIComponent(tenant)}`} target="_blank" rel="noopener noreferrer">Open the live customer widget ↗</a>
-            </div>
+      {#if isWidgetSection(section)}
+        <section class="widget-workspace" aria-label="Website widget workspace">
+          <div class="widget-workspace-intro"><div><p class="eyebrow">Customer experience</p><h2>One place to build, test and install</h2><p>Shape your chat for {tenant}, check your agent's answers and connect your website.</p></div><a href={'/chat_ui?tenant='+encodeURIComponent(tenant)} target="_blank" rel="noopener noreferrer">Open saved widget ↗</a></div>
+          <div class="widget-workspace-tabs" role="group" aria-label="Widget workspace views">
+            <button class:active={widgetView === 'appearance'} aria-pressed={widgetView === 'appearance'} on:click={() => widgetView = 'appearance'}>Appearance</button>
+            <button class:active={widgetView === 'test'} aria-pressed={widgetView === 'test'} on:click={() => widgetView = 'test'}>Test conversation</button>
+            <button class:active={widgetView === 'install'} aria-pressed={widgetView === 'install'} on:click={() => widgetView = 'install'}>Website installation</button>
+            {#if widgetDirty}<span>Unsaved widget changes</span>{/if}
           </div>
+          {#if widgetView === 'appearance'}
+            {#key tenant}<WidgetDesigner {tenant} {previewTheme} bind:widget saving={widgetSaving} canEdit={canEditWidget} dirty={widgetDirty} status={formStatus} error={formError} on:save={saveWidget}/>{/key}
+          {:else if widgetView === 'test'}
+            {#if widgetDirty}<p class="widget-save-notice">Your appearance changes are not saved yet. The agent test uses saved business information. <button on:click={() => widgetView = 'appearance'}>Review appearance</button></p>{/if}
+            {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+            <details class="widget-extra"><summary>Website knowledge</summary>{#key tenant}<WebsiteKnowledge {tenant} {csrf} canEdit={canEditWidget} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}</details>
+            {#if mayReadConversionSettings()}<details class="widget-extra"><summary>Booking, quote and payment paths</summary>{#key tenant}<ConversionSettings {tenant} {csrf} canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}</details>{/if}
+          {:else}
+            <div class="widget-install-grid">
+              <section class="surface"><div class="surface-head"><div><p class="eyebrow">Website access</p><h2>Approve your websites</h2><p>Only approved website origins can host this company's chat.</p></div></div><form class="settings-form" on:submit|preventDefault={saveWidget}><label>Approved website origins<textarea bind:value={originText} class="origins" rows="5" disabled={!canEditWidget || widgetSaving} spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>One exact origin per line. HTTPS is required except for local development. Include www and other subdomains separately. Leave blank to block external embedding.</small></label><div class="form-footer"><span class:error={formError} class="form-status" role={formError ? 'alert' : 'status'}>{formStatus}</span><button class="primary" type="submit" disabled={!canEditWidget || widgetSaving}>{widgetSaving ? 'Saving…' : 'Save widget & websites'}</button></div></form></section>
+              <section class="surface"><div class="surface-head"><div><p class="eyebrow">Ready to install</p><h2>Add chat to your site</h2><p>Use the saved settings for {tenant}.</p></div></div><div class="surface-body widget-install-tools"><label>Installation type<select bind:value={installationFormat}><option value="floating">Floating chat button</option><option value="panel">Embedded chat panel</option><option value="link">Direct chat link</option></select></label><label>Company installation code<textarea class="code" readonly value={installationCode} rows="6" spellcheck="false"></textarea></label><button class="secondary" on:click={() => copyWidgetCode(installationCode,installationFormat === 'link' ? 'Chat link' : 'Installation code')} disabled={!installationCode}>Copy {installationFormat === 'link' ? 'link' : 'code'}</button><p>{installationFormat === 'floating' ? 'Add this script once before the closing body tag.' : installationFormat === 'panel' ? 'Place this iframe in the part of your page where chat should appear.' : 'Use this URL for a chat button or share it directly with customers.'} Save changes, then reload the installed widget to check them.</p>{#if widgetDirty}<p class="widget-save-notice">Save your widget changes before checking the installed appearance.</p>{/if}{#if mayOpenScreen('implementation')}<a href={base+'/implementation?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload>Website builder instructions and launch checklist ↗</a>{/if}<p class="field-note">Microphone use needs HTTPS, customer permission and a supported browser. Embedded chat also follows the host website's microphone policy. Public chat tests count as customer activity.</p></div></section>
+            </div>
+          {/if}
         </section>
-        {#key tenant}<WebsiteKnowledge {tenant} {csrf} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
-        {#if mayReadConversionSettings()}{#key tenant}<ConversionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}{/if}
-        {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
       {/if}
       {#if section === 'implementation'}
         {#key tenant}<Implementation {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
@@ -1761,23 +1782,6 @@
       {/if}
 
       <div class="content-grid">
-        {#if section === 'website'}
-      <section id="widget" class="surface setup" aria-labelledby="widget-heading">
-          <div class="surface-head"><div><p class="eyebrow">Brand and access</p><h2 id="widget-heading">{$t("Widget settings")}</h2></div><a href={base+'/implementation'}>Implementation guide</a></div>
-          <form class="settings-form" on:submit|preventDefault={saveWidget}>
-            <label>AI assistant name<input bind:value={widget.assistant_name} maxlength="80" required /></label>
-            <label>Chat title<input bind:value={widget.chat_title} maxlength="80" required /></label>
-            <label>Greeting<textarea bind:value={widget.greeting} maxlength="240" required></textarea></label>
-            <label>Company logo URL<input bind:value={widget.company_logo_url} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/logo.png" /><small>HTTPS image URL or a relative path hosted by V7.</small></label>
-            <label>Assistant avatar URL<input bind:value={widget.avatar} type="text" inputmode="url" placeholder="https://assets.yourcompany.com/avatar.png" /></label>
-            <label>Accent colour<select bind:value={widget.accent_color}><option value="#3EEA8C">Mint</option><option value="#5BC6FF">Sky blue</option><option value="#F9C74F">Amber</option><option value="#D8A4FF">Lavender</option></select></label>
-            <label>{$t("Widget style")}<select bind:value={widget.style}>{#each widgetStyles as option}<option value={option.id}>{option.name}</option>{/each}</select></label>
-            <label>Approved website origins<textarea bind:value={originText} class="origins" spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>Use one exact origin per line. HTTPS is required except for localhost development. Leave blank to prevent embedding on external websites.</small></label>
-            <div class="form-footer"><span class:error={formError} class="form-status">{formStatus}</span><button class="primary" type="submit">Save changes</button></div>
-          </form>
-        </section>
-      {/if}
-
         {#if section === 'integrations'}
       {#key tenant}<ConnectionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
       <section id="install" class="surface install" aria-labelledby="install-heading">
@@ -1920,7 +1924,7 @@
             <label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
             <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What does your business do, and how do you help customers?"></textarea></label>
             <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>{$t("Phone")}<input bind:value={profile.phone} type="tel" /></label></div>
-            <label>{$t("Website")}<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Test AI &amp; widget. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
+            <label>{$t("Website")}<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Website widget → Test conversation. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
             <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">{$t("Save profile")}</button></div>
@@ -2222,85 +2226,26 @@
     .form-footer { flex-wrap: wrap; }
   }
   @media (max-width: 420px) { .delivery-rule { grid-template-columns: minmax(0, 1fr); } }
-  .widget-studio-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(290px,.85fr); gap:24px; padding:20px; }
-  .widget-studio .settings-form { padding:0; }
-  .widget-studio .surface-head p:last-child { color:#667085; font-size:13px; margin:8px 0 0; }
-  .widget-style-picker { margin:0; padding:0; border:0; }
-  .widget-style-picker legend { margin-bottom:10px; font-weight:700; }
-  .widget-style-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(125px,1fr)); gap:10px; }
-  .widget-style-grid label { display:grid; align-content:start; gap:3px; padding:9px; border:1px solid #d5dce5; border-radius:10px; cursor:pointer; background:#fff; }
-  .widget-style-grid label.selected { border-color:#22664b; box-shadow:0 0 0 2px #22664b26; }
-  .widget-style-grid input { width:auto; margin:0 0 3px; justify-self:start; accent-color:#22664b; }
-  .widget-style-grid strong { font-size:12px; }
-  .widget-style-grid small { color:#667085; font-size:11px; line-height:1.25; }
-  .style-swatch { height:58px; display:block; position:relative; overflow:hidden; border:1px solid #48505b; border-radius:8px; background:#131826; }
-  .style-swatch span { display:block; height:16px; border-bottom:1px solid #586073; background:#243149; }
-  .style-swatch i, .style-swatch b { position:absolute; display:block; height:9px; border-radius:7px; }
-  .style-swatch i { left:7px; top:24px; width:43%; background:#44576d; }
-  .style-swatch b { right:7px; bottom:7px; width:35%; background:#3eea8c; }
-  .style-swatch[data-style="daylight"] { background:#f3f6fa; border-color:#c9d2de; }
-  .style-swatch[data-style="daylight"] span { background:#fff; border-top:4px solid #3eea8c; border-bottom-color:#c9d2de; }
-  .style-swatch[data-style="daylight"] i { background:#dce6ef; }
-  .style-swatch[data-style="minimal"] { background:#fff; border-color:#d8dfda; border-radius:2px; }
-  .style-swatch[data-style="minimal"] span { height:22px; background:#fff; border:0; }
-  .style-swatch[data-style="minimal"] i { background:#f1f4f1; border-left:2px solid #3eea8c; border-radius:0; }
-  .style-swatch[data-style="editorial"] { background:#f5f0e6; border-color:#a89f8f; border-radius:0; }
-  .style-swatch[data-style="editorial"] span { background:#fffaf0; border-bottom:3px double #a89f8f; }
-  .style-swatch[data-style="editorial"] i, .style-swatch[data-style="editorial"] b { border-radius:0; }
-  .style-swatch[data-style="editorial"] i { background:#e4d9c4; }
-  .style-swatch[data-style="neon"] { background:#080c16; border-color:#3eea8c; border-radius:4px; box-shadow:0 0 8px #3eea8c88; }
-  .style-swatch[data-style="neon"] span { background:#101729; border-color:#3eea8c; }
-  .style-swatch[data-style="neon"] i { border:1px solid #3eea8c; background:#101729; }
-  .style-swatch[data-style="warm"] { background:#f7eee6; border-color:#d4bdb0; border-radius:14px; }
-  .style-swatch[data-style="warm"] span { background:#f3d9c6; border:0; }
-  .style-swatch[data-style="warm"] i { background:#fffaf5; }
-  .style-swatch[data-style="glass"] { background:linear-gradient(145deg,#103452,#4e3574); border-color:#ffffffa0; border-radius:12px; }
-  .style-swatch[data-style="glass"] span { background:#ffffff30; border-color:#ffffff88; }
-  .style-swatch[data-style="glass"] i { background:#ffffff55; }
-  .widget-stage { display:grid; align-self:start; align-content:start; justify-items:center; gap:12px; position:sticky; top:16px; padding:16px; border:1px solid #e2e7ee; border-radius:10px; background:#f3f5f2; }
-  .widget-stage-label { justify-self:start; margin:0; color:#667085; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
-  .widget-preview { --preview-bg:#0e1016; --preview-panel:#131826; --preview-field:#191e2a; --preview-text:#eaf0ff; --preview-muted:#aeb9d0; --preview-border:#343b4d; --preview-me:#0b1c12; width:min(100%,360px); min-height:315px; display:grid; grid-template-rows:auto 1fr auto; overflow:hidden; color:var(--preview-text); background:var(--preview-panel); border:1px solid var(--preview-border); border-radius:16px; box-shadow:0 12px 24px #10182824; }
-  .widget-preview header { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:14px; border-bottom:1px solid var(--preview-border); background:var(--preview-panel); }
-  .widget-preview-identity { min-width:0; display:flex; align-items:center; gap:10px; }
-  .widget-preview-titles { display:grid; gap:2px; min-width:0; }
-  .widget-preview-titles strong, .widget-preview-titles small { overflow-wrap:anywhere; }
-  .widget-preview header small { color:var(--preview-muted); font-size:11px; }
-  .widget-preview-avatar { width:34px; height:34px; flex:none; display:grid; place-items:center; overflow:hidden; border-radius:50%; color:#091018; background:var(--preview-accent); font-weight:800; }
-  .widget-preview-avatar img { width:100%; height:100%; object-fit:cover; }
-  .widget-preview-logo { width:46px; height:36px; object-fit:contain; }
-  .widget-preview-body { display:flex; flex-direction:column; gap:10px; padding:16px; background:var(--preview-bg); }
-  .widget-preview-body p { width:fit-content; max-width:85%; margin:0; padding:10px 12px; border:1px solid var(--preview-border); border-radius:12px; background:var(--preview-field); line-height:1.45; font-size:13px; }
-  .widget-preview-body p:first-child { border-color:var(--preview-accent); }
-  .widget-preview-body .widget-preview-customer { align-self:flex-end; background:var(--preview-me); }
-  .widget-preview-composer { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px; border-top:1px solid var(--preview-border); color:var(--preview-muted); font-size:13px; }
-  .widget-preview-send { padding:9px 13px; border-radius:10px; color:#091018; background:var(--preview-accent); font-weight:700; }
-  .widget-preview[data-style="daylight"] { --preview-bg:#f3f6fa; --preview-panel:#fff; --preview-field:#f7f9fc; --preview-text:#182338; --preview-muted:#48576e; --preview-border:#c9d2de; --preview-me:#e8f3ee; border-radius:12px; }
-  .widget-preview[data-style="daylight"] header { border-top:5px solid var(--preview-accent); }
-  .widget-preview[data-style="daylight"] .widget-preview-avatar { border-radius:10px; }
-  .widget-preview[data-style="minimal"] { --preview-bg:#fff; --preview-panel:#fff; --preview-field:#f7f9f7; --preview-text:#202422; --preview-muted:#505a53; --preview-border:#d8dfda; --preview-me:#f1f6f2; border-radius:2px; }
-  .widget-preview[data-style="minimal"] header { position:relative; justify-content:center; padding:22px; border:0; }
-  .widget-preview[data-style="minimal"] .widget-preview-identity { flex-direction:column; text-align:center; }
-  .widget-preview[data-style="minimal"] .widget-preview-logo { position:absolute; right:10px; top:10px; width:32px; height:24px; }
-  .widget-preview[data-style="minimal"] .widget-preview-body p { border:0; border-left:2px solid var(--preview-accent); border-radius:0; }
-  .widget-preview[data-style="minimal"] .widget-preview-customer { border-left:0; border-right:2px solid var(--preview-accent); }
-  .widget-preview[data-style="editorial"] { --preview-bg:#f5f0e6; --preview-panel:#fffaf0; --preview-field:#fffdf7; --preview-text:#2b281f; --preview-muted:#60594e; --preview-border:#a89f8f; --preview-me:#eee8d8; border-radius:0; font-family:Georgia,serif; box-shadow:6px 8px 0 #463f3026; }
-  .widget-preview[data-style="editorial"] header { border-bottom:3px double var(--preview-border); }
-  .widget-preview[data-style="editorial"] .widget-preview-titles strong { font-size:17px; }
-  .widget-preview[data-style="editorial"] .widget-preview-body p { border-radius:0; border-left:3px solid var(--preview-accent); }
-  .widget-preview[data-style="editorial"] .widget-preview-send { border-radius:0; }
-  .widget-preview[data-style="neon"] { --preview-bg:#080c16; --preview-panel:#101729; --preview-field:#0d1628; --preview-text:#eff8ff; --preview-muted:#b8cbe5; --preview-border:#50617d; --preview-me:#142a32; border:1px solid var(--preview-accent); border-radius:6px; box-shadow:0 0 15px #3eea8c66; font-family:ui-monospace,monospace; }
-  .widget-preview[data-style="neon"] header { border-bottom:1px solid var(--preview-accent); }
-  .widget-preview[data-style="neon"] .widget-preview-body p, .widget-preview[data-style="neon"] .widget-preview-send { border-radius:4px; }
-  .widget-preview[data-style="warm"] { --preview-bg:#f7eee6; --preview-panel:#fff8f1; --preview-field:#fffaf5; --preview-text:#3e2d2b; --preview-muted:#705b55; --preview-border:#d4bdb0; --preview-me:#f4e3d9; border-radius:28px; }
-  .widget-preview[data-style="warm"] header { padding:20px; border:0; background:#f3d9c6; }
-  .widget-preview[data-style="warm"] .widget-preview-body p { border:0; border-radius:18px 18px 18px 5px; }
-  .widget-preview[data-style="warm"] .widget-preview-customer { border-radius:18px 18px 5px 18px; }
-  .widget-preview[data-style="glass"] { --preview-bg:#19365d; --preview-panel:#ffffff24; --preview-field:#ffffff1f; --preview-text:#fff; --preview-muted:#e1ecf8; --preview-border:#ffffff7a; --preview-me:#ffffff38; border-radius:24px; background:linear-gradient(145deg,#103452,#4e3574); }
-  .widget-preview[data-style="glass"] header, .widget-preview[data-style="glass"] .widget-preview-composer { background:#ffffff1a; }
-  .widget-preview[data-style="glass"] .widget-preview-body { background:linear-gradient(135deg,#12365f95,#57397779); }
-  .widget-preview[data-style="glass"] .widget-preview-body p { border-radius:17px; background:#ffffff24; }
-  .widget-stage > a { font-size:13px; }
-  @media (max-width:900px) { .widget-studio-grid { grid-template-columns:1fr; } .widget-stage { position:static; } }
+  .widget-workspace {display:grid;gap:20px;min-width:0}
+  .widget-workspace-intro {display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:20px 22px;border:1px solid var(--v7-line);border-radius:12px;background:#fff}
+  .widget-workspace-intro h2 {margin:6px 0 8px;font-size:20px;letter-spacing:-.025em}
+  .widget-workspace-intro p {margin:0;font-size:12px;color:var(--v7-muted);line-height:1.6}
+  .widget-workspace-intro .eyebrow {font-size:10px;color:var(--v7-accent);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .widget-workspace-intro a,.widget-install-tools a {display:inline-flex;align-items:center;min-height:44px;font-size:12px;color:var(--v7-accent);text-underline-offset:3px}
+  .widget-workspace-tabs {display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px;border:1px solid var(--v7-line);border-radius:10px;background:#fff}
+  .widget-workspace-tabs button {min-height:44px;border:1px solid transparent;border-radius:7px;background:transparent;padding:10px 15px;font-size:12px;font-weight:600;color:var(--v7-muted)}
+  .widget-workspace-tabs button.active {color:var(--v7-accent);background:var(--v7-soft);border-color:var(--v7-line)}
+  .widget-workspace-tabs>span {margin-inline-start:auto;padding:8px 12px;font-size:11px;color:var(--v7-muted)}
+  .widget-extra {padding:6px 16px;border:1px solid var(--v7-line);border-radius:10px;background:#fff}
+  .widget-extra summary {min-height:44px;align-content:center;font-size:13px;font-weight:600;cursor:pointer}
+  .widget-extra :global(section) {margin-bottom:10px}
+  .widget-install-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start;min-width:0}
+  .widget-install-grid .surface {min-width:0}.widget-install-grid .surface-head p:last-child {margin:7px 0 0;font-size:12px;color:var(--v7-muted);line-height:1.6}
+  .widget-install-tools {display:grid;gap:18px}.widget-install-tools p {margin:0;font-size:12px;line-height:1.65;color:var(--v7-muted)}.widget-install-tools .code {width:100%;min-height:150px}
+  .widget-save-notice {display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0;padding:12px 16px;border:1px solid var(--v7-line);border-radius:8px;background:var(--v7-soft);font-size:12px;line-height:1.6}
+  .widget-save-notice button {padding:8px 10px;min-height:44px;border:1px solid var(--v7-control-line);background:#fff;border-radius:7px;font-size:11px}
+  @media(max-width:900px){.widget-install-grid {grid-template-columns:1fr}}
+  @media(max-width:600px){.widget-workspace-intro {padding:16px}.widget-workspace-tabs>span {width:100%;margin-inline-start:0}.widget-workspace-tabs button {padding:10px;font-size:11px}.widget-install-grid .form-footer {align-items:start;flex-direction:column}.widget-install-grid .form-footer button {width:100%}}
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid #e2e7ee; }
   .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:#f7f7f2}
   .login-intro {display:flex;flex-direction:column;justify-content:center;padding:64px clamp(32px,6vw,100px);background:radial-gradient(ellipse at 20% 0%,#355747,transparent 65%),#252c27;color:#fff;min-width:0}
@@ -2405,7 +2350,6 @@
   .settings-form,.profile-form,.agent-form,.team-form,.account-control-form {gap:18px}
   .activity-list {padding:22px}
   .lead-row select {min-height:40px}
-  .widget-stage {border-color:var(--v7-line);border-radius:var(--v7-radius)}
   .agent-starter {padding:18px;border-radius:10px;background:var(--v7-soft);border-color:#d6e6dd}
   .activation-notice {padding:14px 16px;gap:12px;border-color:var(--v7-line);border-radius:10px;background:#fff}
   .activation-icon {border:0;border-radius:8px;background:var(--v7-soft)}

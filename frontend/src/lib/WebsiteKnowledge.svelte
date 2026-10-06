@@ -5,6 +5,7 @@
   export let csrf: string;
   export let profileWebsite = '';
   export let apiPrefix = '';
+  export let canEdit = false;
 
   type Summary = { source_url: string; fetched_at: string; page_count: number };
   let summary: Summary | null = null;
@@ -25,6 +26,7 @@
   }
 
   async function importSite() {
+    if (!canEdit || busy) return;
     busy = true;
     failed = false;
     status = 'Importing public pages…';
@@ -54,7 +56,8 @@
     {:else}<p class="source">No website pages imported yet.</p>{/if}
   </div>
   <div class="controls">
-    <button type="button" disabled={busy || !profileWebsite} on:click={importSite}>{busy ? 'Importing…' : summary?.page_count ? 'Refresh website pages' : 'Import website'}</button>
+    <button type="button" disabled={!canEdit || busy || !profileWebsite} on:click={importSite}>{busy ? 'Importing…' : summary?.page_count ? 'Refresh website pages' : 'Import website'}</button>
+    {#if !canEdit}<p>You have viewing access. Ask your owner to update website knowledge.</p>{/if}
     {#if !profileWebsite}<p>Save a public HTTPS website URL in Business profile first.</p>{/if}
     {#if status}<p class:error={failed} role="status">{status}</p>{/if}
   </div>

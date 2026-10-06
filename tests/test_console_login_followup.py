@@ -50,6 +50,7 @@ if (scenario === 'owner-workspace') {
 }
 const calls = [];
 const navigations = [];
+const fullDocumentNavigations = [];
 let sessionReads = 0;
 let mount;
 const failures = {
@@ -77,7 +78,9 @@ const json = (status, value) => ({ok:status >= 200 && status < 300, status, json
 const context = vm.createContext({
   scenario,
   AbortController, setTimeout, clearTimeout, URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, onDestroy:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
-  window:{location:{search:scenario.includes('configured-company') ? '' : scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP'}, history:{replaceState:()=>{}}},
+  window:{location:{search:scenario.includes('configured-company') ? '' : scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP',
+    assign:path=>{navigations.push(path);fullDocumentNavigations.push({method:'assign',path});},
+    replace:path=>{navigations.push(path);fullDocumentNavigations.push({method:'replace',path});}}, history:{replaceState:()=>{}}},
   fetch:async (path, options={}) => {
     calls.push({path, options});
     if (path === '/auth/session') {
@@ -232,6 +235,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
       assert.equal(h.state().tenants.length, 0);
       assert.ok(h.state().workspaceError);
       assert.ok(!h.state().workspaceError.includes('private-provider-detail'));
+      assert.deepEqual(fullDocumentNavigations,[{method:'replace',path:'/console/website?tenant=SHOP'}]);
     }
   } else {
     await h.login();

@@ -4,7 +4,7 @@
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
-  type Message = { from: 'You' | 'Agent'; text: string };
+  type Message = { id: number; from: 'You' | 'Agent'; text: string };
   type Recognition = {
     lang: string; interimResults: boolean;
     start(): void; abort(): void; stop(): void;
@@ -14,7 +14,7 @@
   };
   let draft = '';
   let messages: Message[] = [];
-  const initialQuestions = ['What do you sell?', 'What are your opening hours?', 'What is your delivery policy?'];
+  const initialQuestions = ['What products or services can you help with?', 'How can I get a quote or make a booking?', 'What are your opening hours?'];
   let suggestions = initialQuestions;
   let token = '';
   let busy = false;
@@ -22,45 +22,158 @@
   let voiceStatus = '';
   let readAloud = false;
   let canReadAloud = false;
+  let canDictate = false;
   let listening = false;
+  let dictationStarting = false;
+  let speechConstructor: (new () => Recognition) | undefined;
   let recognition: Recognition | undefined;
+  let dictationTimer: number | undefined;
+  let speakingMessageId: number | null = null;
+  let speechGeneration = 0;
+  let nextMessageId = 0;
+  let disposed = false;
   let controller: AbortController | undefined;
   let transcript: HTMLDivElement;
   let composer: HTMLTextAreaElement;
 
   onMount(() => {
-    canReadAloud = 'speechSynthesis' in window;
+    canReadAloud = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
     const speechWindow = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
-    const Speech = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!Speech || !window.isSecureContext) {
+    speechConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    canDictate = Boolean(speechConstructor && window.isSecureContext);
+    if (!canDictate) {
       voiceStatus = 'Microphone dictation is unavailable in this browser. You can still type your questions.';
-      return;
     }
-    recognition = new Speech();
-    recognition.lang = 'en-GB';
-    recognition.interimResults = false;
-    recognition.onstart = () => { listening = true; voiceStatus = 'Listening…'; };
-    recognition.onresult = event => { draft = (draft + ' ' + event.results[0][0].transcript).trim().slice(0, 4000); };
-    recognition.onerror = event => { voiceStatus = event.error === 'not-allowed' ? 'Microphone permission was denied. You can type instead.' : 'Dictation could not finish. Please try again or type.'; };
-    recognition.onend = () => { listening = false; if (voiceStatus === 'Listening…') voiceStatus = 'Review the text, then press Send.'; };
+    const cancelVoice = () => { cancelDictation(); stopPlayback(); };
+    const onVisibilityChange = () => { if (document.hidden) cancelVoice(); };
+    window.addEventListener('pagehide', cancelVoice);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', cancelVoice);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   });
   onDestroy(() => {
+    disposed = true;
     controller?.abort();
-    recognition?.abort();
-    if (canReadAloud) window.speechSynthesis.cancel();
+    controller = undefined;
+    cancelDictation();
+    stopPlayback();
   });
 
-  function dictate() {
-    if (listening) { recognition?.stop(); return; }
+  function cancelDictation() {
+    const activeRecognition = recognition;
+    recognition = undefined;
+    listening = false;
+    dictationStarting = false;
+    if (['Listening…', 'Starting microphone…', 'Finishing dictation…'].includes(voiceStatus)) voiceStatus = '';
+    if (dictationTimer !== undefined) window.clearTimeout(dictationTimer);
+    dictationTimer = undefined;
+    if (activeRecognition) {
+      activeRecognition.onstart = null;
+      activeRecognition.onend = null;
+      activeRecognition.onerror = null;
+      activeRecognition.onresult = null;
+      activeRecognition.abort();
+    }
+  }
+
+  function stopPlayback() {
+    speechGeneration++;
+    speakingMessageId = null;
     if (canReadAloud) window.speechSynthesis.cancel();
-    try { recognition?.start(); } catch { voiceStatus = 'Microphone could not start. Try again or type your question.'; }
+    if (voiceStatus === 'Reading reply aloud…') voiceStatus = '';
+  }
+
+  function listenToReply(message: Message) {
+    if (!canReadAloud || disposed) return;
+    if (speakingMessageId === message.id) { stopPlayback(); voiceStatus = 'Audio stopped.'; return; }
+    cancelDictation();
+    stopPlayback();
+    const generation = speechGeneration;
+    const speech = new SpeechSynthesisUtterance(message.text);
+    speech.lang = document.documentElement.lang || 'en-GB';
+    speakingMessageId = message.id;
+    voiceStatus = 'Reading reply aloud…';
+    speech.onend = () => {
+      if (disposed || generation !== speechGeneration) return;
+      speakingMessageId = null;
+      if (voiceStatus === 'Reading reply aloud…') voiceStatus = '';
+    };
+    speech.onerror = event => {
+      if (disposed || generation !== speechGeneration) return;
+      speakingMessageId = null;
+      if (event.error !== 'canceled' && event.error !== 'interrupted') voiceStatus = 'Audio could not play. The reply is shown in the conversation.';
+    };
+    try { window.speechSynthesis.speak(speech); }
+    catch {
+      speakingMessageId = null;
+      voiceStatus = 'Audio could not play. The reply is shown in the conversation.';
+    }
+  }
+
+  function finishDictation() {
+    window.clearTimeout(dictationTimer);
+    dictationTimer = undefined;
+    if (!recognition) return;
+    voiceStatus = 'Finishing dictation…';
+    recognition.stop();
+  }
+
+  function dictate() {
+    if (listening) { finishDictation(); return; }
+    if (!canDictate || !speechConstructor || busy || dictationStarting || disposed) return;
+    stopPlayback();
+    try {
+      const activeRecognition = new speechConstructor();
+      recognition = activeRecognition;
+      activeRecognition.lang = document.documentElement.lang || 'en-GB';
+      activeRecognition.interimResults = false;
+      dictationStarting = true;
+      voiceStatus = 'Starting microphone…';
+      activeRecognition.onstart = () => {
+        if (recognition !== activeRecognition || disposed) return;
+        listening = true; dictationStarting = false; voiceStatus = 'Listening…';
+        dictationTimer = window.setTimeout(finishDictation, 30000);
+      };
+      activeRecognition.onresult = event => {
+        if (recognition !== activeRecognition || busy || disposed) return;
+        const text = event.results[0]?.[0]?.transcript;
+        if (typeof text === 'string') {
+          draft = (draft + ' ' + text).trim().slice(0, 4000);
+          voiceStatus = 'Review the text, then press Send.';
+        }
+      };
+      activeRecognition.onerror = event => {
+        if (recognition !== activeRecognition || disposed) return;
+        const messages: Record<string, string> = {
+          'not-allowed': 'Microphone permission was denied. Allow microphone access in your browser settings, or type instead.',
+          'service-not-allowed': 'Your browser speech service is unavailable. You can type instead.',
+          'audio-capture': 'No microphone was found. Check your device, or type instead.',
+          'no-speech': 'No speech was detected. Try again, or type your question.'
+        };
+        voiceStatus = messages[event.error] || 'Dictation could not finish. Please try again or type.';
+      };
+      activeRecognition.onend = () => {
+        if (recognition !== activeRecognition || disposed) return;
+        window.clearTimeout(dictationTimer); dictationTimer = undefined;
+        recognition = undefined; listening = false; dictationStarting = false;
+        if (['Listening…', 'Starting microphone…', 'Finishing dictation…'].includes(voiceStatus)) voiceStatus = 'Review the text, then press Send.';
+      };
+      activeRecognition.start();
+    } catch {
+      cancelDictation();
+      voiceStatus = 'Microphone could not start. Try again or type your question.';
+    }
   }
 
   function restart() {
     controller?.abort();
-    recognition?.abort();
-    if (canReadAloud) window.speechSynthesis.cancel();
+    controller = undefined;
+    cancelDictation();
+    stopPlayback();
     token = ''; messages = []; draft = ''; error = ''; busy = false;
+    if (canDictate) voiceStatus = '';
     suggestions = initialQuestions;
     composer?.focus();
   }
@@ -68,13 +181,15 @@
   async function send() {
     const text = draft.trim();
     if (busy || !text || text.length > 4000) return;
-    recognition?.abort();
-    if (canReadAloud) window.speechSynthesis.cancel();
+    cancelDictation();
+    stopPlayback();
+    const replySpeechGeneration = speechGeneration;
     const request = new AbortController();
     controller = request;
     busy = true; error = ''; draft = '';
-    messages = [...messages, { from: 'You', text }];
+    messages = [...messages, { id: ++nextMessageId, from: 'You', text }];
     await tick();
+    if (request.signal.aborted || controller !== request || disposed) return;
     transcript.scrollTop = transcript.scrollHeight;
     let timedOut = false;
     const timeout = window.setTimeout(() => { timedOut = true; request.abort(); }, 45000);
@@ -85,33 +200,29 @@
         body: JSON.stringify({ message: text, conversation_token: token || undefined })
       });
       const data = await response.json().catch(() => ({}));
+      if (request.signal.aborted || controller !== request || disposed) return;
       if (!response.ok) {
         if (response.status === 401 || data.error === 'csrf_failed') throw new Error('Your session expired. Reload this page and sign in again.');
         if (['test_conversation_expired', 'invalid_test_conversation'].includes(data.error)) { token = ''; throw new Error('This test conversation expired. Start a new conversation and try again.'); }
         if (response.status === 429) throw new Error('Too many requests. Wait a moment, then try again.');
         throw new Error('The agent could not complete this test. Try again or start a new conversation.');
       }
-      if (request.signal.aborted) return;
       token = data.conversation_token;
       const reply = String(data.reply || 'No reply was returned.');
-      messages = [...messages, { from: 'Agent', text: reply }];
+      const message: Message = { id: ++nextMessageId, from: 'Agent', text: reply };
+      messages = [...messages, message];
       if (Array.isArray(data.agent?.suggested_replies)) suggestions = data.agent.suggested_replies.filter((item: unknown): item is string => typeof item === 'string').slice(0, 3);
-      if (readAloud && canReadAloud) {
-        const speech = new SpeechSynthesisUtterance(reply);
-        speech.lang = 'en-GB';
-        speech.onerror = () => { voiceStatus = 'Audio could not play. The reply is shown in the conversation.'; };
-        window.speechSynthesis.speak(speech);
-      }
+      if (readAloud && canReadAloud && speechGeneration === replySpeechGeneration && !document.hidden) listenToReply(message);
       await tick();
       transcript.scrollTop = transcript.scrollHeight;
     } catch (failure) {
-      if (!request.signal.aborted || timedOut) {
+      if (controller === request && !disposed && (!request.signal.aborted || timedOut)) {
         error = timedOut ? 'The test took too long. Try again or start a new conversation.' : failure instanceof Error ? failure.message : 'The test could not complete.';
         draft = text;
       }
     } finally {
       window.clearTimeout(timeout);
-      if (controller === request) { busy = false; await tick(); composer?.focus(); }
+      if (controller === request && !disposed) { busy = false; await tick(); composer?.focus(); }
     }
   }
 </script>
@@ -122,7 +233,7 @@
     <button type="button" on:click={restart}>New conversation</button>
   </header>
   <div class="transcript" bind:this={transcript} role="log" aria-label="Test conversation" aria-live="polite" aria-busy={busy}>
-    {#each messages as message}<article class:customer={message.from === 'You'}><strong>{message.from}</strong><p>{message.text}</p></article>
+    {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{message.from}</strong><p>{message.text}</p>{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud'} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{speakingMessageId === message.id ? 'Stop audio' : 'Listen'}</button>{/if}</article>
     {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>See the conversation from your customer’s side</h3><p>Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.</p></div>{/each}
     {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>The agent is replying…</p>{/if}
   </div>
@@ -130,10 +241,11 @@
     {#if suggestions.length}<div class="suggestions" aria-label="Suggested test questions">{#each suggestions as question}<button type="button" disabled={busy} on:click={() => { draft = question; composer.focus(); }}>{question}</button>{/each}</div>{/if}
     <label for="test-message">Your message</label>
     <textarea id="test-message" bind:this={composer} bind:value={draft} maxlength="4000" rows="3" placeholder="Type a question or use the microphone…" required disabled={busy}></textarea>
-    <div class="actions"><div class="voice-controls"><button type="button" disabled={!recognition || busy} aria-pressed={listening} on:click={dictate}>{listening ? 'Stop listening' : 'Use microphone'}</button><label class="read-aloud"><input type="checkbox" bind:checked={readAloud} disabled={!canReadAloud} on:change={(event) => { if (!event.currentTarget.checked && canReadAloud) window.speechSynthesis.cancel(); }} />Read replies aloud</label></div><button class="send" type="submit" disabled={busy || !draft.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
+    <div class="actions"><div class="voice-controls"><button class="microphone" type="button" disabled={!canDictate || busy || dictationStarting} aria-label={listening ? 'Stop microphone dictation' : 'Start microphone dictation'} aria-pressed={listening} on:click={dictate}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if listening}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>{/if}</svg>{listening ? 'Stop listening' : dictationStarting ? 'Starting…' : 'Use microphone'}</button><label class="read-aloud"><input type="checkbox" bind:checked={readAloud} disabled={!canReadAloud} on:change={(event) => { if (!event.currentTarget.checked) stopPlayback(); }} />Read new replies aloud</label></div><button class="send" type="submit" disabled={busy || !draft.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if voiceStatus}<p class="hint" role="status">{voiceStatus}</p>{/if}
-    <div class="test-notes"><p>These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.</p><p>Microphone dictation needs your permission and may use your browser’s speech service. Review the text before sending.</p></div>
+    {#if !canReadAloud}<p class="hint">Read-aloud audio is unavailable in this browser. Replies remain available as text.</p>{/if}
+    <div class="test-notes"><p>These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.</p><p>Microphone dictation needs your permission and may use your browser’s speech service. Dictation stops after 30 seconds. Review the text before sending.</p></div>
   </form>
 </section>
 
@@ -155,6 +267,8 @@
   article { max-width:86%; width:fit-content; margin-bottom:18px; padding:16px 18px; background:var(--v7-surface, #fff); border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; border-end-start-radius:4px; font-size:14px; line-height:1.65; }
   article strong { display:block; margin-bottom:7px; font-size:11px; font-weight:700; color:var(--v7-accent, #087f5b); letter-spacing:.025em; }
   article p { white-space:pre-wrap; }
+  .reply-audio, .microphone { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+  .reply-audio { margin-top:12px; padding:8px 10px; font-size:12px; background:transparent; }
   article.customer { margin-inline-start:auto; background:var(--v7-soft, #edf6f1); border-color:#d4e7dd; border-end-start-radius:12px; border-end-end-radius:4px; }
   article.customer strong { color:var(--v7-ink, #172b26); }
   .empty { max-width:50ch; margin:22px auto; text-align:center; padding:28px 16px; }

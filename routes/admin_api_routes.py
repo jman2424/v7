@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import re
 import secrets
 from typing import Any, Callable, Dict, List
 from urllib.parse import quote, urlsplit
@@ -719,8 +720,8 @@ def _clean_widget_avatar(value: Any) -> str:
     return avatar
 
 
-_WIDGET_ACCENTS = {"#3EEA8C", "#5BC6FF", "#F9C74F", "#D8A4FF"}
-_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"}
+_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass", "studio", "soft", "bold"}
+_WIDGET_CUSTOM_COLORS = ("background_color", "surface_color", "text_color", "bubble_color")
 
 
 def _clean_assistant_name(value: Any) -> str:
@@ -763,10 +764,38 @@ def _clean_widget_style(value: Any) -> str:
 
 
 def _clean_widget_accent(value: Any) -> str:
-    accent = str(value or "#3EEA8C").strip().upper()
-    if accent not in _WIDGET_ACCENTS:
+    if value is None or value == "":
+        return "#3EEA8C"
+    if not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()):
         abort(400, description="invalid_widget_accent")
-    return accent
+    return value.strip().upper()
+
+
+def _clean_widget_custom_color(value: Any, field: str) -> str:
+    if value == "":
+        return ""
+    if not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()):
+        abort(400, description=f"invalid_widget_{field}")
+    return value.strip().upper()
+
+
+def _public_widget_color(value: Any, default: str = "") -> str:
+    return value.strip().upper() if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()) else default
+
+
+def _widget_preview_theme(branding: Dict[str, Any]) -> Dict[str, str]:
+    theme = branding.get("theme")
+    if not isinstance(theme, dict):
+        return {}
+    preview: Dict[str, str] = {}
+    for field in ("primary_color", "secondary_color", "text_color", "accent_color"):
+        color = theme.get(field)
+        if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", color):
+            preview[field] = ("#" + "".join(character * 2 for character in color[1:]) if len(color) == 4 else color).upper()
+    font = theme.get("font_family")
+    if isinstance(font, str) and len(font) <= 120 and re.fullmatch(r"[\w\s,.'\"\-]+", font, flags=re.ASCII):
+        preview["font_family"] = font
+    return preview
 
 
 def _clean_allowed_origins(value: Any) -> List[str]:
@@ -805,11 +834,12 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
     stored_style = widget.get("style")
     style = stored_style if isinstance(stored_style, str) and stored_style in _WIDGET_STYLES else "midnight"
     frame_radius = {"midnight": 16, "daylight": 12, "minimal": 3, "editorial": 2,
-                    "neon": 16, "warm": 24, "glass": 18}[style]
+                    "neon": 16, "warm": 24, "glass": 18, "studio": 12, "soft": 24, "bold": 10}[style]
     script_url = f"{request.url_root.rstrip('/')}/widget.js?tenant={quote(tenant)}"
     chat_url = f"{request.url_root.rstrip('/')}/chat_ui?tenant={quote(tenant)}"
     return {
         "tenant": tenant,
+        "preview_theme": _widget_preview_theme(branding),
         "widget": {
             "chat_title": str(widget.get("chat_title") or "Sales assistant"),
             "greeting": str(widget.get("greeting") or "Hi! How can I help you today?"),
@@ -817,9 +847,8 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
             "assistant_name": assistant_name,
             "company_logo_url": logo,
             "style": style,
-            "accent_color": (str(widget.get("accent_color") or "").upper()
-                             if str(widget.get("accent_color") or "").upper() in _WIDGET_ACCENTS
-                             else "#3EEA8C"),
+            "accent_color": _public_widget_color(widget.get("accent_color"), "#3EEA8C"),
+            **{field: _public_widget_color(widget.get(field)) for field in _WIDGET_CUSTOM_COLORS},
             "allowed_origins": allowed_origins_from_branding(branding),
         },
         "embed": {
@@ -943,6 +972,8 @@ def api_widget_put():
         "company_logo_url": _clean_widget_logo(data.get("company_logo_url", existing.get("company_logo_url", ""))),
         "style": _clean_widget_style(data.get("style", existing.get("style", "midnight"))),
         "accent_color": _clean_widget_accent(data.get("accent_color", existing.get("accent_color"))),
+        **{field: _clean_widget_custom_color(data.get(field, existing.get(field, "")), field)
+           for field in _WIDGET_CUSTOM_COLORS},
         "allowed_origins": _clean_allowed_origins(data.get("allowed_origins", [])),
     }
     branding["widget"] = widget

@@ -25,9 +25,32 @@ logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
 
 
-_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass"}
+_WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass", "studio", "soft", "bold"}
+_WIDGET_CUSTOM_COLORS = ("background_color", "surface_color", "text_color", "bubble_color")
 _WEB_AUDIO_BYTES = 4 * 1024 * 1024
 _transcription_limit = RateLimiter(capacity=3, refill_per_sec=3 / 60)
+
+
+def _public_widget_color(value: Any, default: str = "") -> str:
+    return value.strip().upper() if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()) else default
+
+
+def _widget_foreground(background: str, preferred: str = "") -> str:
+    """Keep launcher text readable for arbitrary brand colours."""
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        channels = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in channels]
+        return sum(value * weight for value, weight in zip(channels, (0.2126, 0.7152, 0.0722)))
+
+    background_luminance = luminance(background)
+
+    def contrast(color: str) -> float:
+        foreground_luminance = luminance(color)
+        return (max(background_luminance, foreground_luminance) + 0.05) / (min(background_luminance, foreground_luminance) + 0.05)
+
+    if preferred and contrast(preferred) >= 4.5:
+        return preferred
+    return max(("#000000", "#FFFFFF"), key=contrast)
 
 
 def _public_widget_branding(branding: Dict[str, Any]) -> Dict[str, Any]:
@@ -59,11 +82,16 @@ def _public_widget_branding(branding: Dict[str, Any]) -> Dict[str, Any]:
     widget["company_logo_url"] = logo
     stored_style = widget.get("style")
     widget["style"] = stored_style if isinstance(stored_style, str) and stored_style in _WIDGET_STYLES else "midnight"
+    widget["accent_color"] = _public_widget_color(widget.get("accent_color"), "#3EEA8C")
+    for field in _WIDGET_CUSTOM_COLORS:
+        widget[field] = _public_widget_color(widget.get(field))
     public["widget"] = widget
     return public
 
 
 def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
+    stored_widget = branding.get("widget")
+    stored_accent = _public_widget_color(stored_widget.get("accent_color")) if isinstance(stored_widget, dict) else ""
     branding = _public_widget_branding(branding)
     widget = branding.get("widget") if isinstance(branding, dict) else {}
     widget = widget if isinstance(widget, dict) else {}
@@ -72,13 +100,23 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     style = str(widget.get("style") or "midnight")
     theme = branding.get("theme")
     theme = theme if isinstance(theme, dict) else {}
-    primary = str(widget.get("accent_color") or theme.get("primary_color") or "#0f9d58")
-    if not re.fullmatch(r"#[0-9a-fA-F]{6}", primary):
-        primary = "#0f9d58"
-    red, green, blue = (int(primary[index:index + 2], 16) for index in (1, 3, 5))
-    on_primary = "#102019" if (0.2126 * red + 0.7152 * green + 0.0722 * blue) > 150 else "#ffffff"
+    primary = stored_accent or _public_widget_color(theme.get("primary_color"), "#0F9D58")
+    on_primary = _widget_foreground(primary, "#102019")
+    launcher_background = widget.get("surface_color") or {
+        "daylight": "#FFFFFF", "minimal": "#FFFFFF", "editorial": "#F8F2E8",
+        "neon": "#101322", "warm": "#493228", "glass": "#182634",
+        "studio": "#FFFFFF", "soft": "#F1F8F5",
+    }.get(style, primary)
+    default_text = {
+        "daylight": "#172033", "minimal": "#172033", "editorial": "#302B26",
+        "neon": primary, "warm": "#FFFFFF", "glass": "#FFFFFF",
+        "studio": "#172B26", "soft": "#172B26",
+    }.get(style, on_primary)
+    launcher_text = _widget_foreground(launcher_background, widget.get("text_color") or default_text)
     config = json.dumps({"tenant": tenant, "title": title, "logo": logo, "style": style,
-                         "primary": primary, "onPrimary": on_primary})
+                         "primary": primary, "onPrimary": on_primary,
+                         "launcherBackground": launcher_background, "launcherText": launcher_text,
+                         "background": widget.get("background_color") or "#FFFFFF"})
 
     return f"""(function () {{
   var config = {config};
@@ -104,9 +142,14 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     editorial: 'border-radius:2px;background:#f8f2e8;color:#302b26;border:1px solid #c9bba5;font-family:Georgia,serif;box-shadow:0 6px 20px rgba(48,43,38,.18);',
     neon: 'border-radius:16px;background:#101322;color:' + config.primary + ';border:1px solid ' + config.primary + ';box-shadow:0 0 20px ' + config.primary + ';',
     warm: 'border-radius:28px;background:#493228;color:#fff;border:1px solid #a88161;box-shadow:0 8px 24px rgba(73,50,40,.25);',
-    glass: 'border-radius:18px;background:rgba(24,38,52,.82);color:#fff;border:1px solid rgba(255,255,255,.48);backdrop-filter:blur(14px);box-shadow:0 12px 32px rgba(15,23,42,.24);'
+    glass: 'border-radius:18px;background:rgba(24,38,52,.82);color:#fff;border:1px solid rgba(255,255,255,.48);backdrop-filter:blur(14px);box-shadow:0 12px 32px rgba(15,23,42,.24);',
+    studio: 'border-radius:12px;border:1px solid ' + config.primary + ';box-shadow:0 8px 24px rgba(15,23,42,.12);',
+    soft: 'border-radius:24px;border:1px solid ' + config.primary + ';box-shadow:0 8px 24px rgba(15,23,42,.10);',
+    bold: 'border-radius:10px;border:2px solid ' + config.primary + ';box-shadow:4px 4px 0 rgba(15,23,42,.20);'
   }};
   launcher.style.cssText = 'display:inline-flex;align-items:center;gap:9px;border:0;background:' + config.primary + ';color:' + config.onPrimary + ';min-height:44px;padding:0 16px;font:600 14px system-ui,-apple-system,Segoe UI,sans-serif;cursor:pointer;' + (launcherStyles[config.style] || launcherStyles.midnight);
+  launcher.style.background = config.launcherBackground;
+  launcher.style.color = config.launcherText;
   if (config.logo) {{
     var logo = document.createElement('img');
     logo.src = new URL(config.logo, host).href;
@@ -124,14 +167,16 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
   frame.setAttribute('allow', 'microphone');
   frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
-  var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px'}};
-  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:#fff;overflow:hidden;';
+  var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px',studio:'12px',soft:'24px',bold:'10px'}};
+  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:' + config.background + ';overflow:hidden;';
   launcher.addEventListener('click', function () {{
     var open = frame.style.display !== 'none';
-    frame.style.display = open ? 'none' : 'block';
-    launcher.setAttribute('aria-expanded', String(!open));
+    if (open) {{ closeChat(); return; }}
+    frame.style.display = 'block';
+    launcher.setAttribute('aria-expanded', 'true');
   }});
   function closeChat() {{
+    if (frame.contentWindow) frame.contentWindow.postMessage({{type: 'V7_WIDGET_HIDE'}}, host);
     frame.style.display = 'none';
     launcher.setAttribute('aria-expanded', 'false');
     launcher.focus();
