@@ -82,16 +82,16 @@
   button { min-height:44px; padding:10px 16px; border:1px solid var(--v7-control-line, #c7d2cc); border-radius:8px; color:inherit; background:var(--v7-surface, #fff); font:inherit; font-size:13px; font-weight:600; }
   button:hover:not(:disabled) { background:var(--v7-soft, #edf6f1); border-color:var(--v7-accent, #087f5b); }
   .primary { background:var(--v7-accent, #087f5b); color:#fff; border-color:var(--v7-accent, #087f5b); }
-  .primary:hover:not(:disabled) { background:var(--v7-brand, #176044); border-color:var(--v7-brand, #176044); }
+  .primary:hover:not(:disabled) { background:var(--v7-accent-hover); border-color:var(--v7-accent-hover); }
   .save-status { margin:0; font-size:13px; color:var(--v7-accent, #087f5b); }
   details { margin-top:24px; padding-top:8px; border-top:1px solid var(--v7-line, #e1e7e4); }
   summary { min-height:44px; padding:10px 0; font-size:13px; font-weight:600; cursor:pointer; }
   details ul { margin:6px 0 0; padding-inline-start:20px; }
   details li { margin-bottom:6px; font-size:13px; }
   .loading { display:flex; align-items:center; gap:10px; padding:18px; margin:22px 0 0; border-radius:8px; background:var(--v7-canvas, #f5f7f7); font-size:13px; }
-  .loading-indicator { width:14px; height:14px; border:2px solid #d4e7dd; border-top-color:var(--v7-accent, #087f5b); border-radius:50%; animation:parameters-spin .8s linear infinite; }
+  .loading-indicator { width:14px; height:14px; border:2px solid var(--v7-tint-line); border-top-color:var(--v7-accent, #087f5b); border-radius:50%; animation:parameters-spin .8s linear infinite; }
   .error { padding:12px 14px; margin:18px 0 0; border:1px solid #f0cfca; border-radius:8px; background:#fff5f3; color:#a12622; font-size:13px; }
-  :is(button, input, select, summary):focus-visible { outline:3px solid #8bcdc0; outline-offset:3px; }
+  :is(button, input, select, summary):focus-visible { outline:3px solid var(--v7-focus); outline-offset:3px; }
   @keyframes parameters-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion:reduce) { .loading-indicator { animation:none; } }
   @media (max-width:700px) { form { grid-template-columns:1fr; gap:20px; } .parameters { padding:18px; } }

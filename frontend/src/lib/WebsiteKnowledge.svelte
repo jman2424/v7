@@ -72,6 +72,6 @@
   .controls { flex:0 1 260px; display:grid; align-content:start; gap:8px; }
   button { min-height:44px; padding:8px 14px; border:0; border-radius:10px; color:#fff; background:var(--v7-accent); font-weight:700; cursor:pointer; }
   button:disabled { opacity:.55; cursor:default; }
-  button:focus-visible { outline:3px solid #8bcdc0; outline-offset:2px; }
+  button:focus-visible { outline:3px solid var(--v7-focus); outline-offset:2px; }
   .error { color:#b42318; }
 </style>

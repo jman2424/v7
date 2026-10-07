@@ -134,10 +134,10 @@
   .slot { display:grid; grid-template-columns:minmax(120px,1fr) minmax(170px,1fr) auto; align-items:end; gap:10px; }
   .slot label { display:grid; gap:5px; font-size:13px; font-weight:700; }
   .slot input { width:100%; min-height:44px; padding:10px; border:1px solid var(--v7-control-line, #b5c5bc); border-radius:10px; }
-  button { min-height:44px; padding:7px 12px; border:1px solid #b8c8bd; border-radius:10px; color:#224333; background:#fff; font-weight:700; cursor:pointer; }
+  button { min-height:44px; padding:7px 12px; border:1px solid var(--v7-control-line); border-radius:10px; color:var(--v7-ink); background:#fff; font-weight:700; cursor:pointer; }
   button[type=submit] { color:#fff; background:var(--v7-accent); border-color:var(--v7-accent); }
   button:disabled { opacity:.55; cursor:default; }
-  button:focus-visible, input:focus-visible { outline:3px solid #8bcdc0; outline-offset:2px; }
+  button:focus-visible, input:focus-visible { outline:3px solid var(--v7-focus); outline-offset:2px; }
   .error { color:#b42318; }
   .requests { border-top:1px solid var(--v7-line); }
   .requests article { display:grid; gap:7px; padding:16px 0; border-bottom:1px solid var(--v7-line); font-size:13px; overflow-wrap:anywhere;line-height:1.6;}

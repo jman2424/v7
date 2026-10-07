@@ -78,6 +78,6 @@
   button:disabled {opacity:.6;cursor:wait} .secondary {background:white;color:var(--v7-accent)} a {color:var(--v7-accent)}
   .actions {display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:16px 0}
   .result img {display:block;width:min(320px,100%);height:auto;margin:20px auto;background:white;padding:12px;border:1px solid var(--v7-line);border-radius:16px;}
-  .error {color:#a12622} :is(button,a,input,textarea):focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}
+  .error {color:#a12622} :is(button,a,input,textarea):focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
   @media(max-width:600px) {.panel{padding:16px}}
 </style>

@@ -15,7 +15,7 @@
   <h3>{title}</h3>
   <div class="legend">{#each series as line,index}<span style:color={line.color}>{index%2?'┄':'━'} {line.name}</span>{/each}</div>
   <svg viewBox="0 0 920 245" role="img" aria-label={title+'; exact values in the table below'}>
-    {#each [0,0.5,1] as ratio}<line x1="48" x2="868" y1={205-ratio*170} y2={205-ratio*170} stroke="#e1e7e4"/><text x="44" y={209-ratio*170} text-anchor="end">{(maximum*ratio).toLocaleString('en-GB',{maximumFractionDigits:1})}</text>{/each}
+    {#each [0,0.5,1] as ratio}<line x1="48" x2="868" y1={205-ratio*170} y2={205-ratio*170} stroke="var(--v7-line)"/><text x="44" y={209-ratio*170} text-anchor="end">{(maximum*ratio).toLocaleString('en-GB',{maximumFractionDigits:1})}</text>{/each}
     {#each series as line,index}<path d={path(line.values)} fill="none" stroke={line.color} stroke-width="3" stroke-dasharray={index%2?'7 4':undefined}/>{/each}
     <text x="48" y="233">{labels[0]||''}</text><text x="868" y="233" text-anchor="end">{labels[labels.length-1]||''}</text>
   </svg>

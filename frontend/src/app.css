@@ -1,7 +1,7 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #2f3539;
-  background: #f3f4f4;
+  color: var(--v7-ink);
+  background: var(--v7-canvas);
   font-synthesis: none;
   --v7-ink: #2f3539;
   --v7-muted: #656d71;
@@ -12,9 +12,13 @@
   --v7-control-line: #b9c1c4;
   --v7-surface: #fff;
   --v7-brand: #143c30;
-  --v7-lime: #edf6f1;
+  --v7-tint: #edf6f1;
+  --v7-tint-line: #d8e7dc;
+  --v7-lime: var(--v7-tint);
   --v7-soft: #f2f4f4;
   --v7-canvas: #f3f4f4;
+  --v7-focus: var(--v7-accent);
+  --v7-focus-ring: #087f5b26;
   --v7-radius: 12px;
   --v7-card-shadow: 0 1px 3px #2f353908;
 }
@@ -25,7 +29,7 @@ button, input, textarea, select { font: inherit; }
 button { cursor: pointer; transition: background-color .15s, border-color .15s; }
 button:disabled { cursor: default; opacity: .6; }
 a { text-underline-offset: .2em; }
-:focus-visible { outline: 3px solid #82bda7; outline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--v7-focus); outline-offset: 3px; }
 input, select, textarea { accent-color: var(--v7-accent); }
 input[type=checkbox] { flex-shrink: 0; }
 [dir=rtl] nav a { text-align: right; }

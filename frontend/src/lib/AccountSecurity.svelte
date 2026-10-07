@@ -213,7 +213,7 @@
   .card-heading h3 {margin:0 0 7px;font-size:18px;letter-spacing:-.02em}
   .provider-list {margin-top:20px}
   .provider-row {display:flex;align-items:center;gap:14px;padding:17px 0;border-top:1px solid var(--v7-line)}
-  .provider-mark {display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;background:#d6f58a;border:1px solid var(--v7-line);border-radius:12px;font-size:19px;font-weight:800;border-color:#d6f58a;color:var(--v7-ink);}
+  .provider-mark {display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;background:var(--v7-tint);border:1px solid var(--v7-line);border-radius:12px;font-size:19px;font-weight:800;border-color:var(--v7-tint-line);color:var(--v7-ink);}
   .provider-copy {display:grid;gap:5px;flex:1;font-size:14px;min-width:0;overflow-wrap:anywhere;}
   .provider-copy span,.note,.empty,.loading {color:var(--v7-muted);font-size:12px;line-height:1.7}
   .provider-actions {display:flex;gap:9px;flex-wrap:wrap}
@@ -221,7 +221,7 @@
   button.secondary {background:#fff;color:var(--v7-ink);border-color:var(--v7-control-line, #b5c5bc)}
   button:hover:not(:disabled) {filter:brightness(.94)}
   button:disabled {opacity:.45;cursor:not-allowed}
-  button:focus-visible {outline:3px solid #8bcdc0;outline-offset:3px}
+  button:focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
   .note {margin:14px 0 0}
   .trust-explanation {margin:18px 0;color:var(--v7-muted);font-size:13px;line-height:1.75}
   .device-summary {display:flex;align-items:center;gap:14px;padding:16px 18px;background:var(--v7-soft, #f0f6f2);border:1px solid var(--v7-line);border-radius:12px}

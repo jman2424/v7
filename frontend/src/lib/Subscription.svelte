@@ -141,7 +141,7 @@
   .cards .panel { display:flex; flex-direction:column; align-items:flex-start; }
   .plans .panel:first-child { border-color:var(--v7-accent); }
   .cards button { margin-top:auto; background:var(--v7-accent,#087f5b); border-color:var(--v7-accent,#087f5b); color:#fff; }
-  .cards button:hover:not(:disabled) { background:var(--v7-brand,#087f5b); }
+  .cards button:hover:not(:disabled) { background:var(--v7-accent-hover); }
   .summaries h3 { font-size:12px; font-weight:600; color:var(--v7-muted); }
   .summaries .price { margin:8px 0; font-size:28px; }
   .summaries p { font-size:12px; margin:4px 0 0; }

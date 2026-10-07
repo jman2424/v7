@@ -66,7 +66,7 @@
       {#if data.current.inbound || data.current.outbound}
         <div class="legend"><span class="customer"><i aria-hidden="true"></i>Customer messages</span><span class="agent"><i aria-hidden="true"></i>Agent replies</span></div>
         <svg viewBox="0 0 920 245" role="img" aria-label="Daily customer messages and agent replies. Exact daily figures are available below.">
-          {#each [0, .5, 1] as fraction}<line x1="48" x2="868" y1={205 - fraction * 170} y2={205 - fraction * 170} stroke="#e1e7e4"/><text x="40" y={209 - fraction * 170} text-anchor="end">{number(chartMax * fraction)}</text>{/each}
+          {#each [0, .5, 1] as fraction}<line x1="48" x2="868" y1={205 - fraction * 170} y2={205 - fraction * 170} stroke="var(--v7-line)"/><text x="40" y={209 - fraction * 170} text-anchor="end">{number(chartMax * fraction)}</text>{/each}
           <polygon points={'48,205 ' + points('inbound') + ' 868,205'} fill="#087f5b0c"/>
           <polyline points={points('inbound')} fill="none" stroke="#087f5b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
           <polyline points={points('outbound')} fill="none" stroke="#64716d" stroke-width="3" stroke-dasharray="7 4" stroke-linecap="round" stroke-linejoin="round"/>

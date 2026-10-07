@@ -5,14 +5,14 @@
   <title>{{ tenant }} — Chat</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css') }}" />
-  <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg', v='20261006') }}" />
+  <link rel="icon" href="{{ branding.favicon if branding and branding.favicon else url_for('static', filename='img/logo.svg', v='20261006b') }}" />
   <meta name="theme-color" content="{{ branding.theme.primary_color if branding and branding.theme and branding.theme.primary_color else '#127A32' }}" />
 </head>
 <body data-tenant="{{ tenant }}" data-style="{{ branding.widget.style if branding and branding.widget else 'midnight' }}" class="{{ 'widget-page--embedded' if embedded else '' }}">
   <div id="chat-widget" class="widget">
     <header class="widget__header">
       <div class="widget__identity">
-        <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg', v='20261006') }}" alt="" />
+        <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg', v='20261006b') }}" alt="" />
         <div class="widget__titles">
           {% set chat_title = branding.widget.chat_title if branding and branding.widget and branding.widget.chat_title else 'Sales Assistant' %}
           {% set assistant_name = branding.widget.assistant_name if branding and branding.widget and branding.widget.assistant_name else chat_title %}
