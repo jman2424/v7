@@ -14,6 +14,15 @@ from flask import abort, g, request, session
 from werkzeug.wsgi import get_host
 
 
+# Operational routes and tenant conversations are not public search content.
+NON_INDEXABLE_PREFIXES = (
+    "/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console",
+    "/mcp", "/oauth", "/api/", "/mode", "/version", "/export_catalog_csv",
+    "/catalog_webhook", "/chat_ui", "/chat_api", "/chat/", "/webchat", "/widget",
+    "/whatsapp", "/health", "/ready", "/.well-known/",
+)
+
+
 def install_request_boundaries(app, settings):
     """Reject hostile hosts and cross-origin management writes before parsing data."""
     production = settings.ENVIRONMENT == "production" or os.getenv("RENDER") == "true"
@@ -67,6 +76,9 @@ def install_request_id(app):
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
+        if (request.path.startswith(NON_INDEXABLE_PREFIXES)
+                or (request.path == "/privacy" and "tenant" in request.args)):
+            response.headers["X-Robots-Tag"] = "noindex, nofollow"
         if request.path.startswith(("/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console", "/mcp", "/oauth", "/api/v1", "/mode", "/version", "/export_catalog_csv", "/catalog_webhook")):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Frame-Options"] = "DENY"

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ solution.title }}</title>
+  <meta name="description" content="{{ solution.description }}">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#087f5b">
+  <link rel="canonical" href="{{ canonical_url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Vertex Seven">
+  <meta property="og:title" content="{{ solution.title }}">
+  <meta property="og:description" content="{{ solution.description }}">
+  <meta property="og:url" content="{{ canonical_url }}">
+  <meta property="og:image" content="{{ site_origin }}{{ url_for('static', filename='img/vertex-seven-banner.png') }}">
+  <meta property="og:image:width" content="1672">
+  <meta property="og:image:height" content="941">
+  <meta property="og:image:alt" content="Vertex Seven, AI agents for business operations">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ solution.title }}">
+  <meta name="twitter:description" content="{{ solution.description }}">
+  <meta name="twitter:image" content="{{ site_origin }}{{ url_for('static', filename='img/vertex-seven-banner.png') }}">
+  <meta name="twitter:image:alt" content="Vertex Seven, AI agents for business operations">
+  <link rel="icon" href="{{ url_for('static', filename='img/logo.svg', v='20261008a') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css') }}">
+  <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
+  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
+    '@context': 'https://schema.org', '@type': 'WebPage', 'name': solution.title,
+    'description': solution.description, 'url': canonical_url,
+    'about': {'@type': 'SoftwareApplication', 'name': 'V7 Agents',
+      'applicationCategory': 'BusinessApplication', 'operatingSystem': 'Web browser',
+      'url': site_origin ~ '/',
+      'publisher': {'@type': 'Organization', 'name': 'Vertex Seven', 'url': site_origin ~ '/'}
+    }
+  }|tojson }}</script>
+</head>
+<body class="solution-page">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-logo.png', v='20261008a') }}" width="1254" height="1254" alt=""></span><span><span class="brand-name">Vertex <span>Seven</span></span><span class="brand-caption">V7 Agents</span></span></a>
+    <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a><a href="/#questions">FAQs</a></nav>
+    <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
+  </header>
+  <main id="main" class="wrap">
+    <nav class="solution-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><a href="/#solutions">Solutions</a><span aria-hidden="true">/</span><span aria-current="page">{{ solution.label }}</span></nav>
+    <section class="solution-hero" aria-labelledby="solution-title">
+      <p class="eyebrow">V7 AGENTS · {{ solution.label }}</p>
+      <h1 id="solution-title">{{ solution.h1 }}</h1>
+      <p class="solution-intro">{{ solution.intro }}</p>
+      <p class="solution-audience">{{ solution.audience }}</p>
+      <div class="actions"><a class="button button-dark" href="/console/">Open your workspace <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a></div>
+    </section>
+    <div class="solution-content">
+      <div class="solution-explanation">
+        {% for section in solution.sections %}
+        <section aria-labelledby="section-{{ loop.index }}"><span class="solution-number" aria-hidden="true">0{{ loop.index }}</span><h2 id="section-{{ loop.index }}">{{ section.heading }}</h2>{% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}</section>
+        {% endfor %}
+      </div>
+      <aside class="solution-setup" aria-labelledby="setup-title">
+        <p class="eyebrow">SETUP & REVIEW</p><h2 id="setup-title">Put it into practice</h2>
+        <ol>{% for step in solution.steps %}<li><h3>{{ step.title }}</h3><p>{{ step.description }}</p></li>{% endfor %}</ol>
+        <a class="text-link" href="/#how-it-works">How onboarding works <span aria-hidden="true">→</span></a>
+      </aside>
+    </div>
+    <section class="solution-limits" aria-labelledby="limits-title"><h2 id="limits-title">What to check before launch</h2><p>{{ solution.caution }}</p></section>
+    <section class="solution-related" aria-labelledby="related-title"><div class="solution-related-heading"><div><p class="eyebrow">EXPLORE THE PLATFORM</p><h2 id="related-title">Other ways to use V7 Agents</h2></div><a class="text-link" href="/#pricing">View pricing <span aria-hidden="true">→</span></a></div><div class="solution-links">{% for related_slug, related in solutions.items() %}{% if related_slug != slug %}<a href="/solutions/{{ related_slug }}"><span>{{ related.label }}</span><span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div></section>
+  </main>
+  <footer class="solution-footer wrap">
+    <div class="solution-footer-top"><a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-logo.png', v='20261008a') }}" width="1254" height="1254" alt=""></span><span class="brand-name">Vertex <span>Seven</span></span></a><p>V7 Agents. Business knowledge, in conversation.</p></div>
+    <nav class="solution-footer-links" aria-label="Solutions">{% for related_slug, related in solutions.items() %}<a href="/solutions/{{ related_slug }}"{% if related_slug == slug %} aria-current="page"{% endif %}>{{ related.label }}</a>{% endfor %}</nav>
+    <div class="footer-links"><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
+  </footer>
+  <aside id="site-cookie-banner" class="site-cookie-banner" hidden aria-label="Cookie preferences"><div class="site-cookie-heading"><strong>Your privacy choices</strong><button type="button" class="site-cookie-close" data-close-cookie-preferences aria-label="Close cookie preferences"><span aria-hidden="true">×</span></button></div><p>Sign-in and security cookies are essential. Saving your language is optional. No advertising cookies are used.</p><div class="site-cookie-actions"><button type="button" data-preferences="essential">Essential only</button><button type="button" class="button-dark" data-preferences="all">Save my preferences</button></div><a href="/cookies">Cookie information</a></aside>
+</body>
+</html>

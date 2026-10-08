@@ -83,6 +83,7 @@ def _register_blueprints(app: Flask) -> None:
     from routes.mode_routes import bp as mode_bp
     from routes.owner_console_routes import bp as owner_console_bp
     from routes.privacy_routes import bp as privacy_bp
+    from routes.public_seo_routes import bp as public_seo_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
@@ -98,6 +99,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(mode_bp)
     app.register_blueprint(owner_console_bp)
     app.register_blueprint(privacy_bp)
+    app.register_blueprint(public_seo_bp)
     from routes.billing_routes import bp as billing_bp
     app.register_blueprint(billing_bp)
 
@@ -245,7 +247,9 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     # Root
     @app.get("/")
     def root():
-        return render_template("home.html")
+        site_origin = settings.BASE_URL.rstrip("/")
+        return render_template("home.html", site_origin=site_origin,
+                               canonical_url=site_origin + "/")
 
     # Health (Render)
     @app.get("/healthz")
