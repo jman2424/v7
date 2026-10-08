@@ -3,6 +3,7 @@
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
   import PlatformOverview from './PlatformOverview.svelte';
+  import PlatformLogo from './PlatformLogo.svelte';
   import Subscription from './Subscription.svelte';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
@@ -1521,7 +1522,7 @@
 <svelte:head>
   <title>{$t(pageTitle)} · V7</title>
   <meta name="description" content="Tenant widget configuration for the V7 AI sales agent." />
-  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg?v=20261006b" />
+  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg?v=20261008a" />
 </svelte:head>
 
 {#if loading}
@@ -1529,7 +1530,7 @@
 {:else if !user}
   <main class="login-shell">
     <section class="login-intro" aria-labelledby="welcome-title">
-      <a class="login-brand" href="/" aria-label="Vertex Seven home"><img src="/static/img/logo.svg?v=20261006b" width="52" height="52" alt="" /><span>Vertex <strong>Seven</strong></span></a>
+      <a class="login-brand" href="/" aria-label="Vertex Seven home"><img src="/static/img/vertex-seven-banner.png?v=20261008a" width="1672" height="941" alt="Vertex Seven — AI agents for business operations" /></a>
       <p class="eyebrow">{$t('Your business workspace')}</p>
       <h2 id="welcome-title">{$t('Customer conversations, with a clear next step.')}</h2>
       <p>{$t('Products, consultations and customer support.')} {$t('A sales assistant that knows your business.')}</p>
@@ -1542,7 +1543,7 @@
       <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
-      <img class="product-mark" src="/static/img/logo.svg?v=20261006b" width="52" height="52" alt="V7 by Vertex Seven" />
+      <PlatformLogo lockup size={132} label="Vertex Seven" />
       <h1>{$t(mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7')}</h1>
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if mfa}
@@ -1578,7 +1579,7 @@
   <a class="skip-link" href="#workspace">{$t('Skip to workspace')}</a>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="side-brand"><img class="brand-mark" src="/static/img/logo.svg?v=20261006b" width="44" height="44" alt="" /><div><strong>Vertex Seven</strong><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div></div>
+      <div class="side-brand"><PlatformLogo size={44} /><div><strong>Vertex Seven</strong><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div></div>
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each navigationGroups as group}
@@ -2042,7 +2043,6 @@
   .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: var(--v7-muted); }
   .login-shell { padding: 24px; }
   .login { width: min(100%, 390px); display: grid; gap: 16px; padding: 32px; background: #fff; border: 1px solid var(--v7-line); border-radius: 8px; box-shadow: 0 16px 40px #2f353917; }
-  .product-mark { width: 42px; height: 42px; display: grid; place-items: center; background: var(--v7-accent); color: #fff; border-radius: 8px; font-weight: 800; }
   h1, h2, h3, p { margin-top: 0; }
   .login h1 { margin-bottom: -8px; font-size: 25px; letter-spacing: 0; }
   .login p { color: var(--v7-muted); line-height: 1.5; }
@@ -2249,11 +2249,9 @@
   @media(max-width:600px){.widget-workspace-intro {padding:16px}.widget-workspace-tabs>span {width:100%;margin-inline-start:0}.widget-workspace-tabs button {padding:10px;font-size:11px}.widget-install-grid .form-footer {align-items:start;flex-direction:column}.widget-install-grid .form-footer button {width:100%}}
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid var(--v7-line); }
   .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:var(--v7-canvas)}
-  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:64px clamp(32px,6vw,100px);background:radial-gradient(ellipse at 20% 0%,var(--v7-brand),transparent 65%),var(--v7-brand);color:#fff;min-width:0}
-  .login-brand {display:flex;align-items:center;gap:16px;margin-bottom:64px;text-decoration:none;color:white;font-size:24px;font-weight:700;letter-spacing:-.04em}
-  .login-brand img {flex:none;border-radius:12px}
-  .login-brand span {font-size:24px;letter-spacing:-.04em;color:var(--v7-canvas)}
-  .login-brand strong {color:var(--v7-tint-line)}
+  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:var(--v7-brand);color:#fff;min-width:0}
+  .login-brand {display:block;margin-bottom:32px;text-decoration:none;width:100%;max-width:600px}
+  .login-brand img {display:block;width:100%;height:auto;border-radius:12px}
   .login-intro .eyebrow {color:var(--v7-tint-line);margin-bottom:20px}
   .login-intro h2 {font-size:clamp(32px,3.5vw,50px);line-height:1.15;letter-spacing:-.035em;max-width:520px;margin-bottom:24px;color:#fff}
   .login-intro p:not(.eyebrow) {font-size:16px;line-height:1.7;color:var(--v7-line);max-width:480px}
@@ -2265,7 +2263,6 @@
   .login {width:100%;padding:32px;border-color:var(--v7-line);border-radius:20px;box-shadow:0 16px 60px #2f35390a;gap:16px}
   .login h1 {font-size:27px;line-height:1.25;letter-spacing:-.025em;margin-bottom:0}
   .login p {font-size:13px;margin-bottom:0;line-height:1.6;color:var(--v7-muted)}
-  .product-mark {display:block;background:var(--v7-canvas);border-radius:12px;width:52px;height:52px;object-fit:contain}
   .password-field {display:flex;position:relative}
   .password-field input {padding-inline-end:124px}
   .password-field button {position:absolute;inset-inline-end:6px;top:6px;bottom:6px;min-height:30px;padding:4px 8px;border:0;border-radius:6px;background:var(--v7-soft);color:var(--v7-accent);font-size:11px;max-width:118px}
@@ -2281,7 +2278,6 @@
   .app-shell {grid-template-columns:238px minmax(0,1fr)}
   .sidebar {background:var(--v7-brand);padding:22px 14px 16px;gap:20px;overflow:hidden}
   .side-brand {display:flex;align-items:center;gap:12px;flex:none;padding:0 10px 20px;border-color:#ffffff19}
-  .side-brand .brand-mark {display:block;width:44px;height:44px;flex:none;border-radius:10px;background:var(--v7-canvas);object-fit:contain}
   .side-brand > div {display:grid;gap:3px;min-width:0}
   .side-brand strong {font-size:16px;font-weight:650;letter-spacing:-.02em;color:#fff}
   .side-brand small {color:var(--v7-control-line);font-size:11px;letter-spacing:0}
@@ -2362,7 +2358,6 @@
   .activation-notice a {font-size:12px;font-weight:600;border-color:var(--v7-control-line);border-radius:7px;color:var(--v7-accent);padding:8px 12px}
   .activation-notice a:hover {background:var(--v7-soft)}
   .login {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:0 6px 24px #2f353906}
-  .product-mark {background:var(--v7-canvas);border-radius:10px}
   .password-field button,.login-policy a {color:var(--v7-accent)}
   .login-intro {background:var(--v7-brand)}
   .login-intro .eyebrow {color:var(--v7-tint-line)}

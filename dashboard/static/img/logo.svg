@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 164 164" shape-rendering="geometricPrecision" role="img" aria-labelledby="title">
   <title id="title">V7 by Vertex Seven</title>
-  <rect width="164" height="164" rx="36" fill="#f3f4f4"/>
-  <g transform="translate(1 19)">
-    <path fill="#087f5b" d="M8 42h37l25 43 24-43h21l-39 68H64L35 61H19Z"/>
-    <path fill="#3f4549" d="M56 16h98l-42 72H91l33-56H56Z"/>
+  <rect width="164" height="164" rx="30" fill="#fff"/>
+  <g transform="translate(10 40) scale(.138)">
+    <path fill="#00572f" d="M0 108H339L484 371L635 108H786L499 600H454L237 198H51Z"/>
+    <path fill="#48494b" d="M362 0H1045L735 515H598L860 80H362Z"/>
   </g>
 </svg>

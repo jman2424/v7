@@ -36,12 +36,12 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 .wrap { width: min(1184px, calc(100% - 80px)); margin-inline: auto; }
 .skip-link { position: absolute; top: -80px; left: 20px; padding: 12px; background: var(--ink); color: #fff; z-index: 20; }
 .skip-link:focus { top: 12px; }
-.site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; border-bottom: 1px solid var(--line); }
+.site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 104px; border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 12px; flex: none; }
-.brand > img { width: 56px; height: 36px; object-fit: contain; }
-.brand-name { font-size: 20px; font-weight: 700; letter-spacing: -.045em; line-height: 1.2; }
-.brand-name > span { color: var(--accent); }
-.brand-caption { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: .02em; }
+.brand-logo { display: block; position: relative; width: 108px; aspect-ratio: 1075 / 835; overflow: hidden; }
+.brand-logo > img { position: absolute; width: 116.6512%; height: auto; max-width: none; left: -8.3721%; top: -25.7485%; }
+.brand-banner { padding-top: 24px; }
+.brand-banner > img { display: block; width: 100%; height: auto; }
 .site-header nav { display: flex; align-items: center; gap: 28px; font-size: 13px; font-weight: 550; }
 .site-header nav a { padding-block: 12px; color: var(--charcoal); }
 .site-header nav a:hover { color: var(--accent); }
@@ -163,8 +163,6 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 .closing > div:last-child { display: flex; flex-direction: column; align-items: flex-start; gap: 15px; flex: none; }
 .closing .text-link { font-size: 12px; }
 .site-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; min-height: 100px; padding-block: 24px; border-top: 1px solid var(--line); }
-.site-footer .brand-name { font-size: 17px; }
-.site-footer .brand > img { width: 44px; height: 28px; }
 .site-footer p { color: var(--muted); font-size: 12px; }
 .footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; font-size: 12px; color: var(--muted); }
 .footer-links button { padding: 0; border: 0; background: none; font-size: 12px; color: inherit; }
@@ -233,9 +231,7 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 }
 @media (max-width: 480px) {
   .brand { gap: 8px; }
-  .brand > img { width: 44px; height: 28px; }
-  .brand-name { font-size: 18px; }
-  .brand-caption { font-size: 10px; }
+  .brand-logo { width: 88px; }
   .header-actions { gap: 8px; }
   .site-language select { max-width: 85px; padding-inline: 6px; font-size: 11px; }
   .button-small { padding-inline: 11px; font-size: 12px; }

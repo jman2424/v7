@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="584" height="376" viewBox="8 16 146 94" shape-rendering="geometricPrecision" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" width="1045" height="600" viewBox="0 0 1045 600" shape-rendering="geometricPrecision" role="img" aria-labelledby="title">
   <title id="title">Vertex Seven message arrow</title>
-  <path fill="#087f5b" d="M8 42h37l25 43 24-43h21l-39 68H64L35 61H19Z"/>
-  <path fill="#3f4549" d="M56 16h98l-42 72H91l33-56H56Z"/>
+  <path fill="#00572f" d="M0 108H339L484 371L635 108H786L499 600H454L237 198H51Z"/>
+  <path fill="#48494b" d="M362 0H1045L735 515H598L860 80H362Z"/>
 </svg>
