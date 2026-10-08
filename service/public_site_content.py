@@ -104,15 +104,15 @@ SOLUTIONS: dict[str, Solution] = {
         "caution": "A sales chatbot should not invent discounts, availability, guaranteed delivery or commitments. AI can misunderstand a request. Review the setup and involve your team where approval is needed. V7 supports sales conversations and recorded requests; it does not promise conversion results or automate every transaction.",
     },
     "customer-support-chatbot": {
-        "title": "Customer Support Chatbot for FAQs | Vertex Seven",
-        "description": "Help customers find FAQs, opening hours, delivery policies and contact paths. Configure a V7 customer support chatbot with clear limits and team handoff.",
+        "title": "AI Customer Service Software | Customer Support Chatbot — V7",
+        "description": "V7 AI customer service software: a customer support chatbot for FAQs, opening hours and delivery policies, with clear limits and team handoff.",
         "label": "Customer support chatbot",
         "h1": "A customer support chatbot for everyday enquiries",
         "intro": "Customers often need the same practical information before or after they choose a product: opening hours, delivery areas, collection arrangements or how to reach the right person. V7 Agents can use your FAQs and business policies to support those everyday enquiries, with a clear contact path when the answer needs your team.",
         "audience": "For businesses with recurring customer questions and a team handling exceptions.",
         "sections": [
-            {"heading": "Make common answers easier to find", "paragraphs": [
-                "Add the questions customers ask most often and the policies that answer them. Branch records cover locations and hours; delivery information explains the areas and rules your company has configured. A customer support chatbot can bring these details into the conversation, rather than expecting someone to find the right footer link. Write policies in plain language, including any conditions that change the answer.",
+            {"heading": "AI customer service software for everyday answers", "paragraphs": [
+                "AI customer service software works best with clear answers to the questions customers ask most often. Add the policies that explain them. Branch records cover locations and hours; delivery information explains the areas and rules your company has configured. A customer support chatbot can bring these details into the conversation, rather than expecting someone to find the right footer link. Write policies in plain language, including any conditions that change the answer.",
             ]},
             {"heading": "Use website knowledge with care", "paragraphs": [
                 "The workspace can import up to six public pages from the HTTPS website saved in your business profile. Imported excerpts can supplement structured information for questions it does not cover. This is a bounded import, not continuous synchronisation of an entire website. Review the source pages, refresh the import when they change, and keep important prices, rules and FAQs in the relevant management screens.",

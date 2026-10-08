@@ -19,6 +19,12 @@ and Bing Webmaster Tools properties. Account ownership and any required DNS
 verification must be completed in those services. Discovery files and structured
 data do not guarantee indexing, rich results or ranking.
 
+The homepage product schema describes the public monthly platform plan. Its
+unit price is £480 per month including VAT. Both the visible pricing section
+and schema descriptions disclose separate £240 implementation, API usage and
+optional WhatsApp charges. No reviews or ratings are fabricated. Search engines
+may display only part of this information or choose not to show a rich result.
+
 Relevant checks:
 
 ```sh

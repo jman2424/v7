@@ -20,7 +20,19 @@
   <meta name="twitter:title" content="V7 Agents — AI chatbot for business">
   <meta name="twitter:description" content="Configure a business-aware AI sales assistant with your catalog, FAQs, branding and tone.">
   <meta name="twitter:image" content="{{ site_origin }}{{ url_for('static', filename='img/vertex-seven-banner.png') }}">
-  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "logo": site_origin + url_for('static', filename='img/vertex-seven-logo.png')}, {"@type": "WebSite", "@id": site_origin + "/#website", "name": "V7 Agents by Vertex Seven", "url": canonical_url, "publisher": {"@id": site_origin + "/#organization"}, "inLanguage": "en"}]} | tojson }}</script>
+  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
+    "@context": "https://schema.org", "@graph": [
+      {"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "logo": site_origin + url_for('static', filename='img/vertex-seven-logo.png')},
+      {"@type": "WebSite", "@id": site_origin + "/#website", "name": "V7 Agents by Vertex Seven", "url": canonical_url, "publisher": {"@id": site_origin + "/#organization"}, "inLanguage": "en"},
+      {"@type": "Product", "@id": site_origin + "/#monthly-plan", "name": "V7 Agents monthly platform plan",
+       "description": "Business-aware website sales agent and management workspace. £480 per month including VAT. Required one-time implementation is £240 including VAT. API usage is additional; optional WhatsApp is charged separately.",
+       "url": canonical_url + "#pricing", "image": site_origin + url_for('static', filename='img/vertex-seven-banner.png'),
+       "brand": {"@type": "Brand", "name": "Vertex Seven"},
+       "offers": {"@type": "Offer", "url": canonical_url + "#pricing", "name": "Monthly platform subscription",
+         "description": "Monthly subscription only. Required implementation, API usage and optional WhatsApp are charged separately.",
+         "priceSpecification": {"@type": "UnitPriceSpecification", "price": "480.00", "priceCurrency": "GBP", "referenceQuantity": {"@type": "QuantitativeValue", "value": 1, "unitText": "month"}, "valueAddedTaxIncluded": true},
+         "seller": {"@id": site_origin + "/#organization"}}}
+    ]} | tojson }}</script>
   <meta name="theme-color" content="#087f5b">
   <link rel="icon" href="{{ url_for('static', filename='img/logo.svg', v='20261008a') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
@@ -93,7 +105,7 @@
       <div class="section-heading"><div><p class="eyebrow">PRICING</p><h2 id="pricing-title">A clear plan.<br>Optional extras.</h2></div><p>All prices are in GBP before VAT. We show the 20% VAT and full checkout total below. Pay the monthly plan and one-time implementation separately, each with its own invoice.</p></div>
       <div class="feature-grid">
         <article class="feature feature-green"><span class="card-number">MONTHLY PLAN</span><h3>£400 <small>/ month</small></h3><p><strong>£80 VAT · £480/month total</strong></p><p>Your business-aware website sales agent and management workspace. Manage your business knowledge, branding, conversations and leads.</p><p>Monthly subscription only. Implementation and API usage are billed separately.</p><a class="button button-dark" href="/console/subscription">Choose your plan →</a></article>
-        <article class="feature"><span class="card-number">ONE-TIME SETUP</span><h3>£200 <small>once</small></h3><p><strong>£40 VAT · £240 total</strong></p><p>Initial business and agent setup, including your business information and website integration settings.</p><p>Pay implementation through its own checkout. It does not repeat with your monthly subscription.</p><a class="text-link" href="/console/subscription">View implementation →</a></article>
+        <article class="feature"><span class="card-number">ONE-TIME SETUP</span><h3>£200 <small>once</small></h3><p><strong>£40 VAT · £240 total</strong></p><p>Required initial business and agent setup, including your business information and website integration settings.</p><p>Pay implementation through its own checkout. It does not repeat with your monthly subscription.</p><a class="text-link" href="/console/subscription">View implementation →</a></article>
         <article class="feature"><span class="card-number">OPTIONAL WHATSAPP ADD-ON</span><h3>£200 <small>/ month</small></h3><p><strong>£40 VAT · £240/month total</strong></p><p>Add your sales agent to WhatsApp if your business needs it. Requires a configured Meta or Twilio provider connection.</p><p>Choose it after activating your monthly plan. Separate subscription; website chat works without this add-on.</p><a class="text-link" href="/console/subscription">Choose WhatsApp →</a></article>
       </div>
       <div class="pricing-api"><h3>API costs are separate</h3><p>AI API usage is not included in the monthly plan, implementation fee or WhatsApp add-on. It varies with your agent's model usage. Your platform administrator reviews each completed month and approves the charge, then you pay it through a separate checkout and invoice. Usage estimates are shown in your workspace; VAT is shown before payment.</p><p><strong>Monthly example:</strong> £400 + £80 VAT for the platform, or £600 + £120 VAT with WhatsApp. Implementation is a separate one-time £200 + £40 VAT. API charges are additional in both cases.</p></div>
