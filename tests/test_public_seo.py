@@ -106,9 +106,9 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
     assert Decimal(specification["price"]) == monthly_total
     assert specification["priceCurrency"] == "GBP"
     assert specification["valueAddedTaxIncluded"] is True
-    assert specification["referenceQuantity"] == {
-        "@type": "QuantitativeValue", "value": 1, "unitText": "month",
-    }
+    assert specification["unitCode"] == "MON"
+    assert specification["unitText"] == "month"
+    assert "referenceQuantity" not in specification
     visible = " ".join(" ".join(page.visible_text).split())
     assert "£80 VAT · £480/month total" in visible
     assert "£40 VAT · £240 total" in visible
