@@ -1530,7 +1530,7 @@
 {:else if !user}
   <main class="login-shell">
     <section class="login-intro" aria-labelledby="welcome-title">
-      <a class="login-brand" href="/" aria-label="Vertex Seven home"><img src="/static/img/vertex-seven-banner.png?v=20261008a" width="1672" height="941" alt="Vertex Seven — AI agents for business operations" /></a>
+      <a class="login-brand" href="/" aria-label="Vertex Seven home"><PlatformLogo size={36} /><span>Vertex <strong>Seven</strong></span></a>
       <p class="eyebrow">{$t('Your business workspace')}</p>
       <h2 id="welcome-title">{$t('Customer conversations, with a clear next step.')}</h2>
       <p>{$t('Products, consultations and customer support.')} {$t('A sales assistant that knows your business.')}</p>
@@ -1543,7 +1543,7 @@
       <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
-      <PlatformLogo lockup size={132} label="Vertex Seven" />
+      <div class="login-logo"><PlatformLogo size={32} label="" /><span>Vertex <strong>Seven</strong></span></div>
       <h1>{$t(mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7')}</h1>
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if mfa}
@@ -1579,7 +1579,7 @@
   <a class="skip-link" href="#workspace">{$t('Skip to workspace')}</a>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="side-brand"><PlatformLogo size={44} /><div><strong>Vertex Seven</strong><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div></div>
+      <div class="side-brand"><PlatformLogo size={32} /><div><strong>Vertex Seven</strong><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div></div>
       <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
       <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
         {#each navigationGroups as group}
@@ -2249,9 +2249,12 @@
   @media(max-width:600px){.widget-workspace-intro {padding:16px}.widget-workspace-tabs>span {width:100%;margin-inline-start:0}.widget-workspace-tabs button {padding:10px;font-size:11px}.widget-install-grid .form-footer {align-items:start;flex-direction:column}.widget-install-grid .form-footer button {width:100%}}
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid var(--v7-line); }
   .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:var(--v7-canvas)}
-  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:var(--v7-brand);color:#fff;min-width:0}
-  .login-brand {display:block;margin-bottom:32px;text-decoration:none;width:100%;max-width:600px}
-  .login-brand img {display:block;width:100%;height:auto;border-radius:12px}
+  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:linear-gradient(90deg,#143c30ed,#143c30c9),url('/static/img/vertex-seven-banner.png?v=20261008a');background-size:cover,auto 135%;background-position:center,right center;background-repeat:no-repeat;color:#fff;min-width:0}
+  .login-brand,.login-logo {display:flex;align-items:center;gap:10px;font-size:18px;line-height:1.2;letter-spacing:-.025em}
+  .login-brand {margin-bottom:40px;text-decoration:none;color:#fff;width:fit-content}
+  .login-brand strong,.login-logo strong {font-weight:700}
+  .login-logo {color:var(--v7-ink)}
+  .login-logo strong {color:var(--v7-accent)}
   .login-intro .eyebrow {color:var(--v7-tint-line);margin-bottom:20px}
   .login-intro h2 {font-size:clamp(32px,3.5vw,50px);line-height:1.15;letter-spacing:-.035em;max-width:520px;margin-bottom:24px;color:#fff}
   .login-intro p:not(.eyebrow) {font-size:16px;line-height:1.7;color:var(--v7-line);max-width:480px}
@@ -2359,12 +2362,11 @@
   .activation-notice a:hover {background:var(--v7-soft)}
   .login {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:0 6px 24px #2f353906}
   .password-field button,.login-policy a {color:var(--v7-accent)}
-  .login-intro {background:var(--v7-brand)}
   .login-intro .eyebrow {color:var(--v7-tint-line)}
   :global(body) {background:var(--v7-canvas)}
-  @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{padding:36px 28px}.login-brand{margin-bottom:28px}.login-intro h2{font-size:34px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{padding:24px;max-width:600px}}
+  @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{order:2;padding:28px}.login-brand{margin-bottom:40px}.login-intro h2{font-size:28px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{order:1;padding:28px;max-width:600px}}
   @media(max-width:1100px){.workspace-title{flex-basis:100%}.workspace-actions{justify-content:flex-start}}
-  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0;position:relative;height:auto;overflow:visible;padding:16px}.side-brand{padding:0;border:0;gap:10px;grid-template-columns:none}.side-brand small{grid-column:auto}.menu-toggle{justify-self:end;margin-top:0;color:var(--v7-soft);background:#ffffff10;border-color:#ffffff26;border-radius:7px;min-height:44px}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.sign-out{margin-top:0}.page-description{font-size:12px}.login{padding:24px}.login-intro h2{font-size:30px}.account{display:none}}
+  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0;position:relative;height:auto;overflow:visible;padding:16px}.side-brand{padding:0;border:0;gap:10px;grid-template-columns:none}.side-brand small{grid-column:auto}.menu-toggle{justify-self:end;margin-top:0;color:var(--v7-soft);background:#ffffff10;border-color:#ffffff26;border-radius:7px;min-height:44px}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.sign-out{margin-top:0}.page-description{font-size:12px}.login{padding:24px}.account{display:none}}
   @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:18px}.metric-grid{padding:0;gap:0}.metric-grid>div{min-height:112px;padding:18px}.metric-grid strong{font-size:29px}.metric-grid>div:nth-child(3){border-inline-start:0;border-top:1px solid var(--v7-line)}.metric-grid>div:nth-child(4){border-top:1px solid var(--v7-line)}.funnel-strip{margin:16px 18px 0}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:18px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
   @media(max-width:720px){nav{grid-column:1/-1;flex:none;overflow:visible;gap:14px;padding:0}nav.open{grid-template-columns:1fr;margin-top:16px}.nav-section{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.nav-group{margin:4px 8px}.nav-section:first-child .nav-group{margin-top:4px}.nav-section a,.cookie-nav-trigger{min-height:44px;font-size:12px;gap:8px}.workspace-retry{align-items:flex-start;flex-direction:column}}
 </style>
