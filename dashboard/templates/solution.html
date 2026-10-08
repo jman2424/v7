@@ -26,6 +26,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
+  {% if ga4_measurement_id %}
+  <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
+  <script defer src="{{ url_for('static', filename='js/public-analytics.js') }}"></script>
+  {% endif %}
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
     '@context': 'https://schema.org', '@type': 'WebPage', 'name': solution.title,
     'description': solution.description, 'url': canonical_url,
@@ -72,6 +76,6 @@
     <nav class="solution-footer-links" aria-label="Solutions">{% for related_slug, related in solutions.items() %}<a href="/solutions/{{ related_slug }}"{% if related_slug == slug %} aria-current="page"{% endif %}>{{ related.label }}</a>{% endfor %}</nav>
     <div class="footer-links"><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
   </footer>
-  <aside id="site-cookie-banner" class="site-cookie-banner" hidden aria-label="Cookie preferences"><div class="site-cookie-heading"><strong>Your privacy choices</strong><button type="button" class="site-cookie-close" data-close-cookie-preferences aria-label="Close cookie preferences"><span aria-hidden="true">×</span></button></div><p>Sign-in and security cookies are essential. Saving your language is optional. No advertising cookies are used.</p><div class="site-cookie-actions"><button type="button" data-preferences="essential">Essential only</button><button type="button" class="button-dark" data-preferences="all">Save my preferences</button></div><a href="/cookies">Cookie information</a></aside>
+  {% include 'public_cookie_preferences.html' %}
 </body>
 </html>

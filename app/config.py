@@ -9,6 +9,7 @@ Configuration loader.
 from __future__ import annotations
 import json
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -61,6 +62,12 @@ class Settings:
     WHATSAPP_META_TENANT_MAP: Dict[str, str] | None = None
     TWILIO_WHATSAPP_TENANT_MAP: Dict[str, str] | None = None
     TWILIO_WHATSAPP_NUMBER: str = ""
+    GA4_MEASUREMENT_ID: str = ""
+
+
+def valid_ga4_measurement_id(value: object) -> str:
+    """Optional public tracking configuration must fail closed, not break startup."""
+    return value if isinstance(value, str) and re.fullmatch(r"G-[A-Z0-9]{6,20}", value) else ""
 
 
 def _to_bool(s: str | None, default: bool = False) -> bool:
@@ -176,4 +183,7 @@ def load_settings(override: dict | None = None) -> Settings:
             "TWILIO_WHATSAPP_TENANT_MAP_JSON",
         ),
         TWILIO_WHATSAPP_NUMBER=o.get("TWILIO_WHATSAPP_NUMBER", _get("TWILIO_WHATSAPP_NUMBER", "")),
+        GA4_MEASUREMENT_ID=valid_ga4_measurement_id(
+            o.get("GA4_MEASUREMENT_ID", os.environ.get("GA4_MEASUREMENT_ID", ""))
+        ),
     )

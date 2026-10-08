@@ -13,6 +13,8 @@ from threading import Lock
 from flask import abort, g, request, session
 from werkzeug.wsgi import get_host
 
+from app.public_analytics import measurement_id_for_request
+
 
 # Operational routes and tenant conversations are not public search content.
 NON_INDEXABLE_PREFIXES = (
@@ -71,10 +73,17 @@ def install_request_id(app):
         response.headers.setdefault("Referrer-Policy", "same-origin")
         if response.status_code == 429:
             response.headers.setdefault("Retry-After", "60")
+        analytics_enabled = (response.status_code == 200 and response.mimetype == "text/html"
+                             and bool(measurement_id_for_request()))
+        analytics_script = " https://www.googletagmanager.com" if analytics_enabled else ""
+        analytics_connections = (
+            " https://www.googletagmanager.com https://www.google-analytics.com"
+            " https://region1.google-analytics.com"
+        ) if analytics_enabled else ""
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'nonce-" + g.csp_nonce + "'; "
+            "default-src 'self'; script-src 'self' 'nonce-" + g.csp_nonce + "'" + analytics_script + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; "
-            "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+            "connect-src 'self'" + analytics_connections + "; object-src 'none'; base-uri 'self'; form-action 'self'"
         )
         if (request.path.startswith(NON_INDEXABLE_PREFIXES)
                 or (request.path == "/privacy" and "tenant" in request.args)):

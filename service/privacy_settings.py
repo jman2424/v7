@@ -79,6 +79,9 @@ def processors(container, tenant: str | None) -> list[dict[str, str]]:
     from service import registration_mail
     from service.whatsapp_configuration import has_secret, provider_enabled, recipient_routes, twilio_token
     result = []
+    from app.config import valid_ga4_measurement_id
+    if tenant is None and valid_ga4_measurement_id(getattr(container.settings, "GA4_MEASUREMENT_ID", "")):
+        result.append({"name": "Google Analytics", "purpose": "Optional public marketing page views after analytics opt-in; no chat or account data."})
     if os.getenv("RENDER") == "true":
         result.append({"name": "Render", "purpose": "Application hosting and infrastructure logs."})
     else:

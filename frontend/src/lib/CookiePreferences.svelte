@@ -1,17 +1,25 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { choosePreferences, preferenceChoice, t } from './i18n';
+  import { analyticsPreferenceChoice, choosePreferences, preferenceChoice, t } from './i18n';
   export let open = false;
   let reopened = false;
   let opener: HTMLButtonElement | undefined;
   let closeButton: HTMLButtonElement;
+  let saveLanguage = false;
+  let allowAnalytics = false;
+  function refreshChoices() {
+    saveLanguage = preferenceChoice() === 'all';
+    allowAnalytics = analyticsPreferenceChoice() === 'granted';
+  }
   onMount(() => {
-    open = !preferenceChoice();
+    refreshChoices();
+    open = !preferenceChoice() || !analyticsPreferenceChoice();
     const updateChoice = () => { open = false; };
     window.addEventListener('v7-preferences-changed', updateChoice);
     return () => window.removeEventListener('v7-preferences-changed', updateChoice);
   });
   export async function showPreferences(trigger: HTMLButtonElement) {
+    refreshChoices();
     opener = trigger;
     reopened = true;
     open = true;
@@ -24,8 +32,8 @@
     opener = undefined;
     reopened = false;
   }
-  function save(choice: 'essential' | 'all') {
-    choosePreferences(choice);
+  function save(essentialOnly = false) {
+    choosePreferences(!essentialOnly && saveLanguage ? 'all' : 'essential', !essentialOnly && allowAnalytics);
     dismiss();
   }
 </script>
@@ -33,8 +41,13 @@
 {#if open}
   <aside id="workspace-cookie-preferences" class="cookie-panel" aria-label={$t('Cookie preferences')}>
     <div class="cookie-heading"><strong>{$t('Your privacy choices')}</strong><button class="close-choice" type="button" aria-label={$t('Close cookie preferences')} bind:this={closeButton} on:click={dismiss}><span aria-hidden="true">×</span></button></div>
-    <p>{$t('Sign-in and security cookies are essential. Saving your language is optional. No advertising cookies are used.')}</p>
-    <div class="cookie-actions"><button type="button" on:click={() => save('essential')}>{$t('Essential only')}</button><button class="primary" type="button" on:click={() => save('all')}>{$t('Save my preferences')}</button></div>
+    <p>{$t('Sign-in and security cookies are essential. Language and public website analytics are separate optional choices. No advertising cookies are used.')}</p>
+    <div class="cookie-options">
+      <label><input type="checkbox" bind:checked={saveLanguage} /><span>{$t('Remember my language')}</span></label>
+      <label><input type="checkbox" bind:checked={allowAnalytics} /><span>{$t('Allow public website analytics (Google Analytics)')}</span></label>
+      <p>{$t('Analytics measures visits to the public homepage and solution pages only. It does not run in your workspace or customer chat. You can change this choice here at any time.')}</p>
+    </div>
+    <div class="cookie-actions"><button type="button" on:click={() => save(true)}>{$t('Essential only')}</button><button class="primary" type="button" on:click={() => save()}>{$t('Save my preferences')}</button></div>
     <a href="/cookies" target="_blank" rel="noopener">{$t('Cookie information')} <span aria-hidden="true">↗</span></a>
   </aside>
 {/if}
@@ -42,5 +55,6 @@
   .cookie-panel{position:fixed;bottom:max(16px,env(safe-area-inset-bottom));inset-inline-end:16px;z-index:1000;display:grid;gap:12px;width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:18px 20px;border:1px solid var(--v7-line);border-radius:18px;background:#fff;box-shadow:0 12px 45px #2f353924;color:var(--v7-ink);box-sizing:border-box}
   .cookie-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.cookie-heading strong{font-size:15px;color:var(--v7-brand,#203b30)}p{font-size:13px;margin:0;line-height:1.6;}a{font-size:12px;color:var(--v7-accent);justify-self:start;text-underline-offset:3px}.cookie-actions{display:flex;gap:8px;flex-wrap:wrap}button{font:inherit;font-size:12px;font-weight:600;padding:10px 13px;border:1px solid var(--v7-control-line,#b5c5bc);border-radius:10px;background:#fff;color:var(--v7-ink);cursor:pointer;min-height:44px;}.cookie-actions button{flex:1}.primary{background:var(--v7-accent);color:#fff;border-color:var(--v7-accent)}.primary:hover{background:var(--v7-accent-hover);border-color:var(--v7-accent-hover)}.close-choice{padding:0;width:44px;flex-shrink:0;border:0;background:var(--v7-soft);color:var(--v7-charcoal);font-size:24px;line-height:1}.close-choice:hover{background:var(--v7-line)}
   @media(max-width:480px){.cookie-panel{inset-inline:12px;bottom:max(12px,env(safe-area-inset-bottom));width:auto;padding:16px}.cookie-actions button{padding-inline:8px}}
-  button:focus-visible,a:focus-visible { outline:3px solid var(--v7-focus); outline-offset:3px; }
+  .cookie-options{display:grid;gap:10px;padding-block:12px;border-block:1px solid var(--v7-line)}.cookie-options label{display:flex;align-items:flex-start;gap:10px;font-size:12px;line-height:1.6;cursor:pointer}.cookie-options input{width:17px;height:17px;margin:1px 0 0;flex:none;accent-color:var(--v7-accent)}.cookie-options p{font-size:11px;color:var(--v7-muted)}
+  button:focus-visible,a:focus-visible,input:focus-visible { outline:3px solid var(--v7-focus); outline-offset:3px; }
 </style>

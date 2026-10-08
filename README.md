@@ -3,6 +3,8 @@
 Unified AI-driven sales and support framework for WhatsApp, website chat
 widgets, tenant management, and admin CRM analytics.
 
+Explore [Vertex Seven and V7 Agents](https://vertex-seven.com/).
+
 ## Overview
 
 V7 Agents by Vertex Seven is a modular, multi-tenant chatbot and sales automation

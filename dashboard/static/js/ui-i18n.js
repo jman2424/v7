@@ -10,8 +10,16 @@
     catch { return ''; }
   };
   const preference = () => ['essential', 'all'].includes(cookie('v7_preferences')) ? cookie('v7_preferences') : '';
+  const analyticsChoice = () => {
+    const value = cookie('v7_analytics_consent');
+    return value === 'v1:granted' ? 'granted' : value === 'v1:denied' ? 'denied' : '';
+  };
   const writeCookie = (name, value, age) => {
     document.cookie = name + '=' + encodeURIComponent(value) + '; Path=/; Max-Age=' + age + '; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+  };
+  const clearAnalyticsCookies = () => {
+    const names = document.cookie.split('; ').map(item => item.split('=')[0]).filter(name => /^_ga(?:_[A-Z0-9]{6,20})?$/.test(name));
+    for (const name of names) writeCookie(name, '', 0);
   };
   const saved = preference() === 'all' ? cookie('v7_language') : '';
   let language = allowed.has(saved) ? saved : navigator.language.split('-')[0].toLowerCase();
@@ -42,15 +50,34 @@
   };
   const choose = choice => {
     if (choice !== 'all' && choice !== 'essential') return;
-    writeCookie('v7_preferences', choice, 180 * 86400);
-    if (choice === 'essential') writeCookie('v7_language', '', 0);
+    const languageInput = banner?.querySelector('[data-consent-language]');
+    const analyticsInput = banner?.querySelector('[data-consent-analytics]');
+    const saveLanguage = choice === 'all' && (languageInput ? languageInput.checked === true : true);
+    const allowAnalytics = choice === 'all' && analyticsInput?.checked === true;
+    writeCookie('v7_preferences', saveLanguage ? 'all' : 'essential', 180 * 86400);
+    if (!saveLanguage) writeCookie('v7_language', '', 0);
     else writeCookie('v7_language', language, 180 * 86400);
+    writeCookie('v7_analytics_consent', allowAnalytics ? 'v1:granted' : 'v1:denied', 180 * 86400);
+    if (!allowAnalytics) clearAnalyticsCookies();
+    window.dispatchEvent(new CustomEvent('v7-analytics-consent-changed', {detail:{granted:allowAnalytics}}));
+    window.dispatchEvent(new Event('v7-preferences-changed'));
+    if (typeof BroadcastChannel === 'function') {
+      const channel = new BroadcastChannel('v7-cookie-consent');
+      channel.postMessage('changed');
+      channel.close();
+    }
     closePreferences();
   };
   const banner = document.getElementById('site-cookie-banner');
   let preferenceOpener = null;
   const setBannerOpen = open => {
     if (banner) banner.hidden = !open;
+    if (open) {
+      const languageInput = banner?.querySelector('[data-consent-language]');
+      const analyticsInput = banner?.querySelector('[data-consent-analytics]');
+      if (languageInput) languageInput.checked = preference() === 'all';
+      if (analyticsInput) analyticsInput.checked = analyticsChoice() === 'granted';
+    }
     document.querySelectorAll('[data-open-cookie-preferences]').forEach(button => {
       button.setAttribute('aria-expanded', String(open));
       button.setAttribute('aria-controls', 'site-cookie-banner');
@@ -61,7 +88,7 @@
     preferenceOpener?.focus();
     preferenceOpener = null;
   };
-  window.V7UI = {t: translate, language: () => language, setLanguage};
+  window.V7UI = {t: translate, language: () => language, setLanguage, analyticsChoice, clearAnalyticsCookies};
   document.querySelectorAll('[data-language-picker]').forEach(select => select.addEventListener('change', () => setLanguage(select.value)));
   document.querySelectorAll('[data-open-cookie-preferences]').forEach(button => button.addEventListener('click', () => {
     preferenceOpener = button;
@@ -71,7 +98,8 @@
   document.querySelectorAll('[data-close-cookie-preferences]').forEach(button => button.addEventListener('click', closePreferences));
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && banner && !banner.hidden) closePreferences(); });
   document.querySelectorAll('[data-preferences]').forEach(button => button.addEventListener('click', () => choose(button.dataset.preferences)));
-  setBannerOpen(!preference());
+  // Legacy "all" only granted language storage, never analytics.
+  setBannerOpen(!preference() || !analyticsChoice());
   apply();
   Promise.all(dictionaryUrls.map(url => fetch(url, {credentials:'omit'}).then(response => response.ok ? response.json() : {}).catch(() => ({})))).then(values => {
     for (const value of values) {

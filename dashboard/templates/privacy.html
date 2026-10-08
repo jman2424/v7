@@ -22,6 +22,13 @@
       <li>Conversation and usage records help authorised business users review agent activity, errors and costs.</li>
       <li>When you use voice, V7 handles the recording in memory for transcription. The transcript may be saved with the conversation; an enabled transcription provider receives the audio.</li>
     </ul><p>AI responses may be inaccurate. A human should review important enquiries and decisions. This service does not establish a lawful basis on a business's behalf.</p></section>
+    {% if not tenant and processors|selectattr('name', 'equalto', 'Google Analytics')|list %}
+    <section><h2>Optional public website analytics</h2>
+      <p>If you allow analytics in Cookie preferences, Google Analytics measures visits and sessions on the public homepage and solution pages, including basic browser and device information. It does not run on workspace, sign-in or customer-chat pages. V7 excludes URL query strings, fragments, referrers, form contents and account or conversation data from its analytics configuration.</p>
+      <p>Analytics is off until you opt in. Language storage is a separate choice. Advertising features and Google Signals are disabled. You can withdraw analytics consent through Cookie preferences; this stops subsequent measurement and clears this website's Analytics cookies. Withdrawal does not delete data already received by Google.</p>
+      <p>Google Analytics user-level and event-level retention is configured to two months, with retention resets on new activity disabled. This setting does not apply to standard aggregated reports. See <a href="https://support.google.com/analytics/answer/7667196" rel="noopener noreferrer">Google's data-retention information</a> and <a href="https://policies.google.com/privacy" rel="noopener noreferrer">Google's privacy policy</a>.</p>
+    </section>
+    {% endif %}
     <section><h2>Business explanation of lawful basis</h2><p class="owner-text">{{ policy.settings.lawful_basis or 'Not provided — the controller must explain its lawful basis for each purpose.' }}</p></section>
     <section><h2>Retention</h2>
       {% if policy.settings.retention_days is not none %}<p>Business-provided retention period: <strong>{{ policy.settings.retention_days }} days</strong>.</p>{% endif %}
@@ -38,7 +45,7 @@
       <p>Signed-in users can <a href="/auth/privacy/export">download their own account identity and preference metadata</a>. This limited export does not include customer conversations, other accounts or business records; requests for those require a controller review.</p>
       <p>For UK data protection concerns, you can <a href="https://ico.org.uk/make-a-complaint/" rel="noopener noreferrer">contact the Information Commissioner's Office</a>. Other locations may have a local regulator.</p>
     </section>
-    <section><h2>Cookies and review</h2><p><a href="/cookies">Read the cookie information</a> for sign-in, opt-in trusted-device and language choices. The controller should review this notice when the service or processing changes. Business-supplied details do not certify compliance.</p>
+    <section><h2>Cookies and review</h2><p><a href="/cookies">Read the cookie information</a> for sign-in, opt-in trusted-device, language and optional public website analytics choices. The controller should review this notice when the service or processing changes. Business-supplied details do not certify compliance.</p>
       <p class="source">Reference: <a href="https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/the-right-to-be-informed/what-privacy-information-should-we-provide/" rel="noopener noreferrer">ICO guidance on privacy information</a>.</p>
     </section>
   </main><footer class="policy-footer"><a href="/">Vertex Seven</a><a href="/cookies">Cookie information</a></footer>
