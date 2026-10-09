@@ -135,6 +135,26 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
             pending.extend(item)
 
 
+@pytest.mark.parametrize("path", ["/"] + ["/solutions/" + slug for slug in SOLUTIONS])
+def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
+    response = seo_client.get(path, base_url="https://untrusted.example")
+    page = HomeStructuredData()
+    page.feed(response.text)
+    metadata = json.loads(page.scripts[0]["text"])
+    if path == "/":
+        application = next(item for item in metadata["@graph"] if item["@type"] == "SoftwareApplication")
+        visible = " ".join(page.visible_text)
+        assert "V7 Agents is the product; Vertex Seven is the brand behind it." in visible
+        assert "vertex-seven.com" in visible
+    else:
+        application = metadata["about"]
+    assert application["@id"] == ORIGIN + "/#v7-agents"
+    assert application["name"] == "V7 Agents"
+    assert application["publisher"]["@id"] == ORIGIN + "/#organization"
+    assert "raja.jamalkhan24@gmail.com" not in response.text.lower()
+    assert "untrusted.example" not in json.dumps(metadata)
+
+
 def test_sitemap_lists_only_known_public_pages(seo_client):
     response = seo_client.get("/sitemap.xml?tenant=EXAMPLE", base_url="https://untrusted.example")
     assert response.status_code == 200

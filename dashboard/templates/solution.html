@@ -33,10 +33,10 @@
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
     '@context': 'https://schema.org', '@type': 'WebPage', 'name': solution.title,
     'description': solution.description, 'url': canonical_url,
-    'about': {'@type': 'SoftwareApplication', 'name': 'V7 Agents',
+    'about': {'@type': 'SoftwareApplication', '@id': site_origin ~ '/#v7-agents', 'name': 'V7 Agents',
       'applicationCategory': 'BusinessApplication', 'operatingSystem': 'Web browser',
       'url': site_origin ~ '/',
-      'publisher': {'@type': 'Organization', 'name': 'Vertex Seven', 'url': site_origin ~ '/'}
+      'publisher': {'@type': 'Organization', '@id': site_origin ~ '/#organization', 'name': 'Vertex Seven', 'url': site_origin ~ '/'}
     }
   }|tojson }}</script>
 </head>
