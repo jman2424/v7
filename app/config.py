@@ -63,11 +63,31 @@ class Settings:
     TWILIO_WHATSAPP_TENANT_MAP: Dict[str, str] | None = None
     TWILIO_WHATSAPP_NUMBER: str = ""
     GA4_MEASUREMENT_ID: str = ""
+    PUBLIC_WIDGET_TENANT: str = ""
+    PLATFORM_MARKETING_TENANT: str = ""
 
 
 def valid_ga4_measurement_id(value: object) -> str:
     """Optional public tracking configuration must fail closed, not break startup."""
     return value if isinstance(value, str) and re.fullmatch(r"G-[A-Z0-9]{6,20}", value) else ""
+
+
+def valid_public_widget_tenant(value: object) -> str:
+    """Invalid optional embed configuration disables the marketing widget."""
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value) else ""
+
+
+def platform_marketing_tenant(value: object) -> str:
+    """Accept one exact server-owned fee exemption; reject ambiguous configuration."""
+    if value == "":
+        return ""
+    from retrieval.storage import Storage
+    if not isinstance(value, str) or value != value.strip():
+        raise RuntimeError("PLATFORM_MARKETING_TENANT must be one exact tenant key")
+    try:
+        return Storage.validate_tenant_key(value)
+    except ValueError as exc:
+        raise RuntimeError("PLATFORM_MARKETING_TENANT must be one exact tenant key") from exc
 
 
 def _to_bool(s: str | None, default: bool = False) -> bool:
@@ -185,5 +205,11 @@ def load_settings(override: dict | None = None) -> Settings:
         TWILIO_WHATSAPP_NUMBER=o.get("TWILIO_WHATSAPP_NUMBER", _get("TWILIO_WHATSAPP_NUMBER", "")),
         GA4_MEASUREMENT_ID=valid_ga4_measurement_id(
             o.get("GA4_MEASUREMENT_ID", os.environ.get("GA4_MEASUREMENT_ID", ""))
+        ),
+        PUBLIC_WIDGET_TENANT=valid_public_widget_tenant(
+            o.get("PUBLIC_WIDGET_TENANT", os.environ.get("PUBLIC_WIDGET_TENANT", ""))
+        ),
+        PLATFORM_MARKETING_TENANT=platform_marketing_tenant(
+            o.get("PLATFORM_MARKETING_TENANT", os.environ.get("PLATFORM_MARKETING_TENANT", ""))
         ),
     )

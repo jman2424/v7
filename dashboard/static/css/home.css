@@ -181,6 +181,9 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 .footer-links button { padding: 0; border: 0; background: none; font-size: 12px; color: inherit; }
 .site-cookie-banner { position: fixed; z-index: 1000; inset-inline-end: 20px; bottom: max(20px, env(safe-area-inset-bottom)); width: min(420px, calc(100% - 40px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 20px; display: grid; gap: 14px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 45px #3f45491a; }
 .site-cookie-banner[hidden] { display: none; }
+/* Keep the site's assistant behind privacy controls and out of their focus order. */
+#public-site-widget > div { z-index: 900 !important; }
+body:has(.site-cookie-banner:not([hidden])) #public-site-widget { visibility: hidden; }
 .site-cookie-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .site-cookie-heading strong { font-size: 15px; }
 .site-cookie-banner p { font-size: 13px; line-height: 1.65; }

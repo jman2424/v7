@@ -21,6 +21,23 @@ def test_environment_is_available_to_runtime_routes():
     assert settings.ENVIRONMENT == "production"
 
 
+def test_platform_marketing_tenant_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("PLATFORM_MARKETING_TENANT", raising=False)
+    settings = load_settings({"SECRET_KEY": "test-secret-" * 4})
+    assert settings.PLATFORM_MARKETING_TENANT == ""
+
+
+def test_platform_marketing_tenant_preserves_exact_key():
+    settings = load_settings({"SECRET_KEY": "test-secret-" * 4, "PLATFORM_MARKETING_TENANT": "INTERNAL_Site"})
+    assert settings.PLATFORM_MARKETING_TENANT == "INTERNAL_Site"
+
+
+@pytest.mark.parametrize("value", [None, False, 42, " site", "site ", "../site", "site,other", "versions", "CON", "a" * 65])
+def test_platform_marketing_tenant_rejects_ambiguous_or_invalid_key(value):
+    with pytest.raises(RuntimeError, match="PLATFORM_MARKETING_TENANT"):
+        load_settings({"SECRET_KEY": "test-secret-" * 4, "PLATFORM_MARKETING_TENANT": value})
+
+
 def test_https_base_url_enables_secure_session_cookie(app):
     from app import create_app
 

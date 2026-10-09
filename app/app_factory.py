@@ -16,6 +16,7 @@ from app.logging_setup import configure_logging
 from app.json_provider import StrictJSONProvider
 from app.container import Container
 from app.public_analytics import measurement_id_for_request
+from app.public_widget import widget_tenant_for_request
 from app import middleware
 
 from service.analytics_db import init_db as init_analytics_db
@@ -217,6 +218,10 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     @app.context_processor
     def _public_analytics_context():
         return {"ga4_measurement_id": measurement_id_for_request()}
+
+    @app.context_processor
+    def _public_widget_context():
+        return {"public_widget_tenant": widget_tenant_for_request()}
 
     from service.login_limiter import LoginAttemptLimiter
 

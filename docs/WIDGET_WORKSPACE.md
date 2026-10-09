@@ -40,6 +40,30 @@ panel or direct chat link. Each company's code retains its tenant identifier.
 Public widget tests count as customer activity. The Implementation guide remains
 available for website builders and troubleshooting.
 
+The platform's own marketing site can use the same floating widget by setting
+`PUBLIC_WIDGET_TENANT` to an existing, configured and active company key. Blank
+or invalid values disable this optional embed. Configure its approved website
+origins, business knowledge, branding and normal subscription requirements before
+enabling it. It appears only on the homepage, about page, setup guide and known
+solution pages; account pages, management screens and tenant chat pages do not
+embed it. Page query parameters cannot select a different company. Privacy
+controls take priority while open. Typing and browser reply playback are available;
+the marketing pages retain their existing denied microphone policy.
+
+For the platform's own first-party marketing business, a deployment administrator
+can explicitly set `PLATFORM_MARKETING_TENANT` to one exact existing company key.
+The exemption applies only when that company was created by a platform admin and
+has no business-owner assignment in `managed_businesses`. It returns activation
+status `platform_internal`; it does not create paid invoices, change billing
+totals, grant management permissions or exempt external AI/provider costs.
+Business-owner-created companies and all other company keys retain verified
+subscription and implementation-payment checks. There is no dashboard or tenant
+document switch for this exemption. Leave it blank to disable, and do not use it
+for a customer tenant. Removing it immediately restores normal activation checks.
+Authentication, tenant isolation, approved origins, CSRF, rate limits and audit
+logging still apply. `PUBLIC_WIDGET_TENANT` separately controls whether the site
+embeds the widget; setting the fee exemption alone does not publish it.
+
 Viewing requires `business_settings.read`; changes require
 `business_settings.write`. Server authorization, CSRF checks, active-company
 requirements, origin validation and audit logging still apply. A delayed save

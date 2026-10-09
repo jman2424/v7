@@ -76,10 +76,19 @@ def owned_tenants(user):
 def activation(tenant):
     with _database() as db:
         _schema(db)
-        managed = _execute(db, 'SELECT 1 FROM managed_businesses WHERE tenant=?', (tenant,)).fetchone()
-    # Preserve existing businesses; all newly registered businesses require payments.
+        managed = _execute(db, 'SELECT owner FROM managed_businesses WHERE tenant=?', (tenant,)).fetchone()
+    # Preserve existing businesses; newly registered commercial businesses require payments.
     if not managed:
         return {'active': True, 'status': 'active'}
+    from flask import current_app, has_app_context
+    if has_app_context() and managed[0] is None:
+        container = getattr(current_app, 'container', None)
+        settings = getattr(container, 'settings', None)
+        internal_tenant = getattr(settings, 'PLATFORM_MARKETING_TENANT', '')
+        if internal_tenant and tenant == internal_tenant:
+            # Only one deployment-selected platform-owned business qualifies.
+            # This grants access, never creates a payment or changes an invoice.
+            return {'active': True, 'status': 'platform_internal'}
     from service.subscriptions import connection
     with connection(tenant) as db:
         row = db.execute("SELECT status,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()

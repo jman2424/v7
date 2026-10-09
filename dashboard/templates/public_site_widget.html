@@ -1,0 +1,4 @@
+{% if public_widget_tenant %}
+<div id="public-site-widget"></div>
+<script defer src="{{ url_for('webchat.widget_embed', tenant=public_widget_tenant) }}" data-target="#public-site-widget"></script>
+{% endif %}
