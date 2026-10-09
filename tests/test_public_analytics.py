@@ -66,7 +66,7 @@ def test_only_allowlisted_public_templates_receive_analytics_configuration(analy
 
 @pytest.mark.parametrize("path", ["/console/", "/auth/session", "/admin/api/conversations",
     "/chat_ui?tenant=EXAMPLE", "/widget.js?tenant=EXAMPLE", "/privacy", "/privacy?tenant=EXAMPLE",
-    "/cookies", "/robots.txt", "/sitemap.xml", "/static/css/home.css", "/solutions/missing"])
+    "/about", "/cookies", "/robots.txt", "/sitemap.xml", "/static/css/home.css", "/solutions/missing"])
 def test_non_marketing_routes_keep_configuration_empty_and_original_csp(analytics_client, path):
     app = analytics_client.application
     with app.test_request_context(path):

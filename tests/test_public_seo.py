@@ -67,7 +67,7 @@ def seo_client(monkeypatch, request):
     return request.getfixturevalue("app").test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
+@pytest.mark.parametrize("path", ["/", "/about", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
 def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     response = seo_client.get(path + "?tenant=EXAMPLE&utm_source=example",
                               base_url="https://untrusted.example")
@@ -135,7 +135,7 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
             pending.extend(item)
 
 
-@pytest.mark.parametrize("path", ["/"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
     response = seo_client.get(path, base_url="https://untrusted.example")
     page = HomeStructuredData()
@@ -162,8 +162,9 @@ def test_sitemap_lists_only_known_public_pages(seo_client):
     tree = ElementTree.fromstring(response.data)
     locations = [element.text for element in tree.findall("{*}url/{*}loc")]
     assert set(SOLUTIONS) == SOLUTION_SLUGS
-    assert locations == [ORIGIN + "/"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
-    assert len(locations) == 9
+    assert locations == [ORIGIN + "/", ORIGIN + "/about"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
+    assert len(locations) == 10
+
     assert all("?" not in location for location in locations)
     assert "EXAMPLE" not in response.text
     assert "untrusted.example" not in response.text

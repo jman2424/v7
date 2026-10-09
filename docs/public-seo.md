@@ -1,6 +1,6 @@
 # Public search pages
 
-The homepage and eight `/solutions/<slug>` pages describe V7's public product
+The homepage, `/about` brand page and eight `/solutions/<slug>` pages describe V7's public product
 capabilities. The allowlist and page copy live in `service/public_site_content.py`;
 `routes/public_seo_routes.py` renders the pages and discovery files.
 
@@ -8,7 +8,7 @@ Canonical, social-preview and sitemap URLs use validated `BASE_URL`, never the
 request Host or query parameters. Production should set this to the preferred
 HTTPS origin (`https://vertex-seven.com` for the current deployment).
 
-`/sitemap.xml` includes only the homepage and the eight allowlisted solution
+`/sitemap.xml` includes only the homepage, `/about` and the eight allowlisted solution
 pages. `/robots.txt` permits public content and static assets, and excludes
 operational, account and chat paths. Those paths also receive `X-Robots-Tag:
 noindex, nofollow`. These search directives supplement authentication; they are
@@ -64,3 +64,10 @@ Relevant checks:
 ```sh
 python -m pytest tests/test_public_analytics.py tests/test_public_seo.py tests/test_owner_console.py tests/test_platform_security.py::test_public_homepage_does_not_expose_business_data -q
 ```
+
+The `/about` page uses public brand facts from `service/public_brand_content.py`,
+including the online-only UK service model, product setup, limitations and prices.
+It does not use tenant records or provider login details. It deliberately receives
+no Analytics configuration; existing tracking remains limited to the original
+nine marketing pages. The homepage title and social titles include Vertex Seven
+to distinguish V7 Agents from unrelated products with similar names.

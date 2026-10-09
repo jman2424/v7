@@ -48,7 +48,7 @@
     <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
   </header>
   <main id="main" class="wrap">
-    <nav class="solution-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><a href="/#solutions">Solutions</a><span aria-hidden="true">/</span><span aria-current="page">{{ solution.label }}</span></nav>
+    <nav class="solution-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span>{% if not brand_page %}<a href="/#solutions">Solutions</a><span aria-hidden="true">/</span>{% endif %}<span aria-current="page">{{ solution.label }}</span></nav>
     <section class="solution-hero" aria-labelledby="solution-title">
       <p class="eyebrow">V7 AGENTS · {{ solution.label }}</p>
       <h1 id="solution-title">{{ solution.h1 }}</h1>
@@ -74,7 +74,7 @@
   <footer class="solution-footer wrap">
     <div class="solution-footer-top"><a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-logo.png', v='20261008a') }}" width="1254" height="1254" alt="Vertex Seven"></span><span class="brand-name">Vertex <span>Seven</span></span></a><p>V7 Agents. Business knowledge, in conversation.</p></div>
     <nav class="solution-footer-links" aria-label="Solutions">{% for related_slug, related in solutions.items() %}<a href="/solutions/{{ related_slug }}"{% if related_slug == slug %} aria-current="page"{% endif %}>{{ related.label }}</a>{% endfor %}</nav>
-    <div class="footer-links"><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
+    <div class="footer-links"><a href="/about">About Vertex Seven</a><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
   </footer>
   {% include 'public_cookie_preferences.html' %}
 </body>

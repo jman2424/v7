@@ -5,6 +5,7 @@ from flask import Blueprint, Response, abort, current_app, render_template
 
 from app.middleware import NON_INDEXABLE_PREFIXES
 from service.public_site_content import SOLUTIONS
+from service.public_brand_content import ABOUT
 
 
 bp = Blueprint("public_seo", __name__)
@@ -33,10 +34,18 @@ def robots():
     return Response("\n".join(lines), mimetype="text/plain")
 
 
+@bp.get("/about")
+def about_page():
+    site_origin = _site_origin()
+    return render_template("solution.html", solution=ABOUT, solutions=SOLUTIONS,
+                           slug=None, brand_page=True, site_origin=site_origin,
+                           canonical_url=site_origin + "/about")
+
+
 @bp.get("/sitemap.xml")
 def sitemap():
     urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
-    paths = ["/"] + ["/solutions/" + slug for slug in SOLUTIONS]
+    paths = ["/", "/about"] + ["/solutions/" + slug for slug in SOLUTIONS]
     for path in paths:
         url = SubElement(urlset, "url")
         SubElement(url, "loc").text = _site_origin() + path
