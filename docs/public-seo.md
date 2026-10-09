@@ -74,3 +74,5 @@ to distinguish V7 Agents from unrelated products with similar names.
 
 
 The public `/guides/getting-started` page supplies a setup checklist and clearly fictional retail, service and branch demonstrations. It uses the existing public page template and is linked from public footers. The sitemap now contains 11 URLs. It adds no customer claims or Analytics scope.
+
+The homepage now offers a demo enquiry via the business email address, using a mailto link. It opens the visitor's email app and does not claim that an enquiry has been sent or create a server-side lead. Inbox delivery still requires an end-to-end mailbox test.
