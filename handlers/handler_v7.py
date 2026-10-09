@@ -562,7 +562,9 @@ class MessageHandlerV7:
             plan_from_heuristic = False
             product_query = self._looks_like_product_query(user_text)
             faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
-            sales_data_request = bool(self._PRICE_REQUEST.search(user_text) or re.search(
+            # Named catalog prices and unavailable items were resolved above.
+            # An exact FAQ may still describe pricing for a non-catalog service.
+            sales_data_request = bool(re.search(
                 r'\b(?:stock|delivery|shipping|collection|pick[ -]?up|offers|deals?|discounts?|promotions?|coupons?)\b',
                 user_text, re.I,
             ))

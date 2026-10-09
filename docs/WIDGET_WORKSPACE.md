@@ -50,6 +50,11 @@ embed it. Page query parameters cannot select a different company. Privacy
 controls take priority while open. Typing and browser reply playback are available;
 the marketing pages retain their existing denied microphone policy.
 
+Without an AI provider, the widget can answer from saved business knowledge.
+An exact pricing FAQ can describe a service's fees when no named catalogue item
+supplies the answer. Named catalogue prices and availability remain authoritative;
+a loosely matching FAQ does not replace an explicit product enquiry.
+
 For the platform's own first-party marketing business, a deployment administrator
 can explicitly set `PLATFORM_MARKETING_TENANT` to one exact existing company key.
 The exemption applies only when that company was created by a platform admin and
