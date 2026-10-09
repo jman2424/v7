@@ -67,7 +67,7 @@ def seo_client(monkeypatch, request):
     return request.getfixturevalue("app").test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
+@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
 def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     response = seo_client.get(path + "?tenant=EXAMPLE&utm_source=example",
                               base_url="https://untrusted.example")
@@ -135,7 +135,7 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
             pending.extend(item)
 
 
-@pytest.mark.parametrize("path", ["/", "/about"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
     response = seo_client.get(path, base_url="https://untrusted.example")
     page = HomeStructuredData()
@@ -162,8 +162,8 @@ def test_sitemap_lists_only_known_public_pages(seo_client):
     tree = ElementTree.fromstring(response.data)
     locations = [element.text for element in tree.findall("{*}url/{*}loc")]
     assert set(SOLUTIONS) == SOLUTION_SLUGS
-    assert locations == [ORIGIN + "/", ORIGIN + "/about"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
-    assert len(locations) == 10
+    assert locations == [ORIGIN + "/", ORIGIN + "/about", ORIGIN + "/guides/getting-started"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
+    assert len(locations) == 11
 
     assert all("?" not in location for location in locations)
     assert "EXAMPLE" not in response.text
@@ -225,3 +225,12 @@ def test_indexing_controls_preserve_authorization_and_public_asset_access(seo_cl
     public = seo_client.get("/static/css/home.css")
     assert public.status_code == 200
     assert "X-Robots-Tag" not in public.headers
+
+
+def test_setup_guide_labels_examples_and_avoids_fabricated_customer_evidence(seo_client):
+    response = seo_client.get("/guides/getting-started")
+    assert response.status_code == 200
+    assert "fictional demonstrations" in response.text
+    assert "not customer testimonials or measured results" in response.text
+    assert "confirmed booking" in response.text
+    assert "aggregateRating" not in response.text

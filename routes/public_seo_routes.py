@@ -5,7 +5,7 @@ from flask import Blueprint, Response, abort, current_app, render_template
 
 from app.middleware import NON_INDEXABLE_PREFIXES
 from service.public_site_content import SOLUTIONS
-from service.public_brand_content import ABOUT
+from service.public_brand_content import ABOUT, SETUP_GUIDE
 
 
 bp = Blueprint("public_seo", __name__)
@@ -45,9 +45,17 @@ def about_page():
 @bp.get("/sitemap.xml")
 def sitemap():
     urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
-    paths = ["/", "/about"] + ["/solutions/" + slug for slug in SOLUTIONS]
+    paths = ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS]
     for path in paths:
         url = SubElement(urlset, "url")
         SubElement(url, "loc").text = _site_origin() + path
     return Response(tostring(urlset, encoding="utf-8", xml_declaration=True),
                     mimetype="application/xml")
+
+
+@bp.get("/guides/getting-started")
+def setup_guide():
+    site_origin = _site_origin()
+    return render_template("solution.html", solution=SETUP_GUIDE, solutions=SOLUTIONS,
+                           slug=None, brand_page=True, site_origin=site_origin,
+                           canonical_url=site_origin + "/guides/getting-started")

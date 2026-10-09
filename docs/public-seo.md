@@ -71,3 +71,6 @@ It does not use tenant records or provider login details. It deliberately receiv
 no Analytics configuration; existing tracking remains limited to the original
 nine marketing pages. The homepage title and social titles include Vertex Seven
 to distinguish V7 Agents from unrelated products with similar names.
+
+
+The public `/guides/getting-started` page supplies a setup checklist and clearly fictional retail, service and branch demonstrations. It uses the existing public page template and is linked from public footers. The sitemap now contains 11 URLs. It adds no customer claims or Analytics scope.
