@@ -14,7 +14,7 @@
   <div id="chat-widget" class="widget">
     <header class="widget__header">
       <div class="widget__identity">
-        <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg', v='20261009svg') }}" alt="" />
+        <img class="widget__avatar" src="{{ branding.widget.avatar if branding and branding.widget and branding.widget.avatar else url_for('static', filename='img/logo.svg', v='20261010logo') }}" alt="" />
         <div class="widget__titles">
           {% set chat_title = branding.widget.chat_title if branding and branding.widget and branding.widget.chat_title else 'Sales Assistant' %}
           {% set assistant_name = branding.widget.assistant_name if branding and branding.widget and branding.widget.assistant_name else chat_title %}

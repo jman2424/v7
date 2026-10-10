@@ -1,22 +1,26 @@
 # Vertex Seven branding
 
-The approved artwork is the supplied Vertex Seven Geometric Monogram logo and
-Vertex Seven Analytics Horizon banner. Preserve the original artwork and its
-aspect ratio.
+The approved source is the supplied `vertex-seven-clean.svg`, preserved as
+`dashboard/static/img/vertex-seven.svg`. Its symbol and outlined lettering are
+the source for all platform logo variants; do not recreate the name with a
+different font or redraw the paths.
 
-- `dashboard/static/img/vertex-seven-logo.png`: original 1254 × 1254 logo,
-  including the supplied wordmark. Compact symbols are displayed through CSS
-  viewports beside readable wordmark text, without altering the source file.
-- `dashboard/static/img/vertex-seven-banner.png`: original 1672 × 941 banner,
-  integrated into the homepage hero and sign-in introduction as decorative
-  artwork. Gradient overlays keep live text and actions readable; responsive
-  cropping preserves the image's aspect ratio.
-- `frontend/src/lib/PlatformLogo.svelte`: reusable full logo or compact symbol
-  viewport using the same supplied PNG. The sidebar shows the symbol alone.
-- `dashboard/static/img/vertex-seven.svg` and `logo.svg`: compact vector
-  companions matching the supplied symbol's proportions, deep green #00572f
-  and charcoal #48494b. The square companion serves favicons and small default
-  chat avatars; existing SVG URLs remain available.
+- `vertex-seven-horizontal.svg`: the source's unchanged symbol and lettering
+  arranged side by side for compact headers, footers, sign-in and the console.
+  Public pages share `dashboard/templates/platform_brand.html`; the console
+  uses `frontend/src/lib/PlatformLogo.svelte`.
+- `vertex-seven-mark.svg`: the source symbol cropped to its bounds. `logo.svg`
+  puts that symbol on a white square for browser icons and default chat avatars.
+- `vertex-seven-logo.png`, PNG favicons, `apple-touch-icon.png` and `favicon.ico`
+  are raster exports from this vector for crawlers and older clients.
+- `vertex-seven-banner.svg` incorporates the full vector in the integrated hero
+  artwork. `vertex-seven-banner.png` is its social-sharing export. Gradient
+  overlays keep live text and actions readable.
+
+All image names above live in `dashboard/static/img/`. Preserve path geometry
+and colours: V `#005A32`, 7 `#505154`, Vertex lettering `#36393D` and Seven
+lettering `#00552E`. Small icons use the symbol for legibility; headers use the
+outlined wordmark. Keep logos compact and preserve their aspect ratios.
 
 The console palette is defined in `frontend/src/app.css`. Green `#087f5b`
 remains the primary action colour; neutral `#f3f4f4` canvases, `#dce0e2` borders
