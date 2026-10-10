@@ -13,7 +13,7 @@ from twilio.request_validator import RequestValidator
 from app.config import load_settings
 from connectors.whatsapp import send_reply
 from connectors.whatsapp_audio import AudioMediaError, download_audio
-from service.whatsapp_configuration import recipient_tenant
+from service.whatsapp_configuration import recipient_tenant, setup_urls
 from tests.test_platform_security import login, platform as platform_fixture
 
 platform = platform_fixture
@@ -148,12 +148,96 @@ def test_setup_status_is_authenticated_scoped_and_contains_no_credentials(platfo
     assert data["meta_configured"] is True and data["twilio_configured"] is False
     assert data["whatsapp"]["providers"]["meta"]["recipients"] == ["12345"]
     assert data["whatsapp"]["providers"]["twilio"]["state"] == "unassigned"
+    assert data["whatsapp"]["providers"]["meta"]["recipient_kind"] == "phone_number_id"
+    assert data["whatsapp"]["providers"]["meta"]["display_recipients"] == ["12345"]
     assert data["whatsapp"]["voice"]["ready"] is True
     assert "beta-private-recipient" not in response.text
     assert "447700900999" not in response.text
     for secret in ("synthetic-meta-secret", "synthetic-verify", "synthetic-provider-token",
                    "synthetic-twilio-token", "synthetic-openai-secret"):
         assert secret not in response.text
+
+
+def test_setup_callbacks_use_configured_https_origin_not_request_host(platform):
+    app = configure(platform[0], WHATSAPP_PROVIDER_MODE="twilio")
+    app.container.settings = replace(app.container.settings, BASE_URL="https://platform.example.test/")
+    client = app.test_client()
+    login(client)
+    data = client.get("/admin/api/integrations?tenant=ALPHA").json["whatsapp"]
+    assert data["setup"] == {"webhook_url": "https://platform.example.test/whatsapp/webhook",
+                             "status_callback_url": "https://platform.example.test/whatsapp/status",
+                             "public_https": True}
+    assert data["providers"]["twilio"]["recipient_kind"] == "phone_number"
+    assert data["providers"]["twilio"]["display_recipients"] == ["+447700900999"]
+    assert data["billing"]["kind"] == "unselected"
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:10000", "https://site.example.test/private",
+    "https://site.example.test?token=synthetic-private-value", "https://site.example.test#fragment",
+    "https://site.example.test:bad", "https://site.example.test\\evil", "https://site.example.test\n",
+    urlunsplit(("https", "synthetic-user:synthetic-password@site.example.test", "", "", ""))])
+def test_setup_callbacks_do_not_publish_invalid_or_private_base_urls(origin):
+    assert setup_urls(SimpleNamespace(BASE_URL=origin)) == {
+        "webhook_url": "", "status_callback_url": "", "public_https": False}
+
+
+def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch):
+    from service import subscriptions
+    app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
+    with app.app_context():
+        subscriptions.select_plan("ALPHA", "starter")
+    monkeypatch.setattr("service.subscriptions.whatsapp_enabled", lambda tenant: True)
+    monkeypatch.setattr("service.plan_usage.report", lambda tenant, include_costs=False: {
+        "month": "2026-10", "whatsapp_messages": {"used": 500, "limit": 500, "paused": True}})
+    client = app.test_client()
+    login(client)
+    data = client.get("/admin/api/integrations?tenant=ALPHA").json["whatsapp"]
+    assert data["ready"] is False
+    assert data["voice"]["ready"] is False
+    assert data["providers"]["meta"]["configured"] is True
+    assert data["billing"]["kind"] == "tiered"
+    assert data["billing"]["plan"] == {"id": "starter", "name": "Starter", "monthly_pence": 9900,
+        "setup_pence": 14900, "whatsapp_messages": 500, "ai_budget_pence": 500}
+    assert data["billing"]["allowance"] == {"month": "2026-10", "used": 500, "limit": 500, "paused": True}
+    assert data["billing"]["notifications"] == "dashboard"
+    assert {row["code"] for row in data["blockers"]} == {"whatsapp_allowance_exhausted"}
+
+
+def test_setup_staff_has_message_allowance_without_ai_cost_details(platform):
+    from service import subscriptions
+    app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
+    accounts = json.loads(platform[1].read_text())
+    staff = dict(accounts["users"][1], email="staff@example.test", role="business_staff",
+                 permissions=["integrations.read"])
+    accounts["users"].append(staff)
+    platform[1].write_text(json.dumps(accounts))
+    with app.app_context():
+        subscriptions.select_plan("ALPHA", "business")
+    client = app.test_client()
+    login(client, "staff@example.test")
+    response = client.get("/admin/api/integrations?tenant=ALPHA")
+    assert response.status_code == 200
+    billing = response.json["whatsapp"]["billing"]
+    assert billing["plan"]["whatsapp_messages"] == 2000
+    assert billing["allowance"]["used"] == 0
+    assert "ai_budget_pence" not in billing["plan"]
+    assert "ai_budget" not in billing
+    assert "invoices" not in billing and "contracts" not in billing
+    assert client.get("/billing/subscription?tenant=ALPHA").status_code == 403
+
+
+@pytest.mark.parametrize("status,expected", [("not_started", "unselected"), ("active", "legacy")])
+def test_setup_legacy_label_requires_a_financial_contract(platform, status, expected):
+    from service import subscriptions
+    app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
+    with app.app_context(), subscriptions.connection("ALPHA") as db:
+        db.execute("INSERT INTO billing_contracts (tenant,kind,ref,status) VALUES (?,?,?,?)",
+                   ("ALPHA", "platform", "synthetic-contract", status))
+    client = app.test_client()
+    login(client)
+    data = client.get("/admin/api/integrations?tenant=ALPHA").json["whatsapp"]["billing"]
+    assert data["kind"] == expected
+    assert data["plan"] is None and data["allowance"] is None
 
 
 def test_setup_status_explains_missing_settings_and_activation(platform, monkeypatch):

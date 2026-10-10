@@ -65,7 +65,58 @@ def valid_meta_api_url(value: object, *, media: bool = False) -> bool:
                 and (not media or parsed.hostname == "graph.facebook.com"))
 
 
-def setup_status(container, tenant: str) -> dict:
+def setup_urls(settings) -> dict:
+    """Use the configured public origin, never an untrusted request Host header."""
+    origin = getattr(settings, "BASE_URL", "")
+    valid = False
+    if isinstance(origin, str) and not any(
+            char.isspace() or ord(char) < 32 or ord(char) == 127 or char == "\\" for char in origin):
+        try:
+            parsed = urlsplit(origin)
+            valid = bool(parsed.scheme == "https" and parsed.hostname and parsed.port != 0
+                         and not (parsed.username or parsed.password or parsed.query or parsed.fragment)
+                         and parsed.path in {"", "/"})
+        except ValueError:
+            pass
+    origin = origin.rstrip("/") if valid else ""
+    return {"webhook_url": origin + "/whatsapp/webhook" if origin else "",
+            "status_callback_url": origin + "/whatsapp/status" if origin else "",
+            "public_https": valid}
+
+
+def setup_billing(tenant: str, *, include_costs: bool = False) -> dict:
+    """Operational plan limits without invoice, payment or credential details."""
+    from service import plan_usage, subscriptions
+    from service.plan_catalog import get_plan
+
+    internal = subscriptions.internal_business(tenant)
+    state = None if internal else subscriptions.plan_state(tenant)
+    allowance = None
+    plan = None
+    kind = "internal" if internal else "unselected"
+    if state:
+        selected = get_plan(state["active_plan"] or state["selected_plan"])
+        fields = ("id", "name", "monthly_pence", "setup_pence", "whatsapp_messages")
+        plan = {field: selected[field] for field in fields}
+        if include_costs:
+            plan["ai_budget_pence"] = selected["ai_budget_pence"]
+        usage = plan_usage.report(tenant, include_costs=False)
+        if usage:
+            allowance = {"month": usage["month"], **usage["whatsapp_messages"]}
+        kind = "tiered"
+    elif not internal:
+        with subscriptions.connection(tenant) as db:
+            if db.execute("SELECT 1 FROM billing_contracts WHERE tenant=? AND "
+                          "(subscription IS NOT NULL OR implementation_paid=1 OR status!='not_started' OR checkout IS NOT NULL) LIMIT 1",
+                          (tenant,)).fetchone():
+                kind = "legacy"
+    return {"kind": kind, "plan": plan, "allowance": allowance,
+            "included": internal or plan is not None,
+            "whatsapp_paused": bool(state and state["whatsapp_paused"]),
+            "mode": "pause", "notifications": "dashboard"}
+
+
+def setup_status(container, tenant: str, *, include_costs: bool = False) -> dict:
     """Describe local configuration; never imply a live provider connection check."""
     from service.tenant_access import activation
     from service.subscriptions import whatsapp_enabled
@@ -97,11 +148,16 @@ def setup_status(container, tenant: str) -> dict:
                  "missing_settings" if missing else "invalid_configuration" if invalid else "configured")
         providers[provider] = {"enabled": enabled, "configured": configured, "state": state,
                                "channel": "whatsapp", "recipients": sorted(recipients),
+                               "recipient_kind": "phone_number_id" if provider == "meta" else "phone_number",
+                               "display_recipients": sorted(recipients) if provider == "meta" else
+                                   ["+" + normalize_recipient(number, provider) for number in sorted(recipients)],
                                "routing": routing, "missing_settings": missing,
                                "invalid_settings": ["WHATSAPP_API_URL"] if invalid else []}
 
     active = bool(activation(tenant)["active"])
     subscribed = bool(whatsapp_enabled(tenant))
+    billing = setup_billing(tenant, include_costs=include_costs)
+    quota_paused = bool(billing["allowance"] and billing["allowance"]["paused"])
     configured = any(item["configured"] for item in providers.values())
     blockers = []
     if not configured:
@@ -111,14 +167,18 @@ def setup_status(container, tenant: str) -> dict:
         blockers.append({"code": "tenant_inactive", "action": "Complete company activation."})
     if not subscribed:
         blockers.append({"code": "whatsapp_subscription_inactive", "action": "Activate WhatsApp access for this company."})
+    if quota_paused:
+        blockers.append({"code": "whatsapp_allowance_exhausted",
+                         "action": "The monthly inbound-message allowance is used up. Messages resume with next month's allowance; the admin can review this in Subscription."})
     voice = transcription_status()
     voice_configured = voice["configured"]
     meta_media = providers["meta"]["configured"] and valid_meta_api_url(settings.WHATSAPP_API_URL, media=True)
     media_configured = meta_media or providers["twilio"]["configured"]
     return {"provider_mode": getattr(settings, "WHATSAPP_PROVIDER_MODE", "auto"),
-            "ready": configured and active and subscribed, "check_type": "local_configuration",
+            "ready": configured and active and subscribed and not quota_paused, "check_type": "local_configuration",
             "blockers": blockers, "providers": providers,
-            "voice": {"configured": voice_configured, "ready": voice_configured and media_configured and active and subscribed,
+            "setup": setup_urls(settings), "billing": billing,
+            "voice": {"configured": voice_configured, "ready": voice_configured and media_configured and active and subscribed and not quota_paused,
                       "transcription_model": voice["model"], "reply_mode": "text",
                       "missing_settings": voice["missing_settings"],
                       "meta_media_configured": meta_media,

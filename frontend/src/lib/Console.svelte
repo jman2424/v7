@@ -30,7 +30,7 @@
   let cookiePreferencesOpen = false;
   let signupOpen = false;
   export let section = 'pipeline';
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp QR',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
   const pageDescriptions: Record<string, string> = {
     platform: 'A clear view of your businesses, activity and setup.',
@@ -49,7 +49,7 @@
     website: 'Design your customer chat, test your agent and prepare website installation.',
     integrations: 'Manage the connections that support your customer channels.',
     implementation: 'Prepare your business information and install your assistant.',
-    'whatsapp-qr': 'Manage your WhatsApp connection and customer entry points.',
+    'whatsapp-qr': 'Connect your number, understand the costs and prepare your customer chat.',
     usage: 'Review recorded AI usage and estimated costs.',
     subscription: 'Manage subscriptions, payments and invoices.',
     team: 'Control who can access this business workspace.',
@@ -1794,7 +1794,7 @@
           <div class="surface-body">
           <p><a href={base+'/implementation'}>Open the step-by-step Implementation guide</a> for your website builder, installation code and launch checks.</p>
           <p>Place this once before the closing body tag on an approved website.</p>
-          <p><a href={`${base}/integrations?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup and connection status</a>. Web chat works while WhatsApp is awaiting setup.</p>
+          <p><a href={`${base}/whatsapp-qr?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup, numbers and costs</a>. Web chat works while WhatsApp is awaiting setup.</p>
           <textarea class="code" readonly value={snippet} aria-label="Website install script"></textarea>
           {#if formStatus}<p role="status" class:error={formError}>{formStatus}</p>{/if}
           <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>

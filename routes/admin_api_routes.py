@@ -1251,7 +1251,7 @@ def api_integrations():
     from service.whatsapp_configuration import setup_status
     tenant = _tenant()
     c = get_container()
-    whatsapp = setup_status(c, tenant)
+    whatsapp = setup_status(c, tenant, include_costs=has_permission(management_user(), "view_costs"))
     response = jsonify(
         tenant=tenant, whatsapp_assigned=any(provider["recipients"] for provider in whatsapp["providers"].values()),
         meta_configured=whatsapp["providers"]["meta"]["configured"],

@@ -220,7 +220,14 @@ Installing the widget does not import website content or connect bookings,
 payments or inventory automatically. Use `pytest tests/test_widget_tenancy.py
 tests/test_owner_console.py` and `npm run check` in `frontend/` to check setup changes.
 
-**WhatsApp QR** (`/console/whatsapp-qr`) creates a click-to-chat link and downloadable
+**WhatsApp** (`/console/whatsapp-qr`) brings provider setup, business numbers,
+callback URLs, readiness checks and cost guidance together. The guided setup is
+also available from Integrations. Credentials and recipient assignments remain
+server-managed; Refresh checks saved configuration without contacting a provider
+or sending a message. See [WhatsApp setup](docs/whatsapp-setup.md) for the operator
+handoff and launch checks.
+
+The optional QR creator makes a click-to-chat link and downloadable
 SVG for an international WhatsApp number, with an optional 160-character message.
 The authenticated, CSRF-protected `POST /admin/api/whatsapp-qr` scopes requests to
 the permitted company, validates input and generates the QR locally with the pinned

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { base } from '$app/paths';
+  import WhatsAppConnection from './WhatsAppConnection.svelte';
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
@@ -10,11 +11,14 @@
   let error = '';
   let copied = '';
   let result: {link:string;image:string} | null = null;
+  let generatedFor = '';
+  $: if (result && generatedFor !== JSON.stringify([phone,message])) clearResult();
   let controller: AbortController | undefined;
   onDestroy(() => controller?.abort());
   function clearResult() { result = null; copied = ''; error = ''; }
   async function generate() {
     if (busy) return;
+    const requestedFor = JSON.stringify([phone,message]);
     clearResult(); busy = true;
     controller = new AbortController();
     const timer = setTimeout(() => controller?.abort(), 16000);
@@ -25,7 +29,12 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(response.status === 401 ? 'Your session expired. Sign in again.' : response.status === 403 ? 'Access denied or your session needs refreshing. Reload this page and try again.' : data.error || 'Could not generate the QR code.');
-      result = data;
+      if (requestedFor !== JSON.stringify([phone,message])) {
+        error = 'The number or message changed while creating the code. Create it again with the current details.';
+      } else {
+        generatedFor = requestedFor;
+        result = data;
+      }
     } catch (failure) {
       error = controller.signal.aborted ? 'Generation timed out. Try again.' : failure instanceof Error ? failure.message : 'Could not generate the QR code.';
     } finally { clearTimeout(timer); busy = false; }
@@ -37,10 +46,13 @@
   }
 </script>
 
-<section class="qr-page" aria-label="WhatsApp QR creator">
+<WhatsAppConnection {tenant} {apiPrefix} bind:number={phone} />
+
+<section class="qr-page" aria-label="WhatsApp links and QR codes" id="whatsapp-share">
   <article class="panel">
-    <h2>Create your WhatsApp QR code</h2>
-    <p>For {tenant}. Customers scan the code to open a chat with your business. Use the WhatsApp number you want customers to contact.</p>
+    <p class="eyebrow">Share your number</p>
+    <h2>Create a customer link &amp; QR code</h2>
+    <p>Customers scan the code to open chat with your business. Use the approved, tested WhatsApp number for {tenant}.</p>
     <form on:submit|preventDefault={generate}>
       <label>WhatsApp number<input type="tel" bind:value={phone} on:input={clearResult} placeholder="+44 7700 900123" autocomplete="tel" maxlength="40" required disabled={busy} /><small>Include the country code. For a UK mobile, replace the first 0 with +44.</small></label>
       <label>Suggested first message (optional)<textarea bind:value={message} on:input={clearResult} maxlength="160" rows="3" placeholder="Hi, I would like to find out more." disabled={busy}></textarea><small>Customers can edit this message before sending. {message.length}/160 characters.</small></label>
@@ -59,16 +71,14 @@
       <p class="hint">The SVG stays sharp when resized. The code contains this number and message directly and has no expiry or scan tracking. Changing the number requires a new code.</p>
     </article>
   {/if}
-  <article class="panel">
-    <h2>Connecting the agent</h2>
-    <p>This creates a WhatsApp link; it does not register the number or enable automatic replies. To let the agent reply, connect that same business number through Meta or Twilio and map it to this company.</p>
-    <div class="actions"><a href={base+'/integrations?tenant='+encodeURIComponent(tenant)}>WhatsApp setup &amp; status</a><a href={base+'/implementation'}>Implementation guide</a></div>
-    <p class="hint">The number must have an active WhatsApp account. We generate the QR on this server without sending your number or message to an external QR service. Creating a code does not change your integration settings.</p>
-  </article>
+  <p class="share-note">This creates a customer chat link, not a device-pairing code. The number needs an active WhatsApp account; automatic V7 replies need the connection above. QR images are created on this server without sending your number or message to an external QR service. <a href={base+'/implementation?tenant='+encodeURIComponent(tenant)}>Website implementation guide →</a></p>
 </section>
 
 <style>
   .qr-page {display:grid;gap:20px;min-width:0;overflow-wrap:anywhere}
+  .qr-page {scroll-margin-top:28px}
+  .eyebrow {margin:0 0 8px;color:var(--v7-accent);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .share-note {margin:0;font-size:13px}
   .panel {padding:24px;background:#fff;border:1px solid var(--v7-line);border-radius:var(--v7-radius, 18px);min-width:0;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
   h2 {margin:0;font-size:22px} p {color:var(--v7-muted);line-height:1.6}
   form,label {display:grid;gap:8px} form {gap:20px} label {font-size:14px;font-weight:600;min-width:0}
