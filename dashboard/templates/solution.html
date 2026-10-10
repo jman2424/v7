@@ -22,8 +22,8 @@
   <meta name="twitter:description" content="{{ solution.description }}">
   <meta name="twitter:image" content="{{ site_origin }}{{ url_for('static', filename='img/vertex-seven-banner.png') }}">
   <meta name="twitter:image:alt" content="Vertex Seven, AI agents for business operations">
-  <link rel="icon" href="{{ url_for('static', filename='img/logo.svg', v='20261008a') }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+  {% include 'platform_favicons.html' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261009svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
   {% if ga4_measurement_id %}
@@ -43,7 +43,7 @@
 <body class="solution-page">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header wrap">
-    <a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-logo.png', v='20261008a') }}" width="1254" height="1254" alt="Vertex Seven"></span><span><span class="brand-name">Vertex <span>Seven</span></span><span class="brand-caption">V7 Agents</span></span></a>
+    <a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-mark.svg', v='20261009svg') }}" width="1044" height="599" alt="Vertex Seven"></span><span><span class="brand-name">Vertex <span>Seven</span></span><span class="brand-caption">V7 Agents</span></span></a>
     <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a><a href="/#questions">FAQs</a></nav>
     <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
   </header>
@@ -72,7 +72,7 @@
     <section class="solution-related" aria-labelledby="related-title"><div class="solution-related-heading"><div><p class="eyebrow">EXPLORE THE PLATFORM</p><h2 id="related-title">Other ways to use V7 Agents</h2></div><a class="text-link" href="/#pricing">View pricing <span aria-hidden="true">→</span></a></div><div class="solution-links">{% for related_slug, related in solutions.items() %}{% if related_slug != slug %}<a href="/solutions/{{ related_slug }}"><span>{{ related.label }}</span><span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div></section>
   </main>
   <footer class="solution-footer wrap">
-    <div class="solution-footer-top"><a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-logo.png', v='20261008a') }}" width="1254" height="1254" alt="Vertex Seven"></span><span class="brand-name">Vertex <span>Seven</span></span></a><p>V7 Agents. Business knowledge, in conversation.</p></div>
+    <div class="solution-footer-top"><a class="brand" href="{{ url_for('root') }}" aria-label="Vertex Seven home"><span class="brand-logo"><img src="{{ url_for('static', filename='img/vertex-seven-mark.svg', v='20261009svg') }}" width="1044" height="599" alt="Vertex Seven"></span><span class="brand-name">Vertex <span>Seven</span></span></a><p>V7 Agents. Business knowledge, in conversation.</p></div>
     <nav class="solution-footer-links" aria-label="Solutions">{% for related_slug, related in solutions.items() %}<a href="/solutions/{{ related_slug }}"{% if related_slug == slug %} aria-current="page"{% endif %}>{{ related.label }}</a>{% endfor %}</nav>
     <div class="footer-links"><a href="/about">About Vertex Seven</a><a href="/guides/getting-started">Setup guide &amp; examples</a><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
   </footer>

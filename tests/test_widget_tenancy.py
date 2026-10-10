@@ -163,6 +163,22 @@ def test_embed_script_and_hosted_chat_are_tenant_scoped(client):
     assert "frame-ancestors" in chat.headers["Content-Security-Policy"]
 
 
+@pytest.mark.parametrize("favicon", [None, "https://www.example.test/company-icon.png"])
+def test_hosted_chat_preserves_company_favicon_or_uses_platform_icons(client, app, favicon):
+    branding = app.container.storage.read_json("EXAMPLE", "branding.json")
+    branding["favicon"] = favicon
+    app.container.storage.write_json("EXAMPLE", "branding.json", branding, snapshot=False)
+
+    response = client.get("/chat_ui?tenant=EXAMPLE&embed=1")
+    assert response.status_code == 200
+    if favicon:
+        assert f'<link rel="icon" href="{favicon}"' in response.text
+        assert "/static/img/favicon-96.png" not in response.text
+    else:
+        assert "/static/img/favicon-96.png" in response.text
+        assert "/favicon.ico" in response.text
+
+
 def test_business_owner_cannot_request_another_tenant_admin_data(client, app):
     _add_tenant(app)
     with client.session_transaction() as sess:

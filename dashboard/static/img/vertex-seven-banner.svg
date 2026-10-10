@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941"><defs><linearGradient id="paper"><stop stop-color="#e4e8e7"/><stop offset="1" stop-color="#f8f9f8"/></linearGradient><linearGradient id="shade"><stop stop-color="#263c33"/><stop offset="1" stop-color="#496258"/></linearGradient></defs><rect width="1672" height="941" fill="url(#paper)"/><path d="M0 0H180L450 941H0Z" fill="url(#shade)"/><path d="M0 240L235 941M80 0L350 941" fill="none" stroke="#5b9878" stroke-width="2" opacity=".55"/><path d="M1110 941L1672 400V941Z" fill="#dce4df"/><path d="M1160 941L1672 450" fill="none" stroke="#78a18b" stroke-width="2"/><svg x="497" y="30" width="678" height="678" viewBox="0 0 1254 1254">
 <title id="title">Vertex Seven</title>
 <desc id="desc">Faithful clean vector tracing of Vertex Seven: deep green V, separate charcoal 7 and full wordmark, sharp corners.</desc>
 <g id="v7-symbol">
@@ -18,4 +18,4 @@
  <g fill="#00552E" transform="matrix(0.0924855,0,0,-0.0923913,954.6358,1027.7826)"><path d="M586 -24C842 -24 1046 122 1085 332H816C789 250 710 197 595 197C440 197 350 298 345 454H1096V533C1096 855 887 1080 576 1080C273 1080 58 849 58 527C58 206 266 -24 586 -24ZM347 642C363 774 450 856 582 856C715 856 803 774 818 642Z"/></g>
  <g fill="#00552E" transform="matrix(0.0929293,0,0,-0.0918367,1051.3354,1027.0000)"><path d="M399 587C399 751 484 824 606 824C729 824 800 749 800 607V0H1094V661C1094 928 949 1078 724 1078C572 1078 465 1010 394 890V1056H104V0H399Z"/></g>
 </g>
-</svg>
+</svg><text x="836" y="630" text-anchor="middle" fill="#36393D" font-family="Arial,sans-serif" font-size="24" letter-spacing="4">AI AGENTS FOR BUSINESS OPERATIONS</text></svg>

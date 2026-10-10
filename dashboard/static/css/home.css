@@ -38,8 +38,8 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 .skip-link:focus { top: 12px; }
 .site-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 80px; border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 12px; flex: none; }
-.brand-logo { display: block; position: relative; width: 44px; aspect-ratio: 1075 / 630; overflow: hidden; flex: none; }
-.brand-logo > img { position: absolute; width: 116.6512%; height: auto; max-width: none; left: -8.3721%; top: -34.127%; }
+.brand-logo { display: block; width: 44px; aspect-ratio: 1044 / 599; flex: none; }
+.brand-logo > img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-name { font-size: 20px; font-weight: 700; letter-spacing: -.045em; line-height: 1.2; }
 .brand-name > span { color: var(--accent); }
 .brand-caption { display: block; margin-top: 3px; font-size: 10px; font-weight: 500; color: var(--muted); letter-spacing: .02em; }

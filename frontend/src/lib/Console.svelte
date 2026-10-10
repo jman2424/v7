@@ -1522,7 +1522,10 @@
 <svelte:head>
   <title>{$t(pageTitle)} · V7</title>
   <meta name="description" content="Tenant widget configuration for the V7 AI sales agent." />
-  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg?v=20261008a" />
+  <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg?v=20261009svg" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/static/img/favicon-96.png?v=20261009svg" />
+  <link rel="shortcut icon" href="/favicon.ico?v=20261009svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/img/apple-touch-icon.png?v=20261009svg" />
 </svelte:head>
 
 {#if loading}
@@ -2249,7 +2252,7 @@
   @media(max-width:600px){.widget-workspace-intro {padding:16px}.widget-workspace-tabs>span {width:100%;margin-inline-start:0}.widget-workspace-tabs button {padding:10px;font-size:11px}.widget-install-grid .form-footer {align-items:start;flex-direction:column}.widget-install-grid .form-footer button {width:100%}}
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid var(--v7-line); }
   .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:var(--v7-canvas)}
-  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:linear-gradient(90deg,#143c30ed,#143c30c9),url('/static/img/vertex-seven-banner.png?v=20261008a');background-size:cover,auto 135%;background-position:center,right center;background-repeat:no-repeat;color:#fff;min-width:0}
+  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:linear-gradient(90deg,#143c30ed,#143c30c9),url('/static/img/vertex-seven-banner.svg?v=20261009svg');background-size:cover,auto 135%;background-position:center,right center;background-repeat:no-repeat;color:#fff;min-width:0}
   .login-brand,.login-logo {display:flex;align-items:center;gap:10px;font-size:18px;line-height:1.2;letter-spacing:-.025em}
   .login-brand {margin-bottom:40px;text-decoration:none;color:#fff;width:fit-content}
   .login-brand strong,.login-logo strong {font-weight:700}

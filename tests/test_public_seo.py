@@ -1,5 +1,6 @@
 """Public search metadata must never enumerate tenant or management content."""
 import json
+import struct
 from decimal import Decimal
 from html.parser import HTMLParser
 from xml.etree import ElementTree
@@ -21,11 +22,14 @@ class HeadLinks(HTMLParser):
     def __init__(self):
         super().__init__()
         self.canonicals = []
+        self.icons = []
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
         if tag == "link" and attributes.get("rel") == "canonical":
             self.canonicals.append(attributes.get("href"))
+        if tag == "link" and attributes.get("rel") in {"icon", "shortcut icon", "apple-touch-icon"}:
+            self.icons.append(attributes)
 
 
 class HomeStructuredData(HeadLinks):
@@ -234,3 +238,39 @@ def test_setup_guide_labels_examples_and_avoids_fabricated_customer_evidence(seo
     assert "not customer testimonials or measured results" in response.text
     assert "confirmed booking" in response.text
     assert "aggregateRating" not in response.text
+
+
+@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
+def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
+    page = HeadLinks()
+    page.feed(seo_client.get(path).text)
+    icons = {item["href"]: item for item in page.icons}
+    assert icons["/static/img/favicon-96.png"]["sizes"] == "96x96"
+    assert icons["/static/img/favicon-192.png"]["sizes"] == "192x192"
+    assert icons["/static/img/apple-touch-icon.png"]["rel"] == "apple-touch-icon"
+    assert icons["/favicon.ico"]["rel"] == "shortcut icon"
+    assert any(item["type"] == "image/svg+xml" and item["sizes"] == "any" for item in page.icons)
+
+
+@pytest.mark.parametrize("filename,size", [
+    ("favicon-96.png", 96), ("favicon-192.png", 192), ("apple-touch-icon.png", 180),
+])
+def test_brand_raster_icons_are_square_public_pngs(seo_client, filename, size):
+    response = seo_client.get("/static/img/" + filename)
+    assert response.status_code == 200
+    assert response.mimetype == "image/png"
+    assert response.data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", response.data[16:24]) == (size, size)
+    assert "X-Robots-Tag" not in response.headers
+
+
+def test_root_favicon_is_the_same_public_ico_asset_without_public_session_caching(seo_client):
+    response = seo_client.get("/favicon.ico")
+    asset = seo_client.get("/static/img/favicon.ico")
+    assert response.status_code == asset.status_code == 200
+    assert response.data == asset.data
+    assert response.mimetype == "image/vnd.microsoft.icon"
+    reserved, image_type, image_count = struct.unpack("<HHH", response.data[:6])
+    assert reserved == 0 and image_type == 1 and image_count >= 1
+    assert "X-Robots-Tag" not in response.headers
+    assert "public" not in response.headers.get("Cache-Control", "").lower()

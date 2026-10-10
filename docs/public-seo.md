@@ -76,3 +76,21 @@ to distinguish V7 Agents from unrelated products with similar names.
 The public `/guides/getting-started` page supplies a setup checklist and clearly fictional retail, service and branch demonstrations. It uses the existing public page template and is linked from public footers. The sitemap now contains 11 URLs. It adds no customer claims or Analytics scope.
 
 The homepage now offers a demo enquiry via the business email address, using a mailto link. It opens the visitor's email app and does not claim that an enquiry has been sent or create a server-side lead. Inbox delivery still requires an end-to-end mailbox test.
+
+## Search result favicon
+
+Public pages include `platform_favicons.html`, using stable square PNG assets at
+96 and 192 pixels, a scalable SVG companion, an Apple touch icon and
+`/favicon.ico`. The root ICO route serves the fixed platform asset and does not
+read tenant files. Businesses' configured chat favicons retain precedence.
+These icons are derived from the supplied `vertex-seven-clean.svg`; avoid a
+wordmark at favicon size. Public icons stay crawlable under `/robots.txt`.
+
+The live `http://www.vertex-seven.com`, `https://www.vertex-seven.com` and
+`http://vertex-seven.com` origins already redirect to `https://vertex-seven.com`;
+the favicon update does not change host validation or origin restrictions.
+Google treats each hostname as a separate site for favicon selection. An old
+`http://www` search result can retain its earlier icon until recrawled. Request
+homepage indexing after publishing, then allow Google to process the change;
+appearance is not guaranteed. See Google's
+[favicon guidance](https://developers.google.com/search/docs/appearance/favicon-in-search).

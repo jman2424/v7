@@ -1,7 +1,7 @@
 """Search discovery for public marketing pages only."""
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from flask import Blueprint, Response, abort, current_app, render_template
+from flask import Blueprint, Response, abort, current_app, render_template, send_from_directory
 
 from app.middleware import NON_INDEXABLE_PREFIXES
 from service.public_site_content import SOLUTIONS
@@ -14,6 +14,13 @@ bp = Blueprint("public_seo", __name__)
 def _site_origin():
     # BASE_URL is validated configuration. Do not derive canonical URLs from Host.
     return current_app.container.settings.BASE_URL.rstrip("/")
+
+
+@bp.get("/favicon.ico")
+def favicon():
+    # A fixed public asset, never a tenant file or a caller-supplied path.
+    return send_from_directory(current_app.static_folder, "img/favicon.ico",
+                               mimetype="image/vnd.microsoft.icon")
 
 
 @bp.get("/solutions/<slug>")

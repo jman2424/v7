@@ -2,11 +2,12 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy information | Vertex Seven</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css') }}">
+  {% include 'platform_favicons.html' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261009svg') }}">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header class="policy-header"><a class="brand" href="/">vertex seven<span>V7 Agents</span></a><nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><a href="/console/">Workspace</a></nav></header>
+  <header class="policy-header"><a class="brand" href="/" aria-label="Vertex Seven home"><img src="{{ url_for('static', filename='img/vertex-seven-mark.svg', v='20261009svg') }}" width="36" height="21" alt=""><span>Vertex Seven<small>V7 Agents</small></span></a><nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><a href="/console/">Workspace</a></nav></header>
   <main id="main" class="policy">
     <p class="eyebrow">YOUR INFORMATION</p><h1>Privacy information</h1>
     {% if policy.draft %}<aside class="draft" role="status"><strong>Draft — business information is incomplete.</strong><p>The controller must confirm the missing details below before treating this notice as complete.</p></aside>{% endif %}
