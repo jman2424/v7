@@ -5,6 +5,20 @@ export type Widget = {
 };
 export type ColourKey = 'accent_color' | 'background_color' | 'surface_color' | 'text_color' | 'bubble_color';
 export type PreviewTheme = Partial<Record<'primary_color' | 'secondary_color' | 'text_color' | 'accent_color' | 'font_family', string>>;
+export type AppearancePreset = { name: string; description: string; settings: Pick<Widget, 'style' | ColourKey> };
+
+export const appearancePresets: AppearancePreset[] = [
+  { name:'Website demo', description:'Studio layout with green accents and soft grey surfaces, as seen on our website.',
+    settings:{ style:'studio', accent_color:'#086849', background_color:'#FFFFFF', surface_color:'#F2F4F3', text_color:'#27332F', bubble_color:'#E8F3EC' } }
+];
+export function applyAppearancePreset(widget: Widget, preset: AppearancePreset): Widget {
+  return { ...widget, ...preset.settings };
+}
+export function appearancePresetMatches(widget: Widget, preset: AppearancePreset): boolean {
+  const fields: ('style' | ColourKey)[] = ['style', 'accent_color', 'background_color', 'surface_color', 'text_color', 'bubble_color'];
+  return fields.every(key => widget[key].toLowerCase() === preset.settings[key].toLowerCase());
+}
+
 type Palette = { background: string; surface: string; field: string; text: string; muted: string; bubble: string; border: string };
 export const widgetStyles = [
   { id: 'midnight', name: 'Midnight', description: 'Focused dark chat', radius: 16, palette: { background:'#0e1016', surface:'#131826', field:'#191e2a', text:'#eaf0ff', muted:'#aeb9d0', bubble:'#0b1c12', border:'#343b4d' } },

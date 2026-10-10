@@ -1,5 +1,13 @@
 # Website widget workspace
 
+The **Website demo** appearance preset under **Appearance → Choose a style**
+applies the same Studio layout and green/grey palette used on Vertex Seven's
+website. It changes only the layout and five colours. The company's assistant
+name, greeting, logos, website restrictions and business knowledge remain its
+own. Review the preview, adjust any colours, then choose **Save widget** to apply
+it to new customer widget loads. Studio's preview includes the live widget's
+accent header line, avatar size and message corners.
+
 The owner console's **Website widget** page combines appearance, private agent
 testing and installation. Existing `/console/test` links still open the Test
 conversation tab; `/console/website` opens Appearance. Entering or leaving these

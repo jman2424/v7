@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { widgetStyles, brandPalettes, widgetTheme, isHexColour } from './widgetAppearance';
+  import { widgetStyles, brandPalettes, widgetTheme, isHexColour, appearancePresets, applyAppearancePreset, appearancePresetMatches } from './widgetAppearance';
   import type { Widget, ColourKey, PreviewTheme } from './widgetAppearance';
   export let widget: Widget;
   export let previewTheme: PreviewTheme = {};
@@ -40,6 +40,15 @@
         </section>
         <section class="panel">
           <header><div><span class="eyebrow">Layout & character</span><h2>Choose a style</h2><p>Ten layouts, from simple business chat to a distinctive brand experience.</p></div></header>
+          <div class="appearance-presets" aria-label="Complete appearance presets">
+            {#each appearancePresets as preset}
+              <button type="button" class="appearance-preset" class:chosen={appearancePresetMatches(widget,preset)} aria-pressed={appearancePresetMatches(widget,preset)} on:click={() => widget = applyAppearancePreset(widget,preset)}>
+                <span class="preset-swatches" aria-hidden="true"><i style:background={preset.settings.accent_color}></i><i style:background={preset.settings.surface_color}></i><i style:background={preset.settings.bubble_color}></i></span>
+                <span><strong>{preset.name}</strong><small>{preset.description}</small></span>
+                <span class="preset-action" aria-hidden="true">{appearancePresetMatches(widget,preset) ? 'Applied' : 'Apply design'}</span>
+              </button>
+            {/each}
+          </div>
           <div class="style-grid">
             {#each widgetStyles as option}
               <label class="style-option" class:selected={widget.style === option.id}>
@@ -99,6 +108,7 @@
   input,textarea {width:100%;padding:10px 12px} input,button {min-height:44px} textarea {resize:vertical;line-height:1.6}
   button {cursor:pointer;padding:10px 14px;font-weight:600} button:hover:not(:disabled){border-color:var(--v7-accent,#087f5b);background:var(--v7-soft,#edf6f1)} button:disabled {opacity:.6;cursor:default}
   :is(button,input,textarea,a):focus-visible {outline:3px solid var(--v7-focus,#81baa1);outline-offset:3px}
+  .appearance-presets {margin-bottom:16px}.appearance-preset {display:flex;align-items:center;gap:12px;width:100%;padding:14px;text-align:start;background:#f7faf8}.appearance-preset.chosen {border-color:var(--v7-accent,#087f5b)}.appearance-preset>span:nth-child(2) {flex:1;min-width:0}.appearance-preset strong,.appearance-preset small {display:block}.appearance-preset small {margin-top:4px}.preset-swatches {display:flex;flex:none}.preset-swatches i {width:18px;height:28px;border:1px solid #27332f20}.preset-swatches i:first-child {border-radius:5px 0 0 5px}.preset-swatches i:last-child {border-radius:0 5px 5px 0}.preset-action {font-size:11px;color:var(--v7-accent,#087f5b);flex:none}
   .style-grid {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px}.style-option {position:relative;padding:9px;border:1px solid var(--v7-line,#e1e7e4);border-radius:8px;gap:6px;cursor:pointer}
   .style-option.selected {border-color:var(--v7-accent,#087f5b);box-shadow:0 0 0 1px var(--v7-accent,#087f5b)}
   .style-option input {position:absolute;width:14px;height:14px;min-height:0;top:13px;right:13px;margin:0;accent-color:var(--v7-accent,#087f5b)}.style-option strong {font-size:11px}.style-option small {font-size:10px}
@@ -120,6 +130,7 @@
   .launcher-preview {display:flex;align-items:center;gap:8px;width:fit-content;margin:16px 0 0 auto;max-width:100%;padding:10px 14px;border-radius:24px;font-size:12px;font-weight:600;overflow-wrap:anywhere}
   .preview-stage a {display:inline-flex;align-items:center;min-height:44px;margin-top:8px;color:var(--v7-accent,#087f5b);font-size:12px;text-underline-offset:3px}
   .chat-preview[data-style="daylight"] header {border-top:5px solid var(--chat-accent)}.chat-preview:is([data-style="daylight"],[data-style="studio"]) .avatar {border-radius:9px}
+  .chat-preview[data-style="studio"] header {padding:18px;border-top:3px solid var(--chat-accent)}.chat-preview[data-style="studio"] .avatar {width:42px;height:42px;border-radius:12px}.chat-preview[data-style="studio"] .chat-body p {border-radius:10px;box-shadow:0 2px 6px #172b2609}
   .chat-preview[data-style="minimal"] header {justify-content:center;border:0;padding:22px}.chat-preview[data-style="minimal"] .chat-identity {flex-direction:column;text-align:center}.chat-preview[data-style="minimal"] .chat-body p {border:0;border-left:2px solid var(--chat-accent);border-radius:0}.chat-preview[data-style="minimal"] .customer-bubble {border-left:0;border-right:2px solid var(--chat-accent)}
   .chat-preview[data-style="editorial"] {box-shadow:6px 8px 0 #463f3026}.chat-preview[data-style="editorial"] header {border-bottom:3px double var(--chat-border)}.chat-preview[data-style="editorial"] .chat-body p,.chat-preview[data-style="editorial"] .send-preview {border-radius:0}
   .chat-preview[data-style="neon"] {border-color:var(--chat-accent);box-shadow:0 0 14px color-mix(in srgb,var(--chat-accent) 35%,transparent)}.chat-preview[data-style="neon"] header {border-bottom-color:var(--chat-accent)}.chat-preview[data-style="neon"] .chat-body p {border-radius:4px}
