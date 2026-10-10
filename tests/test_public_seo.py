@@ -83,8 +83,8 @@ def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     assert "X-Robots-Tag" not in response.headers
 
 
-def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_client):
-    from service.subscriptions import PRICES, VAT_PERCENT
+def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_client):
+    from service.plan_catalog import public_plans
 
     response = seo_client.get("/", base_url="https://untrusted.example")
     assert response.status_code == 200
@@ -99,35 +99,41 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
     products = [item for item in metadata["@graph"] if item["@type"] == "Product"]
     assert len(products) == 1
     product = products[0]
-    offer = product["offers"]
-    specification = offer["priceSpecification"]
-    vat_multiplier = Decimal(1) + Decimal(VAT_PERCENT) / 100
-    monthly_total = Decimal(PRICES["platform"]) / 100 * vat_multiplier
-    setup_total = Decimal(PRICES["implementation"]) / 100 * vat_multiplier
-    assert monthly_total == Decimal("480")
-    assert setup_total == Decimal("240")
-    assert specification["@type"] == "UnitPriceSpecification"
-    assert Decimal(specification["price"]) == monthly_total
-    assert specification["priceCurrency"] == "GBP"
-    assert specification["valueAddedTaxIncluded"] is True
-    assert specification["unitCode"] == "MON"
-    assert specification["unitText"] == "month"
-    assert "referenceQuantity" not in specification
     visible = " ".join(" ".join(page.visible_text).split())
-    assert "£80 VAT · £480/month total" in visible
-    assert "£40 VAT · £240 total" in visible
-    assert "one-time implementation separately" in visible
-    assert "API costs are separate" in visible
-    assert "OPTIONAL WHATSAPP ADD-ON" in visible
+    assert len(product["offers"]) == 3
+    assert [plan["name"] for plan in public_plans()] == ["Starter", "Business", "Scale"]
+    for plan, offer in zip(public_plans(), product["offers"]):
+        specification = offer["priceSpecification"]
+        assert offer["name"] == "V7 Agents " + plan["name"]
+        assert specification["@type"] == "UnitPriceSpecification"
+        assert Decimal(specification["price"]) == Decimal(plan["monthly_pence"]) / 100
+        assert specification["priceCurrency"] == "GBP"
+        assert specification["valueAddedTaxIncluded"] is False
+        assert specification["unitCode"] == "MON"
+        assert specification["unitText"] == "month"
+        assert "referenceQuantity" not in specification
+        assert f"£{plan['monthly_pence'] // 100} / month" in visible
+        assert f"£{plan['setup_pence'] // 100} one-time setup" in visible
+        assert f"{plan['website_conversations']:,} website conversations" in visible
+        assert f"{plan['whatsapp_messages']:,} WhatsApp messages" in visible
+        assert f"£{plan['ai_budget_pence'] // 100} AI API-cost budget" in visible
+        assert f"one-time setup £{plan['setup_pence'] // 100} before VAT" in offer["description"]
+        assert "without automatic extra charges" in offer["description"]
+        assert offer["url"] == ORIGIN + "/#pricing"
+        assert offer["seller"]["@id"] == ORIGIN + "/#organization"
+    assert "Exactly what your business gets" in visible
+    assert "No automatic extra charges" in visible
+    assert "calendar month in UTC" in visible
+    assert "incoming customer messages" in visible
+    assert "Staff limits cover active staff accounts in addition to the business owner" in visible
+    assert "OPTIONAL WHATSAPP ADD-ON" not in visible
     description = product["description"]
-    assert "£480 per month including VAT" in description
-    assert "Required one-time implementation is £240 including VAT" in description
-    assert "API usage is additional" in description
-    assert "optional WhatsApp is charged separately" in description
-    assert "Required implementation, API usage and optional WhatsApp are charged separately" in offer["description"]
-    assert product["url"] == offer["url"] == ORIGIN + "/#pricing"
+    assert "Starter, Business and Scale" in description
+    assert "before VAT, where applicable" in description
+    assert "separate one-time setup fee" in description
+    assert "WhatsApp requires a configured provider connection" in description
+    assert product["url"] == ORIGIN + "/#pricing"
     assert product["@id"] == ORIGIN + "/#monthly-plan"
-    assert offer["seller"]["@id"] == ORIGIN + "/#organization"
     assert "untrusted.example" not in json.dumps(metadata)
     pending = [metadata]
     while pending:
@@ -137,6 +143,17 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_extra_charges(seo_
             pending.extend(item.values())
         elif isinstance(item, list):
             pending.extend(item)
+
+
+def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_client):
+    from service.plan_catalog import public_plans
+
+    response = seo_client.get("/about")
+    assert response.status_code == 200
+    for plan in public_plans():
+        assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month with £{plan['setup_pence'] // 100} one-time setup" in response.text
+    assert "There are no automatic extra charges" in response.text
+    assert "optional WhatsApp add-on is a separate £200" not in response.text
 
 
 @pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])

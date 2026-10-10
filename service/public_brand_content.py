@@ -1,5 +1,13 @@
 """Public brand facts; no account, tenant or provider-login information."""
 from service.public_site_content import Solution
+from service.plan_catalog import public_plans
+
+
+def _plan_prices() -> str:
+    return "; ".join(
+        f"{plan['name']} £{plan['monthly_pence'] // 100}/month with £{plan['setup_pence'] // 100} one-time setup"
+        for plan in public_plans()
+    )
 
 
 SETUP_GUIDE: Solution = {
@@ -61,8 +69,8 @@ ABOUT: Solution = {
             "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp is optional and needs a configured Meta or Twilio provider connection.",
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
-            "The monthly platform plan is £400 plus £80 VAT, or £480 per month including VAT. Required implementation is a separate one-time £200 plus £40 VAT, or £240 including VAT. AI API usage is additional and varies with usage; it is not included in either charge.",
-            "The optional WhatsApp add-on is a separate £200 plus £40 VAT, or £240 per month including VAT. Website chat works independently of this add-on. Review the homepage pricing section and the checkout totals before purchasing.",
+            _plan_prices() + ". Prices are in GBP before VAT, where applicable. Every plan includes a website agent, a WhatsApp agent and monthly website conversation, WhatsApp message and AI API-cost allowances. Setup is paid separately and does not repeat with the monthly subscription.",
+            "At the monthly channel limit, new website conversations or incoming WhatsApp messages pause, and the administrator sees an alert. Existing website sessions can continue. Paid AI calls pause when the remaining budget cannot safely cover a request or its cost is unknown; saved business knowledge remains available. There are no automatic extra charges. WhatsApp requires a configured provider connection; provider charges, if any, are separate. Review the homepage comparison and checkout totals before purchasing.",
         ]},
         {"heading": "What should a business test before launch?", "paragraphs": [
             "Try a known product or service question, a policy question, an enquiry needing your team, a request outside your business knowledge, and a question with missing details. Check that the answers match your source information and that the next step is something your business can actually provide.",

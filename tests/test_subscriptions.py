@@ -59,7 +59,8 @@ def test_monthly_checkout_is_server_owned_and_excludes_implementation_and_addons
     assert body['metadata[tenant]']=='EXAMPLE'
     assert body['success_url'].endswith('/console/subscription?tenant=EXAMPLE&payment=processing')
     assert body['cancel_url'].endswith('/console/subscription?tenant=EXAMPLE')
-    assert body['line_items[0][price_data][unit_amount]']==40000
+    assert body['line_items[0][price_data][unit_amount]']==9900
+    assert body['subscription_data[metadata][plan_id]']=='starter'
     assert not any(key.startswith('line_items[1]') for key in body)
     assert body['mode']=='subscription'
     assert body['line_items[0][price_data][recurring][interval]']=='month'
@@ -75,21 +76,21 @@ def test_implementation_has_one_time_checkout_and_separate_paid_invoice(client,s
     assert client.post('/billing/checkout',json={'kind':'implementation','amount':1}).status_code==200
     body=stripe.call_args.args[2]
     assert body['mode']=='payment'
-    assert body['line_items[0][price_data][unit_amount]']==20000
+    assert body['line_items[0][price_data][unit_amount]']==14900
     assert not any('recurring' in key or key.startswith('subscription_data') for key in body)
     assert body['invoice_creation[enabled]']=='true'
     assert body['customer_creation']=='always'
     ref=body['invoice_creation[invoice_data][metadata][billing_ref]']
     invoice={'id':'in_setup','currency':'gbp','created':int(time.time()),'customer':'cus_setup',
-             'metadata':{'tenant':'EXAMPLE','kind':'implementation','billing_ref':ref},
-             'total':24000,'amount_paid':24000,'amount_remaining':0,'status':'paid','lines':{'data':[]}}
+             'metadata':{'tenant':'EXAMPLE','kind':'implementation','billing_ref':ref,'plan_id':'starter'},
+             'total':17880,'amount_paid':17880,'amount_remaining':0,'status':'paid','lines':{'data':[]}}
     stripe.side_effect=None
     stripe.return_value=invoice
     event=json.dumps({'type':'invoice.paid','data':{'object':{'id':'in_setup'}}}).encode()
     for _ in range(2):
         assert client.post('/billing/stripe/webhook',data=event,headers={'Stripe-Signature':signature(event)},content_type='application/json').status_code==200
     report=client.get('/billing/subscription').json
-    assert report['totals']['paid']==24000
+    assert report['totals']['paid']==17880
     assert report['invoices'][0]['kind']=='implementation'
     assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==1
     assert subscriptions._contract('EXAMPLE','implementation')['status']=='paid'
@@ -229,7 +230,7 @@ def test_discount_is_saved_and_applies_to_implementation_and_every_platform_rene
         assert response.status_code == 200, response.json
         body = stripe.call_args.args[2]
         assert body['discounts[0][coupon]'] == 'coupon_test'
-        assert body['line_items[0][price_data][unit_amount]'] == subscriptions.PRICES[kind]
+        assert body['line_items[0][price_data][unit_amount]'] == (9900 if kind=='platform' else 14900)
         assert body['mode'] == ('payment' if kind=='implementation' else 'subscription')
         assert private_discount not in json.dumps(body)
         coupon = [call for call in stripe.call_args_list if call.args[1]=='/v1/coupons'][-1]

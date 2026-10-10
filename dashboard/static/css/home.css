@@ -152,6 +152,21 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 #pricing .feature p strong { color: var(--charcoal); font-weight: 600; }
 #pricing .feature a { margin-top: 24px; align-self: flex-start; }
 #pricing .feature > p:last-of-type { margin-bottom: auto; }
+#pricing h3.plan-name { font-size: 23px; }
+#pricing .plan-price { color: var(--charcoal); font-size: 42px; font-weight: 650; letter-spacing: -.04em; margin-top: 20px; line-height: 1.2; }
+#pricing .plan-price small { color: var(--muted); font-size: 13px; letter-spacing: 0; font-weight: 500; }
+#pricing .plan-setup { margin-top: 8px; font-size: 13px; }
+.plan-highlights { display: grid; gap: 10px; padding: 0; margin: 24px 0 0; list-style: none; font-size: 13px; color: var(--charcoal); }
+.plan-highlights li::before { content: '✓'; color: var(--accent); margin-right: 8px; }
+#pricing .pricing-plans .feature a { margin-top: 28px; }
+.plan-comparison { max-width: 100%; overflow-x: auto; margin-top: 34px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.plan-comparison table { width: 100%; min-width: 560px; border-collapse: collapse; text-align: left; font-size: 13px; }
+.plan-comparison caption { text-align: left; padding: 22px 24px; font-size: 18px; font-weight: 600; color: var(--charcoal); }
+.plan-comparison th, .plan-comparison td { padding: 13px 24px; border-top: 1px solid var(--line); line-height: 1.5; }
+.plan-comparison thead th { background: var(--soft); font-weight: 600; color: var(--charcoal); }
+.plan-comparison tbody th { font-weight: 500; width: 40%; }
+.plan-comparison td { color: var(--muted); font-variant-numeric: tabular-nums; }
+.plan-comparison:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .pricing-api { margin-top: 22px; padding: 24px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
 #pricing .pricing-api h3 { font-size: 17px; }
 .pricing-api p { color: var(--muted); font-size: 13px; margin-top: 10px; }

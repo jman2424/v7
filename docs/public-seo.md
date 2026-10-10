@@ -19,10 +19,21 @@ and Bing Webmaster Tools properties. Account ownership and any required DNS
 verification must be completed in those services. Discovery files and structured
 data do not guarantee indexing, rich results or ranking.
 
-The homepage product schema describes the public monthly platform plan. Its
-unit price is £480 per month including VAT. Both the visible pricing section
-and schema descriptions disclose separate £240 implementation, API usage and
-optional WhatsApp charges. No reviews or ratings are fabricated. Search engines
+The homepage product schema describes Starter, Business and Scale monthly plans.
+The shared `service/plan_catalog.py` supplies the website, checkout and dashboard
+prices: £99, £199 and £349/month before VAT, with separate one-time setup fees of
+£149, £299 and £599. Each schema offer identifies its monthly billing unit and
+excludes VAT, matching the visible cards. Both channels and the plan's usage
+allowances are included; provider availability and any provider charges still
+apply. Channel limits pause the affected service, and AI-budget limits pause
+paid model calls with saved-knowledge fallback. Website limits pause new sessions;
+existing sessions can continue. AI calls can pause before the budget is exhausted
+if the next request cannot fit safely or its cost is unknown. The administrator
+receives persisted in-app alerts in the subscription view and platform company
+overview; no automatic extra charges are enabled. Basic/Advanced analytics and
+Basic/Standard API are descriptive service levels in this rollout, not separate
+permission scopes or promises of additional implemented tools. Existing role and
+tenant permissions remain authoritative. No reviews or ratings are fabricated. Search engines
 may display only part of this information or choose not to show a rich result.
 
 ## Optional public analytics

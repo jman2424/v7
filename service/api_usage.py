@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from contextlib import contextmanager, closing
 from contextvars import ContextVar
@@ -116,7 +117,7 @@ def _write_usage(values: tuple) -> None:
         )
 
 
-def _record(response, requested_model: str, purpose: str, status: str) -> None:
+def _record(response, requested_model: str, purpose: str, status: str) -> int | None:
     context = _context.get()
     if context is None:
         logger.error("API usage not recorded: tenant context missing")
@@ -148,9 +149,10 @@ def _record(response, requested_model: str, purpose: str, status: str) -> None:
         purpose, requested_model, model, status, input_tokens, cached, cache_writes,
         output_tokens, None, cost, PRICE_VERSION,
     ))
+    return cost
 
 
-def record_transcription(response, requested_model: str, status: str) -> None:
+def record_transcription(response, requested_model: str, status: str) -> int | None:
     """Store provider usage for one transcript without storing audio or text."""
     context = _context.get()
     if context is None:
@@ -180,33 +182,72 @@ def record_transcription(response, requested_model: str, status: str) -> None:
         "transcription", requested_model, requested_model, status,
         input_tokens, None, None, output_tokens, audio_seconds, cost, AUDIO_PRICE_VERSION,
     ))
+    return cost
+
+
+def completion_ceiling(kwargs: dict) -> int | None:
+    """Conservative standard-text ceiling without storing or tokenizing prompts."""
+    model = kwargs.get("model")
+    rates = RATES.get(model)
+    output_limit = kwargs.get("max_tokens")
+    if (rates is None or kwargs.get("service_tier") not in (None, "default")
+            or type(output_limit) is not int or not 0 < output_limit <= 4096):
+        return None
+    messages = kwargs.get("messages", [])
+    if not isinstance(messages, list):
+        return None
+    # Images/audio have separate pricing and cannot enter the text budget gate.
+    for message in messages:
+        content = _field(message, "content")
+        if content is not None and not isinstance(content, str):
+            return None
+    try:
+        encoded = json.dumps({key: kwargs[key] for key in ("messages", "tools", "response_format") if key in kwargs},
+                             ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError, RecursionError):
+        return None
+    input_limit = len(encoded) + 256 * len(messages) + 2048
+    input_rate = max(rates[0], _CACHE_WRITE_RATES.get(model, rates[0]))
+    input_cost, output_cost = input_limit * input_rate, output_limit * rates[2]
+    if model in _LONG_CONTEXT_MODELS and input_limit > 272_000:
+        input_cost *= 2
+        output_cost = output_cost * 3 // 2
+    return input_cost + output_cost
 
 
 def tracked_completion(client, *, purpose: str, **kwargs):
     """Keep existing provider/fallback behavior, including failures and rejected rewrites."""
     response = None
     status = "failed"
+    context = _context.get()
+    configuration = None
+    if context:
+        from service.model_settings import document
+        from flask import current_app, has_app_context
+        storage = current_app.container.storage if has_app_context() and hasattr(current_app,'container') else None
+        from retrieval.storage import Storage
+        configuration = document(storage or Storage(context[0]), context[0])
+    from service.model_settings import completion_options
+    from service.openai_completion import create
+    from service.plan_usage import reserve_ai, settle_ai
+    kwargs = completion_options(kwargs, purpose=purpose, configuration=configuration)
+    reservation = reserve_ai(context[0], completion_ceiling(kwargs)) if context else None
     try:
-        context = _context.get()
-        configuration = None
-        if context:
-            from service.model_settings import document
-            from flask import current_app, has_app_context
-            storage = current_app.container.storage if has_app_context() and hasattr(current_app,'container') else None
-            from retrieval.storage import Storage
-            configuration = document(storage or Storage(context[0]), context[0])
-        from service.model_settings import completion_options
-        from service.openai_completion import create
-        kwargs = completion_options(kwargs, purpose=purpose, configuration=configuration)
         response = create(client, kwargs)
         status = "completed"
         return response
     finally:
+        cost = None
         try:
-            _record(response, kwargs["model"], purpose, status)
+            cost = _record(response, kwargs["model"], purpose, status)
         except Exception as exc:
             # Accounting failure must not discard a paid reply or reveal its contents.
             logger.error("API usage recording failed (%s)", type(exc).__name__)
+        try:
+            settle_ai(reservation, cost)
+        except Exception as exc:
+            # An unsettled reservation stays held. Never discard a paid reply.
+            logger.error("Plan usage settlement failed (%s)", type(exc).__name__)
 
 
 def summary(tenant: str | None, days: int) -> dict:

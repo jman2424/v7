@@ -632,6 +632,10 @@ def api_branches_put():
                                   schema="branches.schema.json", expected_revision=revision(before))
     except ValidationError as exc:
         return jsonify({"error": "invalid_branches", "detail": exc.message}), 400
+    except ValueError as exc:
+        if str(exc) == 'location_limit_reached':
+            return jsonify(error='location_limit_reached'), 409
+        raise
     _invalidate_tenant(tenant)
     return jsonify({"ok": True, "snapshot": snap})
 

@@ -522,6 +522,7 @@ def transcribe_api():
             "audio_too_large": 413, "unsupported_audio": 415,
             "invalid_audio": 400, "no_speech_detected": 422,
             "transcript_too_long": 422, "transcription_unavailable": 503,
+            "ai_allowance_paused": 429, "audio_duration_unverified": 422,
         }.get(exc.code, 502)
         return _cors(jsonify(error=exc.code)), status
     return _cors(jsonify(text=transcript))
@@ -563,6 +564,11 @@ def chat_api():
     if not isinstance(message_id, str) or len(message_id) > 128:
         return _cors(jsonify(error="invalid_message_id")), 400
     message_id = session_id + ":" + message_id
+
+    from service.plan_usage import use_resource
+    if not use_resource(tenant, "website_conversations", session_id):
+        return _cors(jsonify(error="website_allowance_paused",
+                            reply="Chat is temporarily unavailable. Please contact the business directly.")), 429
 
     lead_id = _lead_id_from_session(session_id)
 

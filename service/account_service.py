@@ -60,6 +60,7 @@ class AccountService:
             if any(secrets.compare_digest(str(stored.get("email") or "").lower().encode('utf-8'),
                                           email.encode('utf-8')) for stored in accounts):
                 raise ValueError("account_already_exists")
+            self._check_staff_allowance(tenant, accounts, account)
             self.storage._write_json(tenant, ACCOUNT_FILE, [*accounts, account])
         return self._public_account(account)
 
@@ -108,6 +109,7 @@ class AccountService:
                     from service.security import hash_password
 
                     updated["password_hash"] = hash_password(password)
+                self._check_staff_allowance(tenant, accounts, updated, previous=stored)
                 accounts[index] = updated
                 self.storage._write_json(tenant, ACCOUNT_FILE, accounts)
                 from service.trusted_devices import revoke_account
@@ -115,6 +117,21 @@ class AccountService:
                 return self._public_account(updated)
 
         raise ValueError("account_not_found")
+
+    @staticmethod
+    def _staff_seat(account: Dict[str, Any]) -> bool:
+        roles = account.get("roles") or []
+        return (account.get("active") is not False and "business_staff" in roles
+                and "business_owner" not in roles)
+
+    def _check_staff_allowance(self, tenant, accounts, proposed, *, previous=None):
+        """Check new active staff seats while the caller holds the tenant lock."""
+        if not self._staff_seat(proposed) or (previous is not None and self._staff_seat(previous)):
+            return
+        from service.subscriptions import configured_plan
+        plan = configured_plan(self.storage.canonical_tenant_key(tenant))
+        if plan is not None and sum(self._staff_seat(account) for account in accounts) >= plan['staff']:
+            raise ValueError("staff_account_limit_reached")
 
     def _accounts(self, tenant: str) -> List[Dict[str, Any]]:
         try:

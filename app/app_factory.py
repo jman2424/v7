@@ -259,8 +259,9 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     @app.get("/")
     def root():
         site_origin = settings.BASE_URL.rstrip("/")
+        from service.plan_catalog import public_plans
         return render_template("home.html", site_origin=site_origin,
-                               canonical_url=site_origin + "/")
+                               canonical_url=site_origin + "/", subscription_plans=public_plans())
 
     # Health (Render)
     @app.get("/healthz")

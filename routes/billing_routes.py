@@ -67,6 +67,10 @@ def companies_get():
         with subscriptions.connection() as db:
             for company in matches[(page-1)*50:page*50]:
                 billing_details(company, db)
+    from service import plan_usage
+    for company in matches[(page-1)*50:page*50]:
+        company['plan_state'] = subscriptions.plan_state(company['key'])
+        company['allowance'] = plan_usage.report(company['key'])
     return jsonify(companies=matches[(page-1)*50:page*50],total=len(companies),matched=len(matches),page=page,has_next=len(matches)>page*50)
 
 
@@ -74,11 +78,35 @@ def companies_get():
 def checkout_post():
     tenant, data = _tenant(), _body()
     try:
-        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''))
+        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''),plan_id=data.get('plan_id'))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
-    _audit('billing.checkout',tenant,after={'kind':data.get('kind')})
+    _audit('billing.checkout',tenant,after={'kind':data.get('kind'),'plan_id':data.get('plan_id')})
+    return jsonify(result)
+
+
+@bp.post('/select-plan')
+def select_plan_post():
+    tenant, data = _tenant(), _body()
+    try:
+        state = subscriptions.select_plan(tenant, data.get('plan_id'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)),400
+    from routes.admin_api_routes import _audit
+    _audit('billing.select_plan',tenant,after={'plan_id':state['selected_plan']})
+    return jsonify(ok=True,plan_state=state)
+
+
+@bp.post('/cancel-checkout')
+def cancel_checkout_post():
+    tenant = _tenant()
+    try:
+        result = subscriptions.cancel_pending_checkouts(tenant)
+    except ValueError as exc:
+        return jsonify(error=str(exc)),400
+    from routes.admin_api_routes import _audit
+    _audit('billing.cancel_checkout',tenant)
     return jsonify(result)
 
 

@@ -98,7 +98,11 @@ def put_file(filename: str):
                          "before_revision": revision(previous), "after_revision": revision(payload)})
             snap = container.storage._write_json(tenant, filename, payload, schema=schema_map.get(filename))
         audit.record(**common, extra={**details, "result": "success", "snapshot": snap})
-    except (ValidationError, ValueError):
+    except ValueError as exc:
+        if str(exc) == 'location_limit_reached':
+            return jsonify(error='location_limit_reached'), 409
+        abort(400, description="invalid_business_data")
+    except ValidationError:
         abort(400, description="invalid_business_data")
     container.invalidate_tenant(tenant)
     return jsonify({"ok": True, "snapshot_path": snap, "snapshot": snap})

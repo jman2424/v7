@@ -13,6 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from connectors.billing import BillingClient
 from service import session_store, analytics_db, api_usage
+from service.plan_catalog import get_plan, public_plans
 
 VAT_PERCENT = 20
 PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
@@ -52,6 +53,8 @@ def connection(tenant=None):
         db.execute('CREATE INDEX IF NOT EXISTS billing_invoice_tenant ON billing_invoices(tenant,issued)')
         db.execute('CREATE TABLE IF NOT EXISTS billing_api_charges (tenant TEXT NOT NULL, month TEXT NOT NULL, amount INTEGER NOT NULL, ref TEXT UNIQUE NOT NULL, checkout TEXT, checkout_url TEXT, checkout_expires INTEGER, PRIMARY KEY(tenant,month))')
         db.execute('CREATE TABLE IF NOT EXISTS billing_references (ref TEXT PRIMARY KEY, tenant TEXT NOT NULL, kind TEXT NOT NULL)')
+        db.execute("CREATE TABLE IF NOT EXISTS billing_plan_state (tenant TEXT PRIMARY KEY, selected_plan TEXT NOT NULL, active_plan TEXT, setup_plan TEXT, whatsapp_paused INTEGER NOT NULL DEFAULT 0)")
+        db.execute('CREATE TABLE IF NOT EXISTS billing_plan_choices (ref TEXT PRIMARY KEY, tenant TEXT NOT NULL, kind TEXT NOT NULL, plan_id TEXT NOT NULL)')
         yield db
 
 
@@ -75,6 +78,87 @@ def configured():
     import os
     stripe = client()
     return bool(stripe.provider == 'stripe' and stripe.api_key and stripe.webhook_secret and os.getenv('STRIPE_TAX_RATE_ID'))
+
+
+def internal_business(tenant):
+    from flask import has_app_context, current_app
+    if not has_app_context():
+        return False
+    settings = getattr(getattr(current_app, 'container', None), 'settings', None)
+    if tenant != getattr(settings, 'PLATFORM_MARKETING_TENANT', ''):
+        return False
+    from service.tenant_access import activation
+    return activation(tenant)['status'] == 'platform_internal'
+
+
+def plan_state(tenant):
+    with connection(tenant) as db:
+        row = db.execute('SELECT selected_plan,active_plan,setup_plan,whatsapp_paused FROM billing_plan_state WHERE tenant=?', (tenant,)).fetchone()
+        if row:
+            pending = db.execute("SELECT MAX(checkout_expires) expires FROM billing_contracts WHERE tenant=? AND kind IN ('platform','implementation') AND subscription IS NULL AND status!='paid' AND checkout_expires>?", (tenant,int(time.time()))).fetchone()
+            return {**dict(row), 'checkout_pending':bool(pending['expires']), 'checkout_expires':pending['expires']}
+    return None
+
+
+def configured_plan(tenant):
+    if internal_business(tenant):
+        return None
+    with connection(tenant) as db:
+        state = db.execute('SELECT selected_plan,active_plan FROM billing_plan_state WHERE tenant=?', (tenant,)).fetchone()
+    return get_plan(state['active_plan'] or state['selected_plan']) if state else None
+
+
+def select_plan(tenant, plan_id):
+    plan = get_plan(plan_id)
+    if internal_business(tenant):
+        raise ValueError('internal_business_has_no_customer_subscription')
+    with connection(tenant) as db:
+        if not session_store._using_postgres():
+            db.execute('BEGIN IMMEDIATE')
+        row = db.execute("SELECT subscription,status,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
+        state = db.execute('SELECT * FROM billing_plan_state WHERE tenant=?' + (' FOR UPDATE' if session_store._using_postgres() else ''), (tenant,)).fetchone()
+        if row and row['subscription'] and row['status'] not in {'canceled','incomplete_expired'}:
+            if not state or state['active_plan'] != plan_id:
+                raise ValueError('existing_subscription_requires_review')
+            return dict(state)
+        if state and state['setup_plan'] and state['setup_plan'] != plan_id:
+            raise ValueError('paid_setup_plan_requires_review')
+        if row and row['implementation_paid'] and not state:
+            raise ValueError('existing_setup_requires_review')
+        # Different setup/monthly checkout generations must never be sold for
+        # different plans. Lock selection until the pending sessions are retired.
+        pending = db.execute("SELECT 1 FROM billing_contracts WHERE tenant=? AND kind IN ('platform','implementation') AND subscription IS NULL AND status!='paid' AND checkout_expires>? LIMIT 1", (tenant,int(time.time()))).fetchone()
+        if pending and (not state or state['selected_plan'] != plan_id):
+            raise ValueError('cancel_pending_checkout_before_changing_plan')
+        db.execute('INSERT INTO billing_plan_state (tenant,selected_plan) VALUES (?,?) ON CONFLICT(tenant) DO UPDATE SET selected_plan=excluded.selected_plan', (tenant,plan['id']))
+    return plan_state(tenant)
+
+
+def cancel_pending_checkouts(tenant):
+    with connection(tenant) as db:
+        if not session_store._using_postgres():
+            db.execute('BEGIN IMMEDIATE')
+        suffix = ' FOR UPDATE' if session_store._using_postgres() else ''
+        db.execute('SELECT tenant FROM billing_plan_state WHERE tenant=?'+suffix, (tenant,)).fetchone()
+        rows = db.execute("SELECT ref,checkout,checkout_expires FROM billing_contracts WHERE tenant=? AND kind IN ('platform','implementation') AND subscription IS NULL AND status!='paid'"+suffix, (tenant,)).fetchall()
+        for row in rows:
+            if not row['checkout']:
+                if row['checkout_expires'] and row['checkout_expires'] > time.time():
+                    raise ValueError('checkout_creation_in_progress')
+                continue
+            if not re.fullmatch(r'cs_[A-Za-z0-9_]+', row['checkout']):
+                raise ValueError('stripe_response_invalid')
+            previous = client().stripe_request('GET','/v1/checkout/sessions/'+row['checkout'])
+            if previous.get('status') == 'complete':
+                raise ValueError('payment_processing_refresh_soon')
+            if previous.get('status') == 'open':
+                expired = client().stripe_request('POST','/v1/checkout/sessions/'+row['checkout']+'/expire', idempotency_key='v7-expire-'+row['ref'])
+                if expired.get('status') != 'expired':
+                    raise ValueError('stripe_response_invalid')
+            elif previous.get('status') != 'expired':
+                raise ValueError('stripe_response_invalid')
+            db.execute('UPDATE billing_contracts SET ref=?,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=? AND tenant=?', (secrets.token_urlsafe(24),row['ref'],tenant))
+    return {'ok':True}
 
 
 def _safe_url(value, host):
@@ -152,9 +236,25 @@ def redeem_discount(tenant, code):
     return {'ok':True,'discount_percent':50}
 
 
-def checkout(tenant, email, kind, base_url, month='', discount_code=''):
+def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=None):
     if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
+    plan = None
+    if kind in {'platform','implementation'}:
+        state = plan_state(tenant)
+        contract = _contract(tenant,'platform')
+        # Existing financial contracts retain their agreed legacy prices.
+        legacy = bool(not state and (contract['subscription'] or contract['implementation_paid'] or contract['status'] != 'not_started' or contract['checkout']))
+        if plan_id is not None or state or not legacy:
+            chosen = plan_id if plan_id is not None else state['selected_plan'] if state else 'starter'
+            select_plan(tenant, chosen)
+            plan = get_plan(chosen)
+    elif plan_id is not None:
+        raise ValueError('plan_not_applicable_to_billing_item')
+    if kind == 'whatsapp' and configured_plan(tenant):
+        raise ValueError('whatsapp_included_in_subscription')
+    if kind == 'api' and configured_plan(tenant):
+        raise ValueError('extra_usage_charges_disabled')
     entered_campaign = _discount_campaign(kind, discount_code)
     if entered_campaign:
         redeem_discount(tenant, discount_code)
@@ -164,7 +264,6 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
         raise ValueError('implementation_already_paid')
     if kind=='whatsapp' and _contract(tenant,'platform')['status']!='active':
         raise ValueError('active_platform_subscription_required')
-    tax = _tax()
     stripe = client()
     if kind == 'api':
         with connection(tenant) as db:
@@ -182,10 +281,39 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
             with connection(tenant) as db:
                 db.execute('UPDATE billing_contracts SET ref=?,subscription=NULL,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=?', (secrets.token_urlsafe(24),contract['ref']))
             contract = _contract(tenant,kind)
+    reserved_ref = None
+    if plan:
+        _contract(tenant,kind)
+        with connection(tenant) as db:
+            if not session_store._using_postgres():
+                db.execute('BEGIN IMMEDIATE')
+            state = db.execute('SELECT selected_plan FROM billing_plan_state WHERE tenant=?'+(' FOR UPDATE' if session_store._using_postgres() else ''), (tenant,)).fetchone()
+            if not state or state['selected_plan'] != plan['id']:
+                raise ValueError('checkout_plan_changed_refresh')
+            current = db.execute('SELECT ref,checkout,subscription FROM billing_contracts WHERE tenant=? AND kind=?', (tenant,kind)).fetchone()
+            if not current['checkout'] and not current['subscription']:
+                reserved_ref = current['ref']
+                db.execute('UPDATE billing_contracts SET checkout_expires=? WHERE ref=? AND checkout_expires IS NULL', (int(time.time())+3600,reserved_ref))
+    try:
+        tax = _tax()
+    except Exception:
+        if reserved_ref:
+            with connection(tenant) as db:
+                if not session_store._using_postgres():
+                    db.execute('BEGIN IMMEDIATE')
+                db.execute('SELECT tenant FROM billing_plan_state WHERE tenant=?'+(' FOR UPDATE' if session_store._using_postgres() else ''), (tenant,)).fetchone()
+                # Another request may already be creating this same generation.
+                # Its immutable choice keeps the reservation until Stripe expires it.
+                bound = db.execute('SELECT 1 FROM billing_plan_choices WHERE ref=? AND tenant=?', (reserved_ref,tenant)).fetchone()
+                if not bound:
+                    db.execute('UPDATE billing_contracts SET checkout_expires=NULL WHERE ref=? AND checkout IS NULL', (reserved_ref,))
+        raise
     if contract.get('checkout'):
         previous = stripe.stripe_request('GET','/v1/checkout/sessions/'+contract['checkout'])
         if previous.get('status') == 'open':
-            if (kind=='platform' and (previous.get('metadata') or {}).get('billing_version')!='separate_implementation') or (kind in {'platform','implementation'} and (previous.get('metadata') or {}).get('discount_campaign','') != campaign):
+            previous_metadata = previous.get('metadata') or {}
+            expected_version = 'tiered_v1' if plan else 'separate_implementation'
+            if (kind=='platform' and previous_metadata.get('billing_version')!=expected_version) or (kind in {'platform','implementation'} and (previous_metadata.get('discount_campaign','') != campaign or previous_metadata.get('plan_id','') != (plan['id'] if plan else ''))):
                 # Retire old combined checkouts before replacing them with the monthly plan.
                 stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
             else:
@@ -198,7 +326,21 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
             db.execute(f'UPDATE {table} SET ref=?,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=?', (secrets.token_urlsafe(24),contract['ref']))
             row = db.execute(f'SELECT * FROM {table} WHERE tenant=? AND '+('month=?' if kind=='api' else 'kind=?'),(tenant,month if kind=='api' else kind)).fetchone()
             contract = dict(row)
+    # Bind each checkout generation to the server-owned plan; provider metadata
+    # cannot grant a different tier, and old callbacks cannot change a new plan.
     with connection(tenant) as db:
+        choice = db.execute('SELECT plan_id FROM billing_plan_choices WHERE ref=? AND tenant=?', (contract['ref'],tenant)).fetchone()
+        if choice and (not plan or choice['plan_id'] != plan['id']):
+            fresh = secrets.token_urlsafe(24)
+            db.execute('UPDATE billing_contracts SET ref=?,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=? AND tenant=?', (fresh,contract['ref'],tenant))
+            contract = dict(db.execute('SELECT * FROM billing_contracts WHERE tenant=? AND kind=?', (tenant,kind)).fetchone())
+    with connection(tenant) as db:
+        if plan:
+            if not session_store._using_postgres():
+                db.execute('BEGIN IMMEDIATE')
+            state = db.execute('SELECT selected_plan FROM billing_plan_state WHERE tenant=?'+(' FOR UPDATE' if session_store._using_postgres() else ''), (tenant,)).fetchone()
+            if not state or state['selected_plan'] != plan['id']:
+                raise ValueError('checkout_plan_changed_refresh')
         table = 'billing_api_charges' if kind=='api' else 'billing_contracts'
         db.execute(f'UPDATE {table} SET checkout_expires=? WHERE ref=? AND checkout_expires IS NULL',(int(time.time())+3600,contract['ref']))
         contract['checkout_expires'] = db.execute(f'SELECT checkout_expires FROM {table} WHERE ref=?',(contract['ref'],)).fetchone()['checkout_expires']
@@ -206,13 +348,20 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
                             if session_store._using_postgres() else
                             'INSERT OR IGNORE INTO billing_references VALUES (?,?,?)')
         db.execute(reference_insert,(contract['ref'],tenant,kind))
+        if plan:
+            db.execute('INSERT INTO billing_plan_choices (ref,tenant,kind,plan_id) VALUES (?,?,?,?) ON CONFLICT DO NOTHING', (contract['ref'],tenant,kind,plan['id']))
+            bound = db.execute('SELECT plan_id FROM billing_plan_choices WHERE ref=? AND tenant=?', (contract['ref'],tenant)).fetchone()
+            if not bound or bound['plan_id'] != plan['id']:
+                raise ValueError('checkout_plan_changed_refresh')
     ref = contract['ref']
     return_url = base_url+'/console/subscription?'+urlencode({'tenant':tenant})
     data = {'mode':'payment' if one_time else 'subscription','success_url':return_url+'&payment=processing','cancel_url':return_url,
             'managed_payments[enabled]':'false',
             'client_reference_id':tenant,'metadata[tenant]':tenant,'metadata[kind]':kind,'metadata[billing_ref]':ref,
-            'metadata[billing_version]':'separate_implementation',
+            'metadata[billing_version]':'tiered_v1' if plan else 'separate_implementation',
             }
+    if plan:
+        data['metadata[plan_id]'] = plan['id']
     customer = contract.get('customer') or (_contract(tenant,'platform').get('customer') if kind!='platform' else None)
     if not customer and kind=='platform':
         customer = _contract(tenant,'implementation').get('customer')
@@ -224,14 +373,19 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
     meta_prefix = 'invoice_creation[invoice_data][metadata]' if one_time else 'subscription_data[metadata]'
     for key, value in {'tenant':tenant,'kind':kind,'billing_ref':ref,'month':month}.items():
         data[f'{meta_prefix}[{key}]'] = value
+    if plan:
+        data[f'{meta_prefix}[plan_id]'] = plan['id']
     if one_time:
         data['invoice_creation[enabled]'] = 'true'
     else:
         data['subscription_data[default_tax_rates][0]'] = tax
-    items = [(kind, contract['amount'] if kind=='api' else PRICES[kind], not one_time)]
+    amount = contract['amount'] if kind=='api' else plan['monthly_pence' if kind=='platform' else 'setup_pence'] if plan else PRICES[kind]
+    items = [(kind, amount, not one_time)]
     for index, (item,amount,recurring) in enumerate(items):
         prefix = f'line_items[{index}]'
         name = {'platform':'V7 monthly subscription','implementation':'V7 implementation (one time)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
+        if plan:
+            name = 'V7 '+plan['name']+(' setup (one time)' if one_time else ' monthly subscription')
         data.update({prefix+'[quantity]':1,prefix+'[price_data][currency]':'gbp',prefix+'[price_data][unit_amount]':amount,
                      prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name,prefix+'[tax_rates][0]':tax})
         if recurring:
@@ -249,6 +403,17 @@ def checkout(tenant, email, kind, base_url, month='', discount_code=''):
     return {'url':url}
 
 
+def _confirmed_plan(db, metadata, identity):
+    choice = db.execute('SELECT plan_id FROM billing_plan_choices WHERE ref=? AND tenant=? AND kind=?', (metadata.get('billing_ref',''),identity['tenant'],identity['kind'])).fetchone()
+    if choice:
+        if metadata.get('plan_id') != choice['plan_id']:
+            raise ValueError('unknown_billing_plan')
+        return get_plan(choice['plan_id'])
+    if metadata.get('plan_id'):
+        raise ValueError('unknown_billing_plan')
+    return None
+
+
 def sync_subscription(subscription_id):
     if not re.fullmatch(r'sub_[A-Za-z0-9]+',subscription_id):
         raise ValueError('invalid_subscription')
@@ -261,9 +426,14 @@ def sync_subscription(subscription_id):
         row = db.execute('SELECT tenant,kind FROM billing_references WHERE ref=?', (metadata.get('billing_ref',''),)).fetchone()
         if not row or row['tenant'] != metadata.get('tenant') or row['kind'] != metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
+        plan = _confirmed_plan(db, metadata, row)
         periods = [item.get('current_period_end') for item in data.get('items',{}).get('data',[]) if item.get('current_period_end')]
         db.execute('UPDATE billing_contracts SET subscription=?,customer=?,status=?,next_due=?,cancel_at_end=? WHERE ref=?',
                    (subscription_id,data.get('customer'),data.get('status','unknown'),min(periods) if periods else None,int(bool(data.get('cancel_at_period_end'))),metadata['billing_ref']))
+        if plan and row['kind'] == 'platform':
+            current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
+            if current and current['ref'] == metadata['billing_ref']:
+                db.execute('UPDATE billing_plan_state SET active_plan=? WHERE tenant=?', (plan['id'],tenant))
     return dict(row)
 
 
@@ -285,8 +455,9 @@ def sync_invoice(invoice_id):
             raise ValueError('unknown_billing_reference')
         with connection(tenant) as db:
             row = db.execute("SELECT tenant,kind FROM billing_references WHERE ref=? AND kind IN ('api','implementation')", (metadata.get('billing_ref',''),)).fetchone()
-        if not row or row['tenant']!=metadata.get('tenant') or row['kind']!=metadata.get('kind'):
-            raise ValueError('unknown_billing_reference')
+            if not row or row['tenant']!=metadata.get('tenant') or row['kind']!=metadata.get('kind'):
+                raise ValueError('unknown_billing_reference')
+            plan = _confirmed_plan(db, metadata, row)
         identity = dict(row)
         month = metadata.get('month') if row['kind']=='api' else datetime.fromtimestamp(invoice['created'],timezone.utc).strftime('%Y-%m')
     lines = [{'description':str(line.get('description') or '')[:300], 'amount':line.get('amount',0)} for line in invoice.get('lines',{}).get('data',[])]
@@ -295,12 +466,22 @@ def sync_invoice(invoice_id):
                    (invoice_id,identity['tenant'],identity['kind'],month,invoice['created'],invoice.get('due_date'),invoice['total'],invoice['amount_paid'],invoice['amount_remaining'],invoice['status'],json.dumps(lines),_safe_url(invoice.get('hosted_invoice_url'),'invoice.stripe.com')))
         legacy_implementation = identity['kind']=='platform' and invoice.get('billing_reason')=='subscription_create' and any('V7 implementation' in line['description'] for line in lines)
         if invoice.get('status')=='paid' and (identity['kind']=='implementation' or legacy_implementation):
-            db.execute('UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind=\'platform\'',(identity['tenant'],))
             if identity['kind']=='implementation':
+                current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='implementation'", (identity['tenant'],)).fetchone()
+                tiered = db.execute('SELECT 1 FROM billing_plan_state WHERE tenant=?', (identity['tenant'],)).fetchone()
+                if tiered and (not plan or not current or current['ref'] != metadata['billing_ref']):
+                    return
                 db.execute("UPDATE billing_contracts SET status='paid',customer=? WHERE tenant=? AND kind='implementation'",(invoice.get('customer'),identity['tenant']))
+                if plan:
+                    db.execute('UPDATE billing_plan_state SET setup_plan=? WHERE tenant=?', (plan['id'],identity['tenant']))
+            db.execute('UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind=\'platform\'',(identity['tenant'],))
 
 
 def change_whatsapp(tenant, enabled):
+    if configured_plan(tenant):
+        with connection(tenant) as db:
+            db.execute('UPDATE billing_plan_state SET whatsapp_paused=? WHERE tenant=?', (int(not enabled),tenant))
+        return
     contract = _contract(tenant,'whatsapp')
     if not contract['subscription']:
         raise ValueError('whatsapp_subscription_required')
@@ -324,6 +505,11 @@ def portal(tenant, base_url):
 
 
 def whatsapp_enabled(tenant):
+    state = plan_state(tenant)
+    if state:
+        with connection(tenant) as db:
+            base = db.execute("SELECT status,next_due FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
+        return bool(state['active_plan'] and not state['whatsapp_paused'] and base and base['status'] in {'active','trialing'} and (base['next_due'] or 0)>time.time())
     with connection(tenant) as db:
         row = db.execute("SELECT paused,status,next_due FROM billing_contracts WHERE tenant=? AND kind='whatsapp'",(tenant,)).fetchone()
     # Enforce purchased access when a billing contract exists. Preserve legacy integrations until migrated.
@@ -331,6 +517,8 @@ def whatsapp_enabled(tenant):
 
 
 def approve_api_charge(tenant, month, amount):
+    if configured_plan(tenant):
+        raise ValueError('extra_usage_charges_disabled')
     current = datetime.now(timezone.utc).strftime('%Y-%m')
     if not isinstance(month,str) or not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month) or month>=current:
         raise ValueError('choose_a_completed_month')
@@ -388,4 +576,8 @@ def report(tenant, include_api=True):
             totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=? AND kind!='api'", (tenant,)).fetchone())
         totals['approved_api_due'] = 0
         usage, rate, approved = [], None, []
-    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant)}
+    from service import plan_usage
+    state = plan_state(tenant)
+    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
+            'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
+            'internal':internal_business(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

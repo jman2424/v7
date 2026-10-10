@@ -351,19 +351,23 @@ access until a valid code is confirmed. Local preview credentials are not live
 Render credentials. Existing server-configured admin passwords and authenticators
 are unchanged. See [security and recovery](docs/SECURITY.md).
 
-The `/console/subscription` page shows the £400 monthly platform subscription,
-£200 one-time implementation and optional £200 monthly WhatsApp add-on. Each has
-20% exclusive VAT: £480/month, £240 once and £240/month respectively. Only platform
-administrators create tenants and see the all-company subscription list. Owners
-see their own billing; staff need explicit view permission. API billing requires explicit
-platform approval of a completed month's amount; usage estimates are not charged
-automatically. Staff need explicit view_costs and/or view_subscriptions permissions;
-subscription access is read-only. All accounts require authenticator 2FA. New
-businesses can be configured before launch, but only activate after both the
-platform subscription invoice and implementation payment are confirmed. Existing
-businesses keep their current operation. Ownership and activation records live in
-the configured security database and need durable storage and protected backups.
-No real Stripe charge is taken by tests or by deploying the code.
+The `/console/subscription` page shows Starter at GBP 99/month plus GBP 149
+setup, Business at GBP 199/month plus GBP 299 setup, and Scale at GBP 349/month
+plus GBP 599 setup, before VAT. All three include website and WhatsApp agents,
+with plan-specific conversations, messages, AI-cost budgets, locations and staff
+allowances. When an allowance runs out, the affected service pauses and durable
+in-app alerts notify owners and platform administrators. No extra usage is charged
+automatically. Existing contracts retain their financial terms and legacy API
+billing still requires explicit platform approval.
+
+Only platform administrators create tenants and see the all-company subscription
+list. Owners see their own billing; staff need explicit view_costs and/or
+view_subscriptions permissions, with read-only subscription access. All accounts
+require authenticator 2FA. New businesses can be configured before launch, but
+only activate after the monthly invoice and matching setup payment are confirmed.
+Ownership, activation and usage records need durable storage and protected backups.
+No real Stripe charge is taken by tests or by deploying the code. See
+[monthly plans](docs/billing-plans.md) for allowance definitions and limitations.
 
 Stripe setup (server-side only):
 - Set `BILLING_PROVIDER=stripe`, `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and
@@ -378,9 +382,11 @@ Stripe setup (server-side only):
 - Use a Stripe test account first. Checkout accepts server-owned GBP prices;
   implementation uses its own one-time checkout and invoice, separate from the
   monthly plan. Earlier combined implementation payments remain recognised.
-  Old open combined checkouts are expired when replaced. Optional WhatsApp has
-  its own monthly subscription. API usage is additional and paid separately.
-  The homepage and subscription page explain all four charges and VAT.
+  Old open combined checkouts are expired when replaced. New plans include
+  WhatsApp and an AI-cost budget; provider configuration is still required.
+  Legacy WhatsApp subscriptions and approved API charges remain supported for
+  existing contracts. The homepage and subscription page explain plan prices,
+  setup, allowances and VAT.
 - Use persistent SQLite/file storage or complete the verified PostgreSQL migration
   before onboarding paying companies. The current Free Render instance's local
   data is ephemeral; deploying code alone does not preserve existing data or
@@ -393,11 +399,12 @@ Amounts are stored as integer pence. Totals are recorded invoice payments before
 refunds; credit notes/refunds are managed in Stripe and are not netted here yet.
 History shows up to 120 invoices, and recorded API usage up to 24 calendar months.
 
-WhatsApp deactivation pauses bot responses immediately and cancels renewal at the
-paid-through date, without automatic refunds. Reactivation before expiry resumes
-renewals. An expired subscription requires new checkout. Existing integrations
-remain available before Stripe configuration; after billing is configured,
-WhatsApp requires an active, unexpired, unpaused contract. Routes remain present.
+WhatsApp deactivation pauses bot responses immediately. For new plans, this is
+an included-channel control and does not create a separate charge. For legacy
+WhatsApp subscriptions it also cancels renewal at the paid-through date, without
+automatic refunds; reactivation before expiry resumes renewal. An expired legacy
+subscription requires new checkout. WhatsApp access still requires the appropriate
+active, unexpired, unpaused subscription and provider configuration.
 
 Implementation references: [Stripe Checkout](https://docs.stripe.com/api/checkout/sessions/create),
 [subscription events](https://docs.stripe.com/billing/subscriptions/webhooks), and

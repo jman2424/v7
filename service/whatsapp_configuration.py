@@ -110,7 +110,7 @@ def setup_status(container, tenant: str) -> dict:
     if not active:
         blockers.append({"code": "tenant_inactive", "action": "Complete company activation."})
     if not subscribed:
-        blockers.append({"code": "whatsapp_subscription_inactive", "action": "Activate the WhatsApp add-on."})
+        blockers.append({"code": "whatsapp_subscription_inactive", "action": "Activate WhatsApp access for this company."})
     voice = transcription_status()
     voice_configured = voice["configured"]
     meta_media = providers["meta"]["configured"] and valid_meta_api_url(settings.WHATSAPP_API_URL, media=True)

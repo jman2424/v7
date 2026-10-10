@@ -37,6 +37,37 @@ def validate_core(document):
             raise ValueError('Duplicate or reserved business record ID')
 
 
+def require_location_allowance(storage, tenant, filename, proposed):
+    """Enforce the combined branch/service-area allowance under the tenant lock.
+
+    Unchanged counts and removals remain possible after a plan downgrade. The
+    shared storage writer calls this for dashboard edits and raw JSON imports.
+    """
+    from service.subscriptions import configured_plan
+    plan = configured_plan(storage.canonical_tenant_key(tenant))
+    if plan is None:
+        return
+
+    def read(name, default):
+        try:
+            return storage.read_json(tenant, name)
+        except FileNotFoundError:
+            return default
+
+    def count(branches, core):
+        locations = core.get('locations') if isinstance(core, dict) else None
+        if not isinstance(branches, list) or not isinstance(locations, list):
+            raise ValueError('invalid_location_documents')
+        return len(branches) + len(locations)
+
+    branches = read('branches.json', [])
+    core = read('business_core.json', empty_core())
+    previous_count = count(branches, core)
+    proposed_count = count(proposed, core) if filename == 'branches.json' else count(branches, proposed)
+    if proposed_count > plan['locations'] and proposed_count > previous_count:
+        raise ValueError('location_limit_reached')
+
+
 class BusinessCore:
     def __init__(self, storage, tenant):
         self.storage, self.tenant = storage, tenant

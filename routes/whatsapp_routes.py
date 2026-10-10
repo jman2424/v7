@@ -23,6 +23,7 @@ bp = Blueprint("whatsapp", __name__, url_prefix="/whatsapp")
 _UNUSABLE_AUDIO = {
     "audio_too_large", "empty_audio", "unsupported_audio_type", "unsupported_audio",
     "invalid_audio", "no_speech_detected", "transcript_too_long",
+    "audio_duration_unverified", "ai_allowance_paused",
 }
 _SAFE_MEDIA_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z", re.ASCII)
 
@@ -172,6 +173,10 @@ def _process(c, event, source):
     if state == "busy":
         abort(503, description="message_processing")
     try:
+        from service.plan_usage import use_resource
+        if not use_resource(c.settings.BUSINESS_KEY, "whatsapp_messages", source + ":" + message_id):
+            webhook_inbox.finish(*key, "")
+            return ""
         reply = _reply(c, event, source)
         if source == "cloud":
             phone_id = event.get("metadata", {}).get("phone_number_id")

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import io
+import wave
+from decimal import Decimal, ROUND_CEILING
 
 from openai import OpenAI, OpenAIError
 
@@ -76,6 +79,41 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
     if not setup["configured"]:
         raise SpeechTranscriptionError("transcription_unavailable")
     model = setup["model"]
+    from service import api_usage, plan_usage
+    reservation = None
+    if tenant and plan_usage._plan(tenant) is not None:
+        # Only duration-billed transcription with server-verifiable PCM audio
+        # has a safe ceiling. Compressed recordings can contain arbitrarily long
+        # audio; the browser's claimed duration is not a trusted billing input.
+        if model != "gpt-transcribe" or media_type not in {"audio/wav", "audio/x-wav"}:
+            raise SpeechTranscriptionError("audio_duration_unverified")
+        try:
+            with wave.open(io.BytesIO(data), "rb") as recording:
+                seconds = Decimal(recording.getnframes()) / recording.getframerate()
+                if (recording.getcomptype() != "NONE" or not 0 < seconds <= 60
+                        or recording.getnchannels() not in (1, 2)
+                        or recording.getsampwidth() not in (1, 2, 3, 4)
+                        or not 8000 <= recording.getframerate() <= 192000):
+                    raise ValueError("unbounded_audio")
+                parameters = recording.getparams()
+                frames = recording.readframes(parameters.nframes)
+                if len(frames) != parameters.nframes * parameters.sampwidth * parameters.nchannels:
+                    raise ValueError("truncated_audio")
+            # Canonicalize one verified audio segment; a second hidden data
+            # chunk must not increase the provider input beyond its reservation.
+            output = io.BytesIO()
+            with wave.open(output, "wb") as recording:
+                recording.setparams(parameters)
+                recording.writeframes(frames)
+            data = output.getvalue()
+        except (wave.Error, EOFError, ValueError, ZeroDivisionError):
+            raise SpeechTranscriptionError("audio_duration_unverified") from None
+        billed_seconds = seconds.quantize(Decimal("1"), rounding=ROUND_CEILING) + 1
+        ceiling = int(billed_seconds * api_usage._AUDIO_DURATION_RATES[model])
+        try:
+            reservation = plan_usage.reserve_ai(tenant, ceiling)
+        except plan_usage.AllowancePaused:
+            raise SpeechTranscriptionError("ai_allowance_paused") from None
     result = None
     status = "failed"
     try:
@@ -87,14 +125,19 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
         logger.warning("Audio transcription provider error: %s", type(exc).__name__)
         raise SpeechTranscriptionError("transcription_failed") from exc
     finally:
+        cost = None
         if tenant and channel:
             try:
                 from service.api_usage import record_transcription, usage_context
                 with usage_context(tenant, channel):
-                    record_transcription(result, model, status)
+                    cost = record_transcription(result, model, status)
             except Exception as exc:
                 # Usage storage must not discard a paid transcription.
                 logger.error("Transcription usage recording failed (%s)", type(exc).__name__)
+        try:
+            plan_usage.settle_ai(reservation, cost)
+        except Exception as exc:
+            logger.error("Transcription allowance settlement failed (%s)", type(exc).__name__)
     transcript = getattr(result, "text", None)
     if not isinstance(transcript, str) or not transcript.strip():
         raise SpeechTranscriptionError("no_speech_detected")

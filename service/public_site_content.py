@@ -168,7 +168,7 @@ SOLUTIONS: dict[str, Solution] = {
                 "The conversational AI platform is multi-tenant. Business owners work with their own company's information, while platform administrators manage onboarding and platform configuration according to their permissions. Widget branding and conversation goals belong to the company, so one business can use a different tone and appearance from another. Customer messages must route to the correct company rather than a shared pool of business knowledge.",
             ]},
             {"heading": "Connect the channels your deployment supports", "paragraphs": [
-                "Website chat can be embedded on approved business websites. WhatsApp is an optional channel that requires a configured Meta or Twilio connection and the appropriate service setup. Website chat works independently of that add-on. Model availability, API usage and integration settings also depend on the deployment. Start with the customer channel you can support well, then test additional connections before offering them publicly.",
+                "Website chat can be embedded on approved business websites. Website and WhatsApp agents are included in Starter, Business and Scale, within each plan's monthly allowances. WhatsApp requires a configured Meta or Twilio connection and the appropriate service setup. Website chat works independently of that connection. Model availability, API usage and integration settings also depend on the deployment. Start with the customer channel you can support well, then test additional connections before offering them publicly.",
             ]},
         ],
         "steps": [

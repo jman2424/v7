@@ -94,6 +94,10 @@ def activation(tenant):
         row = db.execute("SELECT status,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
         paid = db.execute("SELECT 1 FROM billing_invoices WHERE tenant=? AND kind='platform' AND status='paid' AND paid>0 LIMIT 1", (tenant,)).fetchone()
     active = bool(row and row['status']=='active' and row['implementation_paid'] and paid)
+    from service.subscriptions import plan_state
+    state = plan_state(tenant)
+    if state:
+        active = active and bool(state['active_plan'] and state['setup_plan'] == state['active_plan'])
     return {'active': active, 'status': 'active' if active else 'awaiting_payments'}
 
 

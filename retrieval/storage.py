@@ -378,6 +378,10 @@ class Storage:
             schema_path = self._schema_path(schema)
             self._validate_json(data, schema_path)
 
+        if filename in {'branches.json', 'business_core.json'}:
+            from service.business_core import require_location_allowance
+            require_location_allowance(self, tkey, filename, data)
+
         if self._using_postgres():
             return self._postgres_repository(tkey).write_document(filename, data, snapshot=snapshot)
 
