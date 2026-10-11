@@ -4,6 +4,7 @@
   const form = document.getElementById("chat-form");
   const send = document.getElementById("chat-send");
   const log = document.getElementById("chat-log");
+  const chatStatus = document.getElementById("chat-status");
   const voice = document.getElementById("voice-status");
   const aloud = document.getElementById("read-aloud");
   const dictation = document.getElementById("dictate");
@@ -375,11 +376,17 @@
     names.forEach(action => group.append(makeActionButton(action)));
     bubble.append(group);
   };
+  const chatErrors = {
+    conversation_expired: "This chat session expired. Send your message again to start a new conversation.",
+    website_allowance_paused: "Chat is temporarily unavailable. Please contact the business directly.",
+    rate_limited: "Too many messages. Please wait a moment before trying again."
+  };
   form.addEventListener("submit", async event => {
     event.preventDefault();
     const text = input.value.trim();
     if (busy || !text) return;
     busy = true; send.disabled = true; dictation.disabled = true;
+    chatStatus.textContent = "Getting a reply…";
     cancelAudio();
     const replySpeechGeneration = speechGeneration;
     acceptingRecognition = false;
@@ -404,19 +411,34 @@
       });
       const data = await response.json();
       if (!response.ok) {
-        if (data.error === "conversation_expired") remember("");
-        throw new Error("Request failed");
+        if (data && data.error === "conversation_expired") {
+          remember("");
+          throw new Error("conversation_expired");
+        }
+        if (data && data.error === "website_allowance_paused") {
+          throw new Error("website_allowance_paused");
+        }
+        if (response.status === 429) throw new Error("rate_limited");
+        throw new Error("request_failed");
       }
+      if (!data || typeof data.reply !== "string" || !data.reply.trim()) throw new Error("request_failed");
       remember(data.conversation_token);
       const bubble = add(data.reply, "bot");
       addSuggestedActions(bubble, data.actions);
       const playback = addPlayback(bubble, data.reply);
       if (aloud.checked && playback && replySpeechGeneration === speechGeneration && !document.hidden) speak(data.reply, playback);
-    } catch {
-      add("The message could not be completed. Please try again.", "bot");
-      input.value = text;
+    } catch (error) {
+      const message = error && error.name === "AbortError"
+        ? "The reply took too long. Please try again."
+        : error instanceof Error && Object.prototype.hasOwnProperty.call(chatErrors, error.message)
+          ? chatErrors[error.message] : "The message could not be completed. Please try again.";
+      add(message, "bot");
+      // Keep a new draft typed while this reply was pending.
+      if (!input.value) input.value = text;
     } finally {
-      clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing; input.focus();
+      clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing;
+      chatStatus.textContent = "";
+      if (!document.hidden && replySpeechGeneration === speechGeneration && [input, send, dictation, document.body].includes(document.activeElement)) input.focus();
     }
   });
   let recognition = null;
@@ -613,6 +635,13 @@
     // The embed loader checks both the source window and widget origin.
     const parentOrigin = document.referrer ? new URL(document.referrer).origin : "*";
     window.parent.postMessage({type: "V7_WIDGET_CLOSE"}, parentOrigin);
+  });
+  // Keyboard events inside an iframe do not reach the embed launcher's listener.
+  document.addEventListener("keydown", event => {
+    if (closeChat && event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault();
+      closeChat.click();
+    }
   });
   window.addEventListener("message", event => {
     if (!closeChat || window.parent === window || event.source !== window.parent || !event.data || event.data.type !== "V7_WIDGET_HIDE") return;

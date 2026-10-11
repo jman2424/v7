@@ -33,6 +33,9 @@
   let apiMonth='';
   let apiAmount='';
   let controller:AbortController|undefined;
+  let companyController:AbortController|undefined;
+  let companyBusy=false;
+  let disposed=false;
   const money=(pence:number|null|undefined)=>pence==null?'Not available':new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(pence/100);
   const date=(value:number|null|undefined)=>value?new Date(value*1000).toLocaleDateString('en-GB'):'Not scheduled';
   const name=(kind:string)=>({platform:'Platform subscription',whatsapp:'WhatsApp add-on',api:'API usage',implementation:'Implementation'}[kind]||kind);
@@ -55,25 +58,56 @@
   $: months=[...new Set(data?.invoices.map(row=>row.month)||[])].sort().slice(-12);
   $: paidMonths=months.map(month=>(data?.invoices.filter(row=>row.month===month).reduce((sum,row)=>sum+row.paid,0)||0)/100);
   $: dueMonths=months.map(month=>(data?.invoices.filter(row=>row.month===month&&row.status==='open').reduce((sum,row)=>sum+row.remaining,0)||0)/100);
-  async function read(path:string, body?:Record<string,unknown>){
-    const response=await fetch(apiPrefix+'/billing/'+path+(path.includes('?')?'&':'?')+'tenant='+encodeURIComponent(tenant),{credentials:'same-origin',signal:controller?.signal,...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
+  async function read(path:string, body?:Record<string,unknown>, signal?:AbortSignal){
+    const response=await fetch(apiPrefix+'/billing/'+path+(path.includes('?')?'&':'?')+'tenant='+encodeURIComponent(tenant),{credentials:'same-origin',signal,...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
     const result=await response.json();
     if(!response.ok)throw new Error(String(result.error||'Billing request failed').replaceAll('_',' '));
     return result;
   }
-  async function refresh(){busy=true;error='';controller?.abort();controller=new AbortController();const timeout=setTimeout(()=>controller?.abort(),25000);
-    try{data=await read('subscription');if(isPlatform)await listCompanies();}catch(failure){error=failure instanceof Error?failure.message:'Billing unavailable';}finally{clearTimeout(timeout);busy=false;}}
-  async function listCompanies(){try{const result=await read('companies?page='+page+'&search='+encodeURIComponent(search));companies=result.companies;companyCount=result.total;hasNext=result.has_next;}catch(failure){error=failure instanceof Error?failure.message:'Companies unavailable';}}
-  async function action(path:string,body:Record<string,unknown>){busy=true;error='';message='';try{const result=await read(path,body);if(result.url){window.location.assign(result.url);return;}if(path==='discount')discountCode='';message=path==='discount'?'Discount saved for this business. It applies automatically to the platform subscription and implementation. Existing invoices are unchanged.':path==='select-plan'?'Plan selected. Subscribe and pay its one-time setup to activate your business.':path==='cancel-checkout'?'Pending unpaid checkout cancelled. Paid setup and existing subscriptions remain unchanged.':path==='whatsapp'?'WhatsApp setting saved.':'Saved. Payment status updates after Stripe confirms it.';await refresh();}catch(failure){error=failure instanceof Error?failure.message:'Update failed';}finally{busy=false;}}
-  onMount(refresh);onDestroy(()=>controller?.abort());
+  async function refresh(){
+    controller?.abort();const request=new AbortController();controller=request;busy=true;error='';
+    const timeout=setTimeout(()=>request.abort(),25000);
+    try{
+      const result=await read('subscription',undefined,request.signal);
+      if(disposed||controller!==request||request.signal.aborted)return;
+      data=result;if(isPlatform)void listCompanies();
+    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'Billing loading timed out. Try refreshing.':failure instanceof Error?failure.message:'Billing unavailable';}
+    finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
+  }
+  async function listCompanies(){
+    companyController?.abort();const request=new AbortController();companyController=request;companyBusy=true;
+    const timeout=setTimeout(()=>request.abort(),25000);
+    try{
+      const result=await read('companies?page='+page+'&search='+encodeURIComponent(search),undefined,request.signal);
+      if(disposed||companyController!==request||request.signal.aborted)return;
+      companies=result.companies;companyCount=result.total;hasNext=result.has_next;
+    }catch(failure){if(!disposed&&companyController===request)error=request.signal.aborted?'Company loading timed out. Try searching again.':failure instanceof Error?failure.message:'Companies unavailable';}
+    finally{clearTimeout(timeout);if(!disposed&&companyController===request){companyBusy=false;companyController=undefined;}}
+  }
+  async function action(path:string,body:Record<string,unknown>){
+    if(busy||disposed)return;
+    const request=new AbortController();controller=request;busy=true;error='';message='';
+    const timeout=setTimeout(()=>request.abort(),25000);
+    try{
+      const result=await read(path,body,request.signal);
+      if(disposed||controller!==request||request.signal.aborted)return;
+      if(result.url){window.location.assign(result.url);return;}
+      if(path==='discount')discountCode='';
+      message=path==='discount'?'Discount saved for this business. It applies automatically to the platform subscription and implementation. Existing invoices are unchanged.':path==='select-plan'?'Plan selected. Subscribe and pay its one-time setup to activate your business.':path==='cancel-checkout'?'Pending unpaid checkout cancelled. Paid setup and existing subscriptions remain unchanged.':path==='whatsapp'?'WhatsApp setting saved.':'Saved. Payment status updates after Stripe confirms it.';
+      await refresh();
+    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'The billing update could not be confirmed. Refresh payments before trying again.':failure instanceof Error?failure.message:'Update failed';}
+    finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
+  }
+  onMount(refresh);onDestroy(()=>{disposed=true;controller?.abort();companyController?.abort();});
 </script>
 
 <section class="billing" aria-label="Subscription and payments">
   {#if isPlatform}
   <article class="panel"><header><div><h2>All company subscriptions</h2><p>{companyCount} companies on your platform, including those without a subscription.</p></div></header>
-    <form class="controls" on:submit|preventDefault={()=>{page=1;listCompanies();}}><label>Find a company<input bind:value={search} placeholder="Company name or key"/></label><button>{$t("Search")}</button></form>
+    <form class="controls" on:submit|preventDefault={()=>{page=1;listCompanies();}}><label>Find a company<input bind:value={search} placeholder="Company name or key"/></label><button disabled={busy||companyBusy}>{$t("Search")}</button></form>
     <div class="company-list">{#each companies as company}{@const alerts=company.allowance?.alerts||[]}{@const companyPlan=data?.plans?.find(plan=>plan.id===company.plan_state?.active_plan)}<button class:chosen={company.key===tenant} on:click={()=>dispatch('company',company.key)}><strong>{company.name} · {company.key}{#if companyPlan}<small class="company-plan">{companyPlan.name} plan</small>{/if}{#if alerts.length}<small class="company-alert">{alerts.length} usage alert{alerts.length===1?'':'s'} · {alerts[0].message}</small>{/if}</strong><span>{company.contracts.find(row=>row.kind==='platform')?.status||'Not subscribed'}</span><span>{money(company.totals.due)} outstanding · {money(company.totals.paid)} paid</span></button>{/each}</div>
-    <div class="controls"><button disabled={page===1||busy} on:click={()=>{page--;listCompanies();}}>Previous</button><span>Page {page}</span><button disabled={!hasNext||busy} on:click={()=>{page++;listCompanies();}}>Next</button></div>
+    {#if companyBusy}<p role="status">Loading companies…</p>{/if}
+    <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>Previous</button><span>Page {page}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>Next</button></div>
   </article>
   {/if}
   <header><div><h2>{tenant} · subscription &amp; payments</h2><p>Monthly billing in pounds, with a separate one-time setup. VAT is shown before payment.</p></div><div class="controls">{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>Manage payments in Stripe</button>{/if}<button disabled={busy} on:click={refresh}>Refresh payments</button></div></header>

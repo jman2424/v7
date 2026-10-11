@@ -30,13 +30,15 @@ class Element {
   append(child){this.children.push(child);}
   replaceChildren(){this.children=[];}
   get childElementCount(){return this.children.length;}
-  focus(){} reset(){} reportValidity(){return true;}
+  focus(){document.activeElement=this;this.focusCalls=(this.focusCalls || 0)+1;}
+  click(){return this.fire('click');} reset(){} reportValidity(){return true;}
 }
 const elements={};
 const get=id=>elements[id] ||= new Element();
 get('dictate').hidden=true;get('dictate').setAttribute('aria-pressed','false');
 const body=new Element();body.dataset={style:'studio'};
 const document={body,documentElement:{lang:'en'},referrer:'https://business.example/page',hidden:false,
+  activeElement:body,
   getElementById:get,createElement:()=>new Element(),listeners:{},
   addEventListener(name,callback){this.listeners[name]=callback;}};
 let starts=0, stops=0, cancels=0, recognition, recording, trackStops=0, utterances=[];
@@ -61,6 +63,8 @@ class Recorder {
 const timers=new Map();let timerId=0;
 const pending=[];
 const requests=[];
+let storedToken=scenario==='chat-expired'?'stale-conversation':'';
+let closeNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',theme:{},accentColor:'#ffffff',
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
@@ -68,7 +72,7 @@ const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actio
 const window={__WIDGET__:config,isSecureContext:true,
   speechSynthesis:{cancel(){cancels++;},speak(utterance){utterances.push(utterance);}},
   SpeechSynthesisUtterance:class {constructor(text){this.text=text;}},
-  parent:{postMessage(data,origin){assert.equal(data.type,'V7_WIDGET_CLOSE');assert.equal(origin,'https://business.example');}},
+  parent:{postMessage(data,origin){assert.equal(data.type,'V7_WIDGET_CLOSE');assert.equal(origin,'https://business.example');closeNotifications++;}},
   listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
 if(scenario.startsWith('server-')) window.MediaRecorder=Recorder;
@@ -76,13 +80,18 @@ if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechS
 const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
     ? new Promise(resolve=>mediaPending.push(resolve)) : mediaStream()}},
-  MediaRecorder:Recorder,sessionStorage:{getItem(){return '';},setItem(){}},
+  MediaRecorder:Recorder,sessionStorage:{getItem(){return storedToken;},setItem(key,value){storedToken=value;}},
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
     if(String(url).includes('/chat/actions')) return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
     if(String(url).includes('/chat/transcribe')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('late-playback')) return new Promise(resolve=>pending.push(resolve));
+    if(scenario.startsWith('pending-chat')) return new Promise(resolve=>pending.push(resolve));
+    if(scenario==='chat-paused') return {ok:false,status:429,json:async()=>({error:'website_allowance_paused'})};
+    if(scenario==='chat-rate-limit') return {ok:false,status:429,json:async()=>({error:'rate_limited'})};
+    if(scenario==='chat-expired') return {ok:false,status:403,json:async()=>({error:'conversation_expired'})};
+    if(scenario==='chat-malformed') return {ok:true,json:async()=>({reply:null})};
     return {ok:true,json:async()=>({reply:'Our opening hours are 9am to 5pm.',conversation_token:'synthetic-only'})};
   }});
 // The browser resolves relative action URLs against the current widget origin.
@@ -125,6 +134,37 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     const cancelled=cancels;get('read-aloud').checked=true;get('chat-input').value='Thanks';await get('chat-form').fire('submit');
     assert.equal(utterances.length,2);await get('dictate').fire('click');assert.ok(cancels>cancelled);
     window.listeners.pagehide();assert.equal(get('stop-speaking').hidden,true);
+  } else if(scenario==='pending-chat-draft') {
+    get('chat-input').value='Original question';
+    const response=get('chat-form').fire('submit');await flush();
+    assert.equal(get('chat-status').textContent,'Getting a reply…');
+    get('chat-input').value='A new draft typed while waiting';
+    pending[0]({ok:false,status:503,json:async()=>({error:'Internal diagnostic must not reach the customer'})});await response;
+    assert.equal(get('chat-input').value,'A new draft typed while waiting','A failed reply must preserve the next draft');
+    assert.equal(get('chat-status').textContent,'');assert.equal(get('chat-send').disabled,false);
+    assert.equal(get('chat-log').children.at(-1).children[0].children[0].textContent,'The message could not be completed. Please try again.');
+  } else if(scenario==='pending-chat-focus') {
+    get('chat-input').value='Original question';
+    const response=get('chat-form').fire('submit');await flush();get('chat-action-name').focus();
+    pending[0]({ok:true,json:async()=>({reply:'A helpful reply',conversation_token:'synthetic-only'})});await response;
+    assert.equal(document.activeElement,get('chat-action-name'),'A reply must not pull focus from the request form');
+    assert.equal(get('chat-status').textContent,'');
+  } else if(scenario.startsWith('chat-')) {
+    get('chat-input').value='Original question';await get('chat-form').fire('submit');
+    const message=get('chat-log').children.at(-1).children[0].children[0].textContent;
+    if(scenario==='chat-paused') assert.match(message,/contact the business directly/);
+    else if(scenario==='chat-rate-limit') assert.match(message,/wait a moment/);
+    else if(scenario==='chat-expired') {assert.match(message,/session expired/);assert.equal(storedToken,'');}
+    else assert.equal(message,'The message could not be completed. Please try again.');
+    assert.equal(get('chat-input').value,'Original question');assert.equal(get('chat-send').disabled,false);
+    assert.equal(get('chat-status').textContent,'');assert.equal(utterances.length,0);
+  } else if(scenario==='escape-close') {
+    await get('dictate').fire('click');assert.equal(get('dictate').getAttribute('aria-pressed'),'true');
+    let prevented=false;
+    document.listeners.keydown({key:'Escape',defaultPrevented:false,preventDefault(){prevented=true;}});
+    assert.equal(prevented,true);assert.equal(closeNotifications,1);assert.equal(get('dictate').getAttribute('aria-pressed'),'false');
+    document.listeners.keydown({key:'Escape',defaultPrevented:true,preventDefault(){throw new Error('Already handled');}});
+    assert.equal(closeNotifications,1,'An already-handled Escape must not close the widget again');
   } else if(scenario==='server-cancel') {
     await get('dictate').fire('click');assert.equal(recording.state,'recording');
     await get('dictate').fire('click');await flush();assert.equal(pending.length,1);assert.equal(trackStops,1);
@@ -182,6 +222,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     else window.listeners.pagehide();
     pending[0]({ok:true,json:async()=>({reply:'A late reply',conversation_token:'synthetic-only'})});await response;
     assert.equal(utterances.length,0,'Late replies must not restart audio after voice cleanup');
+    assert.equal(get('chat-input').focusCalls || 0,0,'Late replies must not steal focus after the widget is hidden');
   } else if(scenario==='unsupported') {
     assert.equal(get('dictate').hidden,true);assert.equal(get('read-aloud').disabled,true);
     assert.match(get('voice-status').textContent,/type your message/);
@@ -197,6 +238,8 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",
+    "pending-chat-draft", "pending-chat-focus", "chat-paused", "chat-rate-limit",
+    "chat-expired", "chat-malformed", "escape-close",
 ])
 def test_customer_widget_runtime(scenario):
     result = subprocess.run(

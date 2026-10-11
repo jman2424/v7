@@ -321,6 +321,7 @@
   const workspaceControllers = new Set<AbortController>();
   const loadedWorkspaceResources = new Set<WorkspaceResource>();
   const pendingWorkspaceResources = new Map<WorkspaceResource, Promise<void>>();
+  const pendingWorkspaceMutations = new Map<string, WorkspaceRequest>();
   let workspaceLoadSequence = 0;
   let requestedWorkspaceSection = '';
   let signingIn = false;
@@ -383,10 +384,6 @@
     return import.meta.env.DEV ? `/api${path}` : path;
   }
 
-  async function readJson(response: Response) {
-    return response.json().catch(() => ({}));
-  }
-
   async function requestJson(path: string, options: RequestInit = {}, activeLoad?: WorkspaceRequest) {
     const controller = new AbortController();
     workspaceControllers.add(controller);
@@ -399,6 +396,24 @@
     } finally {
       clearTimeout(timeout);
       workspaceControllers.delete(controller);
+    }
+  }
+
+  async function mutateWorkspace(path: string, options: RequestInit, failed: (message: string) => void) {
+    if (pendingWorkspaceMutations.has(path)) return null;
+    const activeLoad = workspaceRequest();
+    const selectedTenant = tenant;
+    pendingWorkspaceMutations.set(path, activeLoad);
+    try {
+      const result = await requestJson(path, options, activeLoad);
+      if (!isCurrentWorkspace(activeLoad)) return null;
+      return { ...result, activeLoad, selectedTenant };
+    } catch {
+      // A timed-out or cancelled write can still complete on the server.
+      if (isCurrentWorkspace(activeLoad)) failed('The update could not be confirmed. Reload to check the latest data before trying again.');
+      return null;
+    } finally {
+      if (pendingWorkspaceMutations.get(path) === activeLoad) pendingWorkspaceMutations.delete(path);
     }
   }
 
@@ -644,6 +659,7 @@
     workspaceControllers.clear();
     loadedWorkspaceResources.clear();
     pendingWorkspaceResources.clear();
+    pendingWorkspaceMutations.clear();
     workspaceBusy = false;
     requestedWorkspaceSection = section;
     activation = null;
@@ -877,13 +893,12 @@
   }
 
   async function updateLeadStatus(leadId: string, status: LeadStatus) {
-    const activeLoad = workspaceRequest();
     activityStatus = 'Updating lead...';
-    const response = await fetch(apiPath(`/admin/api/leads/${encodeURIComponent(leadId)}?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/leads/${encodeURIComponent(leadId)}?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify({ status })
-    });
-    const data = await readJson(response);
-    if (!isCurrentWorkspace(activeLoad)) return;
+    }, message => { activityStatus = message; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       activityStatus = data.error || 'Could not update this lead.';
       return;
@@ -1149,13 +1164,14 @@
 
   async function createTenant() {
     createStatus = 'Creating tenant...';
-    const response = await fetch(apiPath('/admin/api/tenants'), {
+    const result = await mutateWorkspace('/admin/api/tenants', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
       body: JSON.stringify({ key: newTenantKey, name: newTenantName })
-    });
-    const data = await readJson(response);
+    }, message => { createStatus = message; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       createStatus = data.error || 'Could not create tenant.';
       return;
@@ -1163,30 +1179,31 @@
     createStatus = `${data.tenant.name} is ready for configuration.`;
     newTenantKey = '';
     newTenantName = '';
-    await loadTenants();
+    await loadTenants(result.activeLoad);
   }
 
   async function createAccount() {
     accountStatus = 'Creating access...';
     accountError = false;
-    const response = await fetch(apiPath(`/admin/api/accounts?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/accounts?tenant=${encodeURIComponent(tenant)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
       body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[])] })
-    });
-    const data = await readJson(response);
+    }, message => { accountStatus = message; accountError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       accountStatus = data.error || 'Could not create access.';
       accountError = true;
       return;
     }
-    accountStatus = `${data.account.email} can now sign in for ${tenant} only.`;
+    accountStatus = `${data.account.email} can now sign in for ${result.selectedTenant} only.`;
     accountEmail = '';
     accountPassword = '';
     accountViewCosts = false;
     accountViewSubscriptions = false;
-    await loadAccounts(tenant);
+    await loadAccounts(result.selectedTenant, result.activeLoad);
   }
 
   async function updateAccount() {
@@ -1195,13 +1212,14 @@
     accountError = false;
     const payload: { active: boolean; password?: string; permissions:string[] } = { active: selectedAccountActive, permissions:[...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[])] };
     if (selectedAccountPassword) payload.password = selectedAccountPassword;
-    const response = await fetch(apiPath(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
       body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { accountStatus = message; accountError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       accountStatus = data.error || 'Could not update access.';
       accountError = true;
@@ -1209,7 +1227,7 @@
     }
     accountStatus = `${data.account.email} access updated.`;
     selectedAccountPassword = '';
-    await loadAccounts(tenant);
+    await loadAccounts(result.selectedTenant, result.activeLoad);
   }
 
   async function selectTenant(nextTenant: string) {
@@ -1303,6 +1321,7 @@
   }
 
   async function saveCatalog() {
+    const submitted = JSON.stringify(catalog);
     catalogStatus = 'Saving...';
     catalogError = false;
     const categories = catalog.categories.map((category) => ({
@@ -1320,21 +1339,25 @@
       catalogError = true;
       return;
     }
-    const response = await fetch(apiPath(`/admin/api/catalog?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/catalog?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin',
       body: JSON.stringify({ version: catalog.version || 1, currency: (catalog.currency || 'GBP').toUpperCase(), categories })
-    });
-    const data = await readJson(response);
+    }, message => { catalogStatus = message; catalogError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       catalogStatus = data.detail || data.error || 'Could not save catalog.';
       catalogError = true;
       return;
     }
-    catalog = { ...catalog, categories };
-    catalogStatus = 'Catalogue saved. New conversations use these offerings.';
+    if (submitted === JSON.stringify(catalog)) {
+      catalog = { ...catalog, categories };
+      catalogStatus = 'Catalogue saved. New conversations use these offerings.';
+    } else catalogStatus = 'Submitted catalogue saved. You have unsaved edits.';
   }
 
   async function saveFaqs() {
+    const submitted = JSON.stringify(faqs);
     faqStatus = 'Saving...';
     faqError = false;
     const payload = faqs.map((faq) => ({ q: faq.q.trim(), a: faq.a.trim(), tags: faq.tags.map((tag) => tag.trim()).filter(Boolean) }));
@@ -1343,20 +1366,24 @@
       faqError = true;
       return;
     }
-    const response = await fetch(apiPath(`/admin/api/faq?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/faq?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { faqStatus = message; faqError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       faqStatus = data.detail || data.error || 'Could not save FAQs.';
       faqError = true;
       return;
     }
-    faqs = payload;
-    faqStatus = 'FAQs saved. The assistant can use the new answers now.';
+    if (submitted === JSON.stringify(faqs)) {
+      faqs = payload;
+      faqStatus = 'FAQs saved. The assistant can use the new answers now.';
+    } else faqStatus = 'Submitted FAQs saved. You have unsaved edits.';
   }
 
   async function saveOffers() {
+    const submitted = JSON.stringify(offers);
     offersStatus = 'Saving...';
     offersError = false;
     const payload = offers.map((offer) => ({
@@ -1371,17 +1398,20 @@
       offersError = true;
       return;
     }
-    const response = await fetch(apiPath(`/admin/api/offers?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/offers?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { offersStatus = message; offersError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       offersStatus = data.detail || data.error || 'Could not save offers.';
       offersError = true;
       return;
     }
-    offers = normalizeOffers(payload);
-    offersStatus = 'Offers saved. The assistant now uses the active offers only.';
+    if (submitted === JSON.stringify(offers)) {
+      offers = normalizeOffers(payload);
+      offersStatus = 'Offers saved. The assistant now uses the active offers only.';
+    } else offersStatus = 'Submitted offers saved. You have unsaved edits.';
   }
 
   async function saveDelivery() {
@@ -1403,10 +1433,11 @@
     const payload = delivery.mode === 'zones'
       ? { ...base, zones: rules.map(({ source, area, fee, min_order, eta_hours }) => ({ ...source, area, fee, min_order, eta_hours })) }
       : { ...base, areas: rules.map(({ source, area, fee, min_order, eta_min }) => ({ ...source, postcode_prefix: area, fee, min_order, eta_min })) };
-    const response = await fetch(apiPath(`/admin/api/delivery?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/delivery?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { deliveryStatus = message; deliveryError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       deliveryStatus = data.detail || data.error || 'Could not save delivery settings.';
       deliveryError = true;
@@ -1425,6 +1456,7 @@
   }
 
   async function saveProfile() {
+    const submitted = JSON.stringify(profile);
     profileStatus = 'Saving...';
     profileError = false;
     const payload = {
@@ -1438,20 +1470,24 @@
       profileError = true;
       return;
     }
-    const response = await fetch(apiPath(`/admin/api/profile?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/profile?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { profileStatus = message; profileError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       profileStatus = data.detail || data.error || 'Could not save business profile.';
       profileError = true;
       return;
     }
-    profile = { ...profile, ...payload };
-    profileStatus = 'Business profile saved.';
+    if (submitted === JSON.stringify(profile)) {
+      profile = { ...profile, ...payload };
+      profileStatus = 'Business profile saved.';
+    } else profileStatus = 'Submitted business profile saved. You have unsaved edits.';
   }
 
   async function saveBranches() {
+    const submitted = JSON.stringify(branches);
     branchesStatus = 'Saving...';
     branchesError = false;
     const payload = branches.map((branch) => ({
@@ -1464,33 +1500,40 @@
       branchesError = true;
       return;
     }
-    const response = await fetch(apiPath(`/admin/api/branches?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/branches?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(payload)
-    });
-    const data = await readJson(response);
+    }, message => { branchesStatus = message; branchesError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       branchesStatus = data.detail || data.error || 'Could not save branches.';
       branchesError = true;
       return;
     }
-    branches = normalizeBranches(payload);
-    branchesStatus = 'Branches and opening hours saved.';
+    if (submitted === JSON.stringify(branches)) {
+      branches = normalizeBranches(payload);
+      branchesStatus = 'Branches and opening hours saved.';
+    } else branchesStatus = 'Submitted branches saved. You have unsaved edits.';
   }
 
   async function saveAgentSettings() {
+    const submitted = JSON.stringify(agentSettings);
     agentStatus = 'Saving...';
     agentError = false;
-    const response = await fetch(apiPath(`/admin/api/agent-settings?tenant=${encodeURIComponent(tenant)}`), {
+    const result = await mutateWorkspace(`/admin/api/agent-settings?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, credentials: 'same-origin', body: JSON.stringify(agentSettings)
-    });
-    const data = await readJson(response);
+    }, message => { agentStatus = message; agentError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    const { response, data } = result;
     if (!response.ok) {
       agentStatus = data.error || 'Could not save agent settings.';
       agentError = true;
       return;
     }
-    agentSettings = normalizeAgentSettings(data);
-    agentStatus = 'Agent playbook saved. New conversations use these settings.';
+    if (submitted === JSON.stringify(agentSettings)) {
+      agentSettings = normalizeAgentSettings(data);
+      agentStatus = 'Agent playbook saved. New conversations use these settings.';
+    } else agentStatus = 'Submitted agent playbook saved. You have unsaved edits.';
   }
 
   onMount(async () => {

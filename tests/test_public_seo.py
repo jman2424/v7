@@ -62,6 +62,26 @@ class HomeStructuredData(HeadLinks):
             self._jsonld = None
 
 
+class PublicAnchors(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self._link = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self._link = {"href": dict(attrs).get("href", ""), "text": ""}
+
+    def handle_data(self, data):
+        if self._link is not None:
+            self._link["text"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._link is not None:
+            self.links.append(self._link)
+            self._link = None
+
+
 @pytest.fixture
 def seo_client(monkeypatch, request):
     monkeypatch.setenv("BASE_URL", ORIGIN)
@@ -81,6 +101,22 @@ def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     assert links.canonicals == [ORIGIN + path]
     assert "untrusted.example" not in response.text
     assert "X-Robots-Tag" not in response.headers
+
+
+def test_home_workspace_links_open_business_owner_console(seo_client, tmp_path):
+    from tests.test_owner_console import sign_in
+
+    page = PublicAnchors()
+    page.feed(seo_client.get("/").text)
+    workspace_links = [link for link in page.links if link["text"].strip().startswith("Open your workspace")]
+    assert workspace_links
+    (tmp_path / "index.html").write_text("<main>Company workspace</main>", encoding="utf-8")
+    seo_client.application.config["OWNER_CONSOLE_DIR"] = str(tmp_path)
+    sign_in(seo_client, "business_owner")
+    for link in workspace_links:
+        response = seo_client.get(link["href"])
+        assert response.status_code == 200, link["href"]
+        assert "Company workspace" in response.text
 
 
 def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_client):

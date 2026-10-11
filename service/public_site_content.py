@@ -76,7 +76,7 @@ SOLUTIONS: dict[str, Solution] = {
             {"title": "Set the boundaries", "description": "Choose your conversation goal and handoff message. Enable only quote, callback or consultation actions your team can fulfil."},
             {"title": "Review and refine", "description": "Test a repeatable set of customer enquiries, publish your website widget and review retained conversations for gaps in the setup."},
         ],
-        "caution": "AI chatbot software is not a guarantee of correct answers or higher sales. V7 requires onboarding and provider configuration; optional WhatsApp requires a separate configured connection. People remain responsible for maintaining business facts, checking important replies and handling commitments that need human approval.",
+        "caution": "AI chatbot software is not a guarantee of correct answers or higher sales. V7 requires onboarding and provider configuration. WhatsApp is included in the current monthly plans and requires a separate configured connection; provider charges are separate. People remain responsible for maintaining business facts, checking important replies and handling commitments that need human approval.",
     },
     "sales-chatbot": {
         "title": "Sales Chatbot with Your Business Playbook | Vertex Seven",

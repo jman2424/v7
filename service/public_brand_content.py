@@ -36,7 +36,7 @@ SETUP_GUIDE: Solution = {
         ]},
         {"heading": "Test before embedding on your website", "paragraphs": [
             "Use the widget section to test a known fact, missing information, an out-of-scope request and a request needing your team. Compare answers with your source material. Check the welcome message, brand colours, mobile layout and contact links.",
-            "Configure the approved website origin and use the workspace's generated embed instructions. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems; optional WhatsApp needs its own provider setup.",
+            "Configure the approved website origin and use the workspace's generated embed instructions. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp is included in the current monthly plans and needs its own provider setup; provider charges are separate.",
         ]},
         {"heading": "Review actual conversations after launch", "paragraphs": [
             "Review available conversation and enquiry records in your authorised workspace. Look for unanswered questions, unclear next steps and outdated facts, then update the relevant business information and retest.",
@@ -66,7 +66,7 @@ ABOUT: Solution = {
         ]},
         {"heading": "How does it fit different business models?", "paragraphs": [
             "A retailer can configure product information and delivery policies. A service business can explain its services and collect enquiries. A multi-branch company can supply branch details and opening hours. Each business supplies its own facts and chooses customer actions that its team can fulfil.",
-            "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp is optional and needs a configured Meta or Twilio provider connection.",
+            "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp is included in the current monthly plans and needs a configured Meta or Twilio provider connection; provider charges are separate.",
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
             _plan_prices() + ". Prices are in GBP before VAT, where applicable. Every plan includes a website agent, a WhatsApp agent and monthly website conversation, WhatsApp message and AI API-cost allowances. Setup is paid separately and does not repeat with the monthly subscription.",
@@ -79,7 +79,7 @@ ABOUT: Solution = {
     ],
     "steps": [
         {"title": "Explore the product", "description": "Read the public solution pages and sample conversation on the homepage. No account is needed to explore them."},
-        {"title": "Arrange onboarding", "description": "A platform operator creates the business workspace and owner access. Business management requires an authorised account."},
+        {"title": "Arrange onboarding", "description": "Create a business workspace with verified email when registration is available, or arrange access with the platform operator. Joining an existing business requires owner approval. Business management requires an authorised account."},
         {"title": "Configure and launch", "description": "Add current business knowledge, test typical enquiries and embed the widget on your approved website."},
     ],
     "caution": "Vertex Seven is an online-only business. This page describes the public V7 Agents product; it does not expose company workspaces, customer conversations or account information. The service needs onboarding and a working provider configuration.",
