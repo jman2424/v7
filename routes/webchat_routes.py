@@ -168,10 +168,17 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.setAttribute('allow', 'microphone');
   frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
   var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px',studio:'12px',soft:'24px',bold:'10px'}};
-  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;width:min(380px,calc(100vw - 32px));height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:' + config.background + ';overflow:hidden;';
+  frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:' + config.background + ';overflow:hidden;';
+  function sizeFrame() {{
+    // clientWidth excludes the scrollbar; leave the root's 20px gutter on both sides.
+    frame.style.width = Math.max(0, Math.min(380, document.documentElement.clientWidth - 40)) + 'px';
+  }}
+  sizeFrame();
+  window.addEventListener('resize', sizeFrame);
   launcher.addEventListener('click', function () {{
     var open = frame.style.display !== 'none';
     if (open) {{ closeChat(); return; }}
+    sizeFrame();
     frame.style.display = 'block';
     launcher.setAttribute('aria-expanded', 'true');
   }});

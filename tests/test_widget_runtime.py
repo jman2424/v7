@@ -248,12 +248,14 @@ def test_customer_widget_runtime(scenario):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_embed_launcher_notifies_its_widget_before_hiding():
+@pytest.mark.parametrize("viewport_width,content_width", [(390, 375), (390, 390), (320, 305), (1024, 1009), (280, 265)])
+def test_embed_launcher_notifies_its_widget_before_hiding(viewport_width, content_width):
     from routes.webchat_routes import _embed_javascript
 
     launcher_script = _embed_javascript("EXAMPLE", {"widget": {"allowed_origins": ["https://business.example"]}})
     harness = r"""
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const viewportWidth=Number(process.argv[1]),contentWidth=Number(process.argv[2]);
 let root,launcher,frame;const notifications=[];
 class Element {
   constructor(type){this.type=type;this.listeners={};this.attributes={};this.children=[];
@@ -268,22 +270,28 @@ class Element {
   addEventListener(name,callback){this.listeners[name]=callback;}
   focus(){}
 }
-const window={location:{href:'https://business.example/'},listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
-const document={currentScript:{src:'https://widget.example/widget.js?tenant=EXAMPLE',dataset:{}},
+const window={innerWidth:viewportWidth,location:{href:'https://business.example/'},listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
+const document={documentElement:{clientWidth:contentWidth},currentScript:{src:'https://widget.example/widget.js?tenant=EXAMPLE',dataset:{}},
   getElementById(){return null;},body:new Element('body'),createElement(type){
     const element=new Element(type);if(type==='div'&&!root)root=element;if(type==='button')launcher=element;if(type==='iframe')frame=element;return element;
   }};
 vm.runInNewContext(fs.readFileSync(0,'utf8'),{document,window,URL,console});
+assert.equal(frame.style.width,Math.min(380,contentWidth-40)+'px','Frame width uses the space available without the scrollbar');
+assert.ok(contentWidth-20-parseFloat(frame.style.width)>=20,'The frame keeps both 20px viewport gutters');
 launcher.listeners.click();assert.equal(frame.style.display,'block');
+window.innerWidth=250;document.documentElement.clientWidth=235;window.listeners.resize();
+assert.equal(frame.style.width,'195px','An open frame adapts to a narrower viewport');
 launcher.listeners.click();assert.equal(frame.style.display,'none');assert.equal(notifications.length,1);
+window.innerWidth=390;document.documentElement.clientWidth=375;
 launcher.listeners.click();root.listeners.keydown({key:'Escape'});assert.equal(frame.style.display,'none');assert.equal(notifications.length,2);
+assert.equal(frame.style.width,'335px','Opening recalculates width even without a resize event');
 launcher.listeners.click();window.listeners.message({origin:'https://unapproved.example',source:frame.contentWindow,data:{type:'V7_WIDGET_CLOSE'}});
 assert.equal(frame.style.display,'block');assert.equal(notifications.length,2);
 window.listeners.message({origin:'https://widget.example',source:frame.contentWindow,data:{type:'V7_WIDGET_CLOSE'}});
 assert.equal(frame.style.display,'none');assert.equal(notifications.length,3);
 """
     result = subprocess.run(
-        [NODE, "-e", harness], cwd=ROOT, input=launcher_script,
+        [NODE, "-e", harness, str(viewport_width), str(content_width)], cwd=ROOT, input=launcher_script,
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
