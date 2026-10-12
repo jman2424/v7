@@ -32,6 +32,20 @@ a { text-underline-offset: .2em; }
 :focus-visible { outline: 3px solid var(--v7-focus); outline-offset: 3px; }
 input, select, textarea { accent-color: var(--v7-accent); }
 input[type=checkbox] { flex-shrink: 0; }
+/* Supported browsers render an accessible native picker in the V7 palette. */
+@supports (appearance: base-select) {
+  select, select::picker(select) { appearance: base-select; }
+  select { align-items: center; gap: 12px; }
+  select::picker(select) {
+    margin-block: 6px; padding: 6px; border: 1px solid var(--v7-control-line);
+    border-radius: 10px; background: var(--v7-surface); color: var(--v7-ink);
+    box-shadow: 0 8px 24px #2f35391a; max-height: min(320px, 50vh); overflow: auto;
+  }
+  select option { padding: 10px 12px; border-radius: 6px; }
+  select option:checked { background: var(--v7-tint); color: var(--v7-accent-hover); }
+  select option:hover { background: var(--v7-soft); }
+  select::picker-icon { color: var(--v7-muted); }
+}
 [dir=rtl] nav a { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
