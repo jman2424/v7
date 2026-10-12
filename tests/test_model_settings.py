@@ -78,6 +78,30 @@ def test_usage_configuration_reports_selected_model(platform,monkeypatch):
     assert config['can_change_model'] is True
     assert [option['id'] for option in config['model_options']]==list(model_settings.MODELS)
 
+
+def test_subscription_model_catalog_is_authenticated_and_tenant_scoped(platform):
+    app=platform[0]
+    client=app.test_client()
+    assert client.get('/admin/api/ai-model').status_code in {401,403}
+    login(client)
+    result=client.get('/admin/api/ai-model')
+    assert result.status_code==200
+    assert result.json['tenant']=='ALPHA'
+    assert [row['id'] for row in result.json['model_options']]==list(model_settings.MODELS)
+    assert all(row['input_usd_per_million'] is not None for row in result.json['model_options'])
+    assert client.get('/admin/api/ai-model?tenant=BETA').status_code==403
+
+
+def test_owner_can_compare_models_before_activation_but_cannot_change_them(client,monkeypatch):
+    from tests.test_business_access import owner
+    owner(client)
+    monkeypatch.setattr('service.tenant_access.activation',lambda tenant:{'active':False})
+    result=client.get('/admin/api/ai-model')
+    assert result.status_code==200
+    assert result.json['can_change_model'] is False
+    assert result.json['model_options']
+    assert client.post('/admin/api/ai-model/review',json={'model':'gpt-4o'}).status_code==403
+
 def test_staff_cannot_change_model(client,monkeypatch):
     from tests.test_business_access import owner, staff_login
     from service import usage_currency
@@ -88,6 +112,7 @@ def test_staff_cannot_change_model(client,monkeypatch):
     client.post('/auth/logout')
     staff_login(client)
     assert client.get('/admin/api/api-usage').json['configuration']['can_change_model'] is False
+    assert client.get('/admin/api/ai-model').status_code==403
     assert client.post('/admin/api/ai-model/review',json={'model':'gpt-4o'}).status_code==403
 
 

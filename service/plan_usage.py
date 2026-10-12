@@ -18,10 +18,10 @@ _NANO_PER_PENNY = 10_000_000
 
 
 def _resource_enforced(plan: dict, resource: str) -> bool:
-    # New money-based plans count inbound WhatsApp messages for operations,
-    # while paid AI calls across both channels use prepaid GBP credit.
+    # Money-based plans count sessions and inbound messages for operations.
+    # Paid AI capacity on both channels depends on model/token cost and credit.
     # The historical numeric field remains in the API for compatibility.
-    return not (resource == "whatsapp_messages" and plan.get("message_usage_model") == "ai_cost")
+    return plan.get("message_usage_model") != "ai_cost"
 
 
 class AllowancePaused(RuntimeError):

@@ -89,6 +89,22 @@ def test_missing_or_invalid_business_context_never_calls_provider(credit):
     client.chat.completions.create.assert_not_called()
 
 
+def test_same_tokens_consume_credit_at_each_selected_models_price(credit,monkeypatch):
+    usage_wallet.adjust('OTHER',500,'Same test funding','test-admin','fund-other')
+    configuration={'model':'gpt-4o-mini'}
+    monkeypatch.setattr('service.model_settings.document',lambda storage,tenant:dict(configuration))
+    request(provider(response(model='gpt-4o-mini')))
+    configuration['model']='gpt-4o'
+    expensive=provider(response(model='gpt-4o'))
+    request(expensive,'OTHER')
+    assert expensive.chat.completions.create.call_args.kwargs['model']=='gpt-4o'
+    cheap=usage_wallet.report('EXAMPLE')
+    dear=usage_wallet.report('OTHER')
+    assert cheap['spent_nano_gbp']==525_000
+    assert dear['spent_nano_gbp']==8_750_000
+    assert dear['available_nano_gbp']<cheap['available_nano_gbp']
+
+
 def test_empty_other_tenant_is_blocked_before_call_even_with_chatgpt_claim(credit):
     client = provider()
     with pytest.raises(plan_usage.AllowancePaused):

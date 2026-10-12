@@ -4,6 +4,7 @@
   import {onMount,onDestroy,createEventDispatcher} from 'svelte';
   import TrendChart from './TrendChart.svelte';
   import UsageCredits from './UsageCredits.svelte';
+  import ModelPicker from './ModelPicker.svelte';
   export let tenant:string;
   export let csrf:string;
   export let isPlatform=false;
@@ -134,7 +135,7 @@
             <strong class="price"><bdi>{money(discounted(plan.monthly_pence))}</bdi><small>{$t('per month before VAT')}</small></strong>
             <p class="tax-total">{$t('{price} / month including {percent}% VAT',{price:money(totalWithVat(plan.monthly_pence)),percent:count(data.vat_percent)})}</p>
             <p class="setup-price">{$t('{price} one-time setup before VAT',{price:money(discounted(plan.setup_pence))})}<small class="tax-total">{$t('{price} setup including {percent}% VAT',{price:money(totalWithVat(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>
-            <ul class="plan-features"><li>{$t('Website and WhatsApp agents')}</li><li>{$t('{count} website conversations / month',{count:count(plan.website_conversations)})}</li><li>{$t('AI processing paid separately with prepaid usage credit')}</li><li>{$t('{count} locations / service areas',{count:count(plan.locations)})}</li><li>{$t('{count} staff accounts, plus the owner',{count:count(plan.staff)})}</li><li>{$t('{analytics} analytics · {access} API access',{analytics:$t(plan.analytics),access:$t(plan.api_access)})}</li><li>{$t('{support} onboarding support',{support:$t(plan.onboarding)})}</li></ul>
+            <ul class="plan-features"><li>{$t('Website and WhatsApp agents')}</li><li>{$t('No fixed message or conversation cap')}</li><li>{$t('AI processing paid separately with prepaid usage credit')}</li><li>{$t('{count} locations / service areas',{count:count(plan.locations)})}</li><li>{$t('{count} staff accounts, plus the owner',{count:count(plan.staff)})}</li><li>{$t('{analytics} analytics · {access} API access',{analytics:$t(plan.analytics),access:$t(plan.api_access)})}</li><li>{$t('{support} onboarding support',{support:$t(plan.onboarding)})}</li></ul>
             <button disabled={!canManageBilling||busy||planLocked||checkoutPending||selectedPlan?.id===plan.id} on:click={()=>action('select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?$t('Current subscription'):selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>
           </article>
         {/each}
@@ -155,15 +156,16 @@
     {/if}
     {#if data.allowance}
       {@const website=data.allowance.website_conversations}
-      <article class="panel usage-panel"><header><div><h2>{$t('Monthly allowances')}</h2><p>{$t('{month} · resets at the start of the next calendar month in UTC.',{month:month(data.allowance.month)})}</p></div><span class="plan-badge">{$t('Pause at the limit')}</span></header>
+      <article class="panel usage-panel"><header><div><h2>{$t(website.enforced===false?'Monthly activity':'Monthly allowances')}</h2><p>{$t('{month} · resets at the start of the next calendar month in UTC.',{month:month(data.allowance.month)})}</p></div><span class="plan-badge">{$t(website.enforced===false?'Usage based on model and tokens':'Pause at the limit')}</span></header>
         {#each data.allowance.alerts||[] as alert}<p class="notice error usage-alert" role="alert">{usageAlert(alert)}</p>{/each}
         <div class="cards usage-cards">
-          <div><h3>{$t('Website conversations')}</h3><p class="usage-total"><strong><bdi>{count(website.used)}</bdi></strong> / <bdi>{count(website.limit)}</bdi></p><progress value={website.used} max={Math.max(1,website.limit)} aria-label={$t('Website conversations used')}></progress><p>{website.paused?$t('New conversations paused; existing sessions can continue.'):$t('{count} remaining this month',{count:count(Math.max(0,website.limit-website.used))})}</p></div>
+          <div><h3>{$t('Website conversations')}</h3><p class="usage-total"><strong><bdi>{count(website.used)}</bdi></strong>{#if website.enforced!==false} / <bdi>{count(website.limit)}</bdi>{/if}</p>{#if website.enforced===false}<p>{$t('Distinct website conversations this month. Activity only — not a conversation allowance.')}</p>{:else}<progress value={website.used} max={Math.max(1,website.limit)} aria-label={$t('Website conversations used')}></progress><p>{website.paused?$t('New conversations paused; existing sessions can continue.'):$t('{count} remaining this month',{count:count(Math.max(0,website.limit-website.used))})}</p>{/if}</div>
           <div><h3>{$t('WhatsApp activity')}</h3><p class="usage-total"><strong><bdi>{count(data.allowance.whatsapp_messages.used)}</bdi></strong></p><p>{$t('Incoming customer messages this month. Activity only — not a message-count allowance.')}</p></div>
         </div>
-        <p>{$t('Website allowances count distinct chat sessions; new sessions pause at the limit while existing sessions continue. Paid AI replies use separate prepaid credit. Low or insufficient credit creates an administrator alert; saved-knowledge replies remain available. There are no automatic extra charges.')}</p>
+        <p>{$t(website.enforced===false?'Website and WhatsApp activity counts do not limit messages. Paid AI uses prepaid credit according to the model and tokens consumed. Credit carries forward; there are no automatic extra charges.':'Website allowances count distinct chat sessions; new sessions pause at the limit while existing sessions continue. Paid AI replies use separate prepaid credit. Low or insufficient credit creates an administrator alert; saved-knowledge replies remain available. There are no automatic extra charges.')}</p>
       </article>
     {/if}
+    {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
     {#if !data.internal}
       {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
     {/if}

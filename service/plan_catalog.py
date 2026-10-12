@@ -33,8 +33,9 @@ PLANS = {
 def get_plan(plan_id):
     if not isinstance(plan_id, str) or plan_id not in PLANS:
         raise ValueError('invalid_subscription_plan')
-    return dict(PLANS[plan_id])
+    return {**PLANS[plan_id], 'website_conversations_enforced': False,
+            'whatsapp_messages_enforced': False}
 
 
 def public_plans():
-    return [dict(plan) for plan in PLANS.values()]
+    return [get_plan(plan_id) for plan_id in PLANS]

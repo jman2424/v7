@@ -26,14 +26,14 @@ prices: £99, £199 and £349/month before VAT, with separate one-time setup fee
 excludes VAT, matching the labelled base price in the visible cards. Monthly and
 setup totals including the catalogue's 20% VAT rate appear immediately beneath
 their base prices, where VAT applies; the final checkout total is authoritative.
-Both agent channels and the plan's website conversation allowance are included. WhatsApp phone
+Both agent channels are included, with no fixed message or conversation cap. WhatsApp phone
 numbers, number rental and provider messaging charges are not included.
 AI credit is purchased separately, with no included monthly processing budget.
 Prepaid packs provide £5, £20 or £50 of usable credit before VAT (£6, £24 or £60
 including 20% VAT, where applicable). One GBP balance covers paid processing
 across website and WhatsApp; it does not cover the WhatsApp provider's bill.
 Insufficient prepaid credit pauses paid model calls with saved-knowledge fallback.
-Website conversation limits remain separate and pause new sessions;
+Website and WhatsApp capacity depends on the selected model and tokens consumed;
 existing sessions can continue. AI calls can pause before credit is exhausted
 if the next request cannot fit safely or its cost is unknown. The administrator
 receives persisted in-app alerts in the subscription view and platform company

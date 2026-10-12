@@ -32,6 +32,22 @@ def test_website_counts_once_and_existing_conversation_continues_at_limit(plan_l
     assert report["website_conversations"] == {"used": 2, "limit": 2, "paused": True}
     assert report["whatsapp_messages"]["used"] == 0
     assert report["alerts"][0]["resource"] == "website_conversations"
+
+
+def test_prepaid_sessions_and_messages_are_activity_without_count_caps(plan_ledger):
+    plan_ledger.update(message_usage_model='ai_cost', ai_credit_model='prepaid')
+    for resource in ('website_conversations', 'whatsapp_messages'):
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            assert all(pool.map(lambda index: plan_usage.use_resource('EXAMPLE', resource, str(index)), range(12)))
+        assert plan_usage.use_resource('EXAMPLE', resource, '0')
+    report = plan_usage.report('EXAMPLE')
+    for resource in ('website_conversations', 'whatsapp_messages'):
+        assert report[resource]['used'] == 12
+        assert report[resource]['paused'] is False
+        assert report[resource]['enforced'] is False
+    assert plan_usage.report('OTHER')['website_conversations']['used'] == 0
+    assert {alert['resource'] for alert in report['alerts']} == {'usage_credit'}
+    assert report['usage_credit']['paused'] is True
     with plan_usage._connection("EXAMPLE") as db:
         rows = [dict(row) for row in db.execute("SELECT * FROM billing_plan_events").fetchall()]
     assert "signed-session" not in str(rows)
@@ -60,7 +76,7 @@ def test_money_based_whatsapp_counts_beyond_previous_cap_and_deduplicates(plan_l
     assert plan_usage.report("BETA")["whatsapp_messages"]["used"] == 1
 
 
-def test_money_based_mode_ignores_previous_message_pause_and_keeps_website_capacity(plan_ledger):
+def test_money_based_mode_ignores_previous_message_and_conversation_caps(plan_ledger):
     for identity in ("one", "two"):
         assert plan_usage.use_resource("EXAMPLE", "whatsapp_messages", identity)
     assert not plan_usage.use_resource("EXAMPLE", "whatsapp_messages", "three")
@@ -70,8 +86,9 @@ def test_money_based_mode_ignores_previous_message_pause_and_keeps_website_capac
     assert plan_usage.report("EXAMPLE")["whatsapp_messages"]["used"] == 3
     for identity in ("one", "two"):
         assert plan_usage.use_resource("EXAMPLE", "website_conversations", identity)
-    assert not plan_usage.use_resource("EXAMPLE", "website_conversations", "three")
-    assert plan_usage.report("EXAMPLE")["website_conversations"]["paused"] is True
+    assert plan_usage.use_resource("EXAMPLE", "website_conversations", "three")
+    assert plan_usage.report("EXAMPLE")["website_conversations"]["paused"] is False
+    assert plan_usage.report("EXAMPLE")["website_conversations"]["used"] == 3
 
 
 def test_prepaid_plan_report_ignores_legacy_monthly_budget_and_redacts_costs(plan_ledger):

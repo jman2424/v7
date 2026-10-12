@@ -154,7 +154,8 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
         assert f"£{monthly_with_vat:.2f} / month including {VAT_PERCENT}% VAT, where applicable" in visible
         assert f"£{setup_with_vat:.2f} setup including {VAT_PERCENT}% VAT, where applicable" in visible
-        assert f"{plan['website_conversations']:,} website conversations" in visible
+        assert f"{plan['website_conversations']:,} website conversations" not in visible
+        assert "No fixed message or conversation cap" in visible
         assert f"{plan['whatsapp_messages']:,} WhatsApp messages" not in visible
         assert "AI processing credit purchased separately" in visible
         assert f"one-time setup £{plan['setup_pence'] // 100} before VAT" in offer["description"]

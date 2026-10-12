@@ -3,14 +3,14 @@ import secrets
 import time
 from flask import Blueprint, abort, jsonify, request, session
 from routes import get_container
-from service.security import management_user, authorized_tenant, is_platform_admin, require_permission
+from service.security import management_user, authorized_tenant, is_platform_admin, require_permission, has_permission
 from service import model_settings
 from service.audit import AuditService
 
 bp = Blueprint('model_settings',__name__,url_prefix='/admin/api/ai-model')
 
 
-def identity(write=True):
+def identity(write=True, require_activation=True):
     user = management_user()
     if not is_platform_admin(user) and user.get('roles') != ['business_owner']:
         abort(403)
@@ -19,7 +19,7 @@ def identity(write=True):
     tenant = authorized_tenant(request.args.get('tenant'))
     storage = get_container().storage
     if not storage.tenant_exists(tenant): abort(404)
-    if not is_platform_admin(user):
+    if require_activation and not is_platform_admin(user):
         from service.tenant_access import require_active
         require_active(tenant)
     return user,tenant,storage
@@ -35,6 +35,17 @@ def body(allowed):
 def parameters_get():
     _, tenant, storage = identity(write=False)
     return jsonify(model_settings.parameter_status(storage, tenant))
+
+
+@bp.get('')
+def model_get():
+    user, tenant, storage = identity(write=False, require_activation=False)
+    permission = 'models.write' if is_platform_admin(user) else 'business_settings.write'
+    from service.tenant_access import activation
+    return jsonify(**model_settings.parameter_status(storage, tenant),
+                   model_options=model_settings.options(),
+                   can_change_model=has_permission(user, permission)
+                   and (is_platform_admin(user) or activation(tenant)['active']))
 
 
 @bp.put('/parameters')

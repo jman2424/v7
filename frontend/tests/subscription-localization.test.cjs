@@ -52,7 +52,7 @@ function messageKeys(node) {
 
 test('all subscription labels, conditional statuses and plan service levels have complete translations', () => {
   const keys = new Set(['Small businesses', 'Growing businesses', 'Busy businesses', 'Basic', 'Advanced', 'Standard', 'Assisted', 'Priority']);
-  for (const source of [component,creditComponent]) walk(parse(source), (node, parent) => {
+  for (const source of [component,creditComponent,fs.readFileSync(path.join(__dirname, "../src/lib/ModelPicker.svelte"), "utf8")]) walk(parse(source), (node, parent) => {
     if (node.type === 'CallExpression' && node.callee?.name === '$t') messageKeys(node.arguments[0]).forEach(key => keys.add(key));
     if (node.type === 'Text' && parent?.type !== 'Attribute' && /[A-Za-z]/.test(node.data.trim())) {
       assert.equal(node.data.trim(), 'WhatsApp', 'Untranslated interface text: ' + node.data.trim());

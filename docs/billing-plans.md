@@ -31,19 +31,28 @@ The previously approved internal website workspace retains its existing exemptio
 
 ## Website capacity and prepaid AI
 
-Allowances reset by UTC calendar month. One website conversation is a distinct
-signed chat session seen during that month, counted once. Existing counted
-sessions can continue when the new-session limit is reached. Website capacity is
-separate from prepaid AI processing. All plans use `ai_credit_model=prepaid` and
-include **no AI credit**. Businesses manually purchase £5, £20 or £50 credit
-through Stripe; current checkout totals are £6, £24 or £60 including 20% VAT.
-VAT is not credited to the balance or charged again when credit is consumed.
-Purchased credit carries forward. There is no automatic recharge or overage.
-Current plans retain `message_usage_model=ai_cost` for API compatibility.
-WhatsApp counts authenticated inbound messages once per provider message ID for
-activity only. Its former message-count cap is not enforced in this mode.
-Historical numeric API fields remain for compatibility and carry
+Website and WhatsApp activity counters reset by UTC calendar month, but do not
+cap messages or conversations. All plans use `message_usage_model=ai_cost` and
+`ai_credit_model=prepaid`, with **no included AI credit**. The number of paid
+messages a balance supports depends on the selected model's token prices and
+actual input, cached-input and output usage, including conversation context.
+One customer message may require multiple provider calls. No exact message
+quantity per top-up is promised. Existing anti-abuse rate limits remain active.
+
+Owners manually purchase £5, £20 or £50 credit through Stripe; current totals
+are £6, £24 or £60 including 20% VAT. VAT is excluded from usable credit.
+Purchased credit carries forward; there is no automatic recharge or overage.
+Historical numeric allowance fields remain for API compatibility with explicit
 `enforced=false` metadata. No usage data or previous invoices are erased.
+
+The Subscription page lists the platform's allowed models and configured input,
+cached-input and output prices through authenticated GET `/admin/api/ai-model`.
+Owners may compare models before activation; changes require an active business
+and the existing `business_settings.write` permission. Platform administrators
+use `models.write`. The existing review, confirm and save endpoints bind the
+change to the actor, company, expiring confirmation and settings revision.
+Staff cannot change models. Subscription selection affects both planning and
+reply rewriting; existing charges keep their original pricing snapshots.
 
 Every central paid AI call uses the prepaid wallet, including businesses with
 legacy subscription contracts. Existing previously approved invoices remain
