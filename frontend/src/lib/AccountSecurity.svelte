@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { language, t } from './i18n';
   import PasswordManagement from './PasswordManagement.svelte';
+  import EmailManagement from './EmailManagement.svelte';
 
   export let tenant: string;
   export let csrf: string;
@@ -151,6 +152,7 @@
     <p>{$t('Manage how you sign in and which devices you trust.')}</p>
   </header>
   <PasswordManagement {tenant} {csrf} {apiPrefix}/>
+  <EmailManagement {csrf} {apiPrefix}/>
   {#if teamUrl}<section class="security-card"><h3>{$t('Manage business accounts')}</h3><p>{$t('Add team accounts, manage access and reset team passwords for this company.')}</p><a href={teamUrl}>{$t('Open team account management')} →</a></section>{/if}
 
   {#if error}<p class="message error" role="alert">{$t(error)}</p>{/if}

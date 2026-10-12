@@ -33,3 +33,23 @@ Relevant checks: `pytest tests/test_account_passwords.py tests/test_account_mana
 tests/test_registration.py tests/test_registration_mail.py`; native PostgreSQL
 recovery scenarios are in `tests/test_postgres_auth_runtime.py` and require the
 disposable database fixture. The new screens use English, Spanish, French and Arabic.
+
+## Change email
+
+Account & security also provides **Change account email**. An authenticated user
+enters their current password and new address. The new mailbox receives a
+single-use code expiring after ten minutes, with five attempts and per-account
+request limits. Confirmation is tied to the initiating browser, account and
+credential snapshot. Destination availability is checked again before updating.
+The private verification store is reused; no database migration is required.
+
+Passwords, roles and permissions are preserved. Authenticator enrollment and
+spent code steps move to the new identity; trusted devices are revoked and old
+sessions/MCP grants fail credential-revision checks. Linked provider references
+and owned-business references move with the account. Sign in again with the new
+email and existing password/authenticator. Changing a platform registry login
+also changes its email-based account ID; tenant account IDs stay immutable.
+
+Render's former URL and the official domain use the same deployed account store.
+Domain changes require a fresh browser sign-in, not an account import. Saved
+browser-password entries for different routes are not separate V7 accounts.

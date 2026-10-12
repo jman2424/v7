@@ -42,6 +42,38 @@ def account_details():
     return jsonify(account_passwords.details(management_user()))
 
 
+@bp.post('/account/email')
+def account_email_start():
+    from service import account_email
+    from service.security import management_user
+    user = management_user()
+    limiter = current_app.extensions['auth_login_limiter']
+    subject = limiter.identity_key(user)
+    try:
+        attempt = limiter.begin(subject)
+    except LoginThrottled as exc:
+        return jsonify(error='try_again_later', retry_after=exc.retry_after), 429
+    try:
+        account_email.start(user, request.get_json(silent=True))
+    except ValueError as exc:
+        limiter.fail(subject, attempt)
+        return jsonify(error=str(exc)), 400
+    limiter.release(subject, attempt)
+    return jsonify(ok=True), 202
+
+
+@bp.post('/account/email/confirm')
+def account_email_confirm():
+    from service import account_email, trusted_devices
+    from service.security import management_user
+    try:
+        account_email.confirm(management_user(), request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    clear_authenticated_session()
+    return trusted_devices.clear_cookie(jsonify(ok=True))
+
+
 @bp.post('/password/change')
 def password_change():
     from service import account_passwords, trusted_devices

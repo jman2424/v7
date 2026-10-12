@@ -49,7 +49,11 @@ def send_reset_code(email, code):
     _send(email, code, reset=True)
 
 
-def _send(email, code, *, reset):
+def send_email_change_code(email, code):
+    _send(email, code, reset=False, email_change=True)
+
+
+def _send(email, code, *, reset, email_change=False):
     if not configured():
         raise RuntimeError('Email verification is not configured.')
     message = EmailMessage()
@@ -63,6 +67,12 @@ def _send(email, code, *, reset):
                        (f'Your V7 verification code is {code}. It expires in 10 minutes.\n\n'
                         'Enter it only in the V7 signup page you opened. Do not share it. '
                         'If you did not request an account, ignore this email.'))
+    if email_change:
+        message.replace_header('Subject', 'Confirm your new V7 account email')
+        message.set_content(f'Your V7 email change code is {code}. It expires in 10 minutes.\n\n'
+                            'Enter it only in the signed-in V7 account page where you requested this change. '
+                            'Do not share the code. Your password and authenticator will remain unchanged. '
+                            'If you did not request this change, ignore this email.')
     if _uses_resend_api():
         payload = json.dumps({'from': message['From'], 'to': [email],
                               'subject': message['Subject'], 'text': message.get_content()}).encode('utf-8')

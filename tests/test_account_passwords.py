@@ -129,6 +129,8 @@ def test_platform_registry_password_can_be_changed(client, app, monkeypatch):
     row = json.loads(path.read_text())['users'][0]
     assert row['role'] == 'platform_admin' and verify_password(NEW, row['password_hash'])
     assert 'password' not in row
+    with app.app_context(), session_store.connection() as db:
+        assert db.execute('SELECT COUNT(*) FROM trusted_devices').fetchone()[0] == 0
 
 
 def test_simultaneous_reset_consumes_code_only_once(app, account):

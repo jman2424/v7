@@ -44,7 +44,7 @@ def _find(email, tenant, db=None):
                 return None
             if assigned != tenant:
                 return None
-        return 'registry', record, {'id': email, 'email': email, 'tenant': tenant if role in {'business_owner', 'business_staff'} else None}
+        return 'registry', record, {'id': email, 'email': email, 'roles': [role], 'tenant': tenant if role in {'business_owner', 'business_staff'} else None}
     # Environment / legacy accounts remain operator-configured, never rewritten.
     if email == os.getenv('ADMIN_USERNAME', '').strip().lower():
         return None
@@ -59,18 +59,25 @@ def _find(email, tenant, db=None):
             or not isinstance(record.get('id'), str) or not record['id']
             or {'admin', 'platform_admin'}.intersection(record['roles'])):
         return None
-    return 'tenant', record, {'id': record.get('id'), 'email': email, 'tenant': tenant}
+    return 'tenant', record, {'id': record.get('id'), 'email': email, 'roles': record['roles'], 'tenant': tenant}
 
 
 def _write(found, tenant, password, db):
     source, record, identity = found
     updated = {**record, 'password_hash': security.hash_password(password), 'credential_version': secrets.token_hex(16)}
+    _store(found, tenant, updated, db)
+    return identity
+
+
+def _store(found, tenant, updated, db):
+    source, record, identity = found
     if source == 'tenant':
         accounts = AccountService(current_app.container.storage)._accounts(tenant)
         accounts = [updated if row.get('id') == record.get('id') else row for row in accounts]
         current_app.container.storage._write_json(tenant, ACCOUNT_FILE, accounts)
     elif session_store._using_postgres():
-        db.execute('UPDATE operator_accounts SET payload=%s::jsonb WHERE email=%s', (json.dumps(updated), identity['email']))
+        db.execute('UPDATE operator_accounts SET email=%s,payload=%s::jsonb WHERE email=%s',
+                   (updated['email'], json.dumps(updated), identity['email']))
     else:
         # Registry paths have already been validated by _registry_users.
         path = Path(os.environ['ADMIN_USERS_FILE']).expanduser().resolve()
@@ -87,7 +94,6 @@ def _write(found, tenant, password, db):
         finally:
             if temporary and temporary.exists():
                 temporary.unlink()
-    return identity
 
 
 def _password(data, field='password'):

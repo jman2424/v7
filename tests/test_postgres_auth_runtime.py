@@ -62,6 +62,35 @@ def test_postgres_operator_password_change_persists(pg_runtime):
         assert not authenticate_user(app.container, email=email, password=old, tenant=pg_runtime['tenant'])
 
 
+@pytest.mark.parametrize('registry', [False, True])
+def test_postgres_email_change_moves_authenticator_with_credentials(pg_runtime, monkeypatch, registry):
+    from service import account_email
+    app = _app(pg_runtime)
+    app.container.settings = SimpleNamespace(BUSINESS_KEY=pg_runtime['tenant'])
+    email = 'native-email-change@example.test'
+    new_email = 'native-email-changed@example.test'
+    password = 'Native-email-change-password-123'
+    sent = {}
+    monkeypatch.setattr(registration_mail, 'configured', lambda: True)
+    monkeypatch.setattr(registration_mail, 'send_email_change_code', lambda email, code: sent.update({email:code}))
+    if registry:
+        pg_runtime['admin'].execute('INSERT INTO v7_private.operator_accounts(email,payload) VALUES(%s,%s::jsonb)',
+            (email,json.dumps({'email':email,'password_hash':hash_password(password),'role':'platform_admin'})))
+    else:
+        AccountService(app.container.storage).create_account(pg_runtime['tenant'], {'email':email,'password':password,'roles':['business_owner']})
+    with app.test_request_context():
+        user = authenticate_user(app.container,email=email,password=password,tenant=pg_runtime['tenant'])
+        challenge = account_mfa.begin(user,pg_runtime['tenant'])
+        verified = account_mfa.confirm(generate_totp_token(challenge['setup_key']))
+        identity = start_management_session(verified,pg_runtime['tenant'],mfa_verified=True)
+        secret = account_mfa.enrolled_secret(identity)
+        account_email.start(identity,{'email':new_email,'current_password':password})
+        account_email.confirm(identity,{'code':sent[new_email]})
+        changed = authenticate_user(app.container,email=new_email,password=password,tenant=pg_runtime['tenant'])
+        assert changed and changed['totp_secret'] == secret and changed['roles'] == identity['roles']
+        assert not authenticate_user(app.container,email=email,password=password,tenant=pg_runtime['tenant'])
+
+
 def _app(runtime):
     app = Flask(__name__)
     app.secret_key = 'Native-local-auth-test-secret-only-123'
