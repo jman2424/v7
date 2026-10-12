@@ -330,8 +330,12 @@ Frontend checking and a production console build are separate release checks.
 - The standalone widget SDK restricts outbound messages to the configured chat origin
   and accepts incoming events only from that origin and the current iframe window.
   HTTP(S) URLs with no embedded credentials are required. Run `npm test` in `sdk/js`.
-- Production requests accept the hostname from BASE_URL and, on Render, the platform's
-  RENDER_EXTERNAL_HOSTNAME. Keep BASE_URL set to the actual public console origin;
+- Production requests accept the hostname from BASE_URL and optionally Render's
+  RENDER_EXTERNAL_HOSTNAME. With `V7_ALLOW_RENDER_SUBDOMAIN=false`, every request
+  to the provider hostname returns 404 before route handling, and that hostname
+  is excluded from permitted management origins. BASE_URL must be the official
+  custom-domain origin. Also disable Render Subdomain in the service dashboard
+  to block requests at Render's edge, including its idle wake-up page. Keep BASE_URL set to the actual public console origin;
   other custom domains must not be used as console entry points without configuration.
   Development localhost previews retain their existing host behavior.
 - Management writes reject cross-site Fetch Metadata and foreign/null Origin headers,

@@ -10,6 +10,7 @@ platform = platform_fixture
 
 
 def test_production_accepts_only_configured_hosts_and_origins(monkeypatch):
+    monkeypatch.setenv('V7_ALLOW_RENDER_SUBDOMAIN', 'true')
     monkeypatch.setenv('RENDER_EXTERNAL_HOSTNAME', 'service.onrender.com')
     app = Flask(__name__)
     install_request_boundaries(app, SimpleNamespace(ENVIRONMENT='production', BASE_URL='https://console.example.test'))
@@ -22,6 +23,39 @@ def test_production_accepts_only_configured_hosts_and_origins(monkeypatch):
         assert client.post('/admin/api/example', base_url=origin, headers={'Origin': origin}).status_code == 200
     assert client.post('/admin/api/example', base_url='https://console.example.test', headers={'Origin': 'null'}).status_code == 403
     assert client.post('/billing/stripe/webhook', base_url='https://console.example.test', headers={'Sec-Fetch-Site': 'cross-site'}).status_code == 200
+
+
+@pytest.mark.parametrize('path', ['/', '/console/', '/auth/login', '/chat_api', '/widget.js', '/billing/stripe/webhook', '/healthz'])
+@pytest.mark.parametrize('method', ['GET', 'POST', 'OPTIONS'])
+def test_disabled_render_host_blocks_every_route_without_redirect(monkeypatch, path, method):
+    monkeypatch.setenv('RENDER_EXTERNAL_HOSTNAME', 'service.onrender.com')
+    monkeypatch.setenv('V7_ALLOW_RENDER_SUBDOMAIN', 'false')
+    app = Flask(__name__)
+    install_request_boundaries(app, SimpleNamespace(ENVIRONMENT='production', BASE_URL='https://console.example.test'))
+    app.add_url_rule(path, view_func=lambda: 'route executed', methods=['GET', 'POST', 'OPTIONS'])
+    client = app.test_client()
+    blocked = client.open(path, method=method, base_url='https://service.onrender.com', headers={'X-Forwarded-Host': 'console.example.test'})
+    assert blocked.status_code == 404 and 'Location' not in blocked.headers
+    assert b'route executed' not in blocked.data
+    assert client.get(path, base_url='https://console.example.test').status_code == 200
+
+
+def test_disabled_render_origin_cannot_write_to_official_domain(monkeypatch):
+    monkeypatch.setenv('RENDER_EXTERNAL_HOSTNAME', 'service.onrender.com')
+    monkeypatch.setenv('V7_ALLOW_RENDER_SUBDOMAIN', 'false')
+    app = Flask(__name__)
+    install_request_boundaries(app, SimpleNamespace(ENVIRONMENT='production', BASE_URL='https://console.example.test'))
+    app.add_url_rule('/auth/login', view_func=lambda: 'ok', methods=['POST'])
+    client = app.test_client()
+    assert client.post('/auth/login', base_url='https://console.example.test', headers={'Origin': 'https://service.onrender.com'}).status_code == 403
+    assert client.post('/auth/login', base_url='https://console.example.test', headers={'Origin': 'https://console.example.test'}).status_code == 200
+
+
+def test_disabling_render_requires_custom_domain(monkeypatch):
+    monkeypatch.setenv('RENDER_EXTERNAL_HOSTNAME', 'service.onrender.com')
+    monkeypatch.setenv('V7_ALLOW_RENDER_SUBDOMAIN', 'false')
+    with pytest.raises(RuntimeError, match='official custom domain'):
+        install_request_boundaries(Flask(__name__), SimpleNamespace(ENVIRONMENT='production', BASE_URL='https://service.onrender.com'))
 
 
 @pytest.mark.parametrize('headers', [{'Origin': 'https://attacker.example'}, {'Sec-Fetch-Site': 'cross-site'}])

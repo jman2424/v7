@@ -31,7 +31,10 @@ def install_request_boundaries(app, settings):
     base = urlsplit(settings.BASE_URL)
     hosts = [base.hostname] if base.hostname else []
     render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
-    if render_host:
+    allow_render = os.getenv('V7_ALLOW_RENDER_SUBDOMAIN', 'true').strip().lower() == 'true'
+    if production and not allow_render and (not base.hostname or base.hostname == render_host):
+        raise RuntimeError('Set BASE_URL to the official custom domain before disabling the Render subdomain')
+    if render_host and allow_render:
         hosts.append(render_host)
     if production and not hosts:
         raise RuntimeError("Set BASE_URL or RENDER_EXTERNAL_HOSTNAME for production host validation")
@@ -39,11 +42,16 @@ def install_request_boundaries(app, settings):
     # safe response headers. Never trust caller-supplied forwarded host headers.
     app.config["V7_TRUSTED_HOSTS"] = hosts if production else []
     origins = {f"{base.scheme}://{base.netloc}"} if base.scheme in {"http", "https"} and base.netloc else set()
-    if render_host:
+    if render_host and allow_render:
         origins.add("https://" + render_host)
 
     @app.before_request
     def boundaries():
+        # Reject the provider hostname before routing or processing any payload.
+        # Forwarded Host headers cannot restore access to the disabled address.
+        if (production and render_host and not allow_render
+                and request.host.partition(':')[0].lower().rstrip('.') == render_host.lower().rstrip('.')):
+            abort(404)
         trusted = app.config["V7_TRUSTED_HOSTS"]
         if trusted:
             get_host(request.environ, trusted_hosts=trusted)
