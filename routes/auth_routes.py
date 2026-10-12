@@ -12,6 +12,57 @@ from service.login_limiter import LoginThrottled
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
 
 
+@bp.post('/password/reset')
+def password_reset_start():
+    from service import account_passwords
+    try:
+        notice = account_passwords.start(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except RuntimeError:
+        return jsonify(error='Password reset email is unavailable. Contact the platform operator.'), 503
+    return jsonify(message=notice), 202
+
+
+@bp.post('/password/reset/confirm')
+def password_reset_confirm():
+    from service import account_passwords, trusted_devices
+    try:
+        account_passwords.confirm(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    clear_authenticated_session()
+    return trusted_devices.clear_cookie(jsonify(ok=True))
+
+
+@bp.get('/account')
+def account_details():
+    from service import account_passwords
+    from service.security import management_user
+    return jsonify(account_passwords.details(management_user()))
+
+
+@bp.post('/password/change')
+def password_change():
+    from service import account_passwords, trusted_devices
+    from service.security import management_user
+    user = management_user()
+    limiter = current_app.extensions['auth_login_limiter']
+    subject = limiter.identity_key(user)
+    try:
+        attempt = limiter.begin(subject)
+    except LoginThrottled as exc:
+        return jsonify(error='try_again_later', retry_after=exc.retry_after), 429
+    try:
+        account_passwords.change(user, request.get_json(silent=True))
+    except ValueError as exc:
+        limiter.fail(subject, attempt)
+        return jsonify(error=str(exc)), 400
+    limiter.release(subject, attempt)
+    clear_authenticated_session()
+    return trusted_devices.clear_cookie(jsonify(ok=True))
+
+
 @bp.get('/registration')
 def registration_status():
     from service import registration, registration_mail

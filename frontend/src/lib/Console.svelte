@@ -21,6 +21,7 @@
   import Registration from './Registration.svelte';
   import JoinRequests from './JoinRequests.svelte';
   import AccountSecurity from './AccountSecurity.svelte';
+  import PasswordManagement from './PasswordManagement.svelte';
   import PrivacySettings from './PrivacySettings.svelte';
   import AiParameters from './AiParameters.svelte';
   import LanguagePicker from './LanguagePicker.svelte';
@@ -30,6 +31,7 @@
   let cookiePreferences: CookiePreferences | undefined;
   let cookiePreferencesOpen = false;
   let signupOpen = false;
+  let passwordResetOpen = false;
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
@@ -1588,7 +1590,9 @@
     </section>
     <div class="login-content">
     <div class="login-tools"><LanguagePicker /></div>
-    {#if signupOpen && !mfa}
+    {#if passwordResetOpen && !mfa}
+      <div><PasswordManagement recovery {csrf} {tenant} {email} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:done={() => window.location.reload()}/><button class="secondary" type="button" on:click={() => window.location.reload()}>{$t('Back to sign in')}</button></div>
+    {:else if signupOpen && !mfa}
       <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
@@ -1609,6 +1613,7 @@
       <label>{$t("Company key")}<input disabled={signingIn} bind:value={tenant} maxlength="64" autocomplete="organization" required /><span>Use the company key supplied with your account, for example EXAMPLE.</span></label>
       <label>{$t("Email or username")}<input disabled={signingIn} bind:value={email} type="text" maxlength="254" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
       <label>{$t('Password')}<span class="password-field"><input id="login-password" disabled={signingIn} bind:value={password} type={showPassword ? 'text' : 'password'} maxlength="1024" autocomplete="current-password" required /><button disabled={signingIn} type="button" aria-controls="login-password" aria-pressed={showPassword} on:click={() => showPassword = !showPassword}>{$t(showPassword ? 'Hide password' : 'Show password')}</button></span></label>
+      <button class="secondary" type="button" disabled={signingIn} on:click={() => {passwordResetOpen = true; password = '';}}>{$t('Forgot password?')}</button>
       {/if}
       <label class="remember-choice"><input type="checkbox" disabled={signingIn} bind:checked={rememberDevice}/><span>{$t('Remember this device for 30 days')}<small>{$t('Use only on your own device. You will still need your password or linked provider account.')}</small></span></label>
       {#if loginError}<div role="alert" class="notice error">{loginError}</div>{/if}
@@ -1689,7 +1694,7 @@
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
-      {#if section === 'account'}<AccountSecurity {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
+      {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
       {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}

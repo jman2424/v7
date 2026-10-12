@@ -2,6 +2,7 @@ import { derived, writable } from 'svelte/store';
 import dictionary from '../../../dashboard/static/i18n/ui.json';
 import featureDictionary from '../../../dashboard/static/i18n/features.json';
 import subscriptionDictionary from '../../../dashboard/static/i18n/subscription.json';
+import accountDictionary from '../../../dashboard/static/i18n/accounts.json';
 
 export const languages = [
   {id: 'en', name: 'English', dir: 'ltr'},
@@ -14,7 +15,7 @@ export const language = writable<Language>('en');
 const messages: Record<string, Record<string, string>> = {};
 for (const option of languages) {
   const key = option.id as keyof typeof dictionary;
-  messages[key] = {...(dictionary[key] || {}), ...(featureDictionary[key] || {}), ...(subscriptionDictionary[key] || {})};
+  messages[key] = {...(dictionary[key] || {}), ...(featureDictionary[key] || {}), ...(subscriptionDictionary[key] || {}), ...(accountDictionary[key] || {})};
 }
 export const t = derived(language, current => (text: string, values: Record<string, string | number> = {}) =>
   (messages[current]?.[text] || text).replace(/\{([A-Za-z_]+)\}/g, (placeholder, key: string) =>

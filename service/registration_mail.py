@@ -42,15 +42,27 @@ def sender_address():
 
 
 def send_code(email, code):
+    _send(email, code, reset=False)
+
+
+def send_reset_code(email, code):
+    _send(email, code, reset=True)
+
+
+def _send(email, code, *, reset):
     if not configured():
         raise RuntimeError('Email verification is not configured.')
     message = EmailMessage()
     message['From'] = os.environ['SMTP_FROM']
     message['To'] = email
-    message['Subject'] = 'Verify your V7 account request'
-    message.set_content(f'Your V7 verification code is {code}. It expires in 10 minutes.\n\n'
+    message['Subject'] = 'Reset your V7 password' if reset else 'Verify your V7 account request'
+    message.set_content((f'Your V7 password reset code is {code}. It expires in 10 minutes.\n\n'
+                        'Enter it only in the V7 password reset page you opened. Do not share it. '
+                        'Your authenticator will still be required after resetting your password. '
+                        'If you did not request a reset, ignore this email; your password has not changed.') if reset else
+                       (f'Your V7 verification code is {code}. It expires in 10 minutes.\n\n'
                         'Enter it only in the V7 signup page you opened. Do not share it. '
-                        'If you did not request an account, ignore this email.')
+                        'If you did not request an account, ignore this email.'))
     if _uses_resend_api():
         payload = json.dumps({'from': message['From'], 'to': [email],
                               'subject': message['Subject'], 'text': message.get_content()}).encode('utf-8')

@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { language, t } from './i18n';
+  import PasswordManagement from './PasswordManagement.svelte';
 
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
+  export let teamUrl = '';
 
   type Provider = { id: 'google' | 'microsoft'; name: string; configured: boolean; linked: boolean; has_links: boolean };
   type Device = { expires_utc: string; current: boolean };
@@ -148,6 +150,8 @@
     <h2>{$t('Account security')}</h2>
     <p>{$t('Manage how you sign in and which devices you trust.')}</p>
   </header>
+  <PasswordManagement {tenant} {csrf} {apiPrefix}/>
+  {#if teamUrl}<section class="security-card"><h3>{$t('Manage business accounts')}</h3><p>{$t('Add team accounts, manage access and reset team passwords for this company.')}</p><a href={teamUrl}>{$t('Open team account management')} →</a></section>{/if}
 
   {#if error}<p class="message error" role="alert">{$t(error)}</p>{/if}
   {#if notice}<p class="message success" role="status">{$t(notice)}</p>{/if}

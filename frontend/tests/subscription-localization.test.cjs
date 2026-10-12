@@ -29,6 +29,7 @@ const i18n = loadModule('i18n.ts', {
   '../../../dashboard/static/i18n/ui.json': require('../../dashboard/static/i18n/ui.json'),
   '../../../dashboard/static/i18n/features.json': require('../../dashboard/static/i18n/features.json'),
   '../../../dashboard/static/i18n/subscription.json': dictionary,
+  '../../../dashboard/static/i18n/accounts.json': require('../../dashboard/static/i18n/accounts.json'),
 });
 
 function walk(node, visit, parent) {

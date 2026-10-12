@@ -1,5 +1,6 @@
 """Native PostgreSQL auth regressions using only a disposable local database."""
 import secrets
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, local
@@ -12,6 +13,53 @@ from retrieval.storage import Storage
 from service import account_mfa, registration, registration_mail, session_store
 from service.account_service import ACCOUNT_FILE, AccountService
 from service.security import authenticate_user, generate_totp_token, hash_password, management_user, start_management_session
+
+
+def test_postgres_password_recovery_is_atomic_and_preserves_tenant(pg_runtime, monkeypatch):
+    from service import account_passwords
+    app = _app(pg_runtime)
+    sent = {}
+    monkeypatch.setattr(registration_mail, 'configured', lambda: True)
+    monkeypatch.setattr(registration_mail, 'send_reset_code', lambda email, code: sent.update({email: code}))
+    tenant, other = pg_runtime['tenant'], pg_runtime['other']
+    email, password = tenant.lower()+'@example.test', 'Native-reset-new-password-123'
+    with app.app_context():
+        original = AccountService(app.container.storage).create_account(tenant, {
+            'email': email, 'password': 'Native-reset-original-123', 'roles': ['business_owner']})
+    with app.test_request_context():
+        account_passwords.start({'email': email, 'tenant': tenant})
+        request_id = session['password_reset_request']
+    ready = Barrier(2)
+    def reset(_):
+        with app.test_request_context():
+            session['password_reset_request'] = request_id
+            ready.wait(timeout=15)
+            try:
+                account_passwords.confirm({'code': sent[email], 'password': password})
+                return True
+            except ValueError:
+                return False
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(reset, range(2))) == [False, True]
+    with app.app_context():
+        changed = AccountService(app.container.storage).get_account(tenant, original['id'])
+        assert changed['roles'] == ['business_owner']
+        assert authenticate_user(app.container, email=email, password=password, tenant=tenant)
+        assert not authenticate_user(app.container, email=email, password=password, tenant=other)
+    assert pg_runtime['admin'].execute('SELECT status FROM v7_private.registration_requests WHERE id=%s', (request_id,)).fetchone()[0] == 'reset_used'
+
+
+def test_postgres_operator_password_change_persists(pg_runtime):
+    from service import account_passwords
+    app = _app(pg_runtime)
+    app.container.settings = SimpleNamespace(BUSINESS_KEY=pg_runtime['tenant'])
+    email, old, new = 'reset-operator@example.test', 'Native-operator-original-123', 'Native-operator-replacement-456'
+    pg_runtime['admin'].execute('INSERT INTO v7_private.operator_accounts(email,payload) VALUES(%s,%s::jsonb)',
+        (email, json.dumps({'email': email, 'password_hash': hash_password(old), 'role': 'platform_admin'})))
+    with app.test_request_context():
+        account_passwords.change({'email': email, 'id': email, 'tenant': None}, {'current_password': old, 'password': new})
+        assert authenticate_user(app.container, email=email, password=new, tenant=pg_runtime['tenant'])
+        assert not authenticate_user(app.container, email=email, password=old, tenant=pg_runtime['tenant'])
 
 
 def _app(runtime):

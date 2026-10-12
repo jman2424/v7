@@ -112,11 +112,16 @@ class AccountService:
                 self._check_staff_allowance(tenant, accounts, updated, previous=stored)
                 accounts[index] = updated
                 self.storage._write_json(tenant, ACCOUNT_FILE, accounts)
-                from service.trusted_devices import revoke_account
-                revoke_account({**updated, 'tenant': self.storage.canonical_tenant_key(tenant)})
-                return self._public_account(updated)
+                break
+            else:
+                raise ValueError("account_not_found")
 
-        raise ValueError("account_not_found")
+        # Credential revisions already invalidate access. Revoke devices after
+        # committing the document so reset and management writers use the same
+        # lock order and cannot deadlock across the two SQLite stores.
+        from service.trusted_devices import revoke_account
+        revoke_account({**updated, 'tenant': self.storage.canonical_tenant_key(tenant)})
+        return self._public_account(updated)
 
     @staticmethod
     def _staff_seat(account: Dict[str, Any]) -> bool:

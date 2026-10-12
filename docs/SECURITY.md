@@ -6,6 +6,10 @@ security need deployment-specific review.
 
 ## Accounts and sessions
 
+Password recovery and self-service changes are available through the owner
+console. See [Account recovery](ACCOUNT_RECOVERY.md) for code expiry, attempt
+limits, session invalidation and the unchanged authenticator requirement.
+
 Management routes require an authenticated account. The implemented roles are
 platform_admin, business_owner and business_staff; the legacy admin role retains
 platform access. Staff are restricted server-side to their assigned company.
