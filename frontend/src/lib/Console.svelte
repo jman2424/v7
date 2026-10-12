@@ -1698,7 +1698,7 @@
       {/if}
 
       {#if section === 'subscription'}
-        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)} on:creditstatus={(event)=>{if(activation&&event.detail.tenant===tenant)activation={...activation,usage_credit_alerts:event.detail.alerts};}}/>{/key}
+        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} canViewIntegrations={Boolean(user?.permissions?.includes('integrations.read'))} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)} on:creditstatus={(event)=>{if(activation&&event.detail.tenant===tenant)activation={...activation,usage_credit_alerts:event.detail.alerts};}}/>{/key}
         {:else}<section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view subscriptions.</p></div></section>{/if}
       {/if}
 

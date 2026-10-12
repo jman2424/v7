@@ -352,7 +352,9 @@
     "Confirm model choice": "Confirm model choice",
     "I confirm this model for {tenant}.": "I confirm this model for {tenant}.",
     "Save AI model": "Save AI model",
-    "Cancel": "Cancel"
+    "Cancel": "Cancel",
+    "WhatsApp connection and Meta billing": "WhatsApp connection and Meta billing",
+    "Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details."
   },
   "es": {
     "Subscription and payments": "Suscripción y pagos",
@@ -707,7 +709,9 @@
     "Confirm model choice": "Confirmar modelo",
     "I confirm this model for {tenant}.": "Confirmo este modelo para {tenant}.",
     "Save AI model": "Guardar modelo de IA",
-    "Cancel": "Cancelar"
+    "Cancel": "Cancelar",
+    "WhatsApp connection and Meta billing": "Conexión de WhatsApp y facturación de Meta",
+    "Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "Gestiona aquí tu número, webhook y proveedor. El crédito de IA paga los tokens del modelo; Meta o Twilio factura los mensajes por separado. V7 no puede cobrar ni mostrar tus datos de pago de Meta."
   },
   "fr": {
     "Subscription and payments": "Abonnement et paiements",
@@ -1062,7 +1066,9 @@
     "Confirm model choice": "Confirmer le modèle",
     "I confirm this model for {tenant}.": "Je confirme ce modèle pour {tenant}.",
     "Save AI model": "Enregistrer le modèle IA",
-    "Cancel": "Annuler"
+    "Cancel": "Annuler",
+    "WhatsApp connection and Meta billing": "Connexion WhatsApp et facturation Meta",
+    "Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "Gérez ici votre numéro, webhook et fournisseur. Le crédit IA paie les tokens du modèle ; Meta ou Twilio facture la messagerie séparément. V7 ne peut pas encaisser ni afficher vos informations de paiement Meta."
   },
   "ar": {
     "Subscription and payments": "الاشتراك والمدفوعات",
@@ -1417,6 +1423,8 @@
     "Confirm model choice": "تأكيد اختيار النموذج",
     "I confirm this model for {tenant}.": "أؤكد هذا النموذج للشركة {tenant}.",
     "Save AI model": "حفظ نموذج الذكاء الاصطناعي",
-    "Cancel": "إلغاء"
+    "Cancel": "إلغاء",
+    "WhatsApp connection and Meta billing": "اتصال واتساب وفوترة ميتا",
+    "Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "أدر رقمك وإعدادات webhook ومزود الخدمة هنا. يدفع رصيد الذكاء الاصطناعي مقابل رموز النموذج؛ وتحاسب ميتا أو تويليو على الرسائل بشكل منفصل. لا يستطيع V7 تحصيل أو عرض تفاصيل الدفع الخاصة بك لدى ميتا."
   }
 }

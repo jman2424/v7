@@ -5,11 +5,13 @@
   import TrendChart from './TrendChart.svelte';
   import UsageCredits from './UsageCredits.svelte';
   import ModelPicker from './ModelPicker.svelte';
+  import WhatsAppConnection from './WhatsAppConnection.svelte';
   export let tenant:string;
   export let csrf:string;
   export let isPlatform=false;
   export let canManageBilling=true;
   export let canViewCosts=true;
+  export let canViewIntegrations=false;
   export let apiPrefix='';
   type Contract={kind:string;status:string;next_due:number|null;paused:number;cancel_at_end:number;implementation_paid:number};
   type Invoice={id:string;kind:string;month:string;issued:number;due:number|null;total:number;paid:number;remaining:number;status:string;url:string|null;lines:{description:string;amount:number}[]};
@@ -168,6 +170,13 @@
     {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
     {#if !data.internal}
       {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
+    {/if}
+    {#if canViewIntegrations}
+      <details class="panel">
+        <summary>{$t('WhatsApp connection and Meta billing')}</summary>
+        <p>{$t('Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.')}</p>
+        {#key tenant}<WhatsAppConnection {tenant} {apiPrefix}/>{/key}
+      </details>
     {/if}
     {#if legacyBilling}
     <p class="notice">{$t('Existing subscription pricing. Your recorded contract and invoices keep their original terms; the new plans do not automatically change them.')}</p>
