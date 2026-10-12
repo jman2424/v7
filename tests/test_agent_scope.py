@@ -99,6 +99,7 @@ def test_promotional_offer_questions_keep_current_offers(monkeypatch, question):
 @pytest.mark.parametrize("question", [
     "Do you offer delivery?", "Do you offer collection?", "Can you offer stock information?",
     "Do you offer price information?",
+    "Can you offer prices?", "Could you offer cost information?",
 ])
 def test_service_faq_shortcut_does_not_replace_current_sales_facts(monkeypatch, question):
     agent = handler(monkeypatch, faq=FAQStore(faq=[{

@@ -51,12 +51,17 @@ function messageKeys(node) {
 }
 
 test('all subscription labels, conditional statuses and plan service levels have complete translations', () => {
-  const keys = new Set(['Small businesses', 'Growing businesses', 'Busy businesses', 'Basic', 'Advanced', 'Standard', 'Assisted', 'Priority']);
-  for (const source of [component,creditComponent,fs.readFileSync(path.join(__dirname, "../src/lib/ModelPicker.svelte"), "utf8")]) walk(parse(source), (node, parent) => {
+  const keys = new Set(['Small businesses', 'Growing businesses', 'Busy businesses', 'Basic', 'Advanced', 'Standard', 'Assisted', 'Priority', 'You', 'Agent']);
+  const channelComponents = ['WhatsAppConnection.svelte', 'AgentTest.svelte'].map(name=>fs.readFileSync(path.join(__dirname, '../src/lib',name),'utf8'));
+  for (const source of [component,creditComponent,fs.readFileSync(path.join(__dirname, "../src/lib/ModelPicker.svelte"), "utf8"),...channelComponents]) walk(parse(source), (node, parent) => {
     if (node.type === 'CallExpression' && node.callee?.name === '$t') messageKeys(node.arguments[0]).forEach(key => keys.add(key));
     if (node.type === 'Text' && parent?.type !== 'Attribute' && /[A-Za-z]/.test(node.data.trim())) {
-      assert.equal(node.data.trim(), 'WhatsApp', 'Untranslated interface text: ' + node.data.trim());
+      assert.ok(['WhatsApp','Meta Cloud API','Twilio'].includes(node.data.trim()), 'Untranslated interface text: ' + node.data.trim());
     }
+  });
+  // Dynamic notices and lookup maps must also remain translatable.
+  for (const source of channelComponents) walk(parse(source), node => {
+    if (node.type === 'Literal' && typeof node.value === 'string' && /[A-Za-z].*\s.*[A-Za-z]/.test(node.value) && !node.value.includes('https://')) keys.add(node.value);
   });
   assert.ok(keys.size > 120, 'Cover the whole subscription interface rather than only plan cards');
   for (const language of ['en', 'es', 'fr', 'ar']) {

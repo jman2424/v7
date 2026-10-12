@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
+  import { t, language } from './i18n';
 
   export let tenant: string;
   export let csrf: string;
@@ -208,7 +209,7 @@
         throw new Error('The agent could not complete this test. Try again or start a new conversation.');
       }
       token = data.conversation_token;
-      const reply = String(data.reply || 'No reply was returned.');
+      const reply = data.reply ? String(data.reply) : $t('No reply was returned.');
       const message: Message = { id: ++nextMessageId, from: 'Agent', text: reply };
       messages = [...messages, message];
       if (Array.isArray(data.agent?.suggested_replies)) suggestions = data.agent.suggested_replies.filter((item: unknown): item is string => typeof item === 'string').slice(0, 3);
@@ -217,7 +218,8 @@
       transcript.scrollTop = transcript.scrollHeight;
     } catch (failure) {
       if (controller === request && !disposed && (!request.signal.aborted || timedOut)) {
-        error = timedOut ? 'The test took too long. Try again or start a new conversation.' : failure instanceof Error ? failure.message : 'The test could not complete.';
+        const safeErrors = ['Your session expired. Reload this page and sign in again.', 'This test conversation expired. Start a new conversation and try again.', 'Too many requests. Wait a moment, then try again.', 'The agent could not complete this test. Try again or start a new conversation.'];
+        error = timedOut ? 'The test took too long. Try again or start a new conversation.' : failure instanceof Error && safeErrors.includes(failure.message) ? failure.message : 'The test could not complete.';
         draft = text;
       }
     } finally {
@@ -227,25 +229,25 @@
   }
 </script>
 
-<section class="test-card" aria-label="Agent testing">
+<section class="test-card" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-label={$t("Agent testing")}>
   <header>
-    <div><p class="eyebrow">Conversation preview</p><h2>Try your agent</h2><p>Check how <strong>{tenant}</strong> responds using its saved business information.</p></div>
-    <button type="button" on:click={restart}>New conversation</button>
+    <div><p class="eyebrow">{$t("Conversation preview")}</p><h2>{$t("Try your agent")}</h2><p>{$t('Check how {tenant} responds using its saved business information.',{tenant})}</p></div>
+    <button type="button" on:click={restart}>{$t("New conversation")}</button>
   </header>
-  <div class="transcript" bind:this={transcript} role="log" aria-label="Test conversation" aria-live="polite" aria-busy={busy}>
-    {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{message.from}</strong><p>{message.text}</p>{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud'} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{speakingMessageId === message.id ? 'Stop audio' : 'Listen'}</button>{/if}</article>
-    {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>See the conversation from your customer’s side</h3><p>Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.</p></div>{/each}
-    {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>The agent is replying…</p>{/if}
+  <div class="transcript" bind:this={transcript} role="log" aria-label={$t("Test conversation")} aria-live="polite" aria-busy={busy}>
+    {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{$t(message.from)}</strong><p>{message.text}</p>{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={$t(speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud')} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{$t(speakingMessageId === message.id ? 'Stop audio' : 'Listen')}</button>{/if}</article>
+    {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>{$t("See the conversation from your customer’s side")}</h3><p>{$t("Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.")}</p></div>{/each}
+    {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>{$t("The agent is replying…")}</p>{/if}
   </div>
   <form on:submit|preventDefault={send}>
-    {#if suggestions.length}<div class="suggestions" aria-label="Suggested test questions">{#each suggestions as question}<button type="button" disabled={busy} on:click={() => { draft = question; composer.focus(); }}>{question}</button>{/each}</div>{/if}
-    <label for="test-message">Your message</label>
-    <textarea id="test-message" bind:this={composer} bind:value={draft} maxlength="4000" rows="3" placeholder="Type a question or use the microphone…" required disabled={busy}></textarea>
-    <div class="actions"><div class="voice-controls"><button class="microphone" type="button" disabled={!canDictate || busy || dictationStarting} aria-label={listening ? 'Stop microphone dictation' : 'Start microphone dictation'} aria-pressed={listening} on:click={dictate}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if listening}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>{/if}</svg>{listening ? 'Stop listening' : dictationStarting ? 'Starting…' : 'Use microphone'}</button><label class="read-aloud"><input type="checkbox" bind:checked={readAloud} disabled={!canReadAloud} on:change={(event) => { if (!event.currentTarget.checked) stopPlayback(); }} />Read new replies aloud</label></div><button class="send" type="submit" disabled={busy || !draft.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if voiceStatus}<p class="hint" role="status">{voiceStatus}</p>{/if}
-    {#if !canReadAloud}<p class="hint">Read-aloud audio is unavailable in this browser. Replies remain available as text.</p>{/if}
-    <div class="test-notes"><p>These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.</p><p>Microphone dictation needs your permission and may use your browser’s speech service. Dictation stops after 30 seconds. Review the text before sending.</p></div>
+    {#if suggestions.length}<div class="suggestions" aria-label={$t("Suggested test questions")}>{#each suggestions as question}<button type="button" disabled={busy} on:click={() => { draft = $t(question); composer.focus(); }}>{$t(question)}</button>{/each}</div>{/if}
+    <label for="test-message">{$t("Your message")}</label>
+    <textarea id="test-message" bind:this={composer} bind:value={draft} maxlength="4000" rows="3" placeholder={$t("Type a question or use the microphone…")} required disabled={busy}></textarea>
+    <div class="actions"><div class="voice-controls"><button class="microphone" type="button" disabled={!canDictate || busy || dictationStarting} aria-label={$t(listening ? 'Stop microphone dictation' : 'Start microphone dictation')} aria-pressed={listening} on:click={dictate}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if listening}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>{/if}</svg>{$t(listening ? 'Stop listening' : dictationStarting ? 'Starting…' : 'Use microphone')}</button><label class="read-aloud"><input type="checkbox" bind:checked={readAloud} disabled={!canReadAloud} on:change={(event) => { if (!event.currentTarget.checked) stopPlayback(); }} />{$t("Read new replies aloud")}</label></div><button class="send" type="submit" disabled={busy || !draft.trim()}>{$t(busy ? 'Sending…' : 'Send')}</button></div>
+    {#if error}<p class="error" role="alert">{$t(error)}</p>{/if}
+    {#if voiceStatus}<p class="hint" role="status">{$t(voiceStatus)}</p>{/if}
+    {#if !canReadAloud}<p class="hint">{$t("Read-aloud audio is unavailable in this browser. Replies remain available as text.")}</p>{/if}
+    <div class="test-notes"><p>{$t("These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.")}</p><p>{$t("Microphone dictation needs your permission and may use your browser’s speech service. Dictation stops after 30 seconds. Review the text before sending.")}</p></div>
   </form>
 </section>
 

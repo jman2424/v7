@@ -16,9 +16,9 @@ function harness() {
     requests.push({url, options, resolve});
     return promise;
   }});
-  vm.runInContext(`let tenant='ALPHA',apiPrefix='',controller,busy=false,error='',copied='',status=null,providerChosen=false,provider='meta';
+  vm.runInContext(`let tenant='ALPHA',apiPrefix='',controller,busy=false,error='',copied='',status=null,providerChosen=false,provider='meta',disposed=false;
     ${functions}
-    globalThis.subject={load,abort(){controller.abort();},state(){return {status,error};}};`, context);
+    globalThis.subject={load,normalizeNumber,abort(){controller.abort();},dispose(){disposed=true;controller?.abort();},state(){return {status,error};}};`, context);
   return {subject: context.subject, requests};
 }
 const configuration = {providers: {meta: {configured: true, enabled: true}, twilio: {configured: false}}};
@@ -43,4 +43,27 @@ test('WhatsApp setup accepts its company and discards an aborted late response',
   requests[1].resolve({ok: true, json: async () => ({tenant: 'ALPHA', whatsapp: {...configuration, changed: true}})});
   await pending;
   assert.equal(subject.state().status, configuration);
+});
+test('leaving WhatsApp suppresses late errors and prevents new requests', async () => {
+  const {subject, requests} = harness();
+  const pending = subject.load();
+  subject.dispose();
+  requests[0].resolve({ok: false, status: 401});
+  await pending;
+  await subject.load();
+  assert.equal(subject.state().error, '');
+  assert.equal(requests.length, 1);
+});
+test('network error details are replaced with a safe translatable message', async () => {
+  const {subject, requests} = harness();
+  const pending = subject.load();
+  requests[0].resolve({ok: true, json: async () => {throw new Error('private server details');}});
+  await pending;
+  assert.equal(subject.state().error, 'Could not load WhatsApp setup. Try refreshing.');
+});
+test('international phone normalization supports Arabic digits without rewriting country codes', () => {
+  const {subject} = harness();
+  assert.equal(subject.normalizeNumber(' +٤٤ (٧٧٠٠) ٩٠٠١٢٣ '), '+447700900123');
+  assert.equal(subject.normalizeNumber('+۴۴ ۷۷۰۰ ۹۰۰۱۲۳'), '+447700900123');
+  assert.equal(subject.normalizeNumber('07700 900123'), '07700900123');
 });

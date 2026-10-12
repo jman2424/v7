@@ -567,7 +567,8 @@ class MessageHandlerV7:
             sales_data_request = bool(re.search(
                 r'\b(?:stock|delivery|shipping|collection|pick[ -]?up|offers|deals?|discounts?|promotions?|coupons?)\b',
                 user_text, re.I,
-            ))
+            ) or (self._PRICE_REQUEST.search(user_text)
+                  and re.search(r"\b(?:do|can|could)\s+you\s+offer\b", user_text, re.I)))
             exact_faq = bool(faq and not sales_data_request
                              and self._normalize_text(faq['question']) == self._normalize_text(user_text))
             if faq and (exact_faq or not (product_query and self._is_explicit_shopping_request(user_text))):

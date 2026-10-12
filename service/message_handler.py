@@ -33,7 +33,6 @@ logger = logging.getLogger("MessageHandler")
 
 _KPI_EVENT_TYPES = {"msg_in", "msg_out", "error"}
 
-_RE_ONLY_SYMBOLS = re.compile(r"^[^A-Za-z0-9]+$")
 _RE_HAS_ALPHA = re.compile(r"[A-Za-z]")
 _RE_WORD3 = re.compile(r"[A-Za-z]{3,}")
 _RE_MULTI_SPACE = re.compile(r"\s+")
@@ -128,7 +127,7 @@ def _looks_like_noise(text: str) -> bool:
     if t in _TEST_NOISE:
         return True
 
-    if len(t) <= 2 and t.isalpha():
+    if len(t) <= 2 and t.isascii() and t.isalpha():
         return True
 
     return False
@@ -305,7 +304,7 @@ class MessageHandler:
         if tl in _GREETINGS:
             return None
 
-        if _RE_ONLY_SYMBOLS.match(t):
+        if not any(character.isalnum() for character in t):
             return {
                 "reply": "Type a question about the business or tell me what you need help with.",
                 "intent": "system_clarify",
@@ -318,7 +317,7 @@ class MessageHandler:
         digits = sum(ch.isdigit() for ch in t)
         looks_like_short_code = (len(t) <= 8 and letters >= 2 and digits >= 2 and " " not in t)
         looks_like_gibberish = (
-            len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t)
+            t.isascii() and len(t) <= 5 and _RE_HAS_ALPHA.search(t) and digits == 0 and " " not in t and not _RE_WORD3.search(t)
         )
 
         if looks_like_short_code or looks_like_gibberish:

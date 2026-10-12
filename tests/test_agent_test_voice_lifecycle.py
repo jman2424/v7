@@ -47,6 +47,7 @@ const documentMock = {
 };
 if(scenario==='unsupported'){delete windowMock.SpeechRecognition;delete windowMock.speechSynthesis;}
 const context = vm.createContext({AbortController,Date,
+  $t:text=>scenario==='missing-reply' && text==='No reply was returned.'?'Aucune réponse reçue.':text,
   onMount:callback=>{mount=callback;},onDestroy:callback=>{destroy=callback;},tick:async()=>{},
   window:scenario==='ssr-destroy'?undefined:windowMock,document:documentMock,
   SpeechSynthesisUtterance:scenario==='unsupported'?undefined:Utterance,
@@ -126,6 +127,15 @@ function runTimer(delay){
     requests[0].resolve(response('A completed text reply'));await sending;
     assert.equal(h.state().messages.length,2);assert.equal(h.state().error,'');assert.equal(h.state().busy,false);
     assert.equal(h.state().draft,'');assert.equal(h.state().speakingMessageId,null);assert.match(h.state().voiceStatus,/Audio could not play/);
+  } else if(scenario==='missing-reply'){
+    h.draft('Question');const sending=h.send();await flush();
+    requests[0].resolve(response(''));await sending;
+    assert.equal(h.state().messages[1].text,'Aucune réponse reçue.');
+  } else if(scenario==='network-failure'){
+    h.draft('Please help');const sending=h.send();await flush();
+    requests[0].reject(Error('Private provider transport details'));await sending;
+    assert.equal(h.state().error,'The test could not complete.');
+    assert.equal(h.state().draft,'Please help');assert.equal(h.state().busy,false);
   } else if(scenario==='timeout'){
     h.draft('Please help');const sending=h.send();await flush();runTimer(45000);await sending;
     assert.equal(h.state().busy,false);assert.equal(h.state().draft,'Please help');assert.match(h.state().error,/too long/);
@@ -140,7 +150,7 @@ function runTimer(delay){
 
 
 @pytest.mark.parametrize('scenario', [
-    'dictation', 'denied', 'playback', 'restart', 'destroy', 'hidden-reply', 'audio-failure', 'timeout', 'unsupported', 'ssr-destroy',
+    'dictation', 'denied', 'playback', 'restart', 'destroy', 'hidden-reply', 'audio-failure', 'timeout', 'network-failure', 'missing-reply', 'unsupported', 'ssr-destroy',
 ])
 def test_agent_test_voice_and_requests_discard_stale_callbacks(scenario):
     result = subprocess.run([NODE, '-e', SCRIPT, scenario], cwd=ROOT, capture_output=True,

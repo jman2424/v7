@@ -32,6 +32,7 @@
   let busy=false;
   let error='';
   let message='';
+  let whatsappOpen=false;
   let invoiceKind='all';
   let invoicePage=1;
   let discountCode='';
@@ -172,10 +173,10 @@
       {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
     {/if}
     {#if canViewIntegrations}
-      <details class="panel">
+      <details class="panel" bind:open={whatsappOpen}>
         <summary>{$t('WhatsApp connection and Meta billing')}</summary>
         <p>{$t('Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.')}</p>
-        {#key tenant}<WhatsAppConnection {tenant} {apiPrefix}/>{/key}
+        {#if whatsappOpen}{#key tenant}<WhatsAppConnection {tenant} {apiPrefix}/>{/key}{/if}
       </details>
     {/if}
     {#if legacyBilling}

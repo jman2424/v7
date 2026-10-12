@@ -335,7 +335,7 @@ def test_v7_uses_tenant_profile_and_catalogue_for_discovery(app):
     assert greeting["agent"]["suggested_replies"] == ["Camping gear", "Hiking packs"]
 
 
-def test_brain_uses_bounded_business_context_and_local_fallback():
+def test_brain_uses_bounded_business_context_and_local_fallback(monkeypatch):
     class Completion:
         class choices:
             pass
@@ -356,6 +356,10 @@ def test_brain_uses_bounded_business_context_and_local_fallback():
 
     completions = FakeCompletions()
     client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    # Inspect the bounded payload using the fake provider; prepaid attribution
+    # and funding requirements have their own integration tests.
+    monkeypatch.setattr('brain_v7.tracked_completion',
+                        lambda client, purpose, **options: client.chat.completions.create(**options))
     brain = BrainV7(client=client)
     plan = brain.plan(
         "Can you help me choose something?",

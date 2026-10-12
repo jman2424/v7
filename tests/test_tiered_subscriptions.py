@@ -65,7 +65,7 @@ def test_provider_metadata_cannot_upgrade_plan_or_activate_without_confirmation(
     assert client.post('/billing/checkout',json={'kind':'whatsapp'}).json['error']=='whatsapp_included_in_subscription'
     assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).status_code==403
     identity(client)
-    assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).json['error']=='extra_usage_charges_disabled'
+    assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).json['error']=='prepaid_usage_requires_topup'
     assert client.post('/billing/select-plan',json={'plan_id':'scale'}).json['error']=='existing_subscription_requires_review'
 
 
@@ -88,7 +88,7 @@ def test_existing_legacy_subscription_is_preserved(client,stripe):
     stripe.assert_not_called()
 
 
-def test_admin_company_overview_includes_persistent_pause_alert(client,stripe):
+def test_admin_company_overview_does_not_enforce_historical_message_caps(client,stripe):
     from service import plan_usage
     subscriptions.select_plan('EXAMPLE','starter')
     with subscriptions.connection('EXAMPLE') as db:
@@ -96,8 +96,10 @@ def test_admin_company_overview_includes_persistent_pause_alert(client,stripe):
         db.execute('INSERT INTO billing_plan_usage (tenant,month,website_conversations,website_paused) VALUES (?,?,?,?)',('EXAMPLE',plan_usage._month(),300,1))
     identity(client)
     company=next(row for row in client.get('/billing/companies').json['companies'] if row['key']=='EXAMPLE')
-    assert company['allowance']['alerts'][0]['resource']=='website_conversations'
-    assert company['allowance']['website_conversations']['paused']
+    assert not any(alert['resource']=='website_conversations' for alert in company['allowance']['alerts'])
+    assert company['allowance']['website_conversations']['used']==300
+    assert company['allowance']['website_conversations']['enforced'] is False
+    assert not company['allowance']['website_conversations']['paused']
 
 
 def test_invoice_without_bound_plan_is_rejected(client,stripe):
