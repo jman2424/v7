@@ -12,10 +12,11 @@ Checkout amounts come from the server catalog, never a submitted amount. Each
 checkout reference is bound to its plan in `billing_plan_choices`. Verified
 Stripe reads must match that binding. A return URL never activates access.
 Activation requires a paid monthly invoice, an active subscription and matching
-paid setup. Existing discounts and the configured exclusive 20% VAT rate remain
-in use. The shared catalogue's VAT rate is shown beneath public and dashboard
-prices, including the one-time setup total. Dashboard totals apply a saved
-discount before VAT; recorded invoices remain the authority for amounts paid.
+paid setup. Existing discounts remain in use. New prices charge no VAT by default
+because Vertex Seven is not VAT-registered. Set `V7_VAT_REGISTERED=true` only after
+registration is effective, with a verified exclusive 20% Stripe tax rate.
+Public and dashboard prices show the final payable total. Discounts apply before
+any configured VAT; recorded invoices keep their original financial amounts.
 
 Changing an active subscription or a paid setup plan needs administrator review.
 Before changing an unpaid selection, cancel its pending checkout through the

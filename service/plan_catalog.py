@@ -2,6 +2,12 @@
 
 VAT_PERCENT = 20
 
+
+def vat_percent():
+    """Charge VAT only after the operator explicitly confirms registration."""
+    import os
+    return VAT_PERCENT if os.getenv('V7_VAT_REGISTERED', 'false').strip().lower() == 'true' else 0
+
 PLANS = {
     'starter': {
         'id': 'starter', 'name': 'Starter', 'audience': 'Small businesses',

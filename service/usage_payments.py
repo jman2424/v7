@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 from service import session_store, subscriptions, usage_wallet
-from service.plan_catalog import VAT_PERCENT
+from service.plan_catalog import vat_percent
 
 _PACKS = {"gbp_5": 500, "gbp_20": 2000, "gbp_50": 5000}
 _KIND = "ai_credit"
@@ -48,10 +48,11 @@ def _require_payment_mode(livemode):
 
 
 def packs():
+    percentage = vat_percent()
     return [{"id": key, "credit_pence": value, "subtotal_pence": value,
-             "tax_pence": value * VAT_PERCENT // 100,
-             "total_pence": value * (100 + VAT_PERCENT) // 100,
-             "currency": "GBP", "vat_percent": VAT_PERCENT} for key, value in _PACKS.items()]
+             "tax_pence": value * percentage // 100,
+             "total_pence": value * (100 + percentage) // 100,
+             "currency": "GBP", "vat_percent": percentage} for key, value in _PACKS.items()]
 
 
 def _schema(db):
@@ -149,9 +150,9 @@ def checkout(tenant, email, pack_id, request_id, base_url):
     if not isinstance(pack_id, str) or pack_id not in _PACKS:
         raise ValueError("invalid_usage_pack")
     stripe = subscriptions.client()
+    _require_payment_mode(stripe.api_key.startswith(('sk_live_', 'rk_live_')))
     if not subscriptions.configured():
         raise ValueError("stripe_setup_required")
-    _require_payment_mode(stripe.api_key.startswith(('sk_live_', 'rk_live_')))
     # Persist the price and request binding before any Checkout network call.
     # Retrying the same request after a timeout reuses Stripe's idempotency key.
     with subscriptions.connection(tenant) as db:
@@ -170,7 +171,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
                        "tax_pence,total_pence,vat_percent,tax_rate,livemode,created) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
                        "ON CONFLICT(tenant,request_id) DO NOTHING",
                        (tenant, secrets.token_hex(24), request_id, pack_id, pack["credit_pence"], pack["subtotal_pence"],
-                        pack["tax_pence"], pack["total_pence"], VAT_PERCENT, tax_rate,
+                        pack["tax_pence"], pack["total_pence"], pack['vat_percent'], tax_rate,
                         int(stripe.api_key.startswith(("sk_live_", "rk_live_"))), int(time.time())))
             row = dict(db.execute("SELECT * FROM usage_checkout_requests WHERE tenant=? AND request_id=?", (tenant, request_id)).fetchone())
         if row["pack_id"] != pack_id:
@@ -190,7 +191,9 @@ def checkout(tenant, email, pack_id, request_id, base_url):
             "line_items[0][price_data][unit_amount]": row["subtotal_pence"],
             "line_items[0][price_data][tax_behavior]": "exclusive",
             "line_items[0][price_data][product_data][name]": "V7 prepaid AI processing credit",
-            "line_items[0][tax_rates][0]": row["tax_rate"]}
+            "automatic_tax[enabled]": "false"}
+    if row['tax_rate']:
+        data['line_items[0][tax_rates][0]'] = row['tax_rate']
     with subscriptions.connection(tenant) as db:
         saved = db.execute("SELECT customer FROM billing_contracts WHERE tenant=? AND kind IN ('platform','implementation') "
                            "AND customer IS NOT NULL ORDER BY CASE WHEN kind='platform' THEN 0 ELSE 1 END LIMIT 1", (tenant,)).fetchone()
@@ -265,6 +268,10 @@ def _refresh_checkout(row):
 
 
 def _tax_verified(stripe, row):
+    if row['vat_percent'] == 0:
+        if row['tax_rate'] or row['tax_pence'] or row['total_pence'] != row['subtotal_pence']:
+            raise ValueError('usage_payment_tax_mismatch')
+        return
     _id(row["tax_rate"], "txr")
     tax = stripe.stripe_request("GET", "/v1/tax_rates/" + row["tax_rate"])
     try:

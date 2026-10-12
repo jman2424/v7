@@ -119,9 +119,10 @@ def test_home_workspace_links_open_business_owner_console(seo_client, tmp_path):
         assert "Company workspace" in response.text
 
 
-def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_client):
+def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_client, monkeypatch):
     from service.plan_catalog import VAT_PERCENT, public_plans
 
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'true')
     response = seo_client.get("/", base_url="https://untrusted.example")
     assert response.status_code == 200
     page = HomeStructuredData()
@@ -194,23 +195,34 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
 
 
 def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_client):
-    from service.plan_catalog import VAT_PERCENT, public_plans
+    from service.plan_catalog import public_plans
 
     response = seo_client.get("/about")
     assert response.status_code == 200
+    assert 'No VAT charged; Vertex Seven is not VAT-registered' in response.text
     for plan in public_plans():
-        assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT" in response.text
-        assert f"with £{plan['setup_pence'] // 100} one-time setup before VAT" in response.text
-        monthly_with_vat = Decimal(plan['monthly_pence']) * (100 + VAT_PERCENT) / 10000
-        setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
-        assert f"£{monthly_with_vat:.2f}/month including {VAT_PERCENT}% VAT, where applicable" in response.text
-        assert f"£{setup_with_vat:.2f} including {VAT_PERCENT}% VAT, where applicable" in response.text
+        assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month" in response.text
+        assert f"with £{plan['setup_pence'] // 100} one-time setup" in response.text
+        assert f"£{plan['monthly_pence'] // 100}/month" in response.text
+        assert f"£{plan['setup_pence'] // 100} one-time setup" in response.text
     assert "No AI credit is included in the monthly subscription" in response.text
     assert "no automatic recharges or extra usage invoices" in response.text
     assert "Phone numbers are not included" in response.text
     assert "are not covered by prepaid AI credit" in response.text
     assert "WhatsApp usage is measured by AI processing cost rather than a fixed number of messages" in response.text
     assert "optional WhatsApp add-on is a separate £200" not in response.text
+
+
+def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeypatch):
+    monkeypatch.delenv('V7_VAT_REGISTERED',raising=False)
+    response=seo_client.get('/')
+    assert response.status_code==200
+    assert 'No VAT charged; Vertex Seven is not VAT-registered' in response.text
+    assert 'including 20% VAT' not in response.text
+    assert 'including 0% VAT' not in response.text
+    assert '£118.80' not in response.text
+    assert '£99.00 / month' in response.text
+    assert '£149.00 setup' in response.text
 
 
 @pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])

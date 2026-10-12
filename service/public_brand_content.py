@@ -1,9 +1,12 @@
 """Public brand facts; no account, tenant or provider-login information."""
 from service.public_site_content import Solution
-from service.plan_catalog import VAT_PERCENT, public_plans
+from service.plan_catalog import VAT_PERCENT, vat_percent, public_plans
 
 
 def _plan_prices() -> str:
+    if not vat_percent():
+        return '; '.join(f"{plan['name']} £{plan['monthly_pence'] // 100}/month, with £{plan['setup_pence'] // 100} one-time setup. No VAT charged; Vertex Seven is not VAT-registered"
+                         for plan in public_plans())
     return "; ".join(
         f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT "
         f"(£{plan['monthly_pence'] * (100 + VAT_PERCENT) / 10000:.2f}/month including {VAT_PERCENT}% VAT, where applicable), "
@@ -14,6 +17,8 @@ def _plan_prices() -> str:
 
 
 def _prepaid_processing() -> str:
+    if not vat_percent():
+        return 'AI processing credit is purchased separately: pay £5, £20 or £50 for the same amount of credit. No VAT charged; Vertex Seven is not VAT-registered. No AI credit is included in the monthly subscription.'
     return "AI processing credit is purchased separately: £5, £20 or £50 before VAT (£6, £24 or £60 including 20% VAT, where applicable). No AI credit is included in the monthly subscription."
 
 
@@ -77,7 +82,7 @@ ABOUT: Solution = {
             "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp agent software is included in the current monthly plans and needs a configured Meta or Twilio provider connection. Phone numbers are not included; number rental and WhatsApp provider charges are separate.",
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
-            _plan_prices() + ". Prices are in GBP, with VAT-inclusive totals also displayed. Every plan includes a website agent, a WhatsApp agent, no fixed message or conversation cap. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. Setup is paid separately and does not repeat with the monthly subscription.",
+            _plan_prices() + ". Prices are in GBP, with final payable totals also displayed. Every plan includes a website agent, a WhatsApp agent, no fixed message or conversation cap. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. Setup is paid separately and does not repeat with the monthly subscription.",
             "Paid AI calls across website and WhatsApp pause when the available prepaid AI credit cannot safely cover a request or its cost is unknown; saved business knowledge remains available. Owners choose one-time prepaid top-ups; there are no automatic recharges or extra usage invoices. WhatsApp requires a configured provider connection. Phone numbers are not included: number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit. Review the homepage comparison and final checkout totals before purchasing.",
         ]},
         {"heading": "What should a business test before launch?", "paragraphs": [

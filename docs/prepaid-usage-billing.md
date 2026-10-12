@@ -24,8 +24,11 @@ external billing changes that policy. OpenAI keys remain server-only.
 
 Owners and platform administrators use `/billing/usage-credit/checkout` with a
 server pack ID and a stable request ID. Packs currently grant £5, £20 or £50
-credit and cost £6, £24 or £60 including 20% VAT. Tax is excluded from usable
-credit. There is no automatic recharge. A top-up does not activate an unpaid
+credit. With `V7_VAT_REGISTERED=false` (the default), those packs cost £5, £20
+or £50: no VAT is charged. Only set this flag to `true` after VAT registration
+is effective; then configure a verified exclusive 20% Stripe tax rate and the
+packs cost £6, £24 or £60. Tax is excluded from usable credit. Existing payment
+snapshots keep their recorded tax treatment. There is no automatic recharge. A top-up does not activate an unpaid
 subscription, and an internal platform-owned agent has no customer checkout.
 
 Before calling Stripe, V7 persists the tenant, reference, exact amounts, tax

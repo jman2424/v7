@@ -274,7 +274,7 @@ def test_money_based_setup_exposes_prepaid_credit_only_with_cost_permission(plat
     assert not data["blockers"]
     billing = data["billing"]
     assert billing["message_usage_model"] == "ai_cost"
-    assert billing["vat_percent"] == subscriptions.VAT_PERCENT
+    assert billing["vat_percent"] == subscriptions.vat_percent()
     assert billing["ai_processing_paused"] is True
     assert billing["allowance"] == {"month": "2026-10", "used": 501, "limit": 500,
         "paused": False, "enforced": False, "measured_by": "ai_cost"}

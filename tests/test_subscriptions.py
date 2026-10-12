@@ -17,6 +17,7 @@ def identity(client, role='platform_admin', tenant='EXAMPLE'):
 
 @pytest.fixture
 def stripe(monkeypatch):
+    monkeypatch.setenv('V7_VAT_REGISTERED','true')
     monkeypatch.setenv('BILLING_PROVIDER','stripe')
     monkeypatch.setenv('STRIPE_API_KEY','test-api-key-not-real')
     monkeypatch.setenv('STRIPE_WEBHOOK_SECRET','test-webhook-secret-not-real')
@@ -29,6 +30,40 @@ def stripe(monkeypatch):
 def signature(body):
     ts=str(int(time.time()))
     return 't='+ts+',v1='+hmac.new(b'test-webhook-secret-not-real',ts.encode()+b'.'+body,hashlib.sha256).hexdigest()
+
+
+@pytest.mark.parametrize('kind',['platform','implementation'])
+def test_unregistered_checkout_never_attaches_a_vat_rate(client,stripe,monkeypatch,kind):
+    monkeypatch.setenv('V7_VAT_REGISTERED','false')
+    monkeypatch.delenv('STRIPE_TAX_RATE_ID')
+    identity(client,'business_owner')
+    stripe.return_value={'id':'cs_no_vat','url':'https://checkout.stripe.com/c/pay/no-vat'}
+    response=client.post('/billing/checkout',json={'kind':kind,'plan_id':'starter'})
+    assert response.status_code==200, response.json
+    stripe.assert_called_once()
+    payload=stripe.call_args.args[2]
+    assert not any('tax_rates' in key for key in payload)
+    assert payload['automatic_tax[enabled]']=='false'
+    assert payload['line_items[0][price_data][unit_amount]']==(9900 if kind=='platform' else 14900)
+    assert client.get('/billing/subscription').json['vat_percent']==0
+
+
+def test_production_subscriptions_reject_test_keys_before_checkout(client,stripe,monkeypatch):
+    monkeypatch.setattr(subscriptions,'_live_payments_required',lambda:True)
+    identity(client,'business_owner')
+    assert not subscriptions.configured()
+    assert client.post('/billing/checkout',json={'kind':'platform','plan_id':'starter'}).status_code==400
+    stripe.assert_not_called()
+
+
+@pytest.mark.parametrize('kind',['subscription','invoice'])
+def test_test_provider_objects_cannot_activate_a_production_company(client,stripe,monkeypatch,kind):
+    monkeypatch.setenv('STRIPE_API_KEY','sk_live_synthetic_test_only')
+    monkeypatch.setattr(subscriptions,'_live_payments_required',lambda:True)
+    stripe.return_value={'livemode':False}
+    with pytest.raises(ValueError,match='stripe_live_payments_required'):
+        (subscriptions.sync_subscription if kind=='subscription' else subscriptions.sync_invoice)('sub_test' if kind=='subscription' else 'in_test')
+    assert subscriptions._contract('EXAMPLE','platform')['status']=='not_started'
 
 
 def test_owner_billing_is_private_and_only_platform_lists_companies(client):

@@ -44,6 +44,8 @@ events and canonical Stripe responses update that ledger. Test-agent requests
 also respect activation. Existing businesses without an onboarding record retain
 their previous operation. An inactive/past-due subscription stops a managed
 business again. Test Stripe payments satisfy these checks in a test deployment.
+Production checkout requires a live Stripe API key, and subscription/invoice
+confirmation rejects canonical test-mode objects before changing activation.
 Ownership, activation and billing use `SECURITY_DB_PATH` with SQLite, or private
 PostgreSQL tables when `V7_STORAGE_BACKEND=postgres`. Preserve the active storage
 with the business data. Never delete it to reset onboarding.

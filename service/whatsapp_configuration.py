@@ -127,7 +127,7 @@ def setup_billing(tenant: str, *, include_costs: bool = False) -> dict:
     result = {"kind": kind, "plan": plan, "allowance": allowance,
             "included": internal or plan is not None,
             "whatsapp_paused": bool(state and state["whatsapp_paused"]),
-            "vat_percent": subscriptions.VAT_PERCENT,
+            "vat_percent": subscriptions.vat_percent(),
             "message_usage_model": message_usage_model,
             "ai_processing_paused": ai_processing_paused,
             "mode": "pause", "notifications": "dashboard"}

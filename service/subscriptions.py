@@ -13,7 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from connectors.billing import BillingClient
 from service import session_store, analytics_db, api_usage
-from service.plan_catalog import VAT_PERCENT, get_plan, public_plans
+from service.plan_catalog import VAT_PERCENT, vat_percent, get_plan, public_plans
 
 PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
 
@@ -76,7 +76,22 @@ def client():
 def configured():
     import os
     stripe = client()
-    return bool(stripe.provider == 'stripe' and stripe.api_key and stripe.webhook_secret and os.getenv('STRIPE_TAX_RATE_ID'))
+    return bool(stripe.provider == 'stripe' and stripe.api_key and stripe.webhook_secret
+                and (not _live_payments_required() or stripe.api_key.startswith(('sk_live_', 'rk_live_')))
+                and (not vat_percent() or os.getenv('STRIPE_TAX_RATE_ID')))
+
+
+def _live_payments_required():
+    from flask import current_app, has_app_context
+    if has_app_context():
+        return current_app.container.settings.ENVIRONMENT == 'production' and not current_app.testing
+    import os
+    return os.getenv('ENVIRONMENT', 'development').strip().lower() == 'production'
+
+
+def _verify_payment_environment(data):
+    if _live_payments_required() and (not client().api_key.startswith(('sk_live_', 'rk_live_')) or data.get('livemode') is not True):
+        raise ValueError('stripe_live_payments_required')
 
 
 def internal_business(tenant):
@@ -188,6 +203,10 @@ def _contract(tenant, kind):
 
 def _tax():
     import os
+    if not vat_percent():
+        if not configured():
+            raise ValueError('stripe_setup_required')
+        return ''
     rate = os.getenv('STRIPE_TAX_RATE_ID', '')
     if not configured() or not re.fullmatch(r'txr_[A-Za-z0-9]+', rate):
         raise ValueError('stripe_setup_required')
@@ -376,7 +395,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         data[f'{meta_prefix}[plan_id]'] = plan['id']
     if one_time:
         data['invoice_creation[enabled]'] = 'true'
-    else:
+    elif tax:
         data['subscription_data[default_tax_rates][0]'] = tax
     amount = contract['amount'] if kind=='api' else plan['monthly_pence' if kind=='platform' else 'setup_pence'] if plan else PRICES[kind]
     items = [(kind, amount, not one_time)]
@@ -386,9 +405,12 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         if plan:
             name = 'V7 '+plan['name']+(' setup (one time)' if one_time else ' monthly subscription')
         data.update({prefix+'[quantity]':1,prefix+'[price_data][currency]':'gbp',prefix+'[price_data][unit_amount]':amount,
-                     prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name,prefix+'[tax_rates][0]':tax})
+                     prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name})
+        if tax:
+            data[prefix+'[tax_rates][0]'] = tax
         if recurring:
             data[prefix+'[price_data][recurring][interval]'] = 'month'
+    data['automatic_tax[enabled]'] = 'false'
     if campaign:
         data['discounts[0][coupon]'] = _discount_coupon(stripe, ref)
         data['metadata[discount_campaign]'] = campaign
@@ -417,6 +439,7 @@ def sync_subscription(subscription_id):
     if not re.fullmatch(r'sub_[A-Za-z0-9]+',subscription_id):
         raise ValueError('invalid_subscription')
     data = client().stripe_request('GET','/v1/subscriptions/'+subscription_id)
+    _verify_payment_environment(data)
     metadata = data.get('metadata') or {}
     tenant = metadata.get('tenant')
     if not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant):
@@ -440,6 +463,7 @@ def sync_invoice(invoice_id):
     if not re.fullmatch(r'in_[A-Za-z0-9]+',invoice_id):
         raise ValueError('invalid_invoice')
     invoice = client().stripe_request('GET','/v1/invoices/'+invoice_id)
+    _verify_payment_environment(invoice)
     if invoice.get('currency') != 'gbp':
         raise ValueError('unsupported_invoice_currency')
     parent = (invoice.get('parent') or {}).get('subscription_details') or {}
@@ -546,7 +570,7 @@ def report(tenant, include_api=True):
         invoices = [dict(row) for row in db.execute('SELECT * FROM billing_invoices WHERE tenant=? ORDER BY issued DESC LIMIT 120',(tenant,))]
         approved = [dict(row) for row in db.execute('SELECT month,amount FROM billing_api_charges WHERE tenant=? ORDER BY month DESC LIMIT 24',(tenant,))]
         totals = dict(db.execute("SELECT COALESCE(SUM(paid),0) paid,COALESCE(SUM(CASE WHEN status='open' THEN remaining ELSE 0 END),0) due FROM billing_invoices WHERE tenant=?",(tenant,)).fetchone())
-        totals['approved_api_due'] = db.execute("SELECT COALESCE(SUM((amount*120+50)/100),0) AS due FROM billing_api_charges a WHERE tenant=? AND NOT EXISTS (SELECT 1 FROM billing_invoices i WHERE i.tenant=a.tenant AND i.kind='api' AND i.month=a.month)",(tenant,)).fetchone()['due']
+        totals['approved_api_due'] = db.execute("SELECT COALESCE(SUM((amount*?+50)/100),0) AS due FROM billing_api_charges a WHERE tenant=? AND NOT EXISTS (SELECT 1 FROM billing_invoices i WHERE i.tenant=a.tenant AND i.kind='api' AND i.month=a.month)",(100+vat_percent(),tenant)).fetchone()['due']
     for invoice in invoices:
         invoice['lines'] = json.loads(invoice['lines'])
     if include_api:
@@ -559,6 +583,6 @@ def report(tenant, include_api=True):
         usage, rate, approved = [], None, []
     from service import plan_usage
     state = plan_state(tenant)
-    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':VAT_PERCENT,'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
+    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
             'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

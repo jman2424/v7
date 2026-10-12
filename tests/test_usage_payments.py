@@ -13,6 +13,7 @@ from tests.test_subscriptions import identity, signature
 
 @pytest.fixture
 def paid_stripe(monkeypatch):
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'true')
     monkeypatch.setenv('BILLING_PROVIDER', 'stripe')
     monkeypatch.setenv('STRIPE_API_KEY', 'test-api-key-not-real')
     monkeypatch.setenv('STRIPE_WEBHOOK_SECRET', 'test-webhook-secret-not-real')
@@ -27,23 +28,26 @@ def paid_stripe(monkeypatch):
             state['creates'] += 1
             metadata = {key: data['metadata['+key+']'] for key in ['tenant','kind','usage_ref','usage_version','pack_id']}
             value = data['line_items[0][price_data][unit_amount]']
+            percentage = 20 if data.get('line_items[0][tax_rates][0]') else 0
+            tax = value * percentage // 100
+            total = value + tax
             common = {'currency':'gbp', 'livemode':False}
             checkout = {**common, 'id':'cs_credit', 'metadata':metadata, 'client_reference_id':metadata['tenant'],
                         'mode':'payment', 'subscription':None, 'status':'complete', 'payment_status':'paid',
-                        'amount_subtotal':value, 'amount_total':value*120//100,
-                        'total_details':{'amount_tax':value*20//100,'amount_discount':0,'amount_shipping':0},
+                        'amount_subtotal':value, 'amount_total':total,
+                        'total_details':{'amount_tax':tax,'amount_discount':0,'amount_shipping':0},
                         'invoice_creation':{'enabled':True}, 'payment_intent':'pi_credit', 'invoice':'in_credit',
                         'url':'https://checkout.stripe.com/c/pay/credit', 'expires_at':int(time.time())+3600}
-            line = {'data':[{'quantity':1, 'currency':'gbp', 'amount_subtotal':value,'amount_total':value*120//100,
-                             'amount_tax':value*20//100,'price':{'currency':'gbp','type':'one_time','recurring':None,
+            line = {'data':[{'quantity':1, 'currency':'gbp', 'amount_subtotal':value,'amount_total':total,
+                             'amount_tax':tax,'price':{'currency':'gbp','type':'one_time','recurring':None,
                                                               'tax_behavior':'exclusive','unit_amount':value}}], 'has_more':False}
-            payment = {**common,'id':'pi_credit','metadata':metadata,'status':'succeeded','amount':value*120//100,
-                       'amount_received':value*120//100,'latest_charge':'ch_credit'}
+            payment = {**common,'id':'pi_credit','metadata':metadata,'status':'succeeded','amount':total,
+                       'amount_received':total,'latest_charge':'ch_credit'}
             charge = {**common,'id':'ch_credit','payment_intent':'pi_credit','paid':True,'captured':True,'status':'succeeded',
-                      'amount':value*120//100,'amount_captured':value*120//100,'amount_refunded':0,'disputed':False,
+                      'amount':total,'amount_captured':total,'amount_refunded':0,'disputed':False,
                       'receipt_url':'https://pay.stripe.com/receipts/test'}
-            invoice = {**common,'id':'in_credit','metadata':metadata,'status':'paid','total':value*120//100,
-                       'total_excluding_tax':value,'amount_paid':value*120//100,'amount_remaining':0,
+            invoice = {**common,'id':'in_credit','metadata':metadata,'status':'paid','total':total,
+                       'total_excluding_tax':value,'amount_paid':total,'amount_remaining':0,
                        'parent':None,'hosted_invoice_url':'https://invoice.stripe.com/i/credit'}
             state['objects'].update({'/v1/checkout/sessions/cs_credit':checkout,
                 '/v1/checkout/sessions/cs_credit/line_items':line, '/v1/payment_intents/pi_credit':payment,
@@ -62,6 +66,34 @@ def create(client, state, **overrides):
     response = client.post('/billing/usage-credit/checkout', json={'pack_id':'gbp_5','request_id':'request_test_123', **overrides})
     assert response.status_code == 200, response.json
     return response.json
+
+
+def test_unregistered_credit_is_face_value_and_verified_without_tax_rate(client, paid_stripe, monkeypatch):
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
+    monkeypatch.delenv('STRIPE_TAX_RATE_ID')
+    create(client, paid_stripe)
+    data = next(row[2] for row in paid_stripe['requests'] if row[0]=='POST')
+    assert not any('tax_rates' in key for key in data)
+    assert data['automatic_tax[enabled]'] == 'false'
+    report = client.get('/billing/usage-credit').json
+    assert report['packs'][0]['total_pence'] == report['packs'][0]['credit_pence'] == 500
+    assert report['vat_percent'] == report['packs'][0]['tax_pence'] == 0
+    assert send(client, paid_stripe, signed=False).status_code == 403
+    assert usage_wallet.report('EXAMPLE')['balance_pence'] == 0
+    assert send(client, paid_stripe).status_code == 200
+    assert send(client, paid_stripe).status_code == 200
+    assert usage_wallet.report('EXAMPLE')['balance_pence'] == 500
+    assert not any('/tax_rates/' in row[1] for row in paid_stripe['requests'])
+
+
+def test_old_taxed_payment_keeps_its_verified_snapshot_after_registration_change(client, paid_stripe, monkeypatch):
+    create(client, paid_stripe)
+    monkeypatch.setenv('V7_VAT_REGISTERED','false')
+    assert send(client, paid_stripe).status_code == 200
+    assert usage_wallet.report('EXAMPLE')['balance_pence'] == 500
+    with subscriptions.connection('EXAMPLE') as db:
+        row=db.execute('SELECT total_pence,vat_percent FROM usage_checkout_requests WHERE tenant=?',('EXAMPLE',)).fetchone()
+    assert row['total_pence']==600 and row['vat_percent']==20
 
 
 def test_production_rejects_test_checkout_before_any_stripe_side_effect(client, paid_stripe, monkeypatch):
