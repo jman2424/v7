@@ -160,6 +160,56 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   var launcherLabel = document.createElement('span');
   launcherLabel.textContent = config.title;
   launcher.appendChild(launcherLabel);
+  launcher.style.touchAction = 'none';
+  launcher.style.userSelect = 'none';
+  launcher.title = 'Drag to move. Alt + arrow keys also move the widget.';
+  launcher.setAttribute('aria-description', launcher.title);
+  var drag = null;
+  var suppressClick = false;
+  var moved = false;
+  function placeWidget(x, y) {{
+    var bounds = root.getBoundingClientRect();
+    var width = document.documentElement.clientWidth;
+    var height = window.innerHeight;
+    root.style.left = Math.max(0, Math.min(x, width - bounds.width)) + 'px';
+    root.style.top = Math.max(0, Math.min(y, height - bounds.height)) + 'px';
+    root.style.right = 'auto';
+    root.style.bottom = 'auto';
+    moved = true;
+    sizeFrame();
+  }}
+  launcher.addEventListener('pointerdown', function (event) {{
+    if (!event.isPrimary || event.button !== 0) return;
+    var bounds = root.getBoundingClientRect();
+    suppressClick = false;
+    drag = {{id:event.pointerId, x:event.clientX, y:event.clientY, left:bounds.left, top:bounds.top, active:false}};
+    launcher.setPointerCapture(event.pointerId);
+  }});
+  launcher.addEventListener('pointermove', function (event) {{
+    if (!drag || event.pointerId !== drag.id) return;
+    var dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    if (!drag.active && Math.hypot(dx, dy) < 6) return;
+    drag.active = true;
+    frame.style.pointerEvents = 'none';
+    placeWidget(drag.left + dx, drag.top + dy);
+  }});
+  function finishDrag(event) {{
+    if (!drag || event.pointerId !== drag.id) return;
+    suppressClick = drag.active;
+    drag = null;
+    frame.style.pointerEvents = '';
+    if (launcher.hasPointerCapture(event.pointerId)) launcher.releasePointerCapture(event.pointerId);
+  }}
+  launcher.addEventListener('pointerup', finishDrag);
+  launcher.addEventListener('pointercancel', finishDrag);
+  launcher.addEventListener('lostpointercapture', finishDrag);
+  launcher.addEventListener('keydown', function (event) {{
+    var directions = {{ArrowLeft:[-24,0],ArrowRight:[24,0],ArrowUp:[0,-24],ArrowDown:[0,24]}};
+    if (!event.altKey || !directions[event.key]) return;
+    event.preventDefault();
+    var bounds = root.getBoundingClientRect(), delta = directions[event.key];
+    placeWidget(bounds.left + delta[0], bounds.top + delta[1]);
+  }});
   frame.id = frameId;
   frame.title = config.title;
   frame.loading = 'lazy';
@@ -172,10 +222,27 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   function sizeFrame() {{
     // clientWidth excludes the scrollbar; leave the root's 20px gutter on both sides.
     frame.style.width = Math.max(0, Math.min(380, document.documentElement.clientWidth - 40)) + 'px';
+    if (moved) {{
+      var bounds = root.getBoundingClientRect();
+      var width = parseFloat(frame.style.width);
+      frame.style.right = 'auto';
+      frame.style.left = Math.max(-bounds.left, Math.min(0, document.documentElement.clientWidth - bounds.left - width)) + 'px';
+      var above = bounds.top - 12;
+      var below = window.innerHeight - bounds.bottom - 12;
+      var useAbove = above >= below;
+      frame.style.bottom = useAbove ? (bounds.height + 12) + 'px' : 'auto';
+      frame.style.top = useAbove ? 'auto' : (bounds.height + 12) + 'px';
+      frame.style.height = Math.max(0, Math.min(620, useAbove ? above : below)) + 'px';
+    }}
   }}
   sizeFrame();
-  window.addEventListener('resize', sizeFrame);
+  window.addEventListener('resize', function () {{
+    if (!moved) {{ sizeFrame(); return; }}
+    var bounds = root.getBoundingClientRect();
+    placeWidget(bounds.left, bounds.top);
+  }});
   launcher.addEventListener('click', function () {{
+    if (suppressClick) {{ suppressClick = false; return; }}
     var open = frame.style.display !== 'none';
     if (open) {{ closeChat(); return; }}
     sizeFrame();
