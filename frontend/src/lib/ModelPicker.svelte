@@ -57,7 +57,8 @@
     {#if !data.can_change_model}<p>{$t('Model changes require business activation and owner permissions.')}</p>{/if}
     <p>{$t('Current AI model: {model}',{model:data.model})}</p>
     <p>{$t('One customer message can require multiple AI calls. Charges include input, conversation context, cached input and output tokens. There is no guaranteed number of messages per top-up.')}</p>
-    <details><summary>{$t('Compare all available models')}</summary><p>{$t('Provider prices per million tokens in USD. Your usage ledger converts charges to GBP using the recorded exchange rate and agreed markup. Model access still depends on the central provider account.')}</p>
+    <p>{$t('Provider prices per million tokens in USD. Your usage ledger converts charges to GBP using the recorded exchange rate and agreed markup. Model access still depends on the central provider account.')}</p>
+    <details><summary>{$t('Compare all available models')}</summary>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this price table on small screens.) -->
       <div class="scroll" role="region" aria-label={$t('AI model prices')} tabindex="0"><table><thead><tr><th>{$t('AI model')}</th><th>{$t('Input tokens')}</th><th>{$t('Cached input')}</th><th>{$t('Output tokens')}</th></tr></thead><tbody>{#each data.model_options as row}<tr class:current={row.id===data.model}><td><bdi>{row.id}</bdi></td><td><bdi>{rate(row.input_usd_per_million)}</bdi></td><td><bdi>{rate(row.cached_usd_per_million)}</bdi></td><td><bdi>{rate(row.output_usd_per_million)}</bdi></td></tr>{/each}</tbody></table></div></details>
     {#if data.can_change_model}
