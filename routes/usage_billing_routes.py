@@ -38,7 +38,7 @@ def credit_get():
     tenant, _ = _tenant()
     page = _page()
     requests = usage_payments.checkout_requests(tenant)
-    return jsonify(tenant=tenant, configured=subscriptions.configured(), currency='GBP',
+    return jsonify(tenant=tenant, configured=usage_payments.payments_ready(), currency='GBP',
                    packs=usage_payments.packs(), vat_percent=subscriptions.VAT_PERCENT,
                    wallet=usage_wallet.report(tenant, offset=(page-1)*20, limit=20), page=page,
                    policy={'mode':'prepaid', 'included_credit_pence':0, 'automatic_recharge':False},

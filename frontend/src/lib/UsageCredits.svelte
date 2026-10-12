@@ -62,6 +62,7 @@
       usage_credit_disabled:'Usage credit is not available for this workspace.',
       internal_business_has_no_customer_usage_charge:'Usage credit is not available for this workspace.',
       stripe_setup_required:'Payments are not connected. Contact your platform administrator.',
+      usage_live_payments_required:'Payments are not connected. Contact your platform administrator.',
       invalid_adjustment:'Enter a valid adjustment amount and reason.',
       adjustment_reason_required:'Enter a valid adjustment amount and reason.',
       adjustment_exceeds_available_credit:'This adjustment exceeds the company’s available usage credit.',
@@ -186,6 +187,7 @@
       {#if canManageBilling}
         <form class="top-up" on:submit|preventDefault={topUp}><label>{$t('Credit pack')}<select bind:value={selectedPack} disabled={busy||!data.configured||!canTopUp}>{#each data.packs as option}<option value={option.id}>{$t('{credit} credit · pay {total} including VAT',{credit:money(option.credit_pence),total:money(option.total_pence)})}</option>{/each}</select></label>{#if pack}<div class="pack-total"><strong>{$t('Pay {total}',{total:money(pack.total_pence)})}</strong><small>{$t('{credit} usage credit + {tax} VAT ({percent}%).',{credit:money(pack.credit_pence),tax:money(pack.tax_pence),percent:count(pack.vat_percent)})}</small></div>{/if}<button disabled={busy||!data.configured||!canTopUp||!pack}>{$t('Top up securely with Stripe')}</button></form>
         {#if !canTopUp}<p>{$t('Activate your subscription before buying AI usage credit.')}</p>{/if}
+        {#if !data.configured}<p class="notice">{$t('Payments are not connected. Contact your platform administrator.')}</p>{/if}
         {#if data.pending_checkouts?.length}<p class="notice">{$t('A credit checkout is pending. Retrying the same pack resumes that purchase; a browser redirect alone does not add credit.')}</p>{/if}
       {:else}<p>{$t('Your business owner can buy usage credit.')}</p>{/if}
       <details><summary>{$t('How AI charges are calculated')}</summary><p>{$t('AI usage charges use the model’s input, cached-input and output rates, recorded usage, the exchange rate and the configured markup. Tokens measure activity; the GBP credit ledger records what was charged.')}</p><p>{$t('Current markup: {percent}%.',{percent:markup(data.wallet.markup_percent)})}</p>{#if data.wallet.exchange_rate}<p>{$t('USD-to-GBP exchange rate: {rate}, dated {date}.',{rate:new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(Number(data.wallet.exchange_rate.rate)),date:fxDate(data.wallet.exchange_rate.date)})}</p>{#if data.wallet.exchange_rate.stale}<p class="notice">{$t('The exchange rate needs updating. Paid AI will not assume missing pricing is free.')}</p>{/if}{:else}<p>{$t('An exchange rate is not yet available. Paid AI will not assume missing pricing is free.')}</p>{/if}<p>{$t('Phone-number rental and Meta/provider messaging charges are separate from this AI credit balance.')}</p></details>

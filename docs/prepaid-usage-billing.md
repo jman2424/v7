@@ -38,6 +38,11 @@ payments cannot credit a balance. Actual payment identity prevents duplicate
 credit across different webhook event IDs. Subscription payments never create
 usage credit.
 
+Production usage-credit checkout and fulfillment require Stripe live mode.
+Test-mode payments remain available in development/tests and cannot fund a
+production wallet. The live dashboard disables credit checkout until live
+Stripe payments are configured; legacy subscription setup remains separate.
+
 Refunds and disputes retrieve canonical cumulative state and reconcile the
 original payment. Repeated or older events cannot restore a refunded payment.
 Credit already spent or reserved is represented as separate debt/review state;

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import secrets
 import time
+import os
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
@@ -27,6 +28,23 @@ _TYPES = {"checkout.session.completed", "checkout.session.async_payment_succeede
 _REVERSALS = {"charge.refunded", "refund.created", "refund.updated", "refund.failed",
               "charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed",
               "charge.dispute.funds_withdrawn", "charge.dispute.funds_reinstated"}
+
+
+def _production():
+    from flask import current_app, has_app_context
+    if has_app_context():
+        return current_app.container.settings.ENVIRONMENT == 'production' and not current_app.testing
+    return os.getenv('ENVIRONMENT', 'development').strip().lower() == 'production'
+
+
+def payments_ready():
+    stripe = subscriptions.client()
+    return subscriptions.configured() and (not _production() or stripe.api_key.startswith(('sk_live_', 'rk_live_')))
+
+
+def _require_payment_mode(livemode):
+    if _production() and not livemode:
+        raise ValueError('usage_live_payments_required')
 
 
 def packs():
@@ -133,6 +151,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
     stripe = subscriptions.client()
     if not subscriptions.configured():
         raise ValueError("stripe_setup_required")
+    _require_payment_mode(stripe.api_key.startswith(('sk_live_', 'rk_live_')))
     # Persist the price and request binding before any Checkout network call.
     # Retrying the same request after a timeout reuses Stripe's idempotency key.
     with subscriptions.connection(tenant) as db:
@@ -285,6 +304,7 @@ def _fulfill(checkout_id, *, event_id="", canonical_dispute=None):
     checkout = stripe.stripe_request("GET", "/v1/checkout/sessions/" + checkout_id)
     row = _metadata(checkout)
     _common(checkout, row, "cs", checkout_id)
+    _require_payment_mode(bool(row['livemode']))
     if row["checkout"] and row["checkout"] != checkout_id:
         raise ValueError("usage_checkout_binding_mismatch")
     if checkout.get("mode") != "payment" or checkout.get("subscription") or checkout.get("client_reference_id") != row["tenant"]:

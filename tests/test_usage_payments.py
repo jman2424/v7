@@ -7,6 +7,7 @@ import pytest
 
 from connectors.billing import BillingClient
 from service import subscriptions, usage_wallet
+from service import usage_payments
 from tests.test_subscriptions import identity, signature
 
 
@@ -61,6 +62,32 @@ def create(client, state, **overrides):
     response = client.post('/billing/usage-credit/checkout', json={'pack_id':'gbp_5','request_id':'request_test_123', **overrides})
     assert response.status_code == 200, response.json
     return response.json
+
+
+def test_production_rejects_test_checkout_before_any_stripe_side_effect(client, paid_stripe, monkeypatch):
+    identity(client, 'business_owner')
+    monkeypatch.setattr(usage_payments, '_production', lambda: True)
+    response = client.post('/billing/usage-credit/checkout', json={
+        'pack_id':'gbp_5', 'request_id':'production_test_123'})
+    assert response.status_code == 400
+    assert response.json['error'] == 'usage_live_payments_required'
+    assert paid_stripe['requests'] == []
+    assert not client.get('/billing/usage-credit').json['configured']
+    assert usage_wallet.report('EXAMPLE')['balance_pence'] == 0
+
+
+def test_test_payment_created_before_production_cannot_credit_production_wallet(client, paid_stripe, monkeypatch):
+    create(client, paid_stripe)
+    monkeypatch.setattr(usage_payments, '_production', lambda: True)
+    assert send(client, paid_stripe).status_code == 503
+    assert usage_wallet.report('EXAMPLE')['balance_pence'] == 0
+
+
+def test_production_usage_checkout_readiness_requires_live_credentials(client, paid_stripe, monkeypatch):
+    monkeypatch.setattr(usage_payments, '_production', lambda: True)
+    assert not usage_payments.payments_ready()
+    monkeypatch.setenv('STRIPE_API_KEY', 'sk_live_synthetic_not_a_real_key')
+    assert usage_payments.payments_ready()
 
 
 def send(client, state, kind='checkout.session.completed', obj=None, signed=True):
