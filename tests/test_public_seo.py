@@ -120,7 +120,7 @@ def test_home_workspace_links_open_business_owner_console(seo_client, tmp_path):
 
 
 def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_client):
-    from service.plan_catalog import public_plans
+    from service.plan_catalog import VAT_PERCENT, public_plans
 
     response = seo_client.get("/", base_url="https://untrusted.example")
     assert response.status_code == 200
@@ -150,17 +150,28 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         assert "referenceQuantity" not in specification
         assert f"£{plan['monthly_pence'] // 100} / month" in visible
         assert f"£{plan['setup_pence'] // 100} one-time setup" in visible
+        monthly_with_vat = Decimal(plan['monthly_pence']) * (100 + VAT_PERCENT) / 10000
+        setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
+        assert f"£{monthly_with_vat:.2f} / month including {VAT_PERCENT}% VAT, where applicable" in visible
+        assert f"£{setup_with_vat:.2f} setup including {VAT_PERCENT}% VAT, where applicable" in visible
         assert f"{plan['website_conversations']:,} website conversations" in visible
-        assert f"{plan['whatsapp_messages']:,} WhatsApp messages" in visible
-        assert f"£{plan['ai_budget_pence'] // 100} AI API-cost budget" in visible
+        assert f"{plan['whatsapp_messages']:,} WhatsApp messages" not in visible
+        assert "AI processing credit purchased separately" in visible
         assert f"one-time setup £{plan['setup_pence'] // 100} before VAT" in offer["description"]
-        assert "without automatic extra charges" in offer["description"]
+        assert f"Monthly price including {VAT_PERCENT}% VAT £{monthly_with_vat:.2f}" in offer["description"]
+        assert f"setup including VAT £{setup_with_vat:.2f}" in offer["description"]
+        assert "Phone numbers and separate WhatsApp provider charges are not included" in offer["description"]
+        assert "AI processing credit is purchased separately and shared across website and WhatsApp" in offer["description"]
+        assert "No automatic recharge is enabled" in offer["description"]
         assert offer["url"] == ORIGIN + "/#pricing"
         assert offer["seller"]["@id"] == ORIGIN + "/#organization"
     assert "Exactly what your business gets" in visible
     assert "No automatic extra charges" in visible
     assert "calendar month in UTC" in visible
-    assert "incoming customer messages" in visible
+    assert "Message usage is measured by AI processing cost in GBP" in visible
+    assert "does not include Meta, Twilio or phone number charges" in visible
+    assert "WhatsApp phone numbers are not included" in visible
+    assert "WhatsApp phone number Not included Not included Not included" in visible
     assert "Staff limits cover active staff accounts in addition to the business owner" in visible
     assert "OPTIONAL WHATSAPP ADD-ON" not in visible
     description = product["description"]
@@ -182,13 +193,22 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
 
 
 def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_client):
-    from service.plan_catalog import public_plans
+    from service.plan_catalog import VAT_PERCENT, public_plans
 
     response = seo_client.get("/about")
     assert response.status_code == 200
     for plan in public_plans():
-        assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month with £{plan['setup_pence'] // 100} one-time setup" in response.text
-    assert "There are no automatic extra charges" in response.text
+        assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT" in response.text
+        assert f"with £{plan['setup_pence'] // 100} one-time setup before VAT" in response.text
+        monthly_with_vat = Decimal(plan['monthly_pence']) * (100 + VAT_PERCENT) / 10000
+        setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
+        assert f"£{monthly_with_vat:.2f}/month including {VAT_PERCENT}% VAT, where applicable" in response.text
+        assert f"£{setup_with_vat:.2f} including {VAT_PERCENT}% VAT, where applicable" in response.text
+    assert "No AI credit is included in the monthly subscription" in response.text
+    assert "no automatic recharges or extra usage invoices" in response.text
+    assert "Phone numbers are not included" in response.text
+    assert "are not covered by prepaid AI credit" in response.text
+    assert "WhatsApp usage is measured by AI processing cost rather than a fixed number of messages" in response.text
     assert "optional WhatsApp add-on is a separate £200" not in response.text
 
 

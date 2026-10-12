@@ -78,6 +78,32 @@ def test_offline_inventory_preserves_sources_and_redacts_sessions(source):
     assert before == {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
 
 
+def test_offline_inventory_preserves_wallet_credit_ledger_and_checkout_binding(source,monkeypatch):
+    from service import subscriptions, usage_currency, usage_payments, usage_wallet
+    monkeypatch.setenv('SECURITY_DB_PATH',str(source/'logs/security.db'))
+    monkeypatch.setenv('V7_USAGE_MARKUP_PERCENT','0')
+    monkeypatch.setattr(usage_currency,'gbp_rate',lambda:{'rate':1,'stale':False,'date':'2026-10-12'})
+    usage_wallet.apply_payment('ALPHA','snapshot-order','pi_snapshot',100,120)
+    reservation = usage_wallet.reserve_usage('ALPHA',1_000_000)
+    usage_wallet.settle_usage(reservation,100)
+    with subscriptions.connection('ALPHA') as db:
+        usage_payments._schema(db)
+        db.execute("INSERT INTO usage_checkout_requests (tenant,reference,request_id,pack_id,credit_pence,"
+                   "subtotal_pence,tax_pence,total_pence,vat_percent,tax_rate,livemode,created) "
+                   "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                   ('ALPHA','snapshot-order','snapshot-request','credit-100',100,100,20,120,20,'txr_snapshot',0,1))
+    before = {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
+    bundle = prepare(source)
+    assert bundle.counts()['usage_wallets']==1
+    assert bundle.counts()['usage_wallet_payments']==1
+    assert bundle.counts()['usage_wallet_reservations']==1
+    assert bundle.counts()['usage_wallet_entries']==3
+    assert bundle.counts()['usage_checkout_requests']==1
+    assert bundle.rows['usage_wallet_payments'][0]['payment_id']=='pi_snapshot'
+    assert bundle.rows['usage_checkout_requests'][0]['total_pence']==120
+    assert before == {str(path):path.read_bytes() for path in source.rglob('*') if path.is_file()}
+
+
 def test_preparation_captures_frozen_wal_without_changing_database_or_shm(source):
     database = source / 'logs/analytics.db'
     with closing(sqlite3.connect(database)) as writer:

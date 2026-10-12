@@ -109,6 +109,7 @@ function subscriptionHarness() {
   const requests = [];
   const redirects = [];
   const context = vm.createContext({ AbortController, setTimeout, clearTimeout,
+    subscriptionError() { return 'Billing could not be updated. Refresh payments and try again, or contact your platform administrator.'; },
     window: { location: { assign(url) { redirects.push(url); } } },
     read(path, body, signal) {
       const pending = deferred();

@@ -13,42 +13,54 @@ checkout reference is bound to its plan in `billing_plan_choices`. Verified
 Stripe reads must match that binding. A return URL never activates access.
 Activation requires a paid monthly invoice, an active subscription and matching
 paid setup. Existing discounts and the configured exclusive 20% VAT rate remain
-in use; VAT is shown before payment.
+in use. The shared catalogue's VAT rate is shown beneath public and dashboard
+prices, including the one-time setup total. Dashboard totals apply a saved
+discount before VAT; recorded invoices remain the authority for amounts paid.
 
 Changing an active subscription or a paid setup plan needs administrator review.
 Before changing an unpaid selection, cancel its pending checkout through the
 dashboard. Completed payments cannot be cancelled this way. Historical invoice
 callbacks remain in the ledger and cannot grant a retired plan's entitlements.
 
-WhatsApp is included in new plans, with a per-company enable/pause control.
+WhatsApp software access is included in new plans, with a per-company enable/pause control.
+Phone numbers are not supplied or included. Number rental/purchase and provider
+messaging fees are separate from the V7 subscription, setup and prepaid AI credit.
 Provider configuration and existing recipient/signature/origin checks still
 apply. Legacy WhatsApp subscriptions are not silently cancelled or repriced.
 The previously approved internal website workspace retains its existing exemption.
 
-## Included usage and alerts
+## Website capacity and prepaid AI
 
 Allowances reset by UTC calendar month. One website conversation is a distinct
 signed chat session seen during that month, counted once. Existing counted
-sessions can continue when the new-session limit is reached. WhatsApp counts
-authenticated inbound customer messages, once per provider message ID. Duplicate
-webhook delivery does not consume another allowance.
+sessions can continue when the new-session limit is reached. Website capacity is
+separate from prepaid AI processing. All plans use `ai_credit_model=prepaid` and
+include **no AI credit**. Businesses manually purchase £5, £20 or £50 credit
+through Stripe; current checkout totals are £6, £24 or £60 including 20% VAT.
+VAT is not credited to the balance or charged again when credit is consumed.
+Purchased credit carries forward. There is no automatic recharge or overage.
+Current plans retain `message_usage_model=ai_cost` for API compatibility.
+WhatsApp counts authenticated inbound messages once per provider message ID for
+activity only. Its former message-count cap is not enforced in this mode.
+Historical numeric API fields remain for compatibility and carry
+`enforced=false` metadata. No usage data or previous invoices are erased.
 
-Paid AI requests reserve a conservative estimated GBP ceiling before calling the
-provider, using existing known model rates and a fresh reference exchange rate.
-Known provider spend settles the reservation. Missing cost metadata, unavailable
-currency conversion or insufficient allowance pauses paid requests; saved
-business knowledge remains available. Unknown/crashed calls retain their
-reservation. There are no automatic extra charges or new-plan API charge approvals.
+Every central paid AI call uses the prepaid wallet, including businesses with
+legacy subscription contracts. Existing previously approved invoices remain
+payable; new monthly API charge approvals are disabled to avoid double billing.
+See [Prepaid usage billing](prepaid-usage-billing.md) for the financial ledger,
+verified payments, refunds/disputes, pricing and reconciliation procedure.
 
 Pauses are durable and appear as in-app alerts to owners and platform admins in
-Subscription and the company overview. They are not email or push notifications.
+Subscription, the company overview and the workspace warning. They are in-app
+notifications; no email or push delivery is claimed.
 Review uncertain calls before restoring paid usage; do not assume unknown spend
 is zero or erase accounting reservations to force a request through.
 
-Paid transcription for new plans currently requires server-verified PCM WAV of
+Customer-paid transcription currently requires server-verified PCM WAV of
 up to 60 seconds with the duration-priced `gpt-transcribe` model. Compressed
 recordings whose cost cannot be bounded return a send-text fallback. Existing
-legacy/internal transcription and browser-native dictation keep their behavior.
+approved internal transcription and browser-native dictation remain available.
 
 Active staff consumes seats; owners and disabled staff do not. Both saved branch
 records and core location/service-area records consume location slots, including
@@ -59,9 +71,11 @@ Analytics/API service labels do not change existing permission scopes.
 ## Durable storage and validation
 
 Apply `20261010015021_tiered_subscription_plans.sql` before deploying the new
-runtime. All five tables use forced tenant RLS in `v7_private` and grant only the
+runtime, followed by `20261011042205_ai_usage_wallet.sql` for prepaid accounting.
+All tables use forced tenant RLS in `v7_private` and grant only the
 restricted backend role access. Startup checks reject a missing migration.
-Backup preparation includes plan state, immutable choices, counters and reservations.
+Backup preparation includes plan state, immutable choices, counters, wallet
+balances, financial entries, checkout snapshots and reservations.
 
 Target checks: subscription and tiered billing tests, resource/usage cap tests,
 PostgreSQL plan runtime tests, public SEO tests, and frontend check/build.

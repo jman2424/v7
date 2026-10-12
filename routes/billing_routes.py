@@ -169,6 +169,9 @@ def stripe_webhook():
         if not isinstance(event,dict) or not isinstance(event.get('data'),dict) or not isinstance(event['data'].get('object'),dict):
             raise ValueError('invalid_event')
         obj = event['data']['object']
+        from service.usage_payments import handle_usage_event
+        if handle_usage_event(event):
+            return jsonify(ok=True)
         if str(event.get('type','')).startswith('customer.subscription.'):
             subscriptions.sync_subscription(obj['id'])
         elif event.get('type') in {'invoice.paid','invoice.payment_failed','invoice.finalized','invoice.updated','invoice.voided','invoice.marked_uncollectible'}:

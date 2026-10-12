@@ -1,13 +1,21 @@
 """Public brand facts; no account, tenant or provider-login information."""
 from service.public_site_content import Solution
-from service.plan_catalog import public_plans
+from service.plan_catalog import VAT_PERCENT, public_plans
 
 
 def _plan_prices() -> str:
     return "; ".join(
-        f"{plan['name']} £{plan['monthly_pence'] // 100}/month with £{plan['setup_pence'] // 100} one-time setup"
+        f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT "
+        f"(£{plan['monthly_pence'] * (100 + VAT_PERCENT) / 10000:.2f}/month including {VAT_PERCENT}% VAT, where applicable), "
+        f"with £{plan['setup_pence'] // 100} one-time setup before VAT "
+        f"(£{plan['setup_pence'] * (100 + VAT_PERCENT) / 10000:.2f} including {VAT_PERCENT}% VAT, where applicable)"
         for plan in public_plans()
     )
+
+
+def _prepaid_processing() -> str:
+    return "AI processing credit is purchased separately: £5, £20 or £50 before VAT (£6, £24 or £60 including 20% VAT, where applicable). No AI credit is included in the monthly subscription."
+
 
 
 SETUP_GUIDE: Solution = {
@@ -36,7 +44,7 @@ SETUP_GUIDE: Solution = {
         ]},
         {"heading": "Test before embedding on your website", "paragraphs": [
             "Use the widget section to test a known fact, missing information, an out-of-scope request and a request needing your team. Compare answers with your source material. Check the welcome message, brand colours, mobile layout and contact links.",
-            "Configure the approved website origin and use the workspace's generated embed instructions. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp is included in the current monthly plans and needs its own provider setup; provider charges are separate.",
+            "Configure the approved website origin and use the workspace's generated embed instructions. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp agent software is included in the current monthly plans and needs its own provider setup. Phone numbers are not included; number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit.",
         ]},
         {"heading": "Review actual conversations after launch", "paragraphs": [
             "Review available conversation and enquiry records in your authorised workspace. Look for unanswered questions, unclear next steps and outdated facts, then update the relevant business information and retest.",
@@ -66,11 +74,11 @@ ABOUT: Solution = {
         ]},
         {"heading": "How does it fit different business models?", "paragraphs": [
             "A retailer can configure product information and delivery policies. A service business can explain its services and collect enquiries. A multi-branch company can supply branch details and opening hours. Each business supplies its own facts and chooses customer actions that its team can fulfil.",
-            "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp is included in the current monthly plans and needs a configured Meta or Twilio provider connection; provider charges are separate.",
+            "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp agent software is included in the current monthly plans and needs a configured Meta or Twilio provider connection. Phone numbers are not included; number rental and WhatsApp provider charges are separate.",
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
-            _plan_prices() + ". Prices are in GBP before VAT, where applicable. Every plan includes a website agent, a WhatsApp agent and monthly website conversation, WhatsApp message and AI API-cost allowances. Setup is paid separately and does not repeat with the monthly subscription.",
-            "At the monthly channel limit, new website conversations or incoming WhatsApp messages pause, and the administrator sees an alert. Existing website sessions can continue. Paid AI calls pause when the remaining budget cannot safely cover a request or its cost is unknown; saved business knowledge remains available. There are no automatic extra charges. WhatsApp requires a configured provider connection; provider charges, if any, are separate. Review the homepage comparison and checkout totals before purchasing.",
+            _plan_prices() + ". Prices are in GBP, with VAT-inclusive totals also displayed. Every plan includes a website agent, a WhatsApp agent, a monthly website conversation allowance. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. Setup is paid separately and does not repeat with the monthly subscription.",
+            "At the website conversation limit, new website conversations pause and the administrator sees an alert. Existing website sessions can continue. Paid AI calls across website and WhatsApp pause when the available prepaid AI credit cannot safely cover a request or its cost is unknown; saved business knowledge remains available. Owners choose one-time prepaid top-ups; there are no automatic recharges or extra usage invoices. WhatsApp requires a configured provider connection. Phone numbers are not included: number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit. Review the homepage comparison and final checkout totals before purchasing.",
         ]},
         {"heading": "What should a business test before launch?", "paragraphs": [
             "Try a known product or service question, a policy question, an enquiry needing your team, a request outside your business knowledge, and a question with missing details. Check that the answers match your source information and that the next step is something your business can actually provide.",

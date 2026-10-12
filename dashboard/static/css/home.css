@@ -156,6 +156,8 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 #pricing .plan-price { color: var(--charcoal); font-size: 42px; font-weight: 650; letter-spacing: -.04em; margin-top: 20px; line-height: 1.2; }
 #pricing .plan-price small { color: var(--muted); font-size: 13px; letter-spacing: 0; font-weight: 500; }
 #pricing .plan-setup { margin-top: 8px; font-size: 13px; }
+#pricing .feature .plan-tax { margin-top: 5px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+#pricing .feature .plan-exclusion { margin-top: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .plan-highlights { display: grid; gap: 10px; padding: 0; margin: 24px 0 0; list-style: none; font-size: 13px; color: var(--charcoal); }
 .plan-highlights li::before { content: '✓'; color: var(--accent); margin-right: 8px; }
 #pricing .pricing-plans .feature a { margin-top: 28px; }

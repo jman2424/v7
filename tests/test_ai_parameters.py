@@ -1,11 +1,12 @@
 """Tenant controls and provider adapters never relax grounding or account boundaries."""
 import json
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
-from service import api_usage, model_settings, openai_completion
+from service import api_usage, model_settings, openai_completion, usage_currency, usage_wallet
 from tests.conftest import set_test_identity
 from tests.test_business_access import owner
 
@@ -78,7 +79,10 @@ def _response(model='gpt-6-astra'):
 
 
 @pytest.mark.parametrize('model', ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol'])
-def test_selected_reasoning_models_use_responses_and_record_actual_usage(client, model):
+def test_selected_reasoning_models_use_responses_and_record_actual_usage(client, model, monkeypatch):
+    monkeypatch.setattr(usage_currency, "gbp_rate", lambda: {
+        "rate": 0.8, "date": date.today().isoformat(), "stale": False})
+    usage_wallet.adjust("EXAMPLE", 500, "Test prepaid funding", "test-admin", "fund-example")
     storage = client.application.container.storage
     storage.write_json('EXAMPLE', model_settings.FILENAME, {'model': model,
         'parameters': {'max_output_tokens': 2048, 'reasoning_effort': 'low', 'timeout_seconds': 19}})

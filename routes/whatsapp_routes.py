@@ -24,6 +24,7 @@ _UNUSABLE_AUDIO = {
     "audio_too_large", "empty_audio", "unsupported_audio_type", "unsupported_audio",
     "invalid_audio", "no_speech_detected", "transcript_too_long",
     "audio_duration_unverified", "ai_allowance_paused",
+    "audio_decoder_unavailable", "audio_decode_failed", "audio_decode_timeout",
 }
 _SAFE_MEDIA_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z", re.ASCII)
 

@@ -5,6 +5,7 @@
   import PlatformOverview from './PlatformOverview.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
   import Subscription from './Subscription.svelte';
+  import {subscriptionCreditAlerts} from './subscription-format';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
   import WidgetDesigner from './WidgetDesigner.svelte';
@@ -373,7 +374,9 @@
   let accountViewSubscriptions=false;
   let selectedViewCosts=false;
   let selectedViewSubscriptions=false;
-  let activation:{active:boolean;status:string}|null=null;
+  let activation:{active:boolean;status:string;usage_credit_alerts?:{code:string;message:string}[]}|null=null;
+  $: usageCreditAlerts=subscriptionCreditAlerts(activation?.usage_credit_alerts||[]);
+  $: usageCreditWarning=(code:string)=>$t(code==='low_credit'?'Your available AI credit is low. Top up to keep paid AI responses available.':code==='financial_review_required'?'Paid AI is paused pending a credit or usage review. Contact your platform administrator. Saved business knowledge remains available.':code==='pricing_unavailable'?'Paid AI is paused because model pricing or the exchange rate cannot be verified safely. Contact your platform administrator.':'Paid AI is paused until sufficient usage credit is available. Saved business knowledge remains available.');
   $: canManageAccounts = hasAccountManagementAccess() && Boolean(user?.permissions?.includes('users.read'));
   $: if (user) accountRole = isPlatform ? 'business_owner' : 'business_staff';
   $: if (!loading && !signingIn && user && section !== requestedWorkspaceSection) void loadWorkspaceSection(section);
@@ -1673,6 +1676,9 @@
 
       <fieldset class="workspace-content" disabled={workspaceBusy || Boolean(workspaceError)} aria-busy={workspaceBusy}>
       <legend class="sr-only">{$t(pageTitle)}</legend>
+      {#each usageCreditAlerts as alert}
+        <section class="activation-notice" aria-label={$t('AI usage credit')}><div><strong>{$t('AI usage credit')}</strong><p role="alert">{usageCreditWarning(alert.code)}</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>{$t('View usage credit and top up')} <span aria-hidden="true">↗</span></a>{/if}</section>
+      {/each}
       {#if activation && !activation.active}
         <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions <span aria-hidden="true">↗</span></a>{/if}</section>
       {/if}
@@ -1692,7 +1698,7 @@
       {/if}
 
       {#if section === 'subscription'}
-        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)}/>{/key}
+        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)} on:creditstatus={(event)=>{if(activation&&event.detail.tenant===tenant)activation={...activation,usage_credit_alerts:event.detail.alerts};}}/>{/key}
         {:else}<section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view subscriptions.</p></div></section>{/if}
       {/if}
 

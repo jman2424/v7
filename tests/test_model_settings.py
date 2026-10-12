@@ -1,7 +1,8 @@
 """Model changes require two confirmations and stay tenant-scoped at execution."""
 from unittest.mock import Mock
+from datetime import date
 import pytest
-from service import model_settings, api_usage
+from service import model_settings, api_usage, usage_wallet, usage_currency
 from tests.test_platform_security import platform as platform_fixture, login
 
 platform = platform_fixture
@@ -11,8 +12,12 @@ def request(client, method, path, csrf, **data):
     return client.open('/admin/api/ai-model'+path,method=method,json=data,headers={'X-CSRF-Token':csrf})
 
 
-def test_model_change_requires_both_confirmations_and_applies_to_calls(platform):
+def test_model_change_requires_both_confirmations_and_applies_to_calls(platform, monkeypatch):
+    monkeypatch.setattr(usage_currency, "gbp_rate", lambda: {
+        "rate": 0.8, "date": date.today().isoformat(), "stale": False})
     app=platform[0]
+    for tenant in ("ALPHA", "BETA"):
+        usage_wallet.adjust(tenant, 500, "Test prepaid funding", "test-admin", "fund-" + tenant)
     client=app.test_client()
     csrf=login(client)
     assert request(client,'PUT','',csrf,token='unreviewed',confirm_and_save=True).status_code==409
@@ -90,6 +95,10 @@ def test_model_selection_preserves_tenant_filename_case(tmp_path,monkeypatch):
     from retrieval.storage import Storage
     from service import analytics_db
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SECURITY_DB_PATH", str(tmp_path / "security.db"))
+    monkeypatch.setattr(usage_currency, "gbp_rate", lambda: {
+        "rate": 0.8, "date": date.today().isoformat(), "stale": False})
+    usage_wallet.adjust("MixedCase", 500, "Test prepaid funding", "test-admin", "fund-mixed")
     monkeypatch.setattr(analytics_db,'DB_PATH',str(tmp_path/'usage.db'))
     storage=Storage('MixedCase')
     storage.tenant_dir('MixedCase').mkdir(parents=True)

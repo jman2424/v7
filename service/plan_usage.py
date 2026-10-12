@@ -17,6 +17,13 @@ _RESOURCES = {
 _NANO_PER_PENNY = 10_000_000
 
 
+def _resource_enforced(plan: dict, resource: str) -> bool:
+    # New money-based plans count inbound WhatsApp messages for operations,
+    # while paid AI calls across both channels use prepaid GBP credit.
+    # The historical numeric field remains in the API for compatibility.
+    return not (resource == "whatsapp_messages" and plan.get("message_usage_model") == "ai_cost")
+
+
 class AllowancePaused(RuntimeError):
     """Provider callers use their existing saved-knowledge fallback."""
 
@@ -94,7 +101,7 @@ def use_resource(tenant: str, resource: str, identity: str) -> bool:
         if db.execute("SELECT 1 FROM billing_plan_events WHERE tenant=? AND month=? AND resource=? AND event_hash=?",
                       (tenant, month, resource, digest)).fetchone():
             return True
-        if row[field] >= limit:
+        if _resource_enforced(plan, resource) and row[field] >= limit:
             db.execute(f"UPDATE billing_plan_usage SET {pause}=1 WHERE tenant=? AND month=?", (tenant, month))
             return False
         db.execute("INSERT INTO billing_plan_events (tenant,month,resource,event_hash) VALUES (?,?,?,?)",
@@ -189,13 +196,25 @@ def report(tenant: str, include_costs=True) -> dict | None:
     result = {"month": month, "mode": "pause", "alerts": []}
     for resource, (field, pause) in _RESOURCES.items():
         used, limit = row.get(field, 0), plan[field]
-        paused = used >= limit
+        enforced = _resource_enforced(plan, resource)
+        paused = enforced and used >= limit
         result[resource] = {"used": used, "limit": limit, "paused": paused}
+        if not enforced:
+            result[resource].update(enforced=False, measured_by="ai_cost")
         if paused:
             message = ("New website conversations are paused until the next monthly allowance. Existing conversations can continue."
                        if resource == "website_conversations" else
                        "WhatsApp's monthly inbound-message allowance is exhausted. New messages are paused.")
             result["alerts"].append({"resource": resource, "message": message})
+    if plan.get("ai_credit_model") == "prepaid":
+        from service import usage_wallet
+        credit = usage_wallet.report(tenant, include_costs=include_costs, limit=1)
+        result["usage_credit"] = credit
+        # Keep the historic field explicit and inactive for older API clients.
+        result["ai_budget"] = {"limit_pence": 0, "paused": False, "active": False}
+        for alert in credit["alerts"]:
+            result["alerts"].append({"resource": "usage_credit", **alert})
+        return result
     used, reserved = row.get("ai_used_nano_gbp", 0), row.get("ai_reserved_nano_gbp", 0)
     paused = bool(row.get("ai_paused") or row.get("ai_unknown")) or used + reserved >= plan["ai_budget_pence"] * _NANO_PER_PENNY
     result["ai_budget"] = {"limit_pence": plan["ai_budget_pence"], "paused": paused}

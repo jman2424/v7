@@ -14,6 +14,8 @@ _TABLES = {
     'mcp_rate', 'sales_action_requests', 'sales_action_attempts', 'totp_steps',
     'billing_plan_state', 'billing_plan_choices', 'billing_plan_usage',
     'billing_plan_events', 'billing_plan_reservations',
+    'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
+    'usage_wallet_entries', 'usage_checkout_requests',
 }
 
 
@@ -43,6 +45,12 @@ def validate_postgres_storage(default_tenant):
         ).fetchall()
         if exposed:
             raise RuntimeError('Private PostgreSQL storage must not be exposed to Data API roles')
+        ledger_mutable = db.execute(
+            "SELECT has_table_privilege(current_user,'v7_private.usage_wallet_entries','UPDATE') "
+            "OR has_table_privilege(current_user,'v7_private.usage_wallet_entries','DELETE')",
+        ).fetchone()
+        if not ledger_mutable or ledger_mutable[0]:
+            raise RuntimeError('PostgreSQL usage ledger must be immutable to the runtime role')
         auth_keys = dict(db.execute(
             "SELECT c.relname,pg_get_constraintdef(k.oid) FROM pg_constraint k "
             "JOIN pg_class c ON c.oid=k.conrelid "

@@ -173,12 +173,26 @@ def test_verified_invoice_is_idempotent_and_totals_do_not_double_count(client,st
     assert client.get('/billing/subscription').json['totals']=={'paid':72000,'due':0,'approved_api_due':0}
 
 
-def test_api_charge_requires_closed_month_valid_amount_and_one_approval(client):
+def test_new_api_charge_approvals_cannot_duplicate_prepaid_processing_charges(client):
     identity(client)
     assert client.post('/billing/api-charge',json={'month':'2099-01','amount_pence':100}).status_code==400
     assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':True}).status_code==400
-    assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).status_code==201
-    assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).status_code==400
+    response = client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100})
+    assert response.status_code==400
+    assert response.json['error']=='prepaid_usage_requires_topup'
+
+
+def test_previously_approved_historic_api_charge_remains_payable(client,stripe):
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute('INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?)',
+                   ('EXAMPLE','2025-01',100,'historic_api_ref'))
+    stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20},
+                        {'id':'cs_historic','url':'https://checkout.stripe.com/c/pay/historic'}]
+    identity(client,'business_owner')
+    response=client.post('/billing/checkout',json={'kind':'api','month':'2025-01'})
+    assert response.status_code==200, response.json
+    assert stripe.call_args.args[2]['mode']=='payment'
+    assert stripe.call_args.args[2]['line_items[0][price_data][unit_amount]']==100
 
 
 def test_whatsapp_deactivation_stops_agent_before_it_runs(client,stripe,monkeypatch):

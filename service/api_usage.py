@@ -8,6 +8,7 @@ from contextlib import contextmanager, closing
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from openai import APIStatusError
 
 from service import analytics_db
 from service import session_store
@@ -57,6 +58,13 @@ _LONG_CONTEXT_MODELS = set(_CACHE_WRITE_RATES)
 
 @contextmanager
 def usage_context(tenant: str, channel: str, mode: str = "unknown"):
+    # Callers supply the server-authorized tenant: management assignment,
+    # signed widget session, or verified channel recipient. Never accept a
+    # provider billing exemption or tenant identity from conversation text.
+    if (not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant)
+            or not isinstance(channel, str) or not channel or len(channel) > 64):
+        from service.plan_usage import AllowancePaused
+        raise AllowancePaused("invalid_usage_context")
     mode = mode.lower() if isinstance(mode, str) else "unknown"
     token = _context.set((tenant, channel, mode if mode in {"v5", "v6", "v7"} else "unknown"))
     try:
@@ -94,6 +102,27 @@ def _count(value):
     return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
 
 
+def rejected_before_inference(error) -> bool:
+    """Only explicit provider authentication/quota/model rejections prove no work.
+
+    Generic failures, timeouts and server errors remain financially uncertain.
+    Error text is deliberately neither inspected nor stored.
+    """
+    if not isinstance(error, APIStatusError):
+        return False
+    body = _field(error, "body")
+    body = _field(body, "error", body)
+    code = _field(body, "code") or _field(body, "type")
+    return (code == "invalid_api_key" and error.status_code == 401
+            or code == "insufficient_quota" and error.status_code == 429
+            or code == "model_not_found" and error.status_code in {403, 404})
+
+
+def rejected_usage(model):
+    return {"model": model, "service_tier": "default", "usage": {"prompt_tokens": 0,
+        "completion_tokens": 0, "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}}}
+
+
 _USAGE_COLUMNS = (
     "ts_utc", "tenant", "channel", "mode", "purpose", "requested_model", "model", "status",
     "input_tokens", "cached_tokens", "cache_write_tokens", "output_tokens",
@@ -117,11 +146,23 @@ def _write_usage(values: tuple) -> None:
         )
 
 
-def _record(response, requested_model: str, purpose: str, status: str) -> int | None:
-    context = _context.get()
-    if context is None:
-        logger.error("API usage not recorded: tenant context missing")
-        return
+def rate_metadata(pricing, model):
+    rates = pricing.rates.get(model)
+    if rates is None:
+        return {}
+    long_context = model in pricing.long_context_models
+    return {"input": rates[0], "cached": rates[1], "output": rates[2],
+            "cache_write": pricing.cache_writes.get(model, rates[0]),
+            "long_context_threshold": 272000 if long_context else 0,
+            "long_input_multiplier": 2 if long_context else 1,
+            "long_output_numerator": 3 if long_context else 1,
+            "long_output_denominator": 2 if long_context else 1}
+
+
+def completion_usage(response, requested_model: str, purpose: str, status: str, *, pricing=None) -> dict:
+    """Compute financial metadata independently of the analytics write."""
+    from service.usage_pricing import snapshot
+    pricing = pricing or snapshot()
     usage = _field(response, "usage")
     input_tokens = _count(_field(usage, "prompt_tokens"))
     output_tokens = _count(_field(usage, "completion_tokens"))
@@ -131,33 +172,46 @@ def _record(response, requested_model: str, purpose: str, status: str) -> int | 
     model = _field(response, "model")
     model = model if isinstance(model, str) and model else "unknown"
     cost = None
-    rates = RATES.get(model)
+    rates = pricing.rates.get(model)
     tier = _field(response, "service_tier")
     if (rates and tier in (None, "default") and input_tokens is not None
             and output_tokens is not None and cached is not None and cache_writes is not None
             and cached + cache_writes <= input_tokens):
         ordinary_input = input_tokens - cached - cache_writes
         input_cost = (ordinary_input * rates[0] + cached * rates[1]
-                      + cache_writes * _CACHE_WRITE_RATES.get(model, rates[0]))
+                      + cache_writes * pricing.cache_writes.get(model, rates[0]))
         output_cost = output_tokens * rates[2]
-        if model in _LONG_CONTEXT_MODELS and input_tokens > 272_000:
+        if model in pricing.long_context_models and input_tokens > 272_000:
             input_cost *= 2
-            output_cost = output_cost * 3 // 2
+            output_cost = (output_cost * 3 + 1) // 2
         cost = input_cost + output_cost
-    _write_usage((
-        datetime.now(timezone.utc).isoformat(), analytics_db._norm_tenant(context[0]), context[1], context[2],
-        purpose, requested_model, model, status, input_tokens, cached, cache_writes,
-        output_tokens, None, cost, PRICE_VERSION,
-    ))
-    return cost
+    return {"model": model, "requested_model": requested_model, "purpose": purpose, "status": status,
+            "input_tokens": input_tokens, "cached_tokens": cached, "cache_write_tokens": cache_writes,
+            "output_tokens": output_tokens, "audio_seconds": None, "cost_nano_usd": cost,
+            "price_version": pricing.version,
+            "rate_snapshot": rate_metadata(pricing, model)}
 
 
-def record_transcription(response, requested_model: str, status: str) -> int | None:
-    """Store provider usage for one transcript without storing audio or text."""
+def _write_details(details):
     context = _context.get()
     if context is None:
-        logger.error("Transcription usage not recorded: tenant context missing")
-        return
+        raise ValueError("missing_usage_context")
+    _write_usage((datetime.now(timezone.utc).isoformat(), analytics_db._norm_tenant(context[0]),
+                  context[1], context[2], *(details[key] for key in (
+                      "purpose", "requested_model", "model", "status", "input_tokens", "cached_tokens",
+                      "cache_write_tokens", "output_tokens", "audio_seconds", "cost_nano_usd", "price_version"))))
+
+
+def _record(response, requested_model: str, purpose: str, status: str, *, pricing=None) -> int | None:
+    details = completion_usage(response, requested_model, purpose, status, pricing=pricing)
+    _write_details(details)
+    return details["cost_nano_usd"]
+
+
+def transcription_usage(response, requested_model: str, status: str, *, pricing=None) -> dict:
+    """Store provider usage for one transcript without storing audio or text."""
+    from service.usage_pricing import snapshot
+    pricing = pricing or snapshot()
     usage = _field(response, "usage")
     usage_type = _field(usage, "type")
     input_tokens = output_tokens = audio_seconds = cost = None
@@ -166,7 +220,7 @@ def record_transcription(response, requested_model: str, status: str) -> int | N
             seconds = Decimal(str(_field(usage, "seconds")))
             if seconds.is_finite() and 0 <= seconds <= 3600:
                 audio_seconds = float(seconds)
-                rate = _AUDIO_DURATION_RATES.get(requested_model)
+                rate = pricing.audio_duration.get(requested_model)
                 if rate is not None:
                     cost = int((seconds * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         except (InvalidOperation, TypeError, ValueError):
@@ -174,24 +228,35 @@ def record_transcription(response, requested_model: str, status: str) -> int | N
     elif usage_type == "tokens":
         input_tokens = _count(_field(usage, "input_tokens"))
         output_tokens = _count(_field(usage, "output_tokens"))
-        rate = _AUDIO_TOKEN_RATES.get(requested_model)
+        rate = pricing.audio_tokens.get(requested_model)
         if rate and input_tokens is not None and output_tokens is not None:
             cost = input_tokens * rate[0] + output_tokens * rate[1]
-    _write_usage((
-        datetime.now(timezone.utc).isoformat(), analytics_db._norm_tenant(context[0]), context[1], context[2],
-        "transcription", requested_model, requested_model, status,
-        input_tokens, None, None, output_tokens, audio_seconds, cost, AUDIO_PRICE_VERSION,
-    ))
-    return cost
+    rate_snapshot = ({"audio_second": pricing.audio_duration[requested_model]}
+                     if usage_type == "duration" and requested_model in pricing.audio_duration
+                     else {"input": rate[0], "output": rate[1]} if usage_type == "tokens" and rate else {})
+    return {"purpose": "transcription", "requested_model": requested_model, "model": requested_model,
+            "status": status, "input_tokens": input_tokens, "cached_tokens": None,
+            "cache_write_tokens": None, "output_tokens": output_tokens, "audio_seconds": audio_seconds,
+            "cost_nano_usd": cost, "price_version": pricing.version, "rate_snapshot": rate_snapshot}
 
 
-def completion_ceiling(kwargs: dict) -> int | None:
+def record_transcription(response, requested_model: str, status: str, *, pricing=None) -> int | None:
+    details = transcription_usage(response, requested_model, status, pricing=pricing)
+    _write_details(details)
+    return details["cost_nano_usd"]
+
+
+def completion_ceiling(kwargs: dict, *, pricing=None) -> int | None:
     """Conservative standard-text ceiling without storing or tokenizing prompts."""
     model = kwargs.get("model")
-    rates = RATES.get(model)
+    from service.usage_pricing import snapshot
+    pricing = pricing or snapshot()
+    rates = pricing.rates.get(model)
     output_limit = kwargs.get("max_tokens")
     if (rates is None or kwargs.get("service_tier") not in (None, "default")
-            or type(output_limit) is not int or not 0 < output_limit <= 4096):
+            or type(output_limit) is not int or not 0 < output_limit <= 4096
+            or kwargs.get("stream") not in (None, False)
+            or type(kwargs.get("n", 1)) is not int or kwargs.get("n", 1) != 1):
         return None
     messages = kwargs.get("messages", [])
     if not isinstance(messages, list):
@@ -207,11 +272,11 @@ def completion_ceiling(kwargs: dict) -> int | None:
     except (TypeError, ValueError, RecursionError):
         return None
     input_limit = len(encoded) + 256 * len(messages) + 2048
-    input_rate = max(rates[0], _CACHE_WRITE_RATES.get(model, rates[0]))
+    input_rate = max(rates[0], rates[1], pricing.cache_writes.get(model, rates[0]))
     input_cost, output_cost = input_limit * input_rate, output_limit * rates[2]
-    if model in _LONG_CONTEXT_MODELS and input_limit > 272_000:
+    if model in pricing.long_context_models and input_limit > 272_000:
         input_cost *= 2
-        output_cost = output_cost * 3 // 2
+        output_cost = (output_cost * 3 + 1) // 2
     return input_cost + output_cost
 
 
@@ -220,6 +285,9 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     response = None
     status = "failed"
     context = _context.get()
+    from service.plan_usage import AllowancePaused
+    if context is None:
+        raise AllowancePaused("missing_usage_context")
     configuration = None
     if context:
         from service.model_settings import document
@@ -229,25 +297,49 @@ def tracked_completion(client, *, purpose: str, **kwargs):
         configuration = document(storage or Storage(context[0]), context[0])
     from service.model_settings import completion_options
     from service.openai_completion import create
-    from service.plan_usage import reserve_ai, settle_ai
+    from service import usage_wallet, subscriptions
+    from service.usage_pricing import snapshot
     kwargs = completion_options(kwargs, purpose=purpose, configuration=configuration)
-    reservation = reserve_ai(context[0], completion_ceiling(kwargs)) if context else None
+    internal = subscriptions.internal_business(context[0])
+    try:
+        pricing = snapshot()
+    except ValueError:
+        if not internal:
+            try:
+                usage_wallet.reserve_usage(context[0], None,
+                    {"requested_model": kwargs["model"], "purpose": purpose, "channel": context[1]})
+            except usage_wallet.UsagePaused:
+                pass  # The wallet persists its pricing-unavailable notification.
+        raise AllowancePaused("pricing_unavailable") from None
+    try:
+        reservation = None if internal else usage_wallet.reserve_usage(
+            context[0], completion_ceiling(kwargs, pricing=pricing),
+            {"requested_model": kwargs["model"], "purpose": purpose, "channel": context[1],
+             "status": "pending", "price_version": pricing.version,
+             "rate_snapshot": rate_metadata(pricing, kwargs["model"])})
+    except (usage_wallet.UsagePaused, ValueError):
+        raise AllowancePaused("ai_credit_paused") from None
     try:
         response = create(client, kwargs)
         status = "completed"
         return response
+    except APIStatusError as exc:
+        if rejected_before_inference(exc):
+            response = rejected_usage(kwargs["model"])
+        raise
     finally:
-        cost = None
+        details = completion_usage(response, kwargs["model"], purpose, status, pricing=pricing)
+        details["channel"] = context[1]
         try:
-            cost = _record(response, kwargs["model"], purpose, status)
+            _record(response, kwargs["model"], purpose, status, pricing=pricing)
         except Exception as exc:
             # Accounting failure must not discard a paid reply or reveal its contents.
             logger.error("API usage recording failed (%s)", type(exc).__name__)
         try:
-            settle_ai(reservation, cost)
+            usage_wallet.settle_usage(reservation, details["cost_nano_usd"], details)
         except Exception as exc:
             # An unsettled reservation stays held. Never discard a paid reply.
-            logger.error("Plan usage settlement failed (%s)", type(exc).__name__)
+            logger.error("Prepaid usage settlement failed (%s)", type(exc).__name__)
 
 
 def summary(tenant: str | None, days: int) -> dict:

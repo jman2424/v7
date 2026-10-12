@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import threading
 import time
 from contextlib import closing, contextmanager
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from urllib.request import Request, urlopen
 
 from service import analytics_db, session_store
@@ -15,6 +17,22 @@ from service import analytics_db, session_store
 URL = "https://api.frankfurter.dev/v2/providers/ecb/rate/usd/gbp"
 _lock = threading.Lock()
 _next_refresh = 0.0
+
+
+def _configured_gbp_rate():
+    """Optional operator reference, with the same freshness rule as ECB rates."""
+    try:
+        raw = os.getenv("V7_USAGE_USD_GBP_RATE", "").strip()
+        if len(raw) > 64:
+            return None
+        value = Decimal(raw)
+        rate_date = date.fromisoformat(os.getenv("V7_USAGE_RATE_DATE", ""))
+        if not value.is_finite() or not 0 < value < 10 or rate_date > date.today():
+            return None
+    except (InvalidOperation, ValueError):
+        return None
+    return {"rate": float(value), "date": rate_date.isoformat(), "source": "Configured operator rate",
+            "stale": (date.today() - rate_date).days > 4}
 
 
 @contextmanager
@@ -31,6 +49,8 @@ def _rate_connection():
 
 def cached_gbp_rate() -> dict | None:
     """Read an existing public reference without waiting for a provider refresh."""
+    if os.getenv("V7_USAGE_USD_GBP_RATE", "").strip():
+        return _configured_gbp_rate()
     table = "v7_private.usage_exchange_rate" if session_store._using_postgres() else "usage_exchange_rate"
     with _rate_connection() as con:
         row = con.execute(f"SELECT rate, rate_date FROM {table} WHERE pair='USD/GBP'").fetchone()
@@ -41,6 +61,8 @@ def cached_gbp_rate() -> dict | None:
 
 
 def gbp_rate() -> dict | None:
+    if os.getenv("V7_USAGE_USD_GBP_RATE", "").strip():
+        return _configured_gbp_rate()
     global _next_refresh
     # Reserve one refresh under a short lock. Other dashboard reads use the
     # saved rate instead of queueing behind an external request or its DB lease.

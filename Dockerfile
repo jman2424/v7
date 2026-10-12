@@ -16,9 +16,10 @@ RUN npm run build
 # --- Base image ---
 FROM python:3.11-slim AS base
 
-# System deps (build, SSL, tzdata)
+# FFmpeg bounds compressed voice recordings before paid transcription.
+# System deps (build, SSL, tzdata, audio decoder)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl ca-certificates tzdata \
+    build-essential curl ca-certificates tzdata ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

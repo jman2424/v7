@@ -88,6 +88,20 @@ def test_metadata_authentication_and_transport(mcp):
     assert client.get("/mcp", headers={"Authorization": "Bearer " + token}).status_code == 405
 
 
+def test_chatgpt_business_tools_do_not_charge_central_ai_credit(mcp, monkeypatch):
+    from service import api_usage, usage_wallet
+    def no_provider(*args, **kwargs):
+        pytest.fail("MCP business reads must not invoke centrally billed inference")
+    monkeypatch.setattr(api_usage, "tracked_completion", no_provider)
+    client = mcp[0].test_client()
+    tokens, _ = issue(client, scope="business:read")
+    result = data(client, tokens["access_token"], "get_catalog")
+    assert result
+    assert usage_wallet.report("ALPHA")["balance_pence"] == 0
+    assert usage_wallet.report("ALPHA")["total"] == 0
+    assert api_usage.summary("ALPHA", 30)["totals"]["calls"] == 0
+
+
 def test_oauth_pkce_redirect_replay_refresh_and_revocation(mcp):
     client = mcp[0].test_client()
     csrf = login(client)

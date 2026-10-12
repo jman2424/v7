@@ -41,7 +41,7 @@ const document={body,documentElement:{lang:'en'},referrer:'https://business.exam
   activeElement:body,
   getElementById:get,createElement:()=>new Element(),listeners:{},
   addEventListener(name,callback){this.listeners[name]=callback;}};
-let starts=0, stops=0, cancels=0, recognition, recording, trackStops=0, utterances=[];
+let starts=0, stops=0, cancels=0, recognition, recording, trackStops=0, audioCloses=0, utterances=[];
 const mediaPending=[], mediaStops=[], recorderStops=[];
 function mediaStream() {
   const index=mediaStops.length;mediaStops.push(0);let stopped=false;
@@ -60,6 +60,17 @@ class Recorder {
   stop(){this.state='inactive';this.ondataavailable({data:new Blob(['audio'],{type:'audio/webm'})});
     if(scenario==='server-stop-race') recorderStops.push(()=>this.onstop());else this.onstop();}
 }
+class AudioContext {
+  constructor(options){assert.equal(options.sampleRate,16000);}
+  decodeAudioData(){
+    if(['server-audio-decode-timeout','server-audio-decode-cancel'].includes(scenario)) return new Promise(()=>{});
+    const length=scenario==='server-audio-too-long'?16000*61:4;
+    const left=Float32Array.from(scenario==='server-audio-invalid'?[NaN,0,0,0]:[-2,-0.5,0.5,2]);
+    const right=Float32Array.from([0,0.5,-0.5,0]);
+    return Promise.resolve({sampleRate:16000,length,numberOfChannels:2,getChannelData:index=>index?right:left});
+  }
+  close(){audioCloses++;return Promise.resolve();}
+}
 const timers=new Map();let timerId=0;
 const pending=[];
 const requests=[];
@@ -75,7 +86,7 @@ const window={__WIDGET__:config,isSecureContext:true,
   parent:{postMessage(data,origin){assert.equal(data.type,'V7_WIDGET_CLOSE');assert.equal(origin,'https://business.example');closeNotifications++;}},
   listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
-if(scenario.startsWith('server-')) window.MediaRecorder=Recorder;
+if(scenario.startsWith('server-')) {window.MediaRecorder=Recorder;window.AudioContext=AudioContext;}
 if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechSynthesisUtterance;}
 const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
@@ -165,6 +176,33 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     assert.equal(prevented,true);assert.equal(closeNotifications,1);assert.equal(get('dictate').getAttribute('aria-pressed'),'false');
     document.listeners.keydown({key:'Escape',defaultPrevented:true,preventDefault(){throw new Error('Already handled');}});
     assert.equal(closeNotifications,1,'An already-handled Escape must not close the widget again');
+  } else if(scenario==='server-audio-wav') {
+    await get('dictate').fire('click');await get('dictate').fire('click');await flush();
+    const upload=requests.find(item=>item.url==='/chat/transcribe');assert.ok(upload);
+    const file=upload.options.body.get('audio');assert.equal(file.type,'audio/wav');assert.equal(file.name,'message.wav');
+    const bytes=await file.arrayBuffer(),data=new DataView(bytes);
+    assert.equal(Buffer.from(bytes).subarray(0,4).toString(),'RIFF');assert.equal(Buffer.from(bytes).subarray(8,12).toString(),'WAVE');
+    assert.equal(data.getUint16(20,true),1);assert.equal(data.getUint16(22,true),1);
+    assert.equal(data.getUint32(24,true),16000);assert.equal(data.getUint16(34,true),16);
+    assert.equal(data.getUint32(40,true),8);assert.equal(bytes.byteLength,52);
+    assert.deepEqual([0,1,2,3].map(index=>data.getInt16(44+index*2,true)),[-32768,0,0,32767]);
+    assert.equal(trackStops,1);assert.equal(audioCloses,1);
+    pending[0]({ok:true,json:async()=>({text:'Please check this product'})});await flush();
+    assert.equal(get('chat-input').value,'Please check this product');
+    assert.equal(requests.filter(item=>item.url==='/chat_api').length,0,'Dictation still needs a separate Send action');
+  } else if(['server-audio-too-long','server-audio-invalid','server-audio-decode-timeout'].includes(scenario)) {
+    await get('dictate').fire('click');await get('dictate').fire('click');await flush();
+    if(scenario==='server-audio-decode-timeout') {
+      const timeout=[...timers.values()].find(timer=>timer.delay===10000);assert.ok(timeout);timeout.callback();await flush();
+    }
+    assert.equal(requests.filter(item=>item.url==='/chat/transcribe').length,0);
+    assert.equal(trackStops,1);assert.equal(audioCloses,1);assert.equal(get('dictate').disabled,false);
+    assert.match(get('voice-status').textContent,scenario==='server-audio-too-long'?/too long/:scenario==='server-audio-invalid'?/could not be read/:/conversion timed out/);
+  } else if(scenario==='server-audio-decode-cancel') {
+    await get('dictate').fire('click');await get('dictate').fire('click');await flush();
+    get('chat-input').value='Typed instead';await get('chat-form').fire('submit');await flush();
+    assert.equal(requests.filter(item=>item.url==='/chat/transcribe').length,0);
+    assert.equal(audioCloses,1);assert.equal(get('dictate').disabled,false);
   } else if(scenario==='server-cancel') {
     await get('dictate').fire('click');assert.equal(recording.state,'recording');
     await get('dictate').fire('click');await flush();assert.equal(pending.length,1);assert.equal(trackStops,1);
@@ -240,6 +278,8 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",
     "pending-chat-draft", "pending-chat-focus", "chat-paused", "chat-rate-limit",
     "chat-expired", "chat-malformed", "escape-close",
+    "server-audio-wav", "server-audio-too-long", "server-audio-invalid",
+    "server-audio-decode-timeout", "server-audio-decode-cancel",
 ])
 def test_customer_widget_runtime(scenario):
     result = subprocess.run(

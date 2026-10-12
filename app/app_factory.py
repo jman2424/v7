@@ -104,6 +104,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(public_seo_bp)
     from routes.billing_routes import bp as billing_bp
     app.register_blueprint(billing_bp)
+    from routes.usage_billing_routes import bp as usage_billing_bp
+    app.register_blueprint(usage_billing_bp)
 
     from routes.admin_api_routes import bp as admin_api_bp
     app.register_blueprint(admin_api_bp)
@@ -259,9 +261,10 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     @app.get("/")
     def root():
         site_origin = settings.BASE_URL.rstrip("/")
-        from service.plan_catalog import public_plans
+        from service.plan_catalog import VAT_PERCENT, public_plans
         return render_template("home.html", site_origin=site_origin,
-                               canonical_url=site_origin + "/", subscription_plans=public_plans())
+                               canonical_url=site_origin + "/", subscription_plans=public_plans(),
+                               subscription_vat_percent=VAT_PERCENT)
 
     # Health (Render)
     @app.get("/healthz")

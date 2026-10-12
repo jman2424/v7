@@ -150,7 +150,9 @@ def test_setup_status_is_authenticated_scoped_and_contains_no_credentials(platfo
     assert data["whatsapp"]["providers"]["twilio"]["state"] == "unassigned"
     assert data["whatsapp"]["providers"]["meta"]["recipient_kind"] == "phone_number_id"
     assert data["whatsapp"]["providers"]["meta"]["display_recipients"] == ["12345"]
-    assert data["whatsapp"]["voice"]["ready"] is True
+    assert data["whatsapp"]["voice"]["configured"] is True
+    assert data["whatsapp"]["voice"]["bounded_audio_model"] is False
+    assert data["whatsapp"]["voice"]["ready"] is False
     assert "beta-private-recipient" not in response.text
     assert "447700900999" not in response.text
     for secret in ("synthetic-meta-secret", "synthetic-verify", "synthetic-provider-token",
@@ -197,7 +199,7 @@ def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch
     assert data["providers"]["meta"]["configured"] is True
     assert data["billing"]["kind"] == "tiered"
     assert data["billing"]["plan"] == {"id": "starter", "name": "Starter", "monthly_pence": 9900,
-        "setup_pence": 14900, "whatsapp_messages": 500, "ai_budget_pence": 500}
+        "setup_pence": 14900, "whatsapp_messages": 500, "ai_budget_pence": 0}
     assert data["billing"]["allowance"] == {"month": "2026-10", "used": 500, "limit": 500, "paused": True}
     assert data["billing"]["notifications"] == "dashboard"
     assert {row["code"] for row in data["blockers"]} == {"whatsapp_allowance_exhausted"}
@@ -224,6 +226,69 @@ def test_setup_staff_has_message_allowance_without_ai_cost_details(platform):
     assert "ai_budget" not in billing
     assert "invoices" not in billing and "contracts" not in billing
     assert client.get("/billing/subscription?tenant=ALPHA").status_code == 403
+
+
+@pytest.mark.parametrize("view_costs", [False, True], ids=["setup-staff", "owner"])
+def test_money_based_setup_exposes_prepaid_credit_only_with_cost_permission(platform, monkeypatch, view_costs):
+    from service import subscriptions
+    from service.plan_catalog import PLANS
+    app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
+    monkeypatch.setattr("service.subscriptions.whatsapp_enabled", lambda tenant: True)
+    monkeypatch.setitem(PLANS["starter"], "message_usage_model", "ai_cost")
+    monkeypatch.setitem(PLANS["starter"], "ai_credit_model", "prepaid")
+    with app.app_context():
+        subscriptions.select_plan("ALPHA", "starter")
+    requested_costs = []
+
+    def usage(tenant, include_costs=False):
+        assert tenant == "ALPHA"
+        requested_costs.append(include_costs)
+        return {"month": "2026-10", "whatsapp_messages": {
+            "used": 501, "limit": 500, "paused": False, "enforced": False, "measured_by": "ai_cost"},
+            "ai_budget": {"limit_pence": 0, "paused": False, "active": False}}
+
+    def wallet(tenant, include_costs=False, limit=1):
+        assert tenant == "ALPHA" and limit == 1
+        requested_costs.append(include_costs)
+        credit = {"paused": True, "reconciliation_hold": True}
+        if include_costs:
+            credit.update(available_pence=17, reserved_pence=23, spent_pence=5, unknown_reservations=1)
+        return credit
+
+    monkeypatch.setattr("service.plan_usage.report", usage)
+    monkeypatch.setattr("service.usage_wallet.report", wallet)
+    client = app.test_client()
+    if view_costs:
+        login(client)
+    else:
+        accounts = json.loads(platform[1].read_text())
+        staff = dict(accounts["users"][1], email="money-staff@example.test", role="business_staff",
+                     permissions=["integrations.read"])
+        accounts["users"].append(staff)
+        platform[1].write_text(json.dumps(accounts))
+        login(client, "money-staff@example.test")
+    response = client.get("/admin/api/integrations?tenant=ALPHA")
+    assert response.status_code == 200
+    data = response.json["whatsapp"]
+    assert data["ready"] is True  # Saved business knowledge can still reply.
+    assert not data["blockers"]
+    billing = data["billing"]
+    assert billing["message_usage_model"] == "ai_cost"
+    assert billing["vat_percent"] == subscriptions.VAT_PERCENT
+    assert billing["ai_processing_paused"] is True
+    assert billing["allowance"] == {"month": "2026-10", "used": 501, "limit": 500,
+        "paused": False, "enforced": False, "measured_by": "ai_cost"}
+    assert requested_costs == [view_costs, view_costs]
+    assert "ai_budget" not in billing
+    if view_costs:
+        assert billing["plan"]["ai_budget_pence"] == 0
+        assert billing["usage_credit"] == {"paused": True, "reconciliation_hold": True,
+            "available_pence": 17, "reserved_pence": 23, "spent_pence": 5, "unknown_reservations": 1}
+    else:
+        assert "ai_budget_pence" not in billing["plan"]
+        assert "usage_credit" not in billing
+        for field in ("available_pence", "reserved_pence", "spent_pence", "unknown_reservations"):
+            assert field not in response.text
 
 
 @pytest.mark.parametrize("status,expected", [("not_started", "unselected"), ("active", "legacy")])

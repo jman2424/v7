@@ -13,9 +13,8 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from connectors.billing import BillingClient
 from service import session_store, analytics_db, api_usage
-from service.plan_catalog import get_plan, public_plans
+from service.plan_catalog import VAT_PERCENT, get_plan, public_plans
 
-VAT_PERCENT = 20
 PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
 
 
@@ -517,27 +516,9 @@ def whatsapp_enabled(tenant):
 
 
 def approve_api_charge(tenant, month, amount):
-    if configured_plan(tenant):
-        raise ValueError('extra_usage_charges_disabled')
-    current = datetime.now(timezone.utc).strftime('%Y-%m')
-    if not isinstance(month,str) or not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month) or month>=current:
-        raise ValueError('choose_a_completed_month')
-    if type(amount) is not int or not 1<=amount<=10_000_000:
-        raise ValueError('invalid_api_charge')
-    with connection(tenant) as db:
-        if session_store._using_postgres():
-            inserted = db.execute(
-                'INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?) '
-                'ON CONFLICT DO NOTHING RETURNING tenant',
-                (tenant, month, amount, secrets.token_urlsafe(24)),
-            ).fetchone()
-            if not inserted:
-                raise ValueError('month_already_approved')
-        else:
-            try:
-                db.execute('INSERT INTO billing_api_charges (tenant,month,amount,ref) VALUES (?,?,?,?)',(tenant,month,amount,secrets.token_urlsafe(24)))
-            except sqlite3.IntegrityError as exc:
-                raise ValueError('month_already_approved') from exc
+    # Central AI now debits prepaid credit at request time. Existing approved
+    # historic charges remain payable; never create a second bill for new usage.
+    raise ValueError('prepaid_usage_requires_topup')
 
 
 def usage_months(tenant):

@@ -45,17 +45,24 @@ Tech Provider requirements; this release does not implement embedded sign-up.
 
 ## Understand the bill
 
-Starter, Business and Scale include 500, 2,000 and 5,000 incoming WhatsApp
-messages per UTC calendar month. These are V7 allowances, not provider credits.
+Starter, Business and Scale include the agent software but no monthly AI credit.
+Owners purchase separate prepaid AI credit in £5, £20 or £50 packs before VAT
+(£6, £24 or £60 including 20% VAT, where applicable). The usable GBP balance is
+shared across website and WhatsApp; VAT is not added to that balance. WhatsApp
+is not limited by a fixed number of incoming messages. These are V7 processing
+credits, not Meta/Twilio messaging credits. There is no automatic recharge.
 The page uses the shared plan catalogue and recorded usage, rather than separate
 pricing constants. Internal and legacy workspaces are labelled separately.
 
-Meta/Twilio messaging charges, rented numbers and taxes are separate from V7's
+WhatsApp phone numbers are not included. Meta/Twilio messaging charges, number
+rental and taxes are separate from V7's
 subscription and setup fee. Incoming customer messages and outgoing agent replies
-can be different billing units at the provider. The included AI-cost budget covers
-AI usage, not the provider's WhatsApp bill. V7 pauses replies at its message cap
-and alerts admins in the dashboard; it does not add automatic overage charges.
-Provider fees can still accrue when customers send to a paused number.
+can be different billing units at the provider. The prepaid AI balance covers
+AI usage, not the provider's WhatsApp bill. V7 pauses paid AI processing when
+the available prepaid credit cannot safely cover a request or its cost is unknown,
+and alerts admins in the dashboard. Saved business knowledge remains available;
+V7 does not add automatic overage charges. Provider fees can still accrue even
+when V7 has paused paid AI processing.
 
 Consult the [Meta rate card](https://business.whatsapp.com/products/platform-pricing)
 and [Twilio calculator](https://www.twilio.com/en-us/whatsapp/pricing) for the
@@ -80,7 +87,12 @@ are free or bake a changing rate into the dashboard.
 V7 currently replies to inbound text and supported audio with text. It does not
 provide outbound campaigns, an approved-template editor or generated voice
 replies. Voice transcription also needs a configured, funded AI provider and
-supported audio; text remains the fallback.
+supported audio; text remains the fallback. Paid voice processing uses the
+duration-priced `gpt-transcribe` model. Recordings are limited to 60 seconds.
+The Docker image installs Debian's FFmpeg to decode OGG, WebM, MP3 and M4A
+into bounded WAV before reserving credit. If decoding is unavailable or cannot
+verify the recording safely, V7 requests text instead of making an unbounded
+provider call. Decoder input/output use pipes only, with a ten-second timeout.
 
 ## Verification
 

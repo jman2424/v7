@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from service import api_usage, analytics_db, usage_currency
+from service import api_usage, analytics_db, usage_currency, usage_wallet
+import secrets
 from tests.conftest import set_test_identity
 
 
@@ -21,7 +22,8 @@ def completion(**overrides):
 
 
 @pytest.fixture(autouse=True)
-def fake_exchange(monkeypatch):
+def fake_exchange(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECURITY_DB_PATH", str(tmp_path / "security.db"))
     monkeypatch.setattr(usage_currency, "_next_refresh", 0)
     data = {"base": "USD", "quote": "GBP", "rate": 0.75, "date": date.today().isoformat()}
     monkeypatch.setattr(usage_currency, "urlopen", lambda *a, **kw: io.BytesIO(json.dumps(data).encode()))
@@ -30,9 +32,16 @@ def fake_exchange(monkeypatch):
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(analytics_db, "DB_PATH", str(tmp_path / "usage.db"))
+    fund("EXAMPLE")
+    fund("BETA")
+
+
+def fund(tenant):
+    usage_wallet.adjust(tenant, 500, "Test prepaid funding", "test-admin", secrets.token_hex(16))
 
 
 def record(tenant="EXAMPLE", channel="web", response=None):
+    fund(tenant)
     client = Mock()
     client.chat.completions.create.return_value = response or completion()
     with api_usage.usage_context(tenant, channel):
@@ -87,7 +96,10 @@ def test_empty_gbp_cost_does_not_require_exchange_rate(client, monkeypatch):
     report = client.get("/admin/api/api-usage").get_json()
     assert report["totals"]["estimated_cost_gbp"] == 0
     assert report["exchange_rate"] is None
-    record()
+    # A historical usage row can still be reported while FX is unavailable;
+    # a new chargeable provider request must not bypass the prepaid FX gate.
+    with api_usage.usage_context("EXAMPLE", "web"):
+        api_usage._record(completion(), "gpt-4o-mini", "planning", "completed")
     assert client.get("/admin/api/api-usage").get_json()["totals"]["estimated_cost_gbp"] is None
 
 
@@ -164,6 +176,7 @@ def test_usage_endpoint_enforces_company_and_platform_permissions(client):
 
 
 def test_test_agent_dispatch_accounts_for_paid_calls_without_customer_events(client, monkeypatch):
+    fund("EXAMPLE")
     from routes import get_container
     with client.application.app_context():
         container = get_container().for_tenant("EXAMPLE")

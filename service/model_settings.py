@@ -66,12 +66,13 @@ def selected(tenant, storage=None):
 
 
 def options():
-    from service.api_usage import RATES, _CACHE_WRITE_RATES
+    from service.usage_pricing import snapshot
+    pricing = snapshot()
     return [{'id': model,
-             'input_usd_per_million': RATES[model][0] / 1000 if model in RATES else None,
-             'cached_usd_per_million': RATES[model][1] / 1000 if model in RATES else None,
-             'cache_write_usd_per_million': _CACHE_WRITE_RATES[model] / 1000 if model in _CACHE_WRITE_RATES else None,
-             'output_usd_per_million': RATES[model][2] / 1000 if model in RATES else None}
+             'input_usd_per_million': pricing.rates[model][0] / 1000 if model in pricing.rates else None,
+             'cached_usd_per_million': pricing.rates[model][1] / 1000 if model in pricing.rates else None,
+             'cache_write_usd_per_million': pricing.cache_writes[model] / 1000 if model in pricing.cache_writes else None,
+             'output_usd_per_million': pricing.rates[model][2] / 1000 if model in pricing.rates else None}
             for model in MODELS]
 
 

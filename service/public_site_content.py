@@ -76,7 +76,7 @@ SOLUTIONS: dict[str, Solution] = {
             {"title": "Set the boundaries", "description": "Choose your conversation goal and handoff message. Enable only quote, callback or consultation actions your team can fulfil."},
             {"title": "Review and refine", "description": "Test a repeatable set of customer enquiries, publish your website widget and review retained conversations for gaps in the setup."},
         ],
-        "caution": "AI chatbot software is not a guarantee of correct answers or higher sales. V7 requires onboarding and provider configuration. WhatsApp is included in the current monthly plans and requires a separate configured connection; provider charges are separate. People remain responsible for maintaining business facts, checking important replies and handling commitments that need human approval.",
+        "caution": "AI chatbot software is not a guarantee of correct answers or higher sales. V7 requires onboarding and provider configuration. WhatsApp agent software is included in the current monthly plans and requires a separate configured connection. Phone numbers are not included; number rental and WhatsApp provider charges are separate from V7 and prepaid AI credit. People remain responsible for maintaining business facts, checking important replies and handling commitments that need human approval.",
     },
     "sales-chatbot": {
         "title": "Sales Chatbot with Your Business Playbook | Vertex Seven",
@@ -168,7 +168,7 @@ SOLUTIONS: dict[str, Solution] = {
                 "The conversational AI platform is multi-tenant. Business owners work with their own company's information, while platform administrators manage onboarding and platform configuration according to their permissions. Widget branding and conversation goals belong to the company, so one business can use a different tone and appearance from another. Customer messages must route to the correct company rather than a shared pool of business knowledge.",
             ]},
             {"heading": "Connect the channels your deployment supports", "paragraphs": [
-                "Website chat can be embedded on approved business websites. Website and WhatsApp agents are included in Starter, Business and Scale, within each plan's monthly allowances. WhatsApp requires a configured Meta or Twilio connection and the appropriate service setup. Website chat works independently of that connection. Model availability, API usage and integration settings also depend on the deployment. Start with the customer channel you can support well, then test additional connections before offering them publicly.",
+                "Website chat can be embedded on approved business websites. Website and WhatsApp agents are included in Starter, Business and Scale. Paid AI processing uses a separate prepaid GBP balance across both channels. No AI credit is included in the subscription, and there is no automatic recharge; WhatsApp is not capped by a fixed number of messages. WhatsApp requires a configured Meta or Twilio connection and an eligible phone number. Phone numbers are not included; number rental and WhatsApp provider charges are separate from V7 and prepaid AI credit. Website chat works independently of that connection. Model availability, API usage and integration settings also depend on the deployment. Start with the customer channel you can support well, then test additional connections before offering them publicly.",
             ]},
         ],
         "steps": [

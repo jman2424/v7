@@ -34,7 +34,12 @@ def transcription_status() -> dict:
     missing = [] if os.getenv("OPENAI_API_KEY", "").strip() else ["OPENAI_API_KEY"]
     if model not in _MODELS:
         missing.append("V7_TRANSCRIPTION_MODEL")
-    return {"configured": not missing, "model": model if model in _MODELS else "", "missing_settings": missing}
+    from service.audio_decoder import compressed_formats
+    compressed = compressed_formats()
+    return {"configured": not missing, "model": model if model in _MODELS else "", "missing_settings": missing,
+            "bounded_audio_model": model == "gpt-transcribe",
+            "compressed_audio_supported": bool(compressed),
+            "supported_audio_formats": ["audio/wav", "audio/x-wav"] + compressed}
 
 
 class SpeechTranscriptionError(Exception):
@@ -79,40 +84,57 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
     if not setup["configured"]:
         raise SpeechTranscriptionError("transcription_unavailable")
     model = setup["model"]
-    from service import api_usage, plan_usage
+    from service import api_usage, subscriptions, usage_wallet, session_store
+    from service.usage_pricing import snapshot
+    if (not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant)
+            or not isinstance(channel, str) or not channel or len(channel) > 64):
+        raise SpeechTranscriptionError("transcription_unavailable")
+    try:
+        pricing = snapshot()
+    except ValueError:
+        raise SpeechTranscriptionError("transcription_unavailable") from None
     reservation = None
-    if tenant and plan_usage._plan(tenant) is not None:
-        # Only duration-billed transcription with server-verifiable PCM audio
-        # has a safe ceiling. Compressed recordings can contain arbitrarily long
-        # audio; the browser's claimed duration is not a trusted billing input.
-        if model != "gpt-transcribe" or media_type not in {"audio/wav", "audio/x-wav"}:
+    # The operator's internal agent also gets the same input bound. A compressed
+    # recording's claimed duration never controls the provider side effect.
+    if media_type not in {"audio/wav", "audio/x-wav"}:
+        from service.audio_decoder import AudioDecodeError, decode_wav
+        try:
+            data = decode_wav(data, media_type)
+        except AudioDecodeError as exc:
+            raise SpeechTranscriptionError(exc.code) from None
+        filename, media_type = "message.wav", "audio/wav"
+    try:
+        with wave.open(io.BytesIO(data), "rb") as recording:
+            seconds = Decimal(recording.getnframes()) / recording.getframerate()
+            if (recording.getcomptype() != "NONE" or not 0 < seconds <= 60
+                    or recording.getnchannels() not in (1, 2)
+                    or recording.getsampwidth() not in (1, 2, 3, 4)
+                    or not 8000 <= recording.getframerate() <= 192000):
+                raise ValueError("unbounded_audio")
+            parameters = recording.getparams()
+            frames = recording.readframes(parameters.nframes)
+            if len(frames) != parameters.nframes * parameters.sampwidth * parameters.nchannels:
+                raise ValueError("truncated_audio")
+        # Only one verified segment goes to the provider, excluding hidden chunks.
+        output = io.BytesIO()
+        with wave.open(output, "wb") as recording:
+            recording.setparams(parameters)
+            recording.writeframes(frames)
+        data = output.getvalue()
+    except (wave.Error, EOFError, ValueError, ZeroDivisionError):
+        raise SpeechTranscriptionError("audio_duration_unverified") from None
+    if not subscriptions.internal_business(tenant):
+        if model != "gpt-transcribe":
             raise SpeechTranscriptionError("audio_duration_unverified")
-        try:
-            with wave.open(io.BytesIO(data), "rb") as recording:
-                seconds = Decimal(recording.getnframes()) / recording.getframerate()
-                if (recording.getcomptype() != "NONE" or not 0 < seconds <= 60
-                        or recording.getnchannels() not in (1, 2)
-                        or recording.getsampwidth() not in (1, 2, 3, 4)
-                        or not 8000 <= recording.getframerate() <= 192000):
-                    raise ValueError("unbounded_audio")
-                parameters = recording.getparams()
-                frames = recording.readframes(parameters.nframes)
-                if len(frames) != parameters.nframes * parameters.sampwidth * parameters.nchannels:
-                    raise ValueError("truncated_audio")
-            # Canonicalize one verified audio segment; a second hidden data
-            # chunk must not increase the provider input beyond its reservation.
-            output = io.BytesIO()
-            with wave.open(output, "wb") as recording:
-                recording.setparams(parameters)
-                recording.writeframes(frames)
-            data = output.getvalue()
-        except (wave.Error, EOFError, ValueError, ZeroDivisionError):
-            raise SpeechTranscriptionError("audio_duration_unverified") from None
         billed_seconds = seconds.quantize(Decimal("1"), rounding=ROUND_CEILING) + 1
-        ceiling = int(billed_seconds * api_usage._AUDIO_DURATION_RATES[model])
+        rate = pricing.audio_duration.get(model)
+        ceiling = int(billed_seconds * rate) if rate is not None else None
         try:
-            reservation = plan_usage.reserve_ai(tenant, ceiling)
-        except plan_usage.AllowancePaused:
+            reservation = usage_wallet.reserve_usage(tenant, ceiling,
+                {"requested_model": model, "channel": channel, "purpose": "transcription",
+                 "status": "pending", "price_version": pricing.version,
+                 "rate_snapshot": {"audio_second": rate} if rate is not None else {}})
+        except usage_wallet.UsagePaused:
             raise SpeechTranscriptionError("ai_allowance_paused") from None
     result = None
     status = "failed"
@@ -122,22 +144,25 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
         )
         status = "completed"
     except OpenAIError as exc:
+        if api_usage.rejected_before_inference(exc):
+            # An explicit pre-inference provider rejection releases the hold;
+            # uncertain failures still retain funds for review.
+            result = {"usage": {"type": "duration", "seconds": 0}}
         logger.warning("Audio transcription provider error: %s", type(exc).__name__)
         raise SpeechTranscriptionError("transcription_failed") from exc
     finally:
-        cost = None
-        if tenant and channel:
-            try:
-                from service.api_usage import record_transcription, usage_context
-                with usage_context(tenant, channel):
-                    cost = record_transcription(result, model, status)
-            except Exception as exc:
-                # Usage storage must not discard a paid transcription.
-                logger.error("Transcription usage recording failed (%s)", type(exc).__name__)
+        details = api_usage.transcription_usage(result, model, status, pricing=pricing)
+        details["channel"] = channel
         try:
-            plan_usage.settle_ai(reservation, cost)
+            with api_usage.usage_context(tenant, channel):
+                api_usage.record_transcription(result, model, status, pricing=pricing)
         except Exception as exc:
-            logger.error("Transcription allowance settlement failed (%s)", type(exc).__name__)
+            # Financial settlement does not depend on analytics persistence.
+            logger.error("Transcription usage recording failed (%s)", type(exc).__name__)
+        try:
+            usage_wallet.settle_usage(reservation, details["cost_nano_usd"], details)
+        except Exception as exc:
+            logger.error("Transcription credit settlement failed (%s)", type(exc).__name__)
     transcript = getattr(result, "text", None)
     if not isinstance(transcript, str) or not transcript.strip():
         raise SpeechTranscriptionError("no_speech_detected")

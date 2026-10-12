@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from io import BytesIO
+from datetime import date
 from types import SimpleNamespace
+import wave
 
 import pytest
 
 from routes import webchat_routes
 from service.rate_limit import RateLimiter
-from service import analytics_db, api_usage, speech_transcription
+from service import analytics_db, api_usage, speech_transcription, subscriptions, usage_currency, usage_wallet
+
+
+def wav_audio(seconds):
+    output = BytesIO()
+    with wave.open(output, "wb") as recording:
+        recording.setnchannels(1)
+        recording.setsampwidth(2)
+        recording.setframerate(8000)
+        recording.writeframes(b"\0" * int(16000 * seconds))
+    return output.getvalue()
 
 
 def test_transcription_requires_configuration_and_valid_audio(monkeypatch):
@@ -40,10 +52,12 @@ def test_transcription_uses_bounded_model_and_returns_text(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-only-value")
     monkeypatch.setenv("V7_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")
     monkeypatch.setattr(speech_transcription, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(subscriptions, "internal_business", lambda tenant: tenant == "INTERNAL")
 
-    assert speech_transcription.transcribe_audio(b"OggS" + b"\x00" * 32, "audio/ogg; codecs=opus") == "Could I book a consultation?"
+    assert speech_transcription.transcribe_audio(wav_audio(1), "audio/wav",
+        tenant="INTERNAL", channel="web") == "Could I book a consultation?"
     assert called["request"]["model"] == "gpt-4o-mini-transcribe"
-    assert called["request"]["file"][0] == "message.ogg"
+    assert called["request"]["file"][0] == "message.wav"
     assert called["client"]["max_retries"] == 0
 
 
@@ -57,14 +71,21 @@ def test_transcription_records_tenant_cost_without_audio(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-only-value")
     monkeypatch.setenv("V7_TRANSCRIPTION_MODEL", "gpt-transcribe")
     monkeypatch.setattr(analytics_db, "DB_PATH", str(tmp_path / "usage.db"))
+    monkeypatch.setenv("SECURITY_DB_PATH", str(tmp_path / "security.db"))
+    monkeypatch.setenv("V7_USAGE_MARKUP_PERCENT", "0")
+    monkeypatch.setattr(subscriptions, "internal_business", lambda tenant: False)
+    monkeypatch.setattr(usage_currency, "gbp_rate", lambda: {
+        "rate": 1, "date": date.today().isoformat(), "stale": False})
+    usage_wallet.adjust("EXAMPLE", 100, "Test prepaid funding", "test-admin", "funding")
     monkeypatch.setattr(speech_transcription, "OpenAI", FakeOpenAI)
     result = speech_transcription.transcribe_audio(
-        b"OggS" + b"\x00" * 32, "audio/ogg", tenant="EXAMPLE", channel="web")
+        wav_audio(12), "audio/wav", tenant="EXAMPLE", channel="web")
     assert result == "Book a call"
     usage = api_usage.summary("EXAMPLE", 30)
     assert usage["totals"]["audio_seconds"] == 12
     assert usage["totals"]["estimated_cost_usd"] == pytest.approx(0.0009)
     assert usage["breakdown"][0]["purpose"] == "transcription"
+    assert usage_wallet.report("EXAMPLE")["spent_pence"] == pytest.approx(.09)
 
 
 def test_widget_transcription_checks_token_origin_and_returns_reviewable_text(client, app, monkeypatch):

@@ -36,6 +36,8 @@ SECURITY_TABLES = {
     'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate', 'totp_steps',
     'billing_plan_state', 'billing_plan_choices', 'billing_plan_usage',
     'billing_plan_events', 'billing_plan_reservations',
+    'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
+    'usage_wallet_entries', 'usage_checkout_requests',
 }
 ANALYTICS_TABLES = {
     'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history',
@@ -350,14 +352,14 @@ def import_bundle(conn, bundle):
     with conn.transaction():
         conn.execute('SELECT pg_advisory_xact_lock(71616001)')
         version = conn.execute('SELECT version FROM v7_private.schema_version ORDER BY version').fetchall()
-        if version != [(number,) for number in range(1,11)]:
+        if version != [(number,) for number in range(1,12)]:
             raise ValueError('Apply the reviewed V7 schema migration first')
         for table in sorted(DATA_TABLES | {'migration_runs'}):
             query = sql.SQL('SELECT EXISTS(SELECT 1 FROM v7_private.{})').format(sql.Identifier(table))
             if conn.execute(query).fetchone()[0]:
                 raise ValueError('Destination must be empty; import will never overwrite data')
         # Parent records first. All remaining legacy identities and relationships retain their keys.
-        parents = ['tenants','billing_references','billing_plan_usage']
+        parents = ['tenants','billing_references','billing_plan_usage','usage_wallets']
         order = parents + sorted(DATA_TABLES - set(parents))
         for table in order:
             rows = bundle.rows[table]

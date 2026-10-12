@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { t } from './i18n';
+  import { t, language } from './i18n';
+  import { subscriptionLocales, subscriptionMoney, subscriptionPrice, subscriptionMonth, subscriptionError } from './subscription-format';
   import {onMount,onDestroy,createEventDispatcher} from 'svelte';
   import TrendChart from './TrendChart.svelte';
+  import UsageCredits from './UsageCredits.svelte';
   export let tenant:string;
   export let csrf:string;
   export let isPlatform=false;
@@ -10,14 +12,14 @@
   export let apiPrefix='';
   type Contract={kind:string;status:string;next_due:number|null;paused:number;cancel_at_end:number;implementation_paid:number};
   type Invoice={id:string;kind:string;month:string;issued:number;due:number|null;total:number;paid:number;remaining:number;status:string;url:string|null;lines:{description:string;amount:number}[]};
-  type Plan={id:string;name:string;audience:string;monthly_pence:number;setup_pence:number;website_conversations:number;whatsapp_messages:number;ai_budget_pence:number;locations:number;staff:number;analytics:string;api_access:string;onboarding:string};
+  type Plan={id:string;name:string;audience:string;monthly_pence:number;setup_pence:number;website_conversations:number;whatsapp_messages:number;message_usage_model?:string;locations:number;staff:number;analytics:string;api_access:string;onboarding:string};
   type UsageAlert={resource:string;message:string};
-  type ChannelAllowance={used:number;limit:number;paused:boolean};
-  type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;ai_budget?:{used_pence:number|null;reserved_pence?:number;unknown_calls?:number;limit_pence:number;paused:boolean};alerts:UsageAlert[]};
+  type ChannelAllowance={used:number;limit:number;paused:boolean;enforced?:boolean;measured_by?:string};
+  type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;alerts:UsageAlert[]};
   type PlanState={selected_plan:string|null;active_plan:string|null;setup_plan:string|null;whatsapp_paused:boolean;checkout_pending:boolean;checkout_expires:number|null};
   type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null};
   type Company={key:string;name:string;contracts:Contract[];totals:{paid:number;due:number};plan_state?:PlanState|null;allowance?:Allowance|null};
-  const dispatch=createEventDispatcher<{company:string}>();
+  const dispatch=createEventDispatcher<{company:string;creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data:Report|null=null;
   let companies:Company[]=[];
   let companyCount=0;
@@ -30,17 +32,19 @@
   let invoiceKind='all';
   let invoicePage=1;
   let discountCode='';
-  let apiMonth='';
-  let apiAmount='';
   let controller:AbortController|undefined;
   let companyController:AbortController|undefined;
   let companyBusy=false;
   let disposed=false;
-  const money=(pence:number|null|undefined)=>pence==null?'Not available':new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(pence/100);
-  const date=(value:number|null|undefined)=>value?new Date(value*1000).toLocaleDateString('en-GB'):'Not scheduled';
-  const name=(kind:string)=>({platform:'Platform subscription',whatsapp:'WhatsApp add-on',api:'API usage',implementation:'Implementation'}[kind]||kind);
-  const count=(value:number)=>new Intl.NumberFormat('en-GB').format(value);
-  const ratio=(used:number,limit:number)=>Math.min(100,limit>0?used/limit*100:0);
+  $: locale=subscriptionLocales[$language];
+  $: money=(pence:number|null|undefined)=>pence==null?$t('Not available'):subscriptionMoney(pence,locale);
+  $: date=(value:number|null|undefined)=>value?new Intl.DateTimeFormat(locale,{timeZone:'UTC'}).format(new Date(value*1000)):$t('Not scheduled');
+  $: dateTime=(value:number)=>new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeStyle:'short',timeZone:'UTC'}).format(new Date(value*1000));
+  $: month=(value:string)=>subscriptionMonth(value,locale);
+  $: name=(kind:string)=>$t(({platform:'Platform subscription',whatsapp:'WhatsApp add-on',api:'API usage',implementation:'Implementation'} as Record<string,string>)[kind]||'Other charge');
+  $: count=(value:number)=>new Intl.NumberFormat(locale).format(value);
+  $: status=(value:string|undefined)=>$t(({active:'Active',trialing:'Trial',past_due:'Payment overdue',unpaid:'Unpaid',incomplete:'Payment pending',paused:'Paused',canceled:'Cancelled',not_started:'Not subscribed',incomplete_expired:'Checkout expired',paid:'Paid',open:'Open',draft:'Draft',void:'Void',uncollectible:'Uncollectible'} as Record<string,string>)[value||'not_started']||'Not available');
+  $: usageAlert=(alert:UsageAlert)=>$t(alert.resource==='website_conversations'?'New website conversations are paused until the next monthly allowance. Existing conversations can continue.':alert.resource==='whatsapp_messages'?'WhatsApp is paused. Check your provider connection and usage budget.':'Paid AI requests are paused because the remaining allowance cannot safely cover the request or its cost is unknown. Saved business knowledge remains available.');
   $: baseContract=data?.contracts.find(row=>row.kind==='platform');
   $: implementationPaid=Boolean(baseContract?.implementation_paid||data?.contracts.some(row=>row.kind==='implementation'&&row.status==='paid'));
   $: waContract=data?.contracts.find(row=>row.kind==='whatsapp');
@@ -52,8 +56,9 @@
   $: planLocked=Boolean(activePlan||implementationPaid||legacyBilling);
   $: checkoutPending=Boolean(data?.plan_state?.checkout_pending);
   $: monthlyPrice=activePlan?activePlan.monthly_pence:40000;
-  $: discounted=(pence:number)=>pence*(1-(data?.discount_percent||0)/100);
-  $: totalWithVat=(pence:number)=>discounted(pence)*(1+(data?.vat_percent||0)/100);
+  $: discounted=(pence:number)=>subscriptionPrice(pence,data?.discount_percent||0,data?.vat_percent||0).beforeVat;
+  $: totalWithVat=(pence:number)=>subscriptionPrice(pence,data?.discount_percent||0,data?.vat_percent||0).total;
+  $: undiscountedTotal=(pence:number)=>subscriptionPrice(pence,0,data?.vat_percent||0).total;
   $: invoices=data?.invoices.filter(row=>invoiceKind==='all'||row.kind===invoiceKind)||[];
   $: months=[...new Set(data?.invoices.map(row=>row.month)||[])].sort().slice(-12);
   $: paidMonths=months.map(month=>(data?.invoices.filter(row=>row.month===month).reduce((sum,row)=>sum+row.paid,0)||0)/100);
@@ -61,7 +66,7 @@
   async function read(path:string, body?:Record<string,unknown>, signal?:AbortSignal){
     const response=await fetch(apiPrefix+'/billing/'+path+(path.includes('?')?'&':'?')+'tenant='+encodeURIComponent(tenant),{credentials:'same-origin',signal,...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
     const result=await response.json();
-    if(!response.ok)throw new Error(String(result.error||'Billing request failed').replaceAll('_',' '));
+    if(!response.ok)throw new Error(subscriptionError(String(result.error||'')));
     return result;
   }
   async function refresh(){
@@ -71,7 +76,7 @@
       const result=await read('subscription',undefined,request.signal);
       if(disposed||controller!==request||request.signal.aborted)return;
       data=result;if(isPlatform)void listCompanies();
-    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'Billing loading timed out. Try refreshing.':failure instanceof Error?failure.message:'Billing unavailable';}
+    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'Billing loading timed out. Try refreshing.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
   }
   async function listCompanies(){
@@ -80,8 +85,8 @@
     try{
       const result=await read('companies?page='+page+'&search='+encodeURIComponent(search),undefined,request.signal);
       if(disposed||companyController!==request||request.signal.aborted)return;
-      companies=result.companies;companyCount=result.total;hasNext=result.has_next;
-    }catch(failure){if(!disposed&&companyController===request)error=request.signal.aborted?'Company loading timed out. Try searching again.':failure instanceof Error?failure.message:'Companies unavailable';}
+      companies=result.companies;companyCount=result.matched??result.total;hasNext=result.has_next;
+    }catch(failure){if(!disposed&&companyController===request)error=request.signal.aborted?'Company loading timed out. Try searching again.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&companyController===request){companyBusy=false;companyController=undefined;}}
   }
   async function action(path:string,body:Record<string,unknown>){
@@ -95,92 +100,96 @@
       if(path==='discount')discountCode='';
       message=path==='discount'?'Discount saved for this business. It applies automatically to the platform subscription and implementation. Existing invoices are unchanged.':path==='select-plan'?'Plan selected. Subscribe and pay its one-time setup to activate your business.':path==='cancel-checkout'?'Pending unpaid checkout cancelled. Paid setup and existing subscriptions remain unchanged.':path==='whatsapp'?'WhatsApp setting saved.':'Saved. Payment status updates after Stripe confirms it.';
       await refresh();
-    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'The billing update could not be confirmed. Refresh payments before trying again.':failure instanceof Error?failure.message:'Update failed';}
+    }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'The billing update could not be confirmed. Refresh payments before trying again.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
   }
   onMount(refresh);onDestroy(()=>{disposed=true;controller?.abort();companyController?.abort();});
 </script>
 
-<section class="billing" aria-label="Subscription and payments">
+<section class="billing" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-label={$t('Subscription and payments')}>
   {#if isPlatform}
-  <article class="panel"><header><div><h2>All company subscriptions</h2><p>{companyCount} companies on your platform, including those without a subscription.</p></div></header>
-    <form class="controls" on:submit|preventDefault={()=>{page=1;listCompanies();}}><label>Find a company<input bind:value={search} placeholder="Company name or key"/></label><button disabled={busy||companyBusy}>{$t("Search")}</button></form>
-    <div class="company-list">{#each companies as company}{@const alerts=company.allowance?.alerts||[]}{@const companyPlan=data?.plans?.find(plan=>plan.id===company.plan_state?.active_plan)}<button class:chosen={company.key===tenant} on:click={()=>dispatch('company',company.key)}><strong>{company.name} · {company.key}{#if companyPlan}<small class="company-plan">{companyPlan.name} plan</small>{/if}{#if alerts.length}<small class="company-alert">{alerts.length} usage alert{alerts.length===1?'':'s'} · {alerts[0].message}</small>{/if}</strong><span>{company.contracts.find(row=>row.kind==='platform')?.status||'Not subscribed'}</span><span>{money(company.totals.due)} outstanding · {money(company.totals.paid)} paid</span></button>{/each}</div>
-    {#if companyBusy}<p role="status">Loading companies…</p>{/if}
-    <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>Previous</button><span>Page {page}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>Next</button></div>
+  <article class="panel"><header><div><h2>{$t('All company subscriptions')}</h2><p>{$t('{count} companies on your platform, including those without a subscription.',{count:count(companyCount)})}</p></div></header>
+    <form class="controls" on:submit|preventDefault={()=>{page=1;listCompanies();}}><label>{$t('Find a company')}<input bind:value={search} placeholder={$t('Company name or key')}/></label><button disabled={busy||companyBusy}>{$t('Search')}</button></form>
+    <div class="company-list">{#each companies as company}{@const alerts=company.allowance?.alerts||[]}{@const companyPlan=data?.plans?.find(plan=>plan.id===company.plan_state?.active_plan)}<button class:chosen={company.key===tenant} on:click={()=>dispatch('company',company.key)}><strong><bdi>{company.name} · {company.key}</bdi>{#if companyPlan}<small class="company-plan">{$t('{plan} plan',{plan:companyPlan.name})}</small>{/if}{#if alerts.length}<small class="company-alert">{$t('{count} usage alerts',{count:count(alerts.length)})} · {usageAlert(alerts[0])}</small>{/if}</strong><span>{status(company.contracts.find(row=>row.kind==='platform')?.status)}</span><span>{$t('{due} outstanding · {paid} paid',{due:money(company.totals.due),paid:money(company.totals.paid)})}</span></button>{/each}</div>
+    {#if companyBusy}<p role="status">{$t('Loading companies…')}</p>{/if}
+    <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>{$t('Previous')}</button><span>{$t('Page {page}',{page:count(page)})}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>{$t('Next')}</button></div>
   </article>
   {/if}
-  <header><div><h2>{tenant} · subscription &amp; payments</h2><p>Monthly billing in pounds, with a separate one-time setup. VAT is shown before payment.</p></div><div class="controls">{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>Manage payments in Stripe</button>{/if}<button disabled={busy} on:click={refresh}>Refresh payments</button></div></header>
-  {#if error}<p class="notice error" role="alert">{error}</p>{/if}{#if message}<p class="notice" role="status">{message}</p>{/if}
-  {#if busy}<p class="notice loading" role="status">Updating billing…</p>{/if}
+  <header><div><h2><bdi>{tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t('Monthly billing in pounds, with a separate one-time setup. VAT-inclusive totals appear below each price and before payment.')}</p></div><div class="controls">{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
+  {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
+  {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
-    {#if !canManageBilling}<p class="notice">Read-only access. Your business owner manages payments and subscriptions.</p>{/if}
-    {#if !data.configured && !data.internal}<p class="notice">Stripe payments are not connected yet. {isPlatform?'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.':'Your platform administrator needs to connect payments.'} No payment has been taken.</p>{/if}
-    {#if data.internal}<p class="notice">Internal website agent. This platform-owned workspace does not need a customer subscription.</p>{/if}
+    {#if !canManageBilling}<p class="notice">{$t('Read-only access. Your business owner manages payments and subscriptions.')}</p>{/if}
+    {#if !data.configured && !data.internal}<p class="notice">{$t('Stripe payments are not connected yet.')} {$t(isPlatform?'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.':'Your platform administrator needs to connect payments.')} {$t('No payment has been taken.')}</p>{/if}
+    {#if data.internal}<p class="notice">{$t('Internal website agent. This platform-owned workspace does not need a customer subscription.')}</p>{/if}
     {#if canManageBilling && !data.internal}
-      {#if data.discount_percent}<p class="notice">{data.discount_percent}% discount saved. Platform renewals keep this discount automatically; it also applies to your implementation checkout. No need to enter the code again.</p>
-      {:else}<details class="panel"><summary>Have a discount code?</summary><form on:submit|preventDefault={()=>action('discount',{code:discountCode})}><label>Discount code<input bind:value={discountCode} maxlength="100" autocomplete="off" spellcheck="false" required /></label><button disabled={busy||!discountCode.trim()}>Apply to this business</button></form></details>{/if}
+      {#if data.discount_percent}<p class="notice">{$t('{percent}% discount saved. Platform renewals keep this discount automatically; it also applies to your setup checkout. Existing invoices are unchanged.',{percent:count(data.discount_percent)})}</p>
+      {:else}<details class="panel"><summary>{$t('Have a discount code?')}</summary><form on:submit|preventDefault={()=>action('discount',{code:discountCode})}><label>{$t('Discount code')}<input bind:value={discountCode} maxlength="100" autocomplete="off" spellcheck="false" required /></label><button disabled={busy||!discountCode.trim()}>{$t('Apply to this business')}</button></form></details>{/if}
     {/if}
     {#if !legacyBilling && !data.internal}
       <div class="cards plans tiered-plans">
         {#each data.plans||[] as plan}
           <article class="panel" class:selected={selectedPlan?.id===plan.id}>
-            <p class="plan-audience">{plan.audience}</p><div class="plan-title"><h3>{plan.name}</h3>{#if activePlan?.id===plan.id}<span class="plan-badge">Current plan</span>{:else if selectedPlan?.id===plan.id}<span class="plan-badge">Selected</span>{/if}</div>
-            <strong class="price">{money(discounted(plan.monthly_pence))}<small>per month before VAT</small></strong>
-            <p class="setup-price">{money(discounted(plan.setup_pence))} one-time setup</p>
-            <ul class="plan-features"><li>Website and WhatsApp agents</li><li>{count(plan.website_conversations)} website conversations / month</li><li>{count(plan.whatsapp_messages)} WhatsApp messages / month</li><li>{money(plan.ai_budget_pence)} AI API-cost budget / month</li><li>{plan.locations} location{plan.locations===1?'':'s'} / service area{plan.locations===1?'':'s'}</li><li>{plan.staff} staff accounts, plus the owner</li><li>{plan.analytics} analytics · {plan.api_access} API access</li><li>{plan.onboarding} onboarding support</li></ul>
-            <button disabled={!canManageBilling||busy||planLocked||checkoutPending||selectedPlan?.id===plan.id} on:click={()=>action('select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?'Current subscription':selectedPlan?.id===plan.id?'Selected':'Choose '+plan.name}</button>
+            <p class="plan-audience">{$t(plan.audience)}</p><div class="plan-title"><h3><bdi>{plan.name}</bdi></h3>{#if activePlan?.id===plan.id}<span class="plan-badge">{$t('Current plan')}</span>{:else if selectedPlan?.id===plan.id}<span class="plan-badge">{$t('Selected')}</span>{/if}</div>
+            <strong class="price"><bdi>{money(discounted(plan.monthly_pence))}</bdi><small>{$t('per month before VAT')}</small></strong>
+            <p class="tax-total">{$t('{price} / month including {percent}% VAT',{price:money(totalWithVat(plan.monthly_pence)),percent:count(data.vat_percent)})}</p>
+            <p class="setup-price">{$t('{price} one-time setup before VAT',{price:money(discounted(plan.setup_pence))})}<small class="tax-total">{$t('{price} setup including {percent}% VAT',{price:money(totalWithVat(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>
+            <ul class="plan-features"><li>{$t('Website and WhatsApp agents')}</li><li>{$t('{count} website conversations / month',{count:count(plan.website_conversations)})}</li><li>{$t('AI processing paid separately with prepaid usage credit')}</li><li>{$t('{count} locations / service areas',{count:count(plan.locations)})}</li><li>{$t('{count} staff accounts, plus the owner',{count:count(plan.staff)})}</li><li>{$t('{analytics} analytics · {access} API access',{analytics:$t(plan.analytics),access:$t(plan.api_access)})}</li><li>{$t('{support} onboarding support',{support:$t(plan.onboarding)})}</li></ul>
+            <button disabled={!canManageBilling||busy||planLocked||checkoutPending||selectedPlan?.id===plan.id} on:click={()=>action('select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?$t('Current subscription'):selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>
           </article>
         {/each}
       </div>
-      <p>Analytics and API labels describe plan service levels. Access to business data and tools still follows your account permissions.</p>
-      {#if planLocked}<p class="notice">Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.</p>{/if}
+      <p class="notice">{$t('WhatsApp phone numbers are not included. Bring a suitable business number or obtain one from a provider. Number rental and Meta/provider messaging charges are paid separately and are not covered by V7 usage credit.')}</p>
+      <p>{$t('Analytics and API labels describe plan service levels. Access to business data and tools still follows your account permissions.')}</p>
+      {#if planLocked}<p class="notice">{$t('Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.')}</p>{/if}
       {#if checkoutPending}
-        <div class="notice"><p>An unpaid checkout is open for {selectedPlan?.name||'your selected plan'}. Continue with this plan below{#if !planLocked}, or cancel the pending checkout before choosing another plan{/if}.{#if data.plan_state?.checkout_expires} It expires {new Date(data.plan_state.checkout_expires*1000).toLocaleString('en-GB')}.{/if}</p>{#if canManageBilling}<button disabled={busy||!data.configured} on:click={()=>action('cancel-checkout',{})}>Cancel pending checkout</button>{/if}</div>
+        <div class="notice"><p>{$t('An unpaid checkout is open for {plan}. Continue with this plan below.',{plan:selectedPlan?.name||$t('your selected plan')})}{#if !planLocked} {$t('Cancel the pending checkout before choosing another plan.')}{/if}{#if data.plan_state?.checkout_expires} {$t('It expires {date} (UTC).',{date:dateTime(data.plan_state.checkout_expires)})}{/if}</p>{#if canManageBilling}<button disabled={busy||!data.configured} on:click={()=>action('cancel-checkout',{})}>{$t('Cancel pending checkout')}</button>{/if}</div>
       {/if}
       {#if selectedPlan}
         <div class="cards">
-          <article class="panel"><h3>{selectedPlan.name} subscription</h3><p>{money(totalWithVat(selectedPlan.monthly_pence))}/month including {data.vat_percent}% VAT.</p><p>Status: <b>{baseContract?.status||'Not subscribed'}</b></p><p>Next payment: {baseContract?.cancel_at_end?'Renewal cancelled':date(baseContract?.next_due)}</p>{#if !baseContract||['not_started','canceled','incomplete_expired'].includes(baseContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'platform',plan_id:selectedPlan?.id})}>Subscribe to {selectedPlan.name}</button>{/if}</article>
-          <article class="panel"><h3>One-time setup</h3><p>{money(totalWithVat(setupPlan?.setup_pence||selectedPlan.setup_pence))} including {data.vat_percent}% VAT. Separate checkout and invoice; setup does not repeat with renewals.</p>{#if implementationPaid}<p><b>Setup paid.</b></p>{:else}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'implementation',plan_id:setupPlan?.id||selectedPlan?.id})}>Pay {setupPlan?.name||selectedPlan.name} setup</button>{/if}</article>
-          <article class="panel"><h3>WhatsApp · included</h3><p>{count((activePlan||selectedPlan).whatsapp_messages)} incoming customer messages per calendar month. Connect your provider in the WhatsApp section; provider charges, if any, are separate.</p><p>{data.plan_state?.whatsapp_paused?'Paused by your business':data.whatsapp_enabled?'Enabled':'Available after activation'}</p><button disabled={!canManageBilling||busy||!activePlan} on:click={()=>action('whatsapp',{enabled:Boolean(data?.plan_state?.whatsapp_paused)})}>{data.plan_state?.whatsapp_paused?'Enable WhatsApp':'Pause WhatsApp'}</button></article>
+          <article class="panel"><h3>{$t('{plan} subscription',{plan:selectedPlan.name})}</h3><p>{$t('{price} / month including {percent}% VAT',{price:money(totalWithVat(selectedPlan.monthly_pence)),percent:count(data.vat_percent)})}</p><p>{$t('Status')}: <b>{status(baseContract?.status)}</b></p><p>{$t('Next payment')}: {baseContract?.cancel_at_end?$t('Renewal cancelled'):date(baseContract?.next_due)}</p>{#if !baseContract||['not_started','canceled','incomplete_expired'].includes(baseContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'platform',plan_id:selectedPlan?.id})}>{$t('Subscribe to {plan}',{plan:selectedPlan.name})}</button>{/if}</article>
+          <article class="panel"><h3>{$t('One-time setup')}</h3><p>{$t('{price} setup including {percent}% VAT',{price:money(totalWithVat(setupPlan?.setup_pence||selectedPlan.setup_pence)),percent:count(data.vat_percent)})}</p><p>{$t('Separate checkout and invoice; setup does not repeat with renewals.')}</p>{#if implementationPaid}<p><b>{$t('Setup paid.')}</b></p>{:else}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'implementation',plan_id:setupPlan?.id||selectedPlan?.id})}>{$t('Pay {plan} setup',{plan:setupPlan?.name||selectedPlan.name})}</button>{/if}</article>
+          <article class="panel"><h3>{$t('WhatsApp · included')}</h3><p>{$t('Website and WhatsApp AI replies share a separate prepaid usage-credit balance. Incoming message counts are activity records, not a separate message-count allowance.')}</p><p>{$t('Phone numbers and Meta/provider charges are not included. Connect your own provider and business number in the WhatsApp section.')}</p><p>{data.plan_state?.whatsapp_paused?$t('Paused by your business'):data.whatsapp_enabled?$t('Enabled'):$t('Available after activation')}</p><button disabled={!canManageBilling||busy||!activePlan} on:click={()=>action('whatsapp',{enabled:Boolean(data?.plan_state?.whatsapp_paused)})}>{data.plan_state?.whatsapp_paused?$t('Enable WhatsApp'):$t('Pause WhatsApp')}</button></article>
         </div>
-      {:else}<p class="notice">Choose a plan to see its subscription and setup checkout. Selecting a plan does not take a payment.</p>{/if}
+      {:else}<p class="notice">{$t('Choose a plan to see its subscription and setup checkout. Selecting a plan does not take a payment.')}</p>{/if}
     {/if}
     {#if data.allowance}
-      <article class="panel usage-panel"><header><div><h2>Monthly allowances</h2><p>{data.allowance.month} · resets at the start of the next calendar month in UTC.</p></div><span class="plan-badge">Pause at the limit</span></header>
-        {#each data.allowance.alerts||[] as alert}<p class="notice error usage-alert" role="alert">{alert.message}</p>{/each}
+      {@const website=data.allowance.website_conversations}
+      <article class="panel usage-panel"><header><div><h2>{$t('Monthly allowances')}</h2><p>{$t('{month} · resets at the start of the next calendar month in UTC.',{month:month(data.allowance.month)})}</p></div><span class="plan-badge">{$t('Pause at the limit')}</span></header>
+        {#each data.allowance.alerts||[] as alert}<p class="notice error usage-alert" role="alert">{usageAlert(alert)}</p>{/each}
         <div class="cards usage-cards">
-          {#each [{label:'Website conversations',allowance:data.allowance.website_conversations},{label:'WhatsApp messages',allowance:data.allowance.whatsapp_messages}] as resource}
-            <div><h3>{resource.label}</h3><p class="usage-total"><strong>{count(resource.allowance.used)}</strong> / {count(resource.allowance.limit)}</p><progress value={resource.allowance.used} max={Math.max(1,resource.allowance.limit)} aria-label={resource.label+' used'}></progress><p>{resource.allowance.paused?(resource.label==='Website conversations'?'New conversations paused; existing sessions can continue.':'Paused — monthly allowance reached'):Math.max(0,resource.allowance.limit-resource.allowance.used)+' remaining this month'}</p></div>
-          {/each}
-          {#if canViewCosts && data.allowance.ai_budget}{@const budget=data.allowance.ai_budget}<div><h3>AI API-cost budget</h3><p class="usage-total"><strong>{money(budget.used_pence)}</strong> / {money(budget.limit_pence)}</p><progress value={ratio((budget.used_pence||0)+(budget.reserved_pence||0),budget.limit_pence)} max="100" aria-label="Estimated AI budget used or reserved"></progress>{#if budget.reserved_pence}<p>{money(budget.reserved_pence)} reserved for calls awaiting a confirmed cost.</p>{/if}<p>{budget.paused?'Paid AI calls paused; see the alert above. Saved knowledge remains available.':'Estimated recorded cost. Provider availability still applies.'}</p></div>{/if}
+          <div><h3>{$t('Website conversations')}</h3><p class="usage-total"><strong><bdi>{count(website.used)}</bdi></strong> / <bdi>{count(website.limit)}</bdi></p><progress value={website.used} max={Math.max(1,website.limit)} aria-label={$t('Website conversations used')}></progress><p>{website.paused?$t('New conversations paused; existing sessions can continue.'):$t('{count} remaining this month',{count:count(Math.max(0,website.limit-website.used))})}</p></div>
+          <div><h3>{$t('WhatsApp activity')}</h3><p class="usage-total"><strong><bdi>{count(data.allowance.whatsapp_messages.used)}</bdi></strong></p><p>{$t('Incoming customer messages this month. Activity only — not a message-count allowance.')}</p></div>
         </div>
-        <p>Website allowances count distinct chat sessions used in the month; at the limit new sessions pause while existing sessions can continue. WhatsApp allowances count incoming customer messages. Pauses create an administrator alert. No top-ups or automatic extra charges are enabled.</p>
+        <p>{$t('Website allowances count distinct chat sessions; new sessions pause at the limit while existing sessions continue. Paid AI replies use separate prepaid credit. Low or insufficient credit creates an administrator alert; saved-knowledge replies remain available. There are no automatic extra charges.')}</p>
       </article>
     {/if}
+    {#if !data.internal}
+      {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
+    {/if}
     {#if legacyBilling}
-    <p class="notice">Existing subscription pricing. Your recorded contract and invoices keep their original terms; the new plans do not automatically change them.</p>
+    <p class="notice">{$t('Existing subscription pricing. Your recorded contract and invoices keep their original terms; the new plans do not automatically change them.')}</p>
     <div class="cards plans">
-      <article class="panel"><h3>Platform subscription</h3><strong class="price">{money(40000*(1-data.discount_percent/100))} <small>/ month before VAT</small></strong><p>{money(8000*(1-data.discount_percent/100))} VAT · <b>{money(48000*(1-data.discount_percent/100))}/month total</b></p><p>Your website sales agent and business workspace. This checkout charges only the monthly plan. Implementation, optional WhatsApp and API usage are paid separately.</p><p>Status: {baseContract?.status||'Not subscribed'}</p><p>Next payment: {baseContract?.cancel_at_end?'Renewal cancelled':date(baseContract?.next_due)}</p>{#if !baseContract||['not_started','canceled','incomplete_expired'].includes(baseContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'platform'})}>Subscribe · {money(48000*(1-data.discount_percent/100))}/month inc. VAT</button>{/if}</article>
-      <article class="panel"><h3>{$t("Implementation")}</h3><strong class="price">{money(20000*(1-data.discount_percent/100))} <small>one time before VAT</small></strong><p>{money(4000*(1-data.discount_percent/100))} VAT · <b>{money(24000*(1-data.discount_percent/100))} total</b></p><p>Initial business and agent setup. Paid once through its own checkout and invoice; never added to your monthly renewal.</p>{#if implementationPaid}<p><b>Paid — no further implementation payment needed.</b></p>{:else}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'implementation'})}>Pay implementation · {money(24000*(1-data.discount_percent/100))} inc. VAT</button>{/if}</article>
-      <article class="panel"><h3>WhatsApp add-on · optional</h3><strong class="price">£200 <small>/ month before VAT</small></strong><p>£40 VAT · <b>£240/month total</b></p><p>Choose this only if you want your agent on WhatsApp. It has a separate subscription and requires a configured WhatsApp provider connection. Website chat works without it.</p><p>{waContract?(waContract.paused?'Deactivated':waContract.status==='active'?'Active':'Payment pending'):'Not subscribed'}</p><p>{waContract?.cancel_at_end?'Paid-through date: ':'Next payment: '}{date(waContract?.next_due)}</p>
-        {#if waContract&&['active','trialing'].includes(waContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('whatsapp',{enabled:Boolean(waContract?.paused)})}>{waContract.paused?'Reactivate WhatsApp & renewals':'Deactivate WhatsApp & stop renewals'}</button>
-        {:else}<button disabled={!canManageBilling||busy||!data.configured||baseContract?.status!=='active'} on:click={()=>action('checkout',{kind:'whatsapp'})}>Add WhatsApp · £240/month inc. VAT</button>{#if baseContract?.status!=='active'}<p>Available after your platform subscription is active.</p>{/if}{/if}
-        <p>Deactivation stops the bot immediately and ends renewals at the paid-through date. It does not automatically refund an existing invoice.</p>
+      <article class="panel"><h3>{$t('Platform subscription')}</h3><strong class="price"><bdi>{money(discounted(40000))}</bdi><small>{$t('per month before VAT')}</small></strong><p class="tax-total">{$t('{price} / month including {percent}% VAT',{price:money(totalWithVat(40000)),percent:count(data.vat_percent)})}</p><p>{$t('Your website sales agent and business workspace. This checkout charges only the monthly plan. Setup, optional WhatsApp and API usage are paid separately.')}</p><p>{$t('Status')}: {status(baseContract?.status)}</p><p>{$t('Next payment')}: {baseContract?.cancel_at_end?$t('Renewal cancelled'):date(baseContract?.next_due)}</p>{#if !baseContract||['not_started','canceled','incomplete_expired'].includes(baseContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'platform'})}>{$t('Subscribe · {price}/month including VAT',{price:money(totalWithVat(40000))})}</button>{/if}</article>
+      <article class="panel"><h3>{$t('Implementation')}</h3><strong class="price"><bdi>{money(discounted(20000))}</bdi><small>{$t('one time before VAT')}</small></strong><p class="tax-total">{$t('{price} setup including {percent}% VAT',{price:money(totalWithVat(20000)),percent:count(data.vat_percent)})}</p><p>{$t('Initial business and agent setup. Paid once through its own checkout and invoice; never added to your monthly renewal.')}</p>{#if implementationPaid}<p><b>{$t('Paid — no further implementation payment needed.')}</b></p>{:else}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'implementation'})}>{$t('Pay implementation · {price} including VAT',{price:money(totalWithVat(20000))})}</button>{/if}</article>
+      <article class="panel"><h3>{$t('WhatsApp add-on · optional')}</h3><strong class="price"><bdi>{money(20000)}</bdi><small>{$t('per month before VAT')}</small></strong><p class="tax-total">{$t('{price} / month including {percent}% VAT',{price:money(undiscountedTotal(20000)),percent:count(data.vat_percent)})}</p><p>{$t('Choose this only if you want your agent on WhatsApp. It has a separate subscription and requires a configured WhatsApp provider connection. Website chat works without it.')}</p><p>{$t('Phone numbers and Meta/provider charges are not included. Connect your own provider and business number in the WhatsApp section.')}</p><p>{waContract?(waContract.paused?$t('Deactivated'):status(waContract.status)):status(undefined)}</p><p>{$t(waContract?.cancel_at_end?'Paid-through date':'Next payment')}: {date(waContract?.next_due)}</p>
+        {#if waContract&&['active','trialing'].includes(waContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('whatsapp',{enabled:Boolean(waContract?.paused)})}>{waContract.paused?$t('Reactivate WhatsApp & renewals'):$t('Deactivate WhatsApp & stop renewals')}</button>
+        {:else}<button disabled={!canManageBilling||busy||!data.configured||baseContract?.status!=='active'} on:click={()=>action('checkout',{kind:'whatsapp'})}>{$t('Add WhatsApp · {price}/month including VAT',{price:money(undiscountedTotal(20000))})}</button>{#if baseContract?.status!=='active'}<p>{$t('Available after your platform subscription is active.')}</p>{/if}{/if}
+        <p>{$t('Deactivation stops the bot immediately and ends renewals at the paid-through date. It does not automatically refund an existing invoice.')}</p>
       </article>
     </div>
     {/if}
-    <div class="cards summaries"><article class="panel"><h3>Total paid</h3><strong class="price">{money(data.totals.paid)}</strong><p>Recorded invoice payments, before refunds.</p></article><article class="panel"><h3>Total payment due</h3><strong class="price">{money(data.totals.due+data.totals.approved_api_due)}</strong><p>Open invoices including VAT.{#if canViewCosts} Approved API charges awaiting checkout: {money(data.totals.approved_api_due)}.{/if}</p></article><article class="panel"><h3>Regular monthly price</h3><strong class="price">{data.internal?'Internal workspace':baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?24000:0)):'Not subscribed'}</strong><p>Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.</p></article></div>
-    {#if months.length}<TrendChart title="Recorded payments by invoice month" labels={months} unit="GBP" series={[{name:'Paid',values:paidMonths,color:'#087f5b'},{name:'Outstanding',values:dueMonths,color:'#bd5b28'}]}/>{/if}
-    <article class="panel"><header><div><h2>Payment history</h2><p>Previous subscription, implementation, WhatsApp and API invoices. Older platform invoices may include implementation. Showing the latest 120 recorded invoices.</p></div><label>Show<select bind:value={invoiceKind} on:change={()=>invoicePage=1}><option value="all">All charges</option><option value="platform">Platform subscription</option><option value="implementation">{$t("Implementation")}</option><option value="whatsapp">WhatsApp</option>{#if canViewCosts}<option value="api">API usage</option>{/if}</select></label></header>
+    <div class="cards summaries"><article class="panel"><h3>{$t('Total paid')}</h3><strong class="price"><bdi>{money(data.totals.paid)}</bdi></strong><p>{$t('Recorded invoice payments, before refunds.')}</p></article><article class="panel"><h3>{$t('Total payment due')}</h3><strong class="price"><bdi>{money(data.totals.due+data.totals.approved_api_due)}</bdi></strong><p>{$t('Open invoices including VAT.')}{#if canViewCosts} {$t('Approved API charges awaiting checkout: {price}.',{price:money(data.totals.approved_api_due)})}{/if}</p></article><article class="panel"><h3>{$t('Regular monthly price')}</h3><strong class="price">{data.internal?$t('Internal workspace'):baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?undiscountedTotal(20000):0)):status(undefined)}</strong><p>{$t('Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.')}</p></article></div>
+    {#if months.length}<TrendChart title={$t('Recorded payments by invoice month')} labels={months.map(month)} unit="GBP" series={[{name:$t('Paid'),values:paidMonths,color:'#087f5b'},{name:$t('Outstanding'),values:dueMonths,color:'#bd5b28'}]} {locale} notRecordedLabel={$t('Not recorded')} periodLabel={$t('Period (UTC)')} figuresLabel={$t('View figures')} exactValuesLabel={$t('Exact values in the table below')} figuresRegionLabel={$t('Recorded payment figures')}/>{/if}
+    <article class="panel"><header><div><h2>{$t('Payment history')}</h2><p>{$t('Previous subscription, setup, WhatsApp and API invoices. Older platform invoices may include setup. Showing the latest 120 recorded invoices.')}</p></div><label>{$t('Show')}<select bind:value={invoiceKind} on:change={()=>invoicePage=1}><option value="all">{$t('All charges')}</option><option value="platform">{$t('Platform subscription')}</option><option value="implementation">{$t('Implementation')}</option><option value="whatsapp">WhatsApp</option>{#if canViewCosts}<option value="api">{$t('API usage')}</option>{/if}</select></label></header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
-      <div class="scroll" role="region" aria-label="Payment history" tabindex="0"><table><thead><tr><th>Month</th><th>Charge</th><th>Status</th><th>Total inc. VAT</th><th>Paid</th><th>Remaining</th><th>Invoice</th></tr></thead><tbody>{#each invoices.slice((invoicePage-1)*12,invoicePage*12) as invoice}<tr><td>{invoice.month}</td><td>{name(invoice.kind)}<details><summary>Line items before VAT</summary>{#each invoice.lines as line}<p>{line.description} · {money(line.amount)}</p>{/each}</details></td><td><span class="invoice-status" class:paid={invoice.status==='paid'}>{invoice.status}</span></td><td>{money(invoice.total)}</td><td>{money(invoice.paid)}</td><td>{money(invoice.remaining)}</td><td>{#if invoice.url}<a href={invoice.url} target="_blank" rel="noopener noreferrer">{invoice.status==='open'?'Pay invoice':'View invoice'}</a>{:else}Pending{/if}</td></tr>{:else}<tr><td colspan="7">No invoices recorded yet. A checkout redirect alone does not mark an invoice as paid.</td></tr>{/each}</tbody></table></div>
-      <div class="controls"><button disabled={invoicePage===1} on:click={()=>invoicePage--}>Previous invoices</button><span>Page {invoicePage}</span><button disabled={invoicePage*12>=invoices.length} on:click={()=>invoicePage++}>Next invoices</button></div>
+      <div class="scroll" role="region" aria-label={$t('Payment history')} tabindex="0"><table><thead><tr><th>{$t('Month')}</th><th>{$t('Charge')}</th><th>{$t('Status')}</th><th>{$t('Total inc. VAT')}</th><th>{$t('Paid')}</th><th>{$t('Remaining')}</th><th>{$t('Invoice')}</th></tr></thead><tbody>{#each invoices.slice((invoicePage-1)*12,invoicePage*12) as invoice}<tr><td>{month(invoice.month)}</td><td>{name(invoice.kind)}<details><summary>{$t('Line items before VAT')}</summary>{#each invoice.lines as line}<p><bdi>{line.description}</bdi> · <bdi>{money(line.amount)}</bdi></p>{/each}</details></td><td><span class="invoice-status" class:paid={invoice.status==='paid'}>{status(invoice.status)}</span></td><td><bdi>{money(invoice.total)}</bdi></td><td><bdi>{money(invoice.paid)}</bdi></td><td><bdi>{money(invoice.remaining)}</bdi></td><td>{#if invoice.url}<a href={invoice.url} target="_blank" rel="noopener noreferrer">{$t(invoice.status==='open'?'Pay invoice':'View invoice')}</a>{:else}{$t('Pending')}{/if}</td></tr>{:else}<tr><td colspan="7">{$t('No invoices recorded yet. A checkout redirect alone does not mark an invoice as paid.')}</td></tr>{/each}</tbody></table></div>
+      <div class="controls"><button disabled={invoicePage===1} on:click={()=>invoicePage--}>{$t('Previous invoices')}</button><span>{$t('Page {page}',{page:count(invoicePage)})}</span><button disabled={invoicePage*12>=invoices.length} on:click={()=>invoicePage++}>{$t('Next invoices')}</button></div>
     </article>
-    {#if canViewCosts}<article class="panel"><h2>{legacyBilling?'API usage · existing billing terms':'AI usage records'}</h2>{#if legacyBilling}<p>AI API usage under the existing subscription is billed separately. Your platform administrator reviews each completed month and approves the charge before a separate checkout and invoice.</p>{:else if data.internal}<p>Recorded model usage for the internal agent. Provider funding and availability still apply.</p>{:else}<p>Your plan includes an AI API-cost budget. Paid AI calls pause when that budget is reached; no extra usage charge is created automatically. Any older approved charges remain visible below.</p>{/if}<p>Usage estimates are not invoices. Estimates use recorded model usage and an exchange rate; missing usage is not treated as free.</p>
+    {#if canViewCosts}<article class="panel"><h2>{$t('AI usage records')}</h2>{#if data.internal}<p>{$t('Recorded model usage for the internal agent. Provider funding and availability still apply.')}</p>{:else}<p>{$t('Paid AI processing uses separate prepaid credit for website and WhatsApp replies. When credit cannot cover a request, paid AI pauses; no extra charge is created automatically. Any older approved charges remain visible below.')}</p>{/if}<p>{$t('Usage estimates are not invoices. Estimates use recorded model usage and an exchange rate; missing usage is not treated as free.')}</p>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
-      <div class="scroll" role="region" aria-label="API usage charges" tabindex="0"><table><thead><tr><th>Month</th><th>Recorded calls</th><th>Estimated cost</th><th>Approved before VAT</th><th>Payment</th></tr></thead><tbody>{#each [...new Set([...data.usage.map(row=>row.month),...data.approved_api_charges.map(row=>row.month)])].sort().reverse() as month}{@const usage=data.usage.find(row=>row.month===month)}{@const charge=data.approved_api_charges.find(row=>row.month===month)}{@const invoice=data.invoices.find(row=>row.month===month&&row.kind==='api')}<tr><td>{month}</td><td>{usage?.calls??'Not recorded'}</td><td>{money(usage?.estimated_pence)}{#if usage?.unpriced}<small>{usage.unpriced} unpriced calls</small>{/if}</td><td>{charge?money(charge.amount):'Not approved'}</td><td>{#if invoice}<span>{invoice.status} · {money(invoice.paid)} paid</span>{:else if charge}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'api',month})}>Pay API charge</button>{:else}Not invoiced{/if}</td></tr>{:else}<tr><td colspan="5">No API usage or approved charges recorded.</td></tr>{/each}</tbody></table></div>
-      {#if isPlatform && legacyBilling}<form class="controls" on:submit|preventDefault={()=>action('api-charge',{month:apiMonth,amount_pence:Math.round(Number(apiAmount)*100)})}><label>Completed usage month<input type="month" bind:value={apiMonth} required/></label><label>Approve charge before VAT (£)<input type="number" min="0.01" max="100000" step="0.01" bind:value={apiAmount} required/></label><button disabled={busy}>Approve monthly API charge</button><p>Review the provider bill first. Each month can be approved once.</p></form>{/if}
+      <div class="scroll" role="region" aria-label={$t('API usage charges')} tabindex="0"><table><thead><tr><th>{$t('Month')}</th><th>{$t('Recorded calls')}</th><th>{$t('Estimated cost')}</th><th>{$t('Approved before VAT')}</th><th>{$t('Payment')}</th></tr></thead><tbody>{#each [...new Set([...data.usage.map(row=>row.month),...data.approved_api_charges.map(row=>row.month)])].sort().reverse() as usageMonth}{@const usage=data.usage.find(row=>row.month===usageMonth)}{@const charge=data.approved_api_charges.find(row=>row.month===usageMonth)}{@const invoice=data.invoices.find(row=>row.month===usageMonth&&row.kind==='api')}<tr><td>{month(usageMonth)}</td><td>{usage?count(usage.calls):$t('Not recorded')}</td><td><bdi>{money(usage?.estimated_pence)}</bdi>{#if usage?.unpriced}<small>{$t('{count} unpriced calls',{count:count(usage.unpriced)})}</small>{/if}</td><td>{charge?money(charge.amount):$t('Not approved')}</td><td>{#if invoice}<span>{$t('{status} · {price} paid',{status:status(invoice.status),price:money(invoice.paid)})}</span>{:else if charge}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'api',month:usageMonth})}>{$t('Pay API charge')}</button>{:else}{$t('Not invoiced')}{/if}</td></tr>{:else}<tr><td colspan="5">{$t('No API usage or approved charges recorded.')}</td></tr>{/each}</tbody></table></div>
+
     </article>{/if}
   {/if}
 </section>
@@ -193,13 +202,14 @@
   .controls { justify-content:start; margin-top:18px; }
   header>.controls { margin-top:0; }
   .controls label { flex:1 1 180px; }
-  .controls>p { flex-basis:100%; margin:0; font-size:12px; }
   h2,h3 { margin:0 0 8px; letter-spacing:-.02em; }
   h2 { font-size:21px; }
   h3 { font-size:17px; }
   p { font-size:13px; color:var(--v7-muted,#64716d); line-height:1.65; margin:10px 0; }
   .price { display:block; font-size:30px; margin:16px 0 10px; letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
   .price small { font-size:12px; font-weight:400; display:block; margin-top:6px; color:var(--v7-muted); letter-spacing:0; }
+  .tax-total { display:block; margin:0 0 12px; font-size:13px; font-weight:600; color:var(--v7-ink); }
+  .setup-price .tax-total { margin:5px 0 0; font-size:12px; font-weight:500; }
   button,input,select { font:inherit; font-size:13px; max-width:100%; box-sizing:border-box; }
   button { padding:10px 14px; border:1px solid var(--v7-control-line,#c5d1cb); border-radius:8px; background:var(--v7-surface,#fff); color:var(--v7-ink); font-weight:600; cursor:pointer; min-height:44px; }
   button:hover:not(:disabled) { background:var(--v7-soft,#edf6f1); border-color:var(--v7-accent,#087f5b); }
@@ -210,7 +220,7 @@
   .loading { color:var(--v7-accent); }
   .error { background:#fff2f0; border-color:#f2d6d2; color:#9b332b; }
   .scroll { overflow-x:auto; max-width:100%; margin-top:18px; border:1px solid var(--v7-line); border-radius:8px; }
-  table { width:100%; border-collapse:collapse; text-align:left; font-size:13px; }
+  table { width:100%; border-collapse:collapse; text-align:start; font-size:13px; }
   th,td { padding:12px; border-bottom:1px solid var(--v7-line); vertical-align:top; line-height:1.55; font-variant-numeric:tabular-nums; }
   thead th { background:var(--v7-canvas,#f5f7f7); color:var(--v7-muted); font-size:12px; font-weight:600; white-space:nowrap; }
   tbody tr:last-child td { border-bottom:0; }
@@ -226,8 +236,8 @@
   details.panel form { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding-top:12px; }
   details.panel form label { flex:1 1 220px; max-width:400px; }
   .company-list { display:grid; gap:8px; margin-top:18px; }
-  .company-list button { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:12px; padding:12px 14px; text-align:left; }
-  .company-list button>span:last-child { text-align:right; }
+  .company-list button { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:12px; padding:12px 14px; text-align:start; }
+  .company-list button>span:last-child { text-align:end; }
   .company-list span { font-size:12px; color:var(--v7-muted); }
   .company-list button.chosen { background:var(--v7-soft,#edf6f1); border-color:var(--v7-accent); }
   .cards .panel { display:flex; flex-direction:column; align-items:flex-start; }
@@ -241,7 +251,7 @@
   .selected .plan-badge { background:var(--v7-surface,#fff); }
   .setup-price { margin-top:0; font-weight:600; }
   .plan-features { display:grid; gap:9px; list-style:none; padding:0; margin:15px 0 24px; font-size:12px; line-height:1.55; }
-  .plan-features li::before { content:'✓'; color:var(--v7-accent,#087f5b); margin-right:7px; }
+  .plan-features li::before { content:'✓'; color:var(--v7-accent,#087f5b); margin-inline-end:7px; }
   .usage-cards { margin-top:22px; gap:24px; }
   .usage-cards>div { min-width:0; }
   .usage-cards h3 { font-size:13px; }
@@ -257,6 +267,6 @@
   .summaries .price { margin:8px 0; font-size:28px; }
   .summaries p { font-size:12px; margin:4px 0 0; }
   :is(button,input,select,a,summary,.scroll):focus-visible { outline:3px solid var(--v7-accent,#087f5b); outline-offset:3px; }
-  @media(max-width:700px) { .company-list button { grid-template-columns:minmax(0,1fr) auto; } .company-list button>span:last-child { grid-column:1 / -1; text-align:left; } }
+  @media(max-width:700px) { .company-list button { grid-template-columns:minmax(0,1fr) auto; } .company-list button>span:last-child { grid-column:1 / -1; text-align:start; } }
   @media(max-width:600px) { .panel { padding:16px; } .controls label { width:100%; } header { align-items:start; } header>.controls { width:100%; } .price { font-size:27px; } }
 </style>

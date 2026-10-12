@@ -269,7 +269,14 @@ def api_tenants_post():
 @bp.get('/activation')
 def api_activation_get():
     from service.tenant_access import activation
-    return jsonify(activation(_tenant()))
+    from service.usage_wallet import report
+    tenant = _tenant()
+    result = activation(tenant)
+    # Operational notifications contain no balances, charges or token history.
+    # They use the same authenticated tenant resolution as the workspace.
+    result['usage_credit_alerts'] = ([] if result['status'] == 'platform_internal'
+                                      else report(tenant, include_costs=False)['alerts'])
+    return jsonify(result)
 
 
 @bp.get("/api-usage")

@@ -530,6 +530,7 @@ def transcribe_api():
             "invalid_audio": 400, "no_speech_detected": 422,
             "transcript_too_long": 422, "transcription_unavailable": 503,
             "ai_allowance_paused": 429, "audio_duration_unverified": 422,
+            "audio_decoder_unavailable": 503, "audio_decode_failed": 422, "audio_decode_timeout": 422,
         }.get(exc.code, 502)
         return _cors(jsonify(error=exc.code)), status
     return _cors(jsonify(text=transcript))

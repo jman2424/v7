@@ -23,11 +23,18 @@ The homepage product schema describes Starter, Business and Scale monthly plans.
 The shared `service/plan_catalog.py` supplies the website, checkout and dashboard
 prices: £99, £199 and £349/month before VAT, with separate one-time setup fees of
 £149, £299 and £599. Each schema offer identifies its monthly billing unit and
-excludes VAT, matching the visible cards. Both channels and the plan's usage
-allowances are included; provider availability and any provider charges still
-apply. Channel limits pause the affected service, and AI-budget limits pause
-paid model calls with saved-knowledge fallback. Website limits pause new sessions;
-existing sessions can continue. AI calls can pause before the budget is exhausted
+excludes VAT, matching the labelled base price in the visible cards. Monthly and
+setup totals including the catalogue's 20% VAT rate appear immediately beneath
+their base prices, where VAT applies; the final checkout total is authoritative.
+Both agent channels and the plan's website conversation allowance are included. WhatsApp phone
+numbers, number rental and provider messaging charges are not included.
+AI credit is purchased separately, with no included monthly processing budget.
+Prepaid packs provide £5, £20 or £50 of usable credit before VAT (£6, £24 or £60
+including 20% VAT, where applicable). One GBP balance covers paid processing
+across website and WhatsApp; it does not cover the WhatsApp provider's bill.
+Insufficient prepaid credit pauses paid model calls with saved-knowledge fallback.
+Website conversation limits remain separate and pause new sessions;
+existing sessions can continue. AI calls can pause before credit is exhausted
 if the next request cannot fit safely or its cost is unknown. The administrator
 receives persisted in-app alerts in the subscription view and platform company
 overview; no automatic extra charges are enabled. Basic/Advanced analytics and
