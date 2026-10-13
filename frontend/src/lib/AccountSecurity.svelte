@@ -151,6 +151,13 @@
     <h2>{$t('Account security')}</h2>
     <p>{$t('Manage how you sign in and which devices you trust.')}</p>
   </header>
+  <section class="security-card" aria-labelledby="two-factor-heading">
+    <div class="card-heading"><h3 id="two-factor-heading">{$t('Two-factor authentication')}</h3>
+      <p>{$t('An authenticator is required for every management account.')}</p></div>
+    <p>{$t('Set up your authenticator during your first sign-in: scan the QR code in your authenticator app and confirm its six-digit code.')}</p>
+    <p class="note">{$t('Password resets and email changes keep your authenticator enabled. Never share your setup key or verification codes.')}</p>
+    <p class="note">{$t('Lost access to your authenticator? Contact the platform operator for an identity-verified recovery. Resetting your password does not bypass two-factor authentication.')}</p>
+  </section>
   <PasswordManagement {tenant} {csrf} {apiPrefix}/>
   <EmailManagement {csrf} {apiPrefix}/>
   {#if teamUrl}<section class="security-card"><h3>{$t('Manage business accounts')}</h3><p>{$t('Add team accounts, manage access and reset team passwords for this company.')}</p><a href={teamUrl}>{$t('Open team account management')} →</a></section>{/if}

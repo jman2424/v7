@@ -53,3 +53,17 @@ also changes its email-based account ID; tenant account IDs stay immutable.
 Render's former URL and the official domain use the same deployed account store.
 Domain changes require a fresh browser sign-in, not an account import. Saved
 browser-password entries for different routes are not separate V7 accounts.
+
+## Email delivery
+
+Resend uses authenticated HTTPS with certificate verification and a bounded
+response size; both security message types require an accepted provider email ID.
+One retry is allowed for a transport failure or server error, reusing the exact
+message and idempotency key to prevent duplicates. Certificate failures, rate
+limits and permanent API errors are not retried automatically. Codes and provider
+credentials are never logged. Accepted sending is distinct from delivery or inbox
+placement; use provider delivery events to verify a real recipient's result.
+
+A username-only account has no mailbox for password recovery. The signed-in user
+must first verify an actual address using Change account email. No email address
+is inferred from a username or copied from the operator's personal account.

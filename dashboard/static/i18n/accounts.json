@@ -43,7 +43,12 @@
     "Password reset email is unavailable. Contact the platform operator.": "El correo de restablecimiento no está disponible. Contacta con el operador de la plataforma.",
     "If an eligible account matches, a reset code has been sent. Check your email.": "Si existe una cuenta válida, se ha enviado un código. Revisa tu correo.",
     "Password updated. Sign in again with your new password and authenticator.": "Contraseña actualizada. Inicia sesión con la nueva contraseña y tu autenticador.",
-    "This account is configured by the platform operator. Contact them to change its password.": "Esta cuenta la configura el operador de la plataforma. Contacta con él para cambiar la contraseña."
+    "This account is configured by the platform operator. Contact them to change its password.": "Esta cuenta la configura el operador de la plataforma. Contacta con él para cambiar la contraseña.",
+    "Two-factor authentication": "Autenticación de dos factores",
+    "An authenticator is required for every management account.": "Todas las cuentas de gestión requieren un autenticador.",
+    "Set up your authenticator during your first sign-in: scan the QR code in your authenticator app and confirm its six-digit code.": "Configura tu autenticador al iniciar sesión por primera vez: escanea el código QR en tu aplicación y confirma su código de seis dígitos.",
+    "Password resets and email changes keep your authenticator enabled. Never share your setup key or verification codes.": "Los restablecimientos de contraseña y los cambios de correo mantienen activo tu autenticador. Nunca compartas la clave de configuración ni los códigos de verificación.",
+    "Lost access to your authenticator? Contact the platform operator for an identity-verified recovery. Resetting your password does not bypass two-factor authentication.": "¿Has perdido el acceso al autenticador? Contacta con el operador de la plataforma para recuperar el acceso tras verificar tu identidad. Restablecer la contraseña no omite la autenticación de dos factores."
   },
   "fr": {
     "Change account email": "Changer l’adresse e-mail du compte",
@@ -88,7 +93,12 @@
     "Password reset email is unavailable. Contact the platform operator.": "L’e-mail de réinitialisation est indisponible. Contactez l’opérateur de la plateforme.",
     "If an eligible account matches, a reset code has been sent. Check your email.": "Si un compte admissible correspond, un code a été envoyé. Consultez vos e-mails.",
     "Password updated. Sign in again with your new password and authenticator.": "Mot de passe mis à jour. Reconnectez-vous avec votre nouveau mot de passe et votre authentificateur.",
-    "This account is configured by the platform operator. Contact them to change its password.": "Ce compte est configuré par l’opérateur de la plateforme. Contactez-le pour changer le mot de passe."
+    "This account is configured by the platform operator. Contact them to change its password.": "Ce compte est configuré par l’opérateur de la plateforme. Contactez-le pour changer le mot de passe.",
+    "Two-factor authentication": "Authentification à deux facteurs",
+    "An authenticator is required for every management account.": "Un authentificateur est obligatoire pour chaque compte de gestion.",
+    "Set up your authenticator during your first sign-in: scan the QR code in your authenticator app and confirm its six-digit code.": "Configurez votre authentificateur lors de votre première connexion : scannez le code QR dans votre application et confirmez son code à six chiffres.",
+    "Password resets and email changes keep your authenticator enabled. Never share your setup key or verification codes.": "Les réinitialisations de mot de passe et les changements d’adresse e-mail gardent votre authentificateur actif. Ne partagez jamais votre clé de configuration ni vos codes de vérification.",
+    "Lost access to your authenticator? Contact the platform operator for an identity-verified recovery. Resetting your password does not bypass two-factor authentication.": "Vous avez perdu l’accès à votre authentificateur ? Contactez l’opérateur de la plateforme pour une récupération après vérification de votre identité. Réinitialiser votre mot de passe ne contourne pas l’authentification à deux facteurs."
   },
   "ar": {
     "Change account email": "تغيير البريد الإلكتروني للحساب",
@@ -133,6 +143,11 @@
     "Password reset email is unavailable. Contact the platform operator.": "البريد الإلكتروني لإعادة التعيين غير متاح. تواصل مع مشغّل المنصة.",
     "If an eligible account matches, a reset code has been sent. Check your email.": "إذا وُجد حساب مؤهل مطابق، فقد أُرسل رمز إعادة تعيين. تحقق من بريدك الإلكتروني.",
     "Password updated. Sign in again with your new password and authenticator.": "تم تحديث كلمة المرور. سجّل الدخول مجدداً باستخدام كلمة المرور الجديدة وتطبيق المصادقة.",
-    "This account is configured by the platform operator. Contact them to change its password.": "يُعدّ مشغّل المنصة هذا الحساب. تواصل معه لتغيير كلمة المرور."
+    "This account is configured by the platform operator. Contact them to change its password.": "يُعدّ مشغّل المنصة هذا الحساب. تواصل معه لتغيير كلمة المرور.",
+    "Two-factor authentication": "المصادقة الثنائية",
+    "An authenticator is required for every management account.": "يلزم تطبيق مصادقة لكل حساب إدارة.",
+    "Set up your authenticator during your first sign-in: scan the QR code in your authenticator app and confirm its six-digit code.": "أعدّ تطبيق المصادقة عند تسجيل الدخول لأول مرة: امسح رمز QR في التطبيق وأكّد الرمز المكوّن من ستة أرقام.",
+    "Password resets and email changes keep your authenticator enabled. Never share your setup key or verification codes.": "تظل المصادقة مفعّلة عند إعادة تعيين كلمة المرور أو تغيير البريد الإلكتروني. لا تشارك مفتاح الإعداد أو رموز التحقق مطلقًا.",
+    "Lost access to your authenticator? Contact the platform operator for an identity-verified recovery. Resetting your password does not bypass two-factor authentication.": "فقدت الوصول إلى تطبيق المصادقة؟ تواصل مع مشغّل المنصة لاستعادة الوصول بعد التحقق من هويتك. إعادة تعيين كلمة المرور لا تتجاوز المصادقة الثنائية."
   }
 }

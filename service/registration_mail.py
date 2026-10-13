@@ -2,9 +2,11 @@
 import json
 import os
 import re
+import secrets
+import time
 import smtplib
 import ssl
-from http.client import HTTPSConnection
+from http.client import HTTPSConnection, HTTPException
 from email.message import EmailMessage
 from email.utils import parseaddr
 
@@ -76,26 +78,7 @@ def _send(email, code, *, reset, email_change=False):
     if _uses_resend_api():
         payload = json.dumps({'from': message['From'], 'to': [email],
                               'subject': message['Subject'], 'text': message.get_content()}).encode('utf-8')
-        connection = HTTPSConnection('api.resend.com', timeout=10, context=ssl.create_default_context())
-        try:
-            connection.request('POST', '/emails', body=payload, headers={
-                'Authorization': 'Bearer ' + os.environ['SMTP_PASSWORD'],
-                'Content-Type': 'application/json',
-            })
-            response = connection.getresponse()
-            if not 200 <= response.status < 300:
-                raise RuntimeError('Resend did not accept the verification email.')
-            body = response.read(65537)
-            if len(body) > 65536:
-                raise RuntimeError('Resend returned an invalid email response.')
-            try:
-                result = json.loads(body)
-            except (ValueError, UnicodeError) as exc:
-                raise RuntimeError('Resend returned an invalid email response.') from exc
-            if not isinstance(result, dict) or not isinstance(result.get('id'), str) or not result['id'].strip():
-                raise RuntimeError('Resend returned an invalid email response.')
-        finally:
-            connection.close()
+        _send_resend(payload)
         return
     mode = os.getenv('SMTP_TLS_MODE', 'starttls')
     if mode not in {'starttls', 'ssl'}:
@@ -109,3 +92,38 @@ def _send(email, code, *, reset, email_change=False):
             server.starttls(context=context)
         server.login(os.environ['SMTP_USERNAME'], os.environ['SMTP_PASSWORD'])
         server.send_message(message)
+
+
+def _send_resend(payload):
+    # Reuse the exact body/key for one bounded retry, including an uncertain
+    # timeout after acceptance. Never retry certificate or permanent API errors.
+    headers = {'Authorization': 'Bearer ' + os.environ['SMTP_PASSWORD'],
+               'Content-Type': 'application/json', 'Idempotency-Key': secrets.token_urlsafe(32)}
+    for attempt in range(2):
+        if attempt:
+            time.sleep(0.5)
+        connection = HTTPSConnection('api.resend.com', timeout=10, context=ssl.create_default_context())
+        try:
+            connection.request('POST', '/emails', body=payload, headers=headers)
+            response = connection.getresponse()
+            if 500 <= response.status < 600 and attempt == 0:
+                continue
+            if not 200 <= response.status < 300:
+                raise RuntimeError('Resend did not accept the verification email.')
+            body = response.read(65537)
+            if len(body) > 65536:
+                raise RuntimeError('Resend returned an invalid email response.')
+            try:
+                result = json.loads(body)
+            except (ValueError, UnicodeError) as exc:
+                raise RuntimeError('Resend returned an invalid email response.') from exc
+            if not isinstance(result, dict) or not isinstance(result.get('id'), str) or not result['id'].strip():
+                raise RuntimeError('Resend returned an invalid email response.')
+            return
+        except ssl.SSLError:
+            raise
+        except (OSError, HTTPException):
+            if attempt == 1:
+                raise
+        finally:
+            connection.close()
