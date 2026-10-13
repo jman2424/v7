@@ -4,12 +4,20 @@ The homepage, `/about` brand page and eight `/solutions/<slug>` pages describe V
 capabilities. The allowlist and page copy live in `service/public_site_content.py`;
 `routes/public_seo_routes.py` renders the pages and discovery files.
 
+`/faqs` provides public buying answers about the official brand, supported business
+models, model/token billing, prepaid credit, WhatsApp's separate costs and product
+limitations. Its prices are rendered per request from the shared plan catalogue
+and current VAT configuration. FAQ structured data mirrors the visible answers;
+the page is linked from the homepage footer and included in the sitemap. This
+helps make the facts accessible, but does not promise AI citations, rankings or
+FAQ rich results. No customer testimonials, reviews or private contacts are used.
+
 Canonical, social-preview and sitemap URLs use validated `BASE_URL`, never the
 request Host or query parameters. Production should set this to the preferred
 HTTPS origin (`https://vertex-seven.com` for the current deployment).
 
-`/sitemap.xml` includes only the homepage, `/about` and the eight allowlisted solution
-pages. `/robots.txt` permits public content and static assets, and excludes
+`/sitemap.xml` includes only the homepage, `/about`, `/faqs`, the setup guide and
+the eight allowlisted solution pages. `/robots.txt` permits public content and static assets, and excludes
 operational, account and chat paths. Those paths also receive `X-Robots-Tag:
 noindex, nofollow`. These search directives supplement authentication; they are
 not access controls. No tenant data is used to render public product content.

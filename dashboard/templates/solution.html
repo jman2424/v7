@@ -39,12 +39,21 @@
       'publisher': {'@type': 'Organization', '@id': site_origin ~ '/#organization', 'name': 'Vertex Seven', 'url': site_origin ~ '/'}
     }
   }|tojson }}</script>
+  {% if faq_page %}
+  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{
+    "@context": "https://schema.org", "@type": "FAQPage", "url": {{ canonical_url|tojson }},
+    "mainEntity": [
+    {% for section in solution.sections %}
+      {{ {'@type': 'Question', 'name': section.heading, 'acceptedAnswer': {'@type': 'Answer', 'text': section.paragraphs|join(' ')}}|tojson }}{% if not loop.last %},{% endif %}
+    {% endfor %}]
+  }</script>
+  {% endif %}
 </head>
 <body class="solution-page">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header wrap">
     {% include 'platform_brand.html' %}
-    <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a><a href="/#questions">FAQs</a></nav>
+    <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a><a href="/faqs">FAQs</a></nav>
     <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
   </header>
   <main id="main" class="wrap">

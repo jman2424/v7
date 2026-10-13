@@ -91,7 +91,7 @@ def seo_client(monkeypatch, request):
     return request.getfixturevalue("app").test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
 def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     response = seo_client.get(path + "?tenant=EXAMPLE&utm_source=example",
                               base_url="https://untrusted.example")
@@ -225,7 +225,7 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     assert '£149.00 setup' in response.text
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
     response = seo_client.get(path, base_url="https://untrusted.example")
     page = HomeStructuredData()
@@ -252,13 +252,34 @@ def test_sitemap_lists_only_known_public_pages(seo_client):
     tree = ElementTree.fromstring(response.data)
     locations = [element.text for element in tree.findall("{*}url/{*}loc")]
     assert set(SOLUTIONS) == SOLUTION_SLUGS
-    assert locations == [ORIGIN + "/", ORIGIN + "/about", ORIGIN + "/guides/getting-started"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
-    assert len(locations) == 11
-
+    assert locations == [ORIGIN + "/", ORIGIN + "/about", ORIGIN + "/faqs", ORIGIN + "/guides/getting-started"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
+    assert len(locations) == 12
     assert all("?" not in location for location in locations)
     assert "EXAMPLE" not in response.text
     assert "untrusted.example" not in response.text
     assert "X-Robots-Tag" not in response.headers
+
+
+def test_faq_schema_matches_visible_answers_and_current_prices(seo_client, monkeypatch):
+    from service.public_faq_content import public_faq
+
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
+    response = seo_client.get('/faqs')
+    assert response.status_code == 200
+    page = HomeStructuredData()
+    page.feed(response.text)
+    schema = next(json.loads(script['text']) for script in page.scripts
+                  if json.loads(script['text']).get('@type') == 'FAQPage')
+    visible = ' '.join(' '.join(page.visible_text).split())
+    for section, question in zip(public_faq()['sections'], schema['mainEntity'], strict=True):
+        assert question['name'] == section['heading']
+        assert question['acceptedAnswer']['text'] == ' '.join(section['paragraphs'])
+        assert question['name'] in visible
+        assert question['acceptedAnswer']['text'] in visible
+    assert 'No VAT charged' in visible
+    assert 'There is no fixed message allowance.' in visible
+    assert 'phone numbers are not supplied' in visible
+    assert 'No AI credit is included' in visible
 
 
 def test_robots_keeps_public_assets_crawlable_and_points_to_configured_sitemap(seo_client):
@@ -326,7 +347,7 @@ def test_setup_guide_labels_examples_and_avoids_fabricated_customer_evidence(seo
     assert "aggregateRating" not in response.text
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
     page = HeadLinks()
     page.feed(seo_client.get(path).text)
