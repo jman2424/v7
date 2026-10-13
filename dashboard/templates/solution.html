@@ -68,7 +68,7 @@
     <div class="solution-content">
       <div class="solution-explanation">
         {% for section in solution.sections %}
-        <section aria-labelledby="section-{{ loop.index }}"><span class="solution-number" aria-hidden="true">0{{ loop.index }}</span><h2 id="section-{{ loop.index }}">{{ section.heading }}</h2>{% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}</section>
+        <section aria-labelledby="section-{{ loop.index }}"><span class="solution-number" aria-hidden="true">{{ '%02d'|format(loop.index) }}</span><h2 id="section-{{ loop.index }}">{{ section.heading }}</h2>{% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}</section>
         {% endfor %}
       </div>
       <aside class="solution-setup" aria-labelledby="setup-title">
