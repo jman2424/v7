@@ -289,3 +289,20 @@ def test_unknown_availability_is_not_reported_as_out_of_stock():
                              facts={'price': {'sku': 'AUDIT', 'name': 'Audit', 'price': 45, 'in_stock': None}}, session={})
     assert 'availability needs confirmation' in result
     assert 'out of stock' not in result
+
+
+def test_cancellation_after_catalogue_turn_goes_to_support(generic_business):
+    storage, _ = generic_business
+    handler = make_handler(storage)
+    result = turn(handler, "how can i cancel", {"last_category": "subscriptions", "last_intent": "search_product"})
+    assert result["intent"] == "human_handoff"
+    assert not result.get("items")
+    assert "good options" not in result["reply"].lower()
+
+
+@pytest.mark.parametrize("action,intent", [("FAQ_LOOKUP", "faq"), ("STORE_INFO", "store_info")])
+def test_business_question_with_category_does_not_become_product_search(generic_business, action, intent):
+    storage, _ = generic_business
+    handler = make_handler(storage)
+    plan = handler._normalize_plan({"action": action, "intent": intent, "category": "subscriptions"}, "how can i cancel")
+    assert plan["action"] == action

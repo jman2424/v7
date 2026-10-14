@@ -328,7 +328,18 @@ class MessageHandlerV7:
                     items=[],
                 )
 
-            if self._requests_handoff(user_text):
+            # Account-support intent must not inherit a previous shopping
+            # category or become another recommendation list.
+            support_request = bool(re.search(r"\b(?:cancel|cancellation|unsubscribe|refund|complaint)\b", user_text, re.I))
+            if support_request:
+                faq = self._find_faq(user_text, session_snapshot, request_id=request_id)
+                if faq and re.search(r"\b(?:cancel|cancellation|unsubscribe|refund|complaint)\b", faq.get('question', ''), re.I):
+                    plan = self._simple_plan("faq", "FAQ_LOOKUP", session_snapshot)
+                    facts = {"faq": faq}
+                    reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                    return self._wrap_reply(request_id=request_id, t0=t0, reply=reply_text,
+                                            intent="faq", plan=plan, facts=facts, entities={}, items=[])
+            if support_request or self._requests_handoff(user_text):
                 plan = self._simple_plan("human_handoff", "HUMAN_HANDOFF", session_snapshot)
                 reply_text = self._handoff_reply()
                 return self._wrap_reply(
@@ -1705,7 +1716,7 @@ class MessageHandlerV7:
         if p.get("postcode"):
             p["postcode"] = self._normalize_postcode(str(p["postcode"])) or p["postcode"]
 
-        if (category or product_name) and action in {"", "DO_NOTHING", "STORE_INFO", "FAQ_LOOKUP"}:
+        if (category or product_name) and action in {"", "DO_NOTHING"}:
             p["action"] = "SEARCH_PRODUCTS"
             if (p.get("intent") or "").strip().lower() in {"", "unknown"}:
                 p["intent"] = "browse_category" if category and not product_name else "search_product"
