@@ -2,7 +2,7 @@
   'use strict';
   const allowed = new Set(['en', 'es', 'fr', 'ar']);
   const currentScript = document.currentScript;
-  const dictionaryUrls = ['ui.json', 'features.json'].map(name => new URL('../i18n/' + name, currentScript.src));
+  const dictionaryUrls = ['ui.json', 'features.json', 'referrals.json'].map(name => new URL('../i18n/' + name, currentScript.src));
   const cookie = name => {
     const item = document.cookie.split('; ').find(value => value.startsWith(name + '='));
     if (!item) return '';

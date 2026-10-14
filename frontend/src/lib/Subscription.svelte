@@ -4,6 +4,7 @@
   import {onMount,onDestroy,createEventDispatcher} from 'svelte';
   import TrendChart from './TrendChart.svelte';
   import UsageCredits from './UsageCredits.svelte';
+  import Referrals from './Referrals.svelte';
   import ModelPicker from './ModelPicker.svelte';
   import WhatsAppConnection from './WhatsAppConnection.svelte';
   export let tenant:string;
@@ -173,6 +174,7 @@
     {/if}
     {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
     {#if !data.internal || isPlatform}
+      {#if canManageBilling}{#key tenant}<Referrals {tenant} {csrf} {apiPrefix} {isPlatform} configured={data.configured}/>{/key}{/if}
       {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={Boolean(data.complimentary)||['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
     {/if}
     {#if canViewIntegrations}

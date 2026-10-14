@@ -226,6 +226,8 @@ class BillingClient:
         if idempotency_key:
             headers['Idempotency-Key'] = idempotency_key
         encoded = urllib.parse.urlencode(data or {}).encode() if method == 'POST' else None
+        if method == 'GET' and data:
+            path += ('&' if '?' in path else '?') + urllib.parse.urlencode(data)
         req = urllib.request.Request('https://api.stripe.com'+path, data=encoded, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=15) as response:

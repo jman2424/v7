@@ -3,6 +3,7 @@ from service.session_store import postgres_connection
 
 
 _TABLES = {
+    'referral_program','referral_codes','referral_claims','referral_rewards',
     'tenants', 'business_documents', 'document_versions', 'operator_accounts',
     'crm_records', 'audit_records', 'migration_runs', 'schema_version', 'events',
     'leads', 'management_sessions', 'login_attempts', 'account_authenticators',
@@ -96,3 +97,12 @@ def validate_postgres_storage(default_tenant):
         if db.execute('SELECT 1 FROM v7_private.tenants WHERE tenant=%s',
                       (default_tenant,)).fetchone() is None:
             raise RuntimeError('Default PostgreSQL tenant must be imported before startup')
+        referral_guard = db.execute(
+            "SELECT p.prosecdef,p.proconfig,p.prosrc FROM pg_proc p "
+            "WHERE p.oid=to_regprocedure('v7_private.set_referral_program(text,boolean)') "
+            "AND has_function_privilege(current_user,p.oid,'EXECUTE')",
+        ).fetchone()
+        if (not referral_guard or not referral_guard[0]
+                or 'search_path=pg_catalog' not in (referral_guard[1] or [])
+                or 'pg_advisory_xact_lock' not in referral_guard[2]):
+            raise RuntimeError('PostgreSQL referral migrations are incomplete')

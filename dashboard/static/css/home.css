@@ -314,3 +314,5 @@ body:has(.site-cookie-banner:not([hidden])) #public-site-widget { visibility: hi
 .preferred-source-link { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:10px 14px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); font-size:13px; font-weight:600; }
 .preferred-source-link:hover { background:var(--tint); }
 .preferred-source-link:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+
+.referral-offer{display:flex;justify-content:space-between;align-items:center;gap:2rem;padding:1.5rem 2rem;margin:1.5rem 0;border:1px solid #cbdad2;border-radius:16px;background:#f1f6f3}.referral-offer h3{font-size:1.8rem;margin:.4rem 0}.referral-offer p{max-width:780px}.referral-offer .referral-terms{font-size:.85rem;color:#52635a}.referral-offer .button{flex-shrink:0}@media(max-width:700px){.referral-offer{align-items:flex-start;flex-direction:column;padding:1.2rem;gap:.8rem}}

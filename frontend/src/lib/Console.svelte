@@ -5,6 +5,7 @@
   import PlatformOverview from './PlatformOverview.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
   import Subscription from './Subscription.svelte';
+  import Referrals from './Referrals.svelte';
   import {subscriptionCreditAlerts} from './subscription-format';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
@@ -1024,6 +1025,10 @@
   async function openDefaultWorkspace() {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
+    const referral = params.get('ref');
+    if (referral && /^V7-[A-Fa-f0-9]{32}$/.test(referral)) {
+      try { sessionStorage.setItem('v7-referral',referral.toUpperCase()); } catch { /* Optional convenience only. */ }
+    }
     const next = params.get('next');
     let destination = next && mayOpenScreen(next) ? next : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
     if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
@@ -1694,7 +1699,7 @@
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
-      {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
+      {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{#if isPlatform||isOwner}{#key tenant}<Referrals {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}{/if}
       {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}

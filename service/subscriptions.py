@@ -175,6 +175,7 @@ def select_plan(tenant, plan_id):
 
 
 def cancel_pending_checkouts(tenant):
+    released = []
     with connection(tenant) as db:
         if not session_store._using_postgres():
             db.execute('BEGIN IMMEDIATE')
@@ -198,6 +199,10 @@ def cancel_pending_checkouts(tenant):
             elif previous.get('status') != 'expired':
                 raise ValueError('stripe_response_invalid')
             db.execute('UPDATE billing_contracts SET ref=?,checkout=NULL,checkout_url=NULL,checkout_expires=NULL WHERE ref=? AND tenant=?', (secrets.token_urlsafe(24),row['ref'],tenant))
+            released.append(row['ref'])
+    from service import referrals
+    for ref in released:
+        referrals.release(tenant, ref)
     return {'ok':True}
 
 
@@ -359,11 +364,17 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
             expected_version = 'tiered_v1' if plan else 'separate_implementation'
             if (kind=='platform' and previous_metadata.get('billing_version')!=expected_version) or (kind in {'platform','implementation'} and (previous_metadata.get('discount_campaign','') != campaign or previous_metadata.get('plan_id','') != (plan['id'] if plan else ''))):
                 # Retire old combined checkouts before replacing them with the monthly plan.
-                stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
+                expired = stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
+                if expired.get('status') != 'expired':
+                    raise ValueError('stripe_response_invalid')
             else:
                 return {'url':_safe_url(previous.get('url'),'checkout.stripe.com')}
         if previous.get('status') == 'complete':
             raise ValueError('payment_processing_refresh_soon')
+        if previous.get('status') not in {'open','expired'}:
+            raise ValueError('stripe_response_invalid')
+        from service import referrals
+        referrals.release(tenant, contract['ref'])
         # Serialize the new generation; simultaneous requests use one Stripe idempotency key.
         with connection(tenant) as db:
             table = 'billing_api_charges' if kind == 'api' else 'billing_contracts'
@@ -440,6 +451,12 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     if campaign:
         data['discounts[0][coupon]'] = _discount_coupon(stripe, ref)
         data['metadata[discount_campaign]'] = campaign
+    elif kind in {'platform','implementation'}:
+        from service import referrals
+        reward = referrals.reserve(tenant,kind,ref)
+        if reward:
+            data['discounts[0][coupon]'] = referrals.coupon(stripe,tenant,reward)
+            data['metadata[referral_reward]'] = reward['id']
     result = stripe.stripe_request('POST','/v1/checkout/sessions',data,idempotency_key='v7-checkout-'+ref)
     url = _safe_url(result.get('url'),'checkout.stripe.com')
     if not url or not re.fullmatch(r'cs_[A-Za-z0-9_]+', result.get('id','')):
@@ -482,13 +499,13 @@ def sync_subscription(subscription_id):
             current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
             if current and current['ref'] == metadata['billing_ref']:
                 db.execute('UPDATE billing_plan_state SET active_plan=? WHERE tenant=?', (plan['id'],tenant))
-    return dict(row)
+    return {**dict(row),'billing_ref':metadata['billing_ref']}
 
 
 def sync_invoice(invoice_id):
     if not re.fullmatch(r'in_[A-Za-z0-9]+',invoice_id):
         raise ValueError('invalid_invoice')
-    invoice = client().stripe_request('GET','/v1/invoices/'+invoice_id)
+    invoice = client().stripe_request('GET','/v1/invoices/'+invoice_id,{'expand[0]':'discounts'})
     _verify_payment_environment(invoice)
     if invoice.get('currency') != 'gbp':
         raise ValueError('unsupported_invoice_currency')
@@ -507,7 +524,7 @@ def sync_invoice(invoice_id):
             if not row or row['tenant']!=metadata.get('tenant') or row['kind']!=metadata.get('kind'):
                 raise ValueError('unknown_billing_reference')
             plan = _confirmed_plan(db, metadata, row)
-        identity = dict(row)
+        identity = {**dict(row),'billing_ref':metadata['billing_ref']}
         month = metadata.get('month') if row['kind']=='api' else datetime.fromtimestamp(invoice['created'],timezone.utc).strftime('%Y-%m')
     lines = [{'description':str(line.get('description') or '')[:300], 'amount':line.get('amount',0)} for line in invoice.get('lines',{}).get('data',[])]
     with connection(identity['tenant']) as db:
@@ -524,6 +541,10 @@ def sync_invoice(invoice_id):
                 if plan:
                     db.execute('UPDATE billing_plan_state SET setup_plan=? WHERE tenant=?', (plan['id'],identity['tenant']))
             db.execute('UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind=\'platform\'',(identity['tenant'],))
+    from service import referrals
+    verified_invoice = {**invoice,'id':invoice_id}
+    referrals.consumed_payment(identity['tenant'],identity['kind'],identity['billing_ref'],verified_invoice)
+    referrals.qualified_payment(identity['tenant'],identity['kind'],verified_invoice)
 
 
 def change_whatsapp(tenant, enabled):

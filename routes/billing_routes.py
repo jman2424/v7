@@ -33,6 +33,36 @@ def _body():
     return data
 
 
+@bp.get('/referrals')
+def referrals_get():
+    from service import referrals
+    tenant = _tenant()
+    return jsonify(referrals.report(tenant, _owner()['email'], get_container().settings.BASE_URL.rstrip('/')))
+
+
+@bp.post('/referrals/<action>')
+def referrals_post(action):
+    from service import referrals, session_store
+    if action == 'program':
+        management_user(platform_only=True)
+    tenant = _tenant()
+    data = _body()
+    try:
+        if action == 'claim':
+            result = referrals.claim(tenant, _owner()['email'], data.get('code'))
+        elif action == 'apply':
+            result = referrals.apply_next_month(tenant)
+        elif action == 'program':
+            result = referrals.set_program(tenant, data.get('enabled'), session_store._digest(session.get('management_token')))
+        else:
+            abort(404)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    from routes.admin_api_routes import _audit
+    _audit('billing.referral.'+action, tenant, after=result)
+    return jsonify(result)
+
+
 @bp.get('/subscription')
 def subscription_get():
     tenant = _tenant(read_only=True)
@@ -190,6 +220,8 @@ def stripe_webhook():
         from service.usage_payments import handle_usage_event
         if handle_usage_event(event):
             return jsonify(ok=True)
+        from service import referrals
+        referrals.handle_reversal(event)
         if str(event.get('type','')).startswith('customer.subscription.'):
             subscriptions.sync_subscription(obj['id'])
         elif event.get('type') in {'invoice.paid','invoice.payment_failed','invoice.finalized','invoice.updated','invoice.voided','invoice.marked_uncollectible'}:

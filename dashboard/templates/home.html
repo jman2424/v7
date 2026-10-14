@@ -129,6 +129,14 @@
         </article>
         {% endfor %}
       </div>
+      {% if referral_offer.enabled %}
+      <aside class="referral-offer" aria-labelledby="referral-offer-title">
+        <div><p class="eyebrow" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off for both businesses</span></h3>
+        <p data-i18n>One subscription month and any unpaid setup fee. The new business gets its first month discounted; you earn your reward after its first successful subscription payment.</p>
+        <p class="referral-terms" data-i18n>New businesses must accept a referral before their first checkout. Discounts do not stack or apply to AI credit. Already-paid setup fees are not refunded.</p></div>
+        <a class="button button-dark" href="/console/account" data-i18n>Get your referral link</a>
+      </aside>
+      {% endif %}
       <div class="plan-comparison" role="region" aria-label="Compare subscription plans" tabindex="0">
         <table><caption>Exactly what your business gets</caption><thead><tr><th scope="col">Feature</th>{% for plan in subscription_plans %}<th scope="col">{{ plan.name }}</th>{% endfor %}</tr></thead><tbody>
           {% for label in ['Website AI agent', 'WhatsApp AI agent'] %}<tr><th scope="row">{{ label }}</th>{% for plan in subscription_plans %}<td>Included</td>{% endfor %}</tr>{% endfor %}
