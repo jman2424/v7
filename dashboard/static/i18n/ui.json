@@ -177,7 +177,8 @@
     "This provider account is already connected to an account.": "Esta cuenta del proveedor ya está conectada a una cuenta.",
     "Choose an available company before connecting a provider.": "Selecciona una empresa disponible antes de conectar un proveedor.",
     "The request could not be completed. Please try again.": "No se pudo completar la solicitud. Inténtalo de nuevo.",
-    "Account security details could not be loaded.": "No se pudieron cargar los datos de seguridad de la cuenta."
+    "Account security details could not be loaded.": "No se pudieron cargar los datos de seguridad de la cuenta.",
+    "Add as Preferred Source": "Añadir como fuente preferida"
   },
   "fr": {
     "Language": "Langue",
@@ -357,7 +358,8 @@
     "This provider account is already connected to an account.": "Ce compte fournisseur est déjà associé à un compte.",
     "Choose an available company before connecting a provider.": "Choisissez une entreprise disponible avant d'associer un fournisseur.",
     "The request could not be completed. Please try again.": "La demande n'a pas pu être effectuée. Réessayez.",
-    "Account security details could not be loaded.": "Les informations de sécurité du compte n'ont pas pu être chargées."
+    "Account security details could not be loaded.": "Les informations de sécurité du compte n'ont pas pu être chargées.",
+    "Add as Preferred Source": "Ajouter comme source préférée"
   },
   "ar": {
     "Language": "اللغة",
@@ -537,6 +539,10 @@
     "This provider account is already connected to an account.": "حساب المزود هذا مرتبط بحساب بالفعل.",
     "Choose an available company before connecting a provider.": "اختر شركة متاحة قبل ربط مزود.",
     "The request could not be completed. Please try again.": "تعذّر إكمال الطلب. حاول مرة أخرى.",
-    "Account security details could not be loaded.": "تعذّر تحميل تفاصيل أمان الحساب."
+    "Account security details could not be loaded.": "تعذّر تحميل تفاصيل أمان الحساب.",
+    "Add as Preferred Source": "إضافة كمصدر مفضل"
+  },
+  "en": {
+    "Add as Preferred Source": "Add as Preferred Source"
   }
 }

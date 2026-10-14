@@ -82,6 +82,7 @@
   </main>
   <footer class="solution-footer wrap">
     <div class="solution-footer-top">{% include 'platform_brand.html' %}<p>V7 Agents. Business knowledge, in conversation.</p></div>
+    {% include 'preferred_source_link.html' %}
     <nav class="solution-footer-links" aria-label="Solutions">{% for related_slug, related in solutions.items() %}<a href="/solutions/{{ related_slug }}"{% if related_slug == slug %} aria-current="page"{% endif %}>{{ related.label }}</a>{% endfor %}</nav>
     <div class="footer-links"><a href="/about">About Vertex Seven</a><a href="/guides/getting-started">Setup guide &amp; examples</a><a href="/privacy">Privacy</a><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="#main">Back to top ↑</a></div>
   </footer>

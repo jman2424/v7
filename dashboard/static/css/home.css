@@ -310,3 +310,7 @@ body:has(.site-cookie-banner:not([hidden])) #public-site-widget { visibility: hi
   .hero-art img { animation: none; }
   *, *::before, *::after { transition: none !important; }
 }
+
+.preferred-source-link { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:10px 14px; border:1px solid var(--accent); border-radius:8px; color:var(--accent); font-size:13px; font-weight:600; }
+.preferred-source-link:hover { background:var(--tint); }
+.preferred-source-link:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
