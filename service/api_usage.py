@@ -15,6 +15,12 @@ from service import session_store
 
 logger = logging.getLogger(__name__)
 _context: ContextVar[tuple[str, str, str] | None] = ContextVar("api_usage_context", default=None)
+_paused_for_turn: ContextVar[bool] = ContextVar("ai_paused_for_turn", default=False)
+
+
+def pause_ai_for_turn():
+    if _context.get() is not None:
+        _paused_for_turn.set(True)
 PRICE_VERSION = "2026-09-23"
 PRICE_SOURCE = "https://developers.openai.com/api/docs/pricing"
 AUDIO_PRICE_VERSION = "2026-09-25"
@@ -67,9 +73,11 @@ def usage_context(tenant: str, channel: str, mode: str = "unknown"):
         raise AllowancePaused("invalid_usage_context")
     mode = mode.lower() if isinstance(mode, str) else "unknown"
     token = _context.set((tenant, channel, mode if mode in {"v5", "v6", "v7"} else "unknown"))
+    paused_token = _paused_for_turn.set(False)
     try:
         yield
     finally:
+        _paused_for_turn.reset(paused_token)
         _context.reset(token)
 
 
@@ -286,6 +294,8 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     status = "failed"
     context = _context.get()
     from service.plan_usage import AllowancePaused
+    if _paused_for_turn.get():
+        raise AllowancePaused("saved_knowledge_only_for_turn")
     if context is None:
         raise AllowancePaused("missing_usage_context")
     configuration = None

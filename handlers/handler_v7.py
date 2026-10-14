@@ -280,6 +280,16 @@ class MessageHandlerV7:
                     }[action_type]}],
                 )
 
+            # A funded, accounted answer takes precedence over keyword shortcuts.
+            # The existing deterministic paths remain the no-credit/provider fallback.
+            intelligent = self._grounded_answer(user_text, sess)
+            if intelligent:
+                return self._wrap_reply(
+                    request_id=request_id, t0=t0, reply=intelligent,
+                    intent="grounded_answer", plan=None,
+                    facts={"source": "tenant_knowledge"}, entities={}, items=[],
+                )
+
             # 0) Greeting only
             if self._is_greeting(user_text):
                 reply_text = self._greeting_reply()
@@ -747,6 +757,60 @@ class MessageHandlerV7:
             return f"I'm ready to help with {self._business_scope()}."
 
         return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
+
+    def _grounded_answer(self, question: str, session: Dict[str, Any]) -> Optional[str]:
+        from service.grounded_conversation import answer
+        client = getattr(self.rewriter, '_client', None)
+        if client is None:
+            return None
+        knowledge = {"business": dict(self.sales_context)}
+        if self.business_core:
+            knowledge['business_core'] = self.business_core.public_context()
+        if self.catalog:
+            items = self.catalog.search(text=question, limit=12)
+            items += self.catalog.list_all_items()[:40]
+            for sku in (session.get('last_items') or [])[:12]:
+                item = self.catalog.get_item_by_sku(sku)
+                if item:
+                    items.append(item)
+            fields = ('sku', 'name', 'description', 'price', 'unit', 'currency', 'in_stock', 'stock', 'url')
+            for item in items:
+                if not isinstance(item, dict) or item.get('active') is False or item.get('public') is False:
+                    continue
+                sku = str(item.get('sku') or '')[:120]
+                if sku:
+                    knowledge['product:' + sku] = {key: value[:1500] if isinstance(value, str) else value
+                        for key in fields if isinstance((value := item.get(key)), (str, int, float, bool))}
+                    knowledge['product:' + sku]['currency'] = self.catalog.currency()
+        if self.faq:
+            for index, row in enumerate(self.faq.all()[:40]):
+                if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
+                    knowledge[f'faq:{index}'] = {'question': str(row.get('q') or '')[:500],
+                                               'answer': str(row.get('a') or '')[:2000]}
+        if self.policy:
+            knowledge['delivery'] = {'notes': self.policy.delivery_notes(),
+                                     'notices': self.policy.service_notices()}
+            postcode = self._extract_postcode(question) or session.get('postcode')
+            if postcode:
+                knowledge['delivery']['matching_rule'] = self.policy.delivery_rule_for(postcode)
+        if self.geo:
+            for index, branch in enumerate(self.geo.branches()[:20]):
+                if isinstance(branch, dict) and branch.get('active') is not False:
+                    knowledge[f'branch:{index}'] = {key: branch[key] for key in
+                        ('name', 'address', 'postcode', 'hours', 'phone', 'url') if key in branch}
+        if self.offers:
+            for index, offer in enumerate(self.offers.active()[:12]):
+                if isinstance(offer, dict):
+                    knowledge[f'offer:{index}'] = {key: offer[key] for key in
+                        ('title', 'description', 'sku', 'price', 'currency', 'start_date', 'end_date', 'terms') if key in offer}
+        pages = self.website_knowledge.get('pages', [])
+        if isinstance(pages, list):
+            for index, page in enumerate(pages[:8]):
+                if isinstance(page, dict):
+                    knowledge[f'website:{index}'] = {key: str(page.get(key) or '')[:2000]
+                                                     for key in ('url', 'title', 'text')}
+        return answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
+                      knowledge, session.get('conversation_history', []), self.renderer.tone_style)
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:

@@ -75,6 +75,7 @@ class SalesAgentPolicy:
         text = self._remove_generic_cta(str(result.get("reply") or ""))
         if (
             prompt
+            and result.get('intent') != 'grounded_answer'
             and prompt.casefold() not in text.casefold()
             and "?" not in text
             and not self._already_requests_next_action(text, agent["next_action"])
