@@ -44,7 +44,8 @@ def load(storage, tenant):
 
 def public_targets(configured, knowledge, website):
     targets = [row for row in configured if row['enabled']]
-    seen = {row['url'] for row in targets}
+    # Explicitly disabled destinations must not return as imported suggestions.
+    seen = {row['url'] for row in configured}
     host = urlsplit(website).hostname if isinstance(website, str) else None
     pages = knowledge.get('pages', []) if isinstance(knowledge, dict) else []
     for page in pages[:20] if isinstance(pages, list) else []:

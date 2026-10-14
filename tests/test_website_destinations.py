@@ -31,6 +31,9 @@ def test_duplicates_and_disabled_links():
     with pytest.raises(ValueError):
         validate([destination(),destination()])
     assert public_targets(validate([destination(enabled=False)]),{},'https://shop.example/') == []
+    disabled = destination(url='https://shop.example/products', enabled=False)
+    assert public_targets(validate([disabled]),{'pages':[{'url':disabled['url'],'title':'Products'}]},
+                          'https://shop.example/') == []
 
 
 def test_imported_navigation_stays_on_tenant_website_and_excludes_private_routes():
