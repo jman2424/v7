@@ -81,7 +81,7 @@
         <label>{$t('Email')}<input type="email" bind:value={email} required maxlength="254" autocomplete="username" disabled={busy}/></label>
         <p>{$t('Use your account email. For a username-only account, ask the platform operator for help.')}</p>
       {:else}
-        {#if recovery}<label>{$t('Verification code')}<input bind:value={code} required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" disabled={busy}/></label>
+        {#if recovery}<label>{$t('Verification code')}<input bind:value={code} required maxlength="6" pattern={'[0-9]{6}'} inputmode="numeric" autocomplete="one-time-code" disabled={busy}/></label>
         {:else}<label>{$t('Current password')}<input type="password" bind:value={currentPassword} required maxlength="1024" autocomplete="current-password" disabled={busy}/></label>{/if}
         <label>{$t('New password')}<input type="password" bind:value={password} required minlength="12" maxlength="256" autocomplete="new-password" disabled={busy}/></label>
         <label>{$t('Confirm new password')}<input type="password" bind:value={confirmation} required minlength="12" maxlength="256" autocomplete="new-password" disabled={busy}/></label>

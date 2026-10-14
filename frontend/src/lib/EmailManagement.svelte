@@ -73,7 +73,7 @@
         <label>{$t('Current password')}<input type="password" bind:value={currentPassword} required maxlength="1024" autocomplete="current-password" disabled={busy}/></label>
       {:else}
         <p>{$t('Verify this address')}: <bdi>{email}</bdi></p>
-        <label>{$t('Verification code')}<input bind:value={code} dir="ltr" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" disabled={busy}/></label>
+        <label>{$t('Verification code')}<input bind:value={code} dir="ltr" required maxlength="6" pattern={'[0-9]{6}'} inputmode="numeric" autocomplete="one-time-code" disabled={busy}/></label>
       {/if}
       <button type="submit" disabled={busy}>{$t(busy ? 'Please wait…' : stage === 'request' ? 'Send email verification code' : 'Confirm email change')}</button>
       {#if stage === 'verify'}<button type="button" class="secondary" disabled={busy} on:click={() => {stage='request';code=currentPassword='';notice=error='';}}>{$t('Start again')}</button>{/if}
