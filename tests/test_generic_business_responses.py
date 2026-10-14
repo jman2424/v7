@@ -306,3 +306,23 @@ def test_business_question_with_category_does_not_become_product_search(generic_
     handler = make_handler(storage)
     plan = handler._normalize_plan({"action": action, "intent": intent, "category": "subscriptions"}, "how can i cancel")
     assert plan["action"] == action
+
+
+def test_each_business_controls_handoff_without_shared_contact_collection(generic_business):
+    storage, _ = generic_business
+    first = make_handler(storage)
+    second = make_handler(storage)
+    first.sales_playbook["handoff_message"] = "Use our appointment enquiry form."
+    second.sales_playbook["handoff_message"] = "Email your project brief to our team."
+    assert first._handoff_reply() == "Use our appointment enquiry form."
+    assert second._handoff_reply() == "Email your project brief to our team."
+    assert "phone number" not in first._handoff_reply()
+
+
+def test_renderer_uses_supplied_business_answer_without_brand_or_price_override():
+    renderer = RendererV7()
+    for answer in ["Studio membership costs EUR 35 per month.", "Consultations need a quote from the local team."]:
+        result = renderer.render(user_text="What does it cost?", plan={"intent": "faq", "action": "FAQ_LOOKUP"},
+                                 facts={"faq": {"answer": answer}}, session={})
+        assert result == answer
+        assert "Vertex Seven" not in result

@@ -284,7 +284,7 @@ def test_v7_uses_saved_playbook_focus_and_handoff_message(app):
     assert "Made-to-measure design with one installation team" in greeting["reply"]
     assert greeting["agent"]["next_action"] == "discover_consultation_need"
     assert "Our design team can arrange a consultation." in handoff["reply"]
-    assert "phone number or email" in handoff["reply"]
+    assert handoff["reply"] == "Our design team can arrange a consultation."
 
 
 def test_v7_uses_tenant_profile_and_catalogue_for_discovery(app):

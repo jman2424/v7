@@ -854,11 +854,11 @@ class MessageHandlerV7:
 
     def _handoff_reply(self) -> str:
         configured = str(self.sales_playbook.get("handoff_message") or "").strip()
-        if not configured:
-            configured = "I can have the team follow up."
-        elif configured[-1:] not in {".", "!", "?"}:
-            configured = f"{configured}."
-        return f"{configured} Please send a phone number or email, plus a short note about what you need."
+        if configured:
+            # A business may use an external contact form or email handoff.
+            # Do not force every tenant to collect contact details in chat.
+            return configured
+        return "Please send a phone number or email, plus a short note about what you need, so the team can follow up."
 
     def _tone_settings(self) -> Tuple[str, int]:
         style = "friendly"
