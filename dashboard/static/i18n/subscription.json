@@ -589,7 +589,10 @@
     "Add WhatsApp · {price}/month": "Add WhatsApp · {price}/month",
     "Open invoices at their recorded totals.": "Open invoices at their recorded totals.",
     "Invoice total": "Invoice total",
-    "Invoice line items": "Invoice line items"
+    "Invoice line items": "Invoice line items",
+    "Top up AI credit": "Top up AI credit",
+    "Administrative credit record; internal AI does not spend this balance.": "Administrative credit record; internal AI does not spend this balance.",
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below."
   },
   "es": {
     "Subscription and payments": "Suscripción y pagos",
@@ -1181,7 +1184,10 @@
     "Add WhatsApp · {price}/month": "Añadir WhatsApp · {price}/mes",
     "Open invoices at their recorded totals.": "Facturas pendientes con sus totales registrados.",
     "Invoice total": "Total de la factura",
-    "Invoice line items": "Conceptos de la factura"
+    "Invoice line items": "Conceptos de la factura",
+    "Top up AI credit": "Recargar crédito de IA",
+    "Administrative credit record; internal AI does not spend this balance.": "Registro administrativo de crédito; la IA interna no consume este saldo.",
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Este agente interno no necesita una recarga de cliente. Añade fondos a tu cuenta central de OpenAI por separado; los administradores pueden registrar un ajuste de crédito auditado abajo."
   },
   "fr": {
     "Subscription and payments": "Abonnement et paiements",
@@ -1773,7 +1779,10 @@
     "Add WhatsApp · {price}/month": "Ajouter WhatsApp · {price}/mois",
     "Open invoices at their recorded totals.": "Factures ouvertes avec leurs totaux enregistrés.",
     "Invoice total": "Total de la facture",
-    "Invoice line items": "Lignes de facture"
+    "Invoice line items": "Lignes de facture",
+    "Top up AI credit": "Recharger le crédit IA",
+    "Administrative credit record; internal AI does not spend this balance.": "Registre administratif de crédit ; l’IA interne ne consomme pas ce solde.",
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Cet agent interne ne nécessite pas de recharge client. Alimentez séparément votre compte OpenAI central ; les administrateurs peuvent enregistrer un ajustement de crédit audité ci-dessous."
   },
   "ar": {
     "Subscription and payments": "الاشتراك والمدفوعات",
@@ -2365,6 +2374,9 @@
     "Add WhatsApp · {price}/month": "إضافة واتساب · {price}/شهر",
     "Open invoices at their recorded totals.": "الفواتير المفتوحة بمبالغها المسجّلة.",
     "Invoice total": "إجمالي الفاتورة",
-    "Invoice line items": "بنود الفاتورة"
+    "Invoice line items": "بنود الفاتورة",
+    "Top up AI credit": "إضافة رصيد الذكاء الاصطناعي",
+    "Administrative credit record; internal AI does not spend this balance.": "سجل رصيد إداري؛ الذكاء الاصطناعي الداخلي لا يستهلك هذا الرصيد.",
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "هذا الوكيل الداخلي لا يحتاج إلى تعبئة رصيد عميل. موّل حساب OpenAI المركزي بشكل منفصل؛ يمكن لمسؤولي المنصة تسجيل تعديل رصيد موثق أدناه."
   }
 }
