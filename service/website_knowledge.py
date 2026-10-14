@@ -14,10 +14,11 @@ from html.parser import HTMLParser
 from threading import Event, Lock, Timer
 from typing import Any
 
-MAX_PAGES = 6
+MAX_PAGES = 20
 MAX_PAGE_BYTES = 512 * 1024
 MAX_PAGE_CHARS = 18_000
-MAX_TOTAL_CHARS = 60_000
+MAX_TOTAL_CHARS = 180_000
+MAX_IMPORT_SECONDS = 25
 MAX_LINKS = 1000
 MAX_PAGE_SECONDS = 5
 MAX_FETCH_SECONDS = 10
@@ -44,7 +45,7 @@ class _PageParser(HTMLParser):
             self._skip_depth += 1
         if tag == "title":
             self._in_title = True
-        if tag == "a" and self._skip_depth == 0 and len(self.links) < MAX_LINKS:
+        if tag == "a" and len(self.links) < MAX_LINKS:
             href = dict(attrs).get("href")
             if href:
                 self.links.append(href)
@@ -258,6 +259,8 @@ def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str])
         except (WebsiteImportError, ValueError):
             continue
         parsed = urllib.parse.urlsplit(normalized)
+        if re.search(r'/(?:admin|console|login|logout|signout|account)(?:/|$)', parsed.path, re.I):
+            continue
         if parsed.query or parsed.path.lower().endswith((
             ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip", ".xml"
         )):
@@ -268,15 +271,18 @@ def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str])
 
 
 def import_website(url: str) -> dict[str, Any]:
-    """Fetch up to six public same-host HTML pages with bounded size and no redirects."""
+    """Fetch up to twenty public same-host pages within a bounded crawl budget."""
     start_url = _validate_public_https_url(url)
     host = urllib.parse.urlsplit(start_url).hostname or ""
     queue = [start_url]
     seen: set[str] = set()
     pages: list[dict[str, str]] = []
     total_chars = 0
+    started = time.monotonic()
 
     while queue and len(seen) < MAX_PAGES and len(pages) < MAX_PAGES and total_chars < MAX_TOTAL_CHARS:
+        if time.monotonic() - started >= MAX_IMPORT_SECONDS:
+            break
         page_url = queue.pop(0)
         if page_url in seen:
             continue
@@ -326,6 +332,8 @@ def import_website(url: str) -> dict[str, Any]:
         "source_url": start_url,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "pages": pages,
+        "crawl_limit": MAX_PAGES,
+        "partial": bool(queue),
     }
 
 
@@ -336,7 +344,7 @@ def relevant_passages(knowledge: Any, question: str, *, limit: int = 2) -> list[
     stop_words = {"about", "are", "could", "does", "from", "have", "help", "into", "that", "them", "there",
                   "they", "this", "what", "when", "where", "which", "with", "would", "your", "business",
                   "you", "our", "the", "for", "and", "how", "can", "tell", "please", "me"}
-    words = {word.lower() for word in re.findall(r"[a-z0-9]{3,}", question) if word.lower() not in stop_words}
+    words = {word.lower() for word in re.findall(r"[^\W_]{3,}", question) if word.lower() not in stop_words}
     if not words:
         return []
     for topic in (
@@ -353,17 +361,17 @@ def relevant_passages(knowledge: Any, question: str, *, limit: int = 2) -> list[
             continue
         text = page["text"][:MAX_PAGE_CHARS]
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        title_words = {word.lower() for word in re.findall(r"[a-z0-9]{3,}", str(page.get("title") or ""))}
+        title_words = {word.lower() for word in re.findall(r"[^\W_]{3,}", str(page.get("title") or ""))}
         for index in range(len(lines)):
             excerpt = "\n".join(lines[index:index + 3])
             if len(excerpt) < 20:
                 continue
-            excerpt_words = {word.lower() for word in re.findall(r"[a-z0-9]{3,}", excerpt)}
+            excerpt_words = {word.lower() for word in re.findall(r"[^\W_]{3,}", excerpt)}
             overlap = words & excerpt_words
             if not overlap:
                 continue
             if len(excerpt) > 2800:
-                matches = [match.start() for match in re.finditer(r"[a-z0-9]{3,}", excerpt.lower())
+                matches = [match.start() for match in re.finditer(r"[^\W_]{3,}", excerpt.lower())
                            if match.group() in overlap]
                 start = max(0, (matches[0] if matches else 0) - 300)
                 excerpt = excerpt[start:start + 2800]

@@ -295,6 +295,14 @@ def _public_action_payload(result: Dict[str, Any]) -> list[dict[str, str]]:
     selected: list[dict[str, str]] = []
     for action in actions[:3]:
         action_type = action.get("type") if isinstance(action, dict) else None
+        if action_type == 'navigate':
+            from service.website_destinations import validate
+            try:
+                row = validate([{'id': 'navigation', 'label': action.get('label'), 'url': action.get('url')}])[0]
+            except ValueError:
+                continue
+            selected.append({'type': 'navigate', 'label': row['label'], 'url': row['url']})
+            continue
         if action_type in labels and not any(item["type"] == action_type for item in selected):
             selected.append({"type": action_type, "label": labels[action_type]})
     return selected

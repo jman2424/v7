@@ -418,12 +418,26 @@
     if (!Array.isArray(suggestions)) return;
     const names = [...new Set(suggestions.map(item => typeof item === "string" ? item : item && (item.action || item.type)))]
       .filter(action => Object.prototype.hasOwnProperty.call(actionLabels, action) && actionEnabled(action));
-    if (!names.length) return;
+    const links = suggestions.filter(item => item && item.type === 'navigate' && typeof item.url === 'string' && typeof item.label === 'string').slice(0, 3);
+    if (!names.length && !links.length) return;
     const group = document.createElement("div");
     group.className = "msg__actions";
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", "Suggested next steps");
     names.forEach(action => group.append(makeActionButton(action)));
+    links.forEach(item => {
+      try {
+        const url = new URL(item.url);
+        if (url.protocol !== 'https:' || url.username || url.password) return;
+        const link = document.createElement('a');
+        link.href = url.href;
+        link.textContent = item.label.slice(0, 80);
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'widget__navigation';
+        group.append(link);
+      } catch (_) { /* Invalid navigation must not interrupt a chat reply. */ }
+    });
     bubble.append(group);
   };
   const chatErrors = {

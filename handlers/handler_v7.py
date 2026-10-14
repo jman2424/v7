@@ -197,7 +197,13 @@ class MessageHandlerV7:
         storage = getattr(self.catalog, 'storage', None)
         self.website_knowledge = {}
         self.sales_actions = {}
+        self.website_destinations = []
         if storage is not None:
+            from service.website_destinations import load
+            try:
+                self.website_destinations = load(storage, storage.tenant_key)
+            except ValueError:
+                logger.warning('Invalid website destinations; navigation disabled')
             try:
                 knowledge = storage.read_json(storage.tenant_key, 'website_knowledge.json')
                 if isinstance(knowledge, dict):
@@ -285,9 +291,10 @@ class MessageHandlerV7:
             intelligent = self._grounded_answer(user_text, sess)
             if intelligent:
                 return self._wrap_reply(
-                    request_id=request_id, t0=t0, reply=intelligent,
+                    request_id=request_id, t0=t0, reply=intelligent['reply'] if isinstance(intelligent, dict) else intelligent,
                     intent="grounded_answer", plan=None,
                     facts={"source": "tenant_knowledge"}, entities={}, items=[],
+                    actions=intelligent.get('actions', []) if isinstance(intelligent, dict) else [],
                 )
 
             # 0) Greeting only
@@ -758,12 +765,24 @@ class MessageHandlerV7:
 
         return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
 
-    def _grounded_answer(self, question: str, session: Dict[str, Any]) -> Optional[str]:
+    def _grounded_answer(self, question: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         from service.grounded_conversation import answer
         client = getattr(self.rewriter, '_client', None)
         if client is None:
             return None
-        knowledge = {"business": dict(self.sales_context)}
+        knowledge = {"business": {key: value for key, value in self.sales_context.items() if key != 'business_core'}}
+        from service.website_knowledge import relevant_passages
+        history = session.get('conversation_history', [])
+        query = question
+        if isinstance(history, list):
+            query += ' ' + ' '.join(str(row.get('content', ''))[:400] for row in history[-4:] if isinstance(row, dict))
+        for index, page in enumerate(relevant_passages(self.website_knowledge, query, limit=6)):
+            knowledge[f'website:{index}'] = page
+        if self.faq:
+            for index, row in enumerate(self.faq.best_match(question, top_k=5)):
+                if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
+                    knowledge[f'matched_faq:{index}'] = {'question': str(row.get('q') or '')[:500],
+                                                       'answer': str(row.get('a') or '')[:2000]}
         if self.business_core:
             knowledge['business_core'] = self.business_core.public_context()
         if self.catalog:
@@ -803,14 +822,14 @@ class MessageHandlerV7:
                 if isinstance(offer, dict):
                     knowledge[f'offer:{index}'] = {key: offer[key] for key in
                         ('title', 'description', 'sku', 'price', 'currency', 'start_date', 'end_date', 'terms') if key in offer}
-        pages = self.website_knowledge.get('pages', [])
-        if isinstance(pages, list):
-            for index, page in enumerate(pages[:8]):
-                if isinstance(page, dict):
-                    knowledge[f'website:{index}'] = {key: str(page.get(key) or '')[:2000]
-                                                     for key in ('url', 'title', 'text')}
-        return answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
-                      knowledge, session.get('conversation_history', []), self.renderer.tone_style)
+        from service.website_destinations import public_targets
+        destinations = public_targets(self.website_destinations, self.website_knowledge,
+                                      self.business_profile.get('website', ''))
+        selected = []
+        text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
+                      knowledge, history, self.renderer.tone_style,
+                      destinations=destinations, selected_links=selected)
+        return {'reply': text, 'actions': selected} if text else None
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:

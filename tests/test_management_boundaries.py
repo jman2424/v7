@@ -8,7 +8,7 @@ from tests.conftest import set_test_identity
 MANAGEMENT_READS = (
     '/admin/api/' + resource for resource in (
         'catalog', 'faq', 'offers', 'delivery', 'profile', 'branches',
-        'agent-settings', 'widget', 'website-knowledge', 'accounts',
+        'agent-settings', 'widget', 'website-knowledge', 'website-destinations', 'accounts',
         'join-requests', 'sales-actions', 'action-requests', 'insights',
         'statistics', 'kpis', 'timeseries', 'sessions_timeseries', 'channels',
         'intents', 'fallbacks', 'errors', 'questions', 'leads', 'conversations',
@@ -27,6 +27,7 @@ MANAGEMENT_WRITES = (
     ('PUT', '/admin/api/profile'), ('PUT', '/admin/api/branches'),
     ('PUT', '/admin/api/agent-settings'), ('PUT', '/admin/api/widget'),
     ('PUT', '/admin/api/sales-actions'), ('POST', '/admin/api/mode'),
+    ('PUT', '/admin/api/website-destinations'),
     ('POST', '/admin/api/website-knowledge/import'),
     ('POST', '/admin/api/test-agent'), ('POST', '/admin/api/accounts'),
     ('PUT', '/admin/api/accounts/unknown'),

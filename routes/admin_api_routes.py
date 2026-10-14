@@ -53,6 +53,7 @@ def _require_admin_session() -> None:
         "api_profile_get", "api_profile_put", "api_branches_get", "api_branches_put",
         "api_agent_settings_get", "api_agent_settings_put", "api_widget_get", "api_widget_put",
         "api_website_knowledge_get", "api_website_knowledge_import", "api_sales_actions_get",
+        "api_website_destinations_get", "api_website_destinations_put",
         "api_sales_actions_put", "api_mode_set",
     }
     analytics_endpoints = {
@@ -365,7 +366,9 @@ def api_test_agent():
     if failed:
         return jsonify(error="agent_test_failed"), 503
     from routes.webchat_routes import _public_agent_payload
+    from routes.webchat_routes import _public_action_payload
     return jsonify(reply=str(result.get("reply") or "Please rephrase your question."),
+                   actions=_public_action_payload(result),
                    conversation_token=token, agent=_public_agent_payload(result))
 
 
@@ -896,6 +899,34 @@ def api_website_knowledge_get():
     return jsonify(source_url=knowledge.get("source_url", "") if isinstance(knowledge, dict) else "",
                    fetched_at=knowledge.get("fetched_at", "") if isinstance(knowledge, dict) else "",
                    page_count=len(pages) if isinstance(pages, list) else 0)
+
+
+@bp.get('/website-destinations')
+def api_website_destinations_get():
+    from service.security import require_permission
+    require_permission('business_settings.read')
+    from service.website_destinations import load
+    try:
+        return jsonify(destinations=load(_storage(), _tenant()))
+    except ValueError:
+        return jsonify(error='Website destinations need correction.'), 422
+
+
+@bp.put('/website-destinations')
+def api_website_destinations_put():
+    from service.security import require_permission
+    require_permission('business_settings.write')
+    from service.website_destinations import validate, FILENAME
+    if not (is_platform_operator() or 'business_owner' in user_roles()):
+        abort(403)
+    try:
+        destinations = validate(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    tenant = _tenant()
+    _audited_json_write(_storage(), tenant, FILENAME, destinations, action='website.destinations.update')
+    _invalidate_tenant(tenant)
+    return jsonify(ok=True, destinations=destinations)
 
 
 @bp.post("/website-knowledge/import")

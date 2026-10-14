@@ -5,7 +5,7 @@
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
-  type Message = { id: number; from: 'You' | 'Agent'; text: string };
+  type Message = { id: number; from: 'You' | 'Agent'; text: string; links?: {label:string;url:string}[] };
   type Recognition = {
     lang: string; interimResults: boolean;
     start(): void; abort(): void; stop(): void;
@@ -210,7 +210,13 @@
       }
       token = data.conversation_token;
       const reply = data.reply ? String(data.reply) : $t('No reply was returned.');
-      const message: Message = { id: ++nextMessageId, from: 'Agent', text: reply };
+      const links = Array.isArray(data.actions) ? data.actions.filter((item: unknown): item is {type:string;label:string;url:string} => {
+        if (!item || typeof item !== 'object') return false;
+        const value = item as {type?:unknown;label?:unknown;url?:unknown};
+        if (value.type !== 'navigate' || typeof value.label !== 'string' || typeof value.url !== 'string') return false;
+        try { const url = new URL(value.url); return url.protocol === 'https:' && !url.username && !url.password; } catch { return false; }
+      }).slice(0,3) : [];
+      const message: Message = { id: ++nextMessageId, from: 'Agent', text: reply, links };
       messages = [...messages, message];
       if (Array.isArray(data.agent?.suggested_replies)) suggestions = data.agent.suggested_replies.filter((item: unknown): item is string => typeof item === 'string').slice(0, 3);
       if (readAloud && canReadAloud && speechGeneration === replySpeechGeneration && !document.hidden) listenToReply(message);
@@ -235,7 +241,7 @@
     <button type="button" on:click={restart}>{$t("New conversation")}</button>
   </header>
   <div class="transcript" bind:this={transcript} role="log" aria-label={$t("Test conversation")} aria-live="polite" aria-busy={busy}>
-    {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{$t(message.from)}</strong><p>{message.text}</p>{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={$t(speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud')} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{$t(speakingMessageId === message.id ? 'Stop audio' : 'Listen')}</button>{/if}</article>
+    {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{$t(message.from)}</strong><p>{message.text}</p>{#if message.links?.length}<div class="navigation-links">{#each message.links as link}<a href={link.url} target="_blank" rel="noopener noreferrer">{link.label} ↗</a>{/each}</div>{/if}{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={$t(speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud')} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{$t(speakingMessageId === message.id ? 'Stop audio' : 'Listen')}</button>{/if}</article>
     {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>{$t("See the conversation from your customer’s side")}</h3><p>{$t("Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.")}</p></div>{/each}
     {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>{$t("The agent is replying…")}</p>{/if}
   </div>
@@ -281,6 +287,8 @@
   label { color:var(--v7-ink, #172b26); font-size:13px; font-weight:600; }
   textarea { width:100%; min-width:0; min-height:96px; resize:vertical; padding:12px 14px; border:1px solid var(--v7-control-line, #c7d2cc); border-radius:8px; color:var(--v7-ink, #172b26); background:var(--v7-surface, #fff); line-height:1.6; }
   textarea::placeholder { color:var(--v7-muted, #64716d); }
+  .navigation-links { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .navigation-links a { border:1px solid var(--v7-accent); border-radius:8px; padding:10px 14px; color:var(--v7-accent); text-decoration:none; font-weight:600; }
   .suggestions, .actions, .voice-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
   .suggestions { margin-bottom:4px; }
   .suggestions button { min-height:40px; padding:8px 12px; font-size:12px; font-weight:500; color:var(--v7-accent, #087f5b); background:var(--v7-soft, #edf6f1); border-color:var(--v7-tint-line); }

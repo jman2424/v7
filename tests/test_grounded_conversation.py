@@ -96,7 +96,7 @@ def test_knowledge_excludes_private_catalogue_fields(monkeypatch):
     ]}]})
     handler = MessageHandlerV7(SimpleNamespace(catalog=catalog, rewriter=SimpleNamespace(_client=object(), _model='gpt-4o-mini')))
     seen = []
-    monkeypatch.setattr(grounded_conversation, 'answer', lambda *args: seen.append(args[3]))
+    monkeypatch.setattr(grounded_conversation, 'answer', lambda *args, **kwargs: seen.append(args[3]))
     handler._grounded_answer('Basic', {})
     encoded = json.dumps(seen)
     assert 'private-key' not in encoded and 'internal_notes' not in encoded
