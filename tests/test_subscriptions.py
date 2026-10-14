@@ -366,3 +366,41 @@ def test_failed_existing_subscription_update_does_not_claim_discount_saved(clien
     stripe.side_effect = response
     assert client.post('/billing/discount',json={'code':private_discount}).status_code == 400
     assert subscriptions.saved_campaign('EXAMPLE') == ''
+
+
+def test_complimentary_scale_is_admin_only_and_not_a_payment(client):
+    identity(client, 'business_owner')
+    body = {'plan_id':'scale', 'reason':'Owner development workspace'}
+    assert client.post('/billing/complimentary-plan', json=body).status_code == 403
+    identity(client)
+    result = client.post('/billing/complimentary-plan', json=body)
+    assert result.status_code == 200
+    assert result.json['plan_state']['active_plan'] == 'scale'
+    assert subscriptions.configured_plan('EXAMPLE')['id'] == 'scale'
+    assert subscriptions.complimentary_plan('OTHER') is None
+    report = subscriptions.report('EXAMPLE', include_api=False)
+    assert report['complimentary'] is True
+    assert report['totals']['paid'] == 0
+    assert report['invoices'] == []
+    assert client.post('/billing/complimentary-plan', json=body).status_code == 200
+    with subscriptions.connection('EXAMPLE') as db:
+        assert db.execute("SELECT COUNT(*) n FROM billing_contracts WHERE tenant=? AND kind='complimentary_scale'",('EXAMPLE',)).fetchone()['n'] == 1
+
+
+def test_complimentary_scale_does_not_replace_stripe_subscription(client):
+    identity(client)
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("INSERT INTO billing_contracts (tenant,kind,ref,subscription,status) VALUES (?,?,?,?,?)", ('EXAMPLE','platform','test-ref','sub_existing','active'))
+    response = client.post('/billing/complimentary-plan',json={'plan_id':'scale','reason':'Owner development workspace'})
+    assert response.status_code == 400
+    assert subscriptions.complimentary_plan('EXAMPLE') is None
+
+
+def test_complimentary_grant_can_be_revoked_without_touching_invoices(client):
+    identity(client)
+    body={'plan_id':'scale','reason':'Owner development workspace'}
+    assert client.post('/billing/complimentary-plan',json=body).status_code == 200
+    assert client.post('/billing/complimentary-plan',json={**body,'enabled':False}).status_code == 200
+    assert subscriptions.complimentary_plan('EXAMPLE') is None
+    with subscriptions.connection('EXAMPLE') as db:
+        assert db.execute("SELECT COUNT(*) n FROM billing_invoices WHERE tenant=?",('EXAMPLE',)).fetchone()['n'] == 0

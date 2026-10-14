@@ -15,7 +15,7 @@
   type Transaction = {id:string;kind:string;created_utc:number|string;amount_pence:number;balance_delta_pence:number;reserved_delta_pence?:number;debt_delta_pence?:number;payment_ref?:string;invoice_id?:string;receipt_url?:string;usage?:ModelUsage|null};
   type Wallet = {balance_pence?:number;available_pence?:number;reserved_pence?:number;debt_pence?:number;spent_pence?:number;unknown_reservations?:number;reconciliation_hold?:boolean;paused:boolean;alerts:{code:string;message:string}[];markup_percent?:number|string|null;exchange_rate?:{rate:number|string;date:string;stale?:boolean}|null;transactions?:Transaction[];total?:number;offset?:number;limit?:number;has_next?:boolean};
   type PendingCheckout = {reference:string;request_id:string;pack_id:string;status:string;expires_at?:number;credit_pence:number;total_pence:number};
-  type UsageReport = {tenant:string;configured:boolean;packs:Pack[];vat_percent:number;currency:string;wallet:Wallet;pending_checkouts?:PendingCheckout[];checkout_requests?:PendingCheckout[];policy:{mode:string;included_credit_pence:number;automatic_recharge:boolean}};
+  type UsageReport = {tenant:string;internal?:boolean;configured:boolean;packs:Pack[];vat_percent:number;currency:string;wallet:Wallet;pending_checkouts?:PendingCheckout[];checkout_requests?:PendingCheckout[];policy:{mode:string;included_credit_pence:number;automatic_recharge:boolean}};
   type Company = {key:string;name:string;wallet:Wallet;internal?:boolean};
   const dispatch=createEventDispatcher<{creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data: UsageReport|null = null;
@@ -47,7 +47,7 @@
   $: fxDate = (value:string) => new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeZone:'UTC'}).format(new Date(value.length===10?value+'T00:00:00Z':value));
   $: pack = data?.packs.find(row=>row.id===selectedPack);
   $: transactions = data?.wallet.transactions||[];
-  $: alerts = subscriptionCreditAlerts(data?.wallet.alerts||[]);
+  $: alerts = subscriptionCreditAlerts(data?.internal?[]:data?.wallet.alerts||[]);
   $: kind = (value:string) => $t(({topup:'Credit purchase',credit:'Credit purchase',usage:'AI usage charge',usage_unknown:'Unconfirmed usage',usage_overrun:'Usage adjustment',debit:'AI usage charge',refund:'Refund',refund_restored:'Refund reversed',adjustment:'Administrator adjustment',reversal:'Charge reversal',reservation:'Reservation',reserve:'Reservation',release:'Reservation released'} as Record<string,string>)[value]||'Credit adjustment');
   $: alertText = (code:string) => $t(code==='low_credit'?'Your available AI credit is low. Top up to keep paid AI responses available.':code==='financial_review_required'||code==='reconciliation_hold'||code==='unknown_cost'?'Paid AI is paused pending a credit or usage review. Contact your platform administrator. Saved business knowledge remains available.':code==='pricing_unavailable'?'Paid AI is paused because model pricing or the exchange rate cannot be verified safely. Contact your platform administrator.':code==='debt'||code==='negative_balance'?'A balance adjustment must be covered before paid AI resumes.':'Paid AI is paused until sufficient usage credit is available. Saved business knowledge remains available.');
 
@@ -95,7 +95,7 @@
       const result=await read('?page='+page,undefined,request.signal);
       if(disposed||controller!==request||request.signal.aborted)return;
       data=result;
-      dispatch('creditstatus',{tenant,alerts:data?.wallet.alerts||[]});
+      dispatch('creditstatus',{tenant,alerts:data?.internal?[]:data?.wallet.alerts||[]});
       if(!data?.packs.some(row=>row.id===selectedPack))selectedPack=data?.packs[0]?.id||'';
       syncCheckoutRequests(data);
     } catch(failure) {if(!disposed&&controller===request)error=request.signal.aborted?'Usage credit loading timed out. Try refreshing.':failureText(failure);}
@@ -178,13 +178,14 @@
   {#if busy}<p class="notice" role="status">{$t('Updating usage credit…')}</p>{/if}
   {#if !canViewCosts}<p>{$t('Your account can see AI availability. Detailed usage credit and costs require cost-view permission.')}</p>{/if}
   {#if data}
+    {#if data.internal}<p class="notice">Internal workspace: this balance is an administrative ledger record. The internal AI exemption remains active; provider funding is separate.</p>{/if}
     {#each alerts as alert}<p class="notice error" role="alert">{alertText(alert.code)}</p>{/each}
     {#if canViewCosts}
       <div class="balances"><article><h3>{$t('Available credit')}</h3><strong><bdi>{money(data.wallet.available_pence)}</bdi></strong><p>{$t('Available for new paid AI requests.')}</p></article><article><h3>{$t('Reserved credit')}</h3><strong><bdi>{money(data.wallet.reserved_pence)}</bdi></strong><p>{$t('Held for requests awaiting a confirmed cost; not charged twice.')}</p></article><article><h3>{$t('Confirmed AI spend')}</h3><strong><bdi>{money(data.wallet.spent_pence)}</bdi></strong><p>{$t('Recorded usage charges, separate from token counts.')}</p></article></div>
       {#if data.wallet.debt_pence}<p class="notice error">{$t('Balance adjustment to cover: {price}.',{price:money(data.wallet.debt_pence)})}</p>{/if}
       {#if data.wallet.unknown_reservations}<p class="notice">{$t('{count} requests have an unconfirmed cost. Their reservations stay held while usage is reconciled.',{count:count(data.wallet.unknown_reservations)})}</p>{/if}
       <p>{$t('Purchased credit carries forward. There is no automatic recharge, and credit is added only after Stripe confirms payment. At low credit, top up manually; when credit cannot cover a request, paid AI pauses and saved-knowledge replies remain available.')}</p>
-      {#if canManageBilling}
+      {#if canManageBilling && !data.internal}
         <form class="top-up" on:submit|preventDefault={topUp}><label>{$t('Credit pack')}<select bind:value={selectedPack} disabled={busy||!data.configured||!canTopUp}>{#each data.packs as option}<option value={option.id}>{$t(option.vat_percent ? '{credit} credit · pay {total} including VAT' : '{credit} credit · pay {total} — no VAT charged',{credit:money(option.credit_pence),total:money(option.total_pence)})}</option>{/each}</select></label>{#if pack}<div class="pack-total"><strong>{$t('Pay {total}',{total:money(pack.total_pence)})}</strong><small>{$t(pack.vat_percent ? '{credit} usage credit + {tax} VAT ({percent}%).' : '{credit} usage credit. No VAT charged.',{credit:money(pack.credit_pence),tax:money(pack.tax_pence),percent:count(pack.vat_percent)})}</small></div>{/if}<button disabled={busy||!data.configured||!canTopUp||!pack}>{$t('Top up securely with Stripe')}</button></form>
         {#if !canTopUp}<p>{$t('Activate your subscription before buying AI usage credit.')}</p>{/if}
         {#if !data.configured}<p class="notice">{$t('Payments are not connected. Contact your platform administrator.')}</p>{/if}

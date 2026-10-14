@@ -74,6 +74,24 @@ def companies_get():
     return jsonify(companies=matches[(page-1)*50:page*50],total=len(companies),matched=len(matches),page=page,has_next=len(matches)>page*50)
 
 
+@bp.post('/complimentary-plan')
+def complimentary_plan_post():
+    management_user(platform_only=True)
+    tenant = _tenant()
+    data = _body()
+    reason = data.get('reason')
+    enabled = data.get('enabled', True)
+    if not isinstance(enabled, bool) or data.get('plan_id') != 'scale' or not isinstance(reason, str) or not 5 <= len(reason.strip()) <= 500:
+        return jsonify(error='invalid_plan_grant'), 400
+    try:
+        state = subscriptions.grant_complimentary_scale(tenant, enabled=enabled)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    from routes.admin_api_routes import _audit
+    _audit('billing.complimentary_plan', tenant, after={'plan':'scale', 'enabled':enabled, 'reason':reason.strip()})
+    return jsonify(ok=True, plan_state=state)
+
+
 @bp.post('/checkout')
 def checkout_post():
     tenant, data = _tenant(), _body()

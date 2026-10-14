@@ -89,3 +89,18 @@ balances, financial entries, checkout snapshots and reservations.
 
 Target checks: subscription and tiered billing tests, resource/usage cap tests,
 PostgreSQL plan runtime tests, public SEO tests, and frontend check/build.
+# Complimentary owner access
+
+Platform administrators can grant or revoke complimentary Scale through the
+subscription page. This uses a distinct `complimentary_scale` contract and an
+audit entry with a reason. It creates no Stripe subscription, payment or invoice,
+and refuses to replace an existing Stripe subscription. Revocation returns the
+workspace to its underlying subscription state. Tenant isolation and role checks
+still apply; complimentary access does not include prepaid AI credit.
+
+Platform administrators can inspect and adjust the internal workspace's credit
+ledger. Its existing internal AI exemption remains active, so that ledger balance
+is informational rather than a charge for internal AI requests. Provider funding
+remains separate. Manual adjustments must include a reason and are not cash
+refunds or Stripe payment confirmations.
+

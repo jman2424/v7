@@ -90,6 +90,9 @@ def activation(tenant):
             # This grants access, never creates a payment or changes an invoice.
             return {'active': True, 'status': 'platform_internal'}
     from service.subscriptions import connection
+    from service.subscriptions import complimentary_plan
+    if complimentary_plan(tenant):
+        return {'active': True, 'status': 'complimentary'}
     with connection(tenant) as db:
         row = db.execute("SELECT status,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
         paid = db.execute("SELECT 1 FROM billing_invoices WHERE tenant=? AND kind='platform' AND status='paid' AND paid>0 LIMIT 1", (tenant,)).fetchone()

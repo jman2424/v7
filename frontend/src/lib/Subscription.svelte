@@ -20,7 +20,7 @@
   type ChannelAllowance={used:number;limit:number;paused:boolean;enforced?:boolean;measured_by?:string};
   type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;alerts:UsageAlert[]};
   type PlanState={selected_plan:string|null;active_plan:string|null;setup_plan:string|null;whatsapp_paused:boolean;checkout_pending:boolean;checkout_expires:number|null};
-  type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null};
+  type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null};
   type Company={key:string;name:string;contracts:Contract[];totals:{paid:number;due:number};plan_state?:PlanState|null;allowance?:Allowance|null};
   const dispatch=createEventDispatcher<{company:string;creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data:Report|null=null;
@@ -123,14 +123,17 @@
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
+    {#if data.complimentary}<p class="notice">Complimentary Scale access. No subscription payment or setup invoice was created. AI credit is separate.</p>{/if}
+    {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>Revoke complimentary Scale for {tenant}</button>{/if}
+    {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>Grant complimentary Scale to {tenant}</button>{/if}
     {#if !canManageBilling}<p class="notice">{$t('Read-only access. Your business owner manages payments and subscriptions.')}</p>{/if}
-    {#if !data.configured && !data.internal}<p class="notice">{$t('Stripe payments are not connected yet.')} {$t(isPlatform?(data.vat_percent ? 'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.' : 'Configure the Stripe live API key and matching webhook signing secret on the server. No VAT tax rate is required while unregistered.'):'Your platform administrator needs to connect payments.')} {$t('No payment has been taken.')}</p>{/if}
+    {#if !data.configured && !data.internal && !data.complimentary}<p class="notice">{$t('Stripe payments are not connected yet.')} {$t(isPlatform?(data.vat_percent ? 'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.' : 'Configure the Stripe live API key and matching webhook signing secret on the server. No VAT tax rate is required while unregistered.'):'Your platform administrator needs to connect payments.')} {$t('No payment has been taken.')}</p>{/if}
     {#if data.internal}<p class="notice">{$t('Internal website agent. This platform-owned workspace does not need a customer subscription.')}</p>{/if}
-    {#if canManageBilling && !data.internal}
+    {#if canManageBilling && !data.internal && !data.complimentary}
       {#if data.discount_percent}<p class="notice">{$t('{percent}% discount saved. Platform renewals keep this discount automatically; it also applies to your setup checkout. Existing invoices are unchanged.',{percent:count(data.discount_percent)})}</p>
       {:else}<details class="panel"><summary>{$t('Have a discount code?')}</summary><form on:submit|preventDefault={()=>action('discount',{code:discountCode})}><label>{$t('Discount code')}<input bind:value={discountCode} maxlength="100" autocomplete="off" spellcheck="false" required /></label><button disabled={busy||!discountCode.trim()}>{$t('Apply to this business')}</button></form></details>{/if}
     {/if}
-    {#if !legacyBilling && !data.internal}
+    {#if !legacyBilling && !data.internal && !data.complimentary}
       <div class="cards plans tiered-plans">
         {#each data.plans||[] as plan}
           <article class="panel" class:selected={selectedPlan?.id===plan.id}>
@@ -169,8 +172,8 @@
       </article>
     {/if}
     {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
-    {#if !data.internal}
-      {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
+    {#if !data.internal || isPlatform}
+      {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={Boolean(data.complimentary)||['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
     {/if}
     {#if canViewIntegrations}
       <details class="panel" bind:open={whatsappOpen}>
@@ -191,7 +194,7 @@
       </article>
     </div>
     {/if}
-    <div class="cards summaries"><article class="panel"><h3>{$t('Total paid')}</h3><strong class="price"><bdi>{money(data.totals.paid)}</bdi></strong><p>{$t('Recorded invoice payments, before refunds.')}</p></article><article class="panel"><h3>{$t('Total payment due')}</h3><strong class="price"><bdi>{money(data.totals.due+data.totals.approved_api_due)}</bdi></strong><p>{$t('Open invoices at their recorded totals.')}{#if canViewCosts} {$t('Approved API charges awaiting checkout: {price}.',{price:money(data.totals.approved_api_due)})}{/if}</p></article><article class="panel"><h3>{$t('Regular monthly price')}</h3><strong class="price">{data.internal?$t('Internal workspace'):baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?undiscountedTotal(20000):0)):status(undefined)}</strong><p>{$t(data?.vat_percent ? 'Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.' : 'Final price after any saved subscription discount. No VAT charged; your checkout and invoices show the amount payable.')}</p></article></div>
+    <div class="cards summaries"><article class="panel"><h3>{$t('Total paid')}</h3><strong class="price"><bdi>{money(data.totals.paid)}</bdi></strong><p>{$t('Recorded invoice payments, before refunds.')}</p></article><article class="panel"><h3>{$t('Total payment due')}</h3><strong class="price"><bdi>{money(data.totals.due+data.totals.approved_api_due)}</bdi></strong><p>{$t('Open invoices at their recorded totals.')}{#if canViewCosts} {$t('Approved API charges awaiting checkout: {price}.',{price:money(data.totals.approved_api_due)})}{/if}</p></article><article class="panel"><h3>{$t('Regular monthly price')}</h3><strong class="price">{data.complimentary?'Complimentary Scale':data.internal?$t('Internal workspace'):baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?undiscountedTotal(20000):0)):status(undefined)}</strong><p>{$t(data?.vat_percent ? 'Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.' : 'Final price after any saved subscription discount. No VAT charged; your checkout and invoices show the amount payable.')}</p></article></div>
     {#if months.length}<TrendChart title={$t('Recorded payments by invoice month')} labels={months.map(month)} unit="GBP" series={[{name:$t('Paid'),values:paidMonths,color:'#087f5b'},{name:$t('Outstanding'),values:dueMonths,color:'#bd5b28'}]} {locale} notRecordedLabel={$t('Not recorded')} periodLabel={$t('Period (UTC)')} figuresLabel={$t('View figures')} exactValuesLabel={$t('Exact values in the table below')} figuresRegionLabel={$t('Recorded payment figures')}/>{/if}
     <article class="panel"><header><div><h2>{$t('Payment history')}</h2><p>{$t('Previous subscription, setup, WhatsApp and API invoices. Older platform invoices may include setup. Showing the latest 120 recorded invoices.')}</p></div><label>{$t('Show')}<select bind:value={invoiceKind} on:change={()=>invoicePage=1}><option value="all">{$t('All charges')}</option><option value="platform">{$t('Platform subscription')}</option><option value="implementation">{$t('Implementation')}</option><option value="whatsapp">WhatsApp</option>{#if canViewCosts}<option value="api">{$t('API usage')}</option>{/if}</select></label></header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->

@@ -105,7 +105,30 @@ def internal_business(tenant):
     return activation(tenant)['status'] == 'platform_internal'
 
 
+def complimentary_plan(tenant):
+    with connection(tenant) as db:
+        row = db.execute("SELECT kind FROM billing_contracts WHERE tenant=? AND kind='complimentary_scale' AND status='active'", (tenant,)).fetchone()
+    return 'scale' if row else None
+
+
+def grant_complimentary_scale(tenant, *, enabled=True):
+    with connection(tenant) as db:
+        if not enabled:
+            db.execute("UPDATE billing_contracts SET status='revoked' WHERE tenant=? AND kind='complimentary_scale'", (tenant,))
+            return None
+        paid = db.execute("SELECT subscription FROM billing_contracts WHERE tenant=? AND kind='platform' AND subscription IS NOT NULL", (tenant,)).fetchone()
+        if paid:
+            raise ValueError('existing_stripe_subscription_requires_review')
+        db.execute("INSERT INTO billing_contracts (tenant,kind,ref,status) VALUES (?, 'complimentary_scale', ?, 'active') ON CONFLICT(tenant,kind) DO UPDATE SET status='active'",
+                   (tenant, 'grant:' + secrets.token_urlsafe(24)))
+    return plan_state(tenant)
+
+
 def plan_state(tenant):
+    grant = complimentary_plan(tenant)
+    if grant:
+        return {'selected_plan':grant, 'active_plan':grant, 'setup_plan':grant,
+                'whatsapp_paused':False, 'checkout_pending':False, 'checkout_expires':None}
     with connection(tenant) as db:
         row = db.execute('SELECT selected_plan,active_plan,setup_plan,whatsapp_paused FROM billing_plan_state WHERE tenant=?', (tenant,)).fetchone()
         if row:
@@ -117,6 +140,9 @@ def plan_state(tenant):
 def configured_plan(tenant):
     if internal_business(tenant):
         return None
+    grant = complimentary_plan(tenant)
+    if grant:
+        return get_plan(grant)
     with connection(tenant) as db:
         state = db.execute('SELECT selected_plan,active_plan FROM billing_plan_state WHERE tenant=?', (tenant,)).fetchone()
     return get_plan(state['active_plan'] or state['selected_plan']) if state else None
@@ -585,4 +611,4 @@ def report(tenant, include_api=True):
     state = plan_state(tenant)
     return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
             'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
-            'internal':internal_business(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}
+            'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'allowance':plan_usage.report(tenant, include_costs=include_api)}
