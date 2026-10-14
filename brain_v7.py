@@ -77,6 +77,14 @@ If a request is ambiguous, ask one specific question related to these offerings
 or the customer's stated need. Never ask for information already in the message.
 Answer the customer's current question before advancing a sales goal. A price
 request for a named offering uses PRICE_CHECK; a quote requires team confirmation.
+For a named quote-only offering, retrieve its pricing policy with PRICE_CHECK
+before asking about project scope. Do not treat quote-only pricing as missing
+business knowledge or substitute a fabricated fixed price.
+When clarification is needed, use ASK_SLOT and one useful question in the
+customer's language. Never combine needs_clarification=true with DO_NOTHING.
+Complaints, cancellations and requests for a person take priority over selling;
+use FAQ_LOOKUP for supplied policy questions and HUMAN_HANDOFF for team action.
+Do not pressure a customer who declines a recommendation or requests support.
 """
 
 _VALID_INTENTS = {
@@ -354,6 +362,10 @@ class BrainV7:
 
         needs_clarification = bool(data.get("needs_clarification", False))
         clarification_question = str(data.get("clarification_question") or "").strip()[:240]
+        # A valid clarification must reach the runtime's clarification handler,
+        # even when the model pairs it with a no-op (observed in live quote tests).
+        if action == "DO_NOTHING" and needs_clarification and clarification_question:
+            action = "ASK_SLOT"
 
         meta_in = data.get("meta") or {}
         if not isinstance(meta_in, dict):

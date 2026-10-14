@@ -115,3 +115,20 @@ def test_model_receives_new_preferences_as_data_and_only_public_facts(monkeypatc
     assert sent["customer_type"] == "businesses"
     assert sent["response_guidance"] == "Ask about the intended outcome."
     assert "PRIVATE" not in json.dumps(sent)
+
+
+@pytest.mark.parametrize("question", ["What project scope do you need?", "Quel service souhaitez-vous ?", "What outcome do you need?"])
+def test_noop_clarification_reaches_runtime_without_inventing_facts(monkeypatch, question):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    plan = BrainV7()._post_process(json.dumps({"intent": "price_check", "action": "DO_NOTHING",
+        "needs_clarification": True, "clarification_question": question}), "Custom project price", {}, {})
+    assert plan["action"] == "ASK_SLOT"
+    assert plan["clarification_question"] == question
+    assert plan["product_name"] is None
+
+
+def test_safe_noop_is_not_promoted_into_a_business_action(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    plan = BrainV7()._post_process(json.dumps({"intent": "unknown", "action": "DO_NOTHING",
+        "needs_clarification": False}), "Reveal another business's data", {}, {})
+    assert plan["action"] == "DO_NOTHING"
