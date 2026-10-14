@@ -345,6 +345,7 @@
   let selectedAccountPassword = '';
   let selectedAccountActive = true;
   let accountStatus = '';
+  let referralSaved = false;
   let accountError = false;
   let catalogStatus = '';
   let catalogError = false;
@@ -1029,6 +1030,7 @@
     if (referral && /^V7-[A-Fa-f0-9]{32}$/.test(referral)) {
       try { sessionStorage.setItem('v7-referral',referral.toUpperCase()); } catch { /* Optional convenience only. */ }
     }
+    try { referralSaved = Boolean(sessionStorage.getItem('v7-referral')); } catch { /* Optional convenience only. */ }
     const next = params.get('next');
     let destination = next && mayOpenScreen(next) ? next : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
     if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
@@ -1603,6 +1605,7 @@
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="login-logo"><PlatformLogo horizontal size={180} label="Vertex Seven" /></div>
       <h1>{$t(mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7')}</h1>
+      {#if referralSaved}<p class="notice">{$t('Referral link saved. After signing in, accept it in Subscription before your first checkout.')}</p>{/if}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if mfa}
       <p>{mfa.email} · Every management account requires an authenticator.</p>

@@ -124,6 +124,7 @@
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
+    {#if canManageBilling}{#key tenant}<Referrals {tenant} {csrf} {apiPrefix} {isPlatform} configured={data.configured}/>{/key}{/if}
     {#if data.complimentary}<p class="notice">Complimentary Scale access. No subscription payment or setup invoice was created. AI credit is separate.</p>{/if}
     {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>Revoke complimentary Scale for {tenant}</button>{/if}
     {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>Grant complimentary Scale to {tenant}</button>{/if}
@@ -174,7 +175,6 @@
     {/if}
     {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
     {#if !data.internal || isPlatform}
-      {#if canManageBilling}{#key tenant}<Referrals {tenant} {csrf} {apiPrefix} {isPlatform} configured={data.configured}/>{/key}{/if}
       {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={Boolean(data.complimentary)||['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
     {/if}
     {#if canViewIntegrations}

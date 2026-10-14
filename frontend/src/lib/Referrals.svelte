@@ -31,7 +31,7 @@
     try{data=await read();}catch(err){error=err instanceof Error?err.message:'Could not update referrals. Please refresh and try again.';}
   });
 </script>
-<section class="referrals" aria-labelledby="referral-heading">
+<section id="business-referrals" class="referrals" aria-labelledby="referral-heading">
   <header><h3 id="referral-heading">{$t('Refer a business')}</h3>{#if data}<span>{$t(data.program.enabled?'Open to new referrals':'New referrals paused')}</span>{/if}</header>
   {#if error}<p role="alert">{$t(error)}</p>{/if}{#if message}<p role="status">{$t(message)}</p>{/if}
   {#if data}

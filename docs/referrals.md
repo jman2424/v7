@@ -1,6 +1,9 @@
 # Business referrals
 
-Owners can share their private referral code/link in Subscription → Refer a business.
+Owners can share their referral code/link in Account & security or Subscription
+→ Refer a business. The homepage advertises the current enabled offer. Shared
+links preserve the code through sign-in in session storage; owners explicitly
+accept it above the plan/checkout controls before creating checkout.
 The default offer is 40% off one subscription month and any unpaid setup fee for
 each business. New businesses must accept before their first checkout; the
 referrer earns a reward only after V7 retrieves and verifies the referred
@@ -14,7 +17,8 @@ applied by its owner; it discounts one invoice, without proration. Only one
 subscription reward can be reserved/applied at a time.
 
 Storage: service/referrals.py, routes/billing_routes.py and the additive private
-Postgres migration 202610140001_referrals.sql. All tenant records use forced RLS;
+Postgres migrations 202610140001_referrals.sql and
+202610140002_referral_program_lock.sql. All tenant records use forced RLS;
 the only cross-tenant lookup is an exact 128-bit referral code lookup returning
 its sponsor and owner hash to the backend. Programme changes require a live
 platform session in both HTTP and the guarded database function. Shared links
