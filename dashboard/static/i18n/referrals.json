@@ -1,5 +1,14 @@
 {
   "es": {
+    "off one subscription month for both businesses": "de descuento en un mes de suscripción para ambas empresas",
+    "The new business gets its first subscription month discounted and pays no setup fee.": "La nueva empresa obtiene un descuento en su primer mes de suscripción y no paga gastos de configuración.",
+    "You earn your reward after its first successful subscription payment, including": "Obtienes tu recompensa tras su primer pago de suscripción confirmado, incluido un",
+    "off your unpaid setup fee.": "de descuento en tus gastos de configuración pendientes.",
+    "Both businesses receive {percent}% off one subscription month.": "Ambas empresas reciben un {percent}% de descuento en un mes de suscripción.",
+    "The new business gets {percent}% off its unpaid setup fee.": "La nueva empresa recibe un {percent}% de descuento en sus gastos de configuración pendientes.",
+    "You earn your subscription reward and {percent}% off unpaid setup only after the new business makes its first successful subscription payment.": "Obtienes tu recompensa de suscripción y un {percent}% de descuento en la configuración pendiente solo después del primer pago de suscripción confirmado de la nueva empresa.",
+    "Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.": "No se reembolsan los gastos de configuración ya pagados. Los descuentos no se acumulan ni se aplican al crédito de IA.",
+    "Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid setup.": "Tu oferta aceptada se conserva: {percent}% de descuento en tu primer mes de suscripción y {setup_percent}% en la configuración pendiente.",
     "Referral link saved. After signing in, accept it in Subscription before your first checkout.": "Enlace de recomendación guardado. Tras iniciar sesión, acéptalo en Suscripción antes de tu primer pago.",
     "REFER A BUSINESS": "RECOMIENDA UNA EMPRESA",
     "off for both businesses": "de descuento para ambas empresas",
@@ -41,6 +50,15 @@
     "Referral settings saved.": "Configuración de recomendaciones guardada."
   },
   "fr": {
+    "off one subscription month for both businesses": "de réduction sur un mois d’abonnement pour les deux entreprises",
+    "The new business gets its first subscription month discounted and pays no setup fee.": "La nouvelle entreprise bénéficie d’une réduction sur son premier mois d’abonnement et ne paie aucun frais de configuration.",
+    "You earn your reward after its first successful subscription payment, including": "Votre récompense est acquise après son premier paiement d’abonnement confirmé, avec",
+    "off your unpaid setup fee.": "de réduction sur vos frais de configuration non payés.",
+    "Both businesses receive {percent}% off one subscription month.": "Les deux entreprises bénéficient de {percent}% de réduction sur un mois d’abonnement.",
+    "The new business gets {percent}% off its unpaid setup fee.": "La nouvelle entreprise bénéficie de {percent}% de réduction sur ses frais de configuration non payés.",
+    "You earn your subscription reward and {percent}% off unpaid setup only after the new business makes its first successful subscription payment.": "Votre récompense d’abonnement et {percent}% de réduction sur la configuration non payée sont acquis seulement après le premier paiement d’abonnement confirmé de la nouvelle entreprise.",
+    "Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.": "Les frais de configuration déjà payés ne sont pas remboursés. Les réductions ne se cumulent pas et ne s’appliquent pas au crédit IA.",
+    "Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid setup.": "Votre offre acceptée est conservée : {percent}% de réduction sur le premier mois d’abonnement et {setup_percent}% sur la configuration non payée.",
     "Referral link saved. After signing in, accept it in Subscription before your first checkout.": "Lien de parrainage enregistré. Après connexion, acceptez-le dans Abonnement avant votre premier paiement.",
     "REFER A BUSINESS": "RECOMMANDEZ UNE ENTREPRISE",
     "off for both businesses": "de réduction pour les deux entreprises",
@@ -82,6 +100,15 @@
     "Referral settings saved.": "Paramètres de parrainage enregistrés."
   },
   "ar": {
+    "off one subscription month for both businesses": "خصم على شهر اشتراك واحد للشركتين",
+    "The new business gets its first subscription month discounted and pays no setup fee.": "تحصل الشركة الجديدة على خصم في أول شهر اشتراك ولا تدفع رسوم إعداد.",
+    "You earn your reward after its first successful subscription payment, including": "تُكتسب مكافأتك بعد تأكيد أول دفعة اشتراك لها، وتشمل",
+    "off your unpaid setup fee.": "خصمًا على رسوم إعدادك غير المدفوعة.",
+    "Both businesses receive {percent}% off one subscription month.": "تحصل الشركتان على خصم {percent}% على شهر اشتراك واحد.",
+    "The new business gets {percent}% off its unpaid setup fee.": "تحصل الشركة الجديدة على خصم {percent}% على رسوم الإعداد غير المدفوعة.",
+    "You earn your subscription reward and {percent}% off unpaid setup only after the new business makes its first successful subscription payment.": "تُكتسب مكافأة الاشتراك وخصم {percent}% على الإعداد غير المدفوع فقط بعد تأكيد أول دفعة اشتراك للشركة الجديدة.",
+    "Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.": "لا تُرد رسوم الإعداد المدفوعة. لا تُجمع الخصومات ولا تنطبق على رصيد الذكاء الاصطناعي.",
+    "Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid setup.": "عرضك المقبول محفوظ: خصم {percent}% على أول شهر اشتراك وخصم {setup_percent}% على الإعداد غير المدفوع.",
     "Referral link saved. After signing in, accept it in Subscription before your first checkout.": "تم حفظ رابط الإحالة. بعد تسجيل الدخول، اقبله في قسم الاشتراك قبل أول عملية دفع.",
     "REFER A BUSINESS": "أحِل شركة",
     "off for both businesses": "خصم للشركتين",

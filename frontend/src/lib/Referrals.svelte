@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onMount} from 'svelte';
+  import {onMount,createEventDispatcher} from 'svelte';
   import {t} from './i18n';
   export let tenant:string;
   export let csrf:string;
@@ -7,12 +7,13 @@
   export let isPlatform=false;
   export let configured=false;
   type Reward={id:string;kind:string;percent:number;status:string};
-  type Report={program:{enabled:number;percent:number};payments_configured:boolean;code:string;link:string;claim:{percent:number;status:string}|null;rewards:Reward[]};
+  type Report={program:{enabled:number;percent:number;joining_setup_percent:number;sponsor_setup_percent:number};payments_configured:boolean;code:string;link:string;claim:{percent:number;joining_setup_percent:number;status:string}|null;rewards:Reward[]};
   let data:Report|null=null;
   let code='';
   let busy=false;
   let error='';
   let message='';
+  const dispatch=createEventDispatcher<{changed:void}>();
   const errors:Record<string,string>={invalid_referral_code:'Enter a valid referral code.',invalid_or_self_referral:'This code is invalid or belongs to your own business.',referral_already_accepted:'This business or owner has already accepted a referral.',referral_program_disabled:'New referrals are currently disabled.',referral_requires_new_business_before_checkout:'Accept a referral before your first checkout. Existing or complimentary businesses cannot claim a welcome discount.',referral_does_not_stack_with_existing_discount:'Your existing discount stays in place. This reward remains available.',active_paid_subscription_required:'An active paid subscription is needed to apply a renewal reward.',no_available_referral_reward:'No subscription reward is available.'};
   async function read(action='',body?:Record<string,unknown>){
     const response=await fetch(apiPrefix+'/billing/referrals'+(action?'/'+action:'')+'?tenant='+encodeURIComponent(tenant),{credentials:'same-origin',...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
@@ -22,7 +23,7 @@
   }
   async function action(name:string,body:Record<string,unknown>){
     busy=true;error='';message='';
-    try{await read(name,body);data=await read();message=name==='claim'?'Referral accepted. Your discounts are saved.':name==='apply'?'Your discount is applied to the next subscription invoice.':'Referral settings saved.';}
+    try{await read(name,body);data=await read();message=name==='claim'?'Referral accepted. Your discounts are saved.':name==='apply'?'Your discount is applied to the next subscription invoice.':'Referral settings saved.';dispatch('changed');}
     catch(err){error=err instanceof Error?err.message:'Could not update referrals. Please refresh and try again.';}
     finally{busy=false;}
   }
@@ -35,10 +36,13 @@
   <header><h3 id="referral-heading">{$t('Refer a business')}</h3>{#if data}<span>{$t(data.program.enabled?'Open to new referrals':'New referrals paused')}</span>{/if}</header>
   {#if error}<p role="alert">{$t(error)}</p>{/if}{#if message}<p role="status">{$t(message)}</p>{/if}
   {#if data}
-    <p>{$t('Both businesses receive {percent}% off one subscription month and any unpaid setup fee.',{percent:data.claim?.percent||data.program.percent})}</p>
-    <p class="hint">{$t('The referred business gets its first month discounted. Your reward is earned only after its first successful subscription payment. Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
+    <p>{$t('Both businesses receive {percent}% off one subscription month.',{percent:data.program.percent})}</p>
+    {#if data.program.joining_setup_percent===100}<p>{$t('The new business gets its first subscription month discounted and pays no setup fee.')}</p>
+    {:else}<p>{$t('The new business gets {percent}% off its unpaid setup fee.',{percent:data.program.joining_setup_percent})}</p>{/if}
+    <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid setup only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
+    <p class="hint">{$t('Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
     <label for="referral-link">{$t('Your referral link')}</label><input id="referral-link" readonly value={data.link} dir="ltr" on:focus={(event)=>event.currentTarget.select()}/>
-    {#if data.claim}<p>{$t('Your accepted referral offer is saved at {percent}%.',{percent:data.claim.percent})}</p>
+    {#if data.claim}<p>{$t('Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid setup.',{percent:data.claim.percent,setup_percent:data.claim.joining_setup_percent})}</p>
     {:else if data.program.enabled}<form on:submit|preventDefault={()=>action('claim',{code})}><label for="referral-code">{$t('Have a referral code?')}</label><div><input id="referral-code" bind:value={code} maxlength="35" dir="ltr" required/><button disabled={busy}>{$t('Accept referral')}</button></div></form>{/if}
     {#if data.rewards.length}<ul>{#each data.rewards as reward}<li>{$t(reward.kind==='platform'?'Subscription month':'Unpaid setup fee')} · {reward.percent}% · {$t(({available:'Available',reserved:'Checkout pending',applied:'Applied to next invoice',used:'Used',review:'Under review'} as Record<string,string>)[reward.status]||'Under review')}</li>{/each}</ul>
       <button disabled={busy||!(configured||data.payments_configured)||data.rewards.some(reward=>reward.kind==='platform'&&['reserved','applied'].includes(reward.status))||!data.rewards.some(reward=>reward.kind==='platform'&&reward.status==='available')} on:click={()=>action('apply',{})}>{$t('Apply reward to next subscription month')}</button>

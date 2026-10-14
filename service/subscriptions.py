@@ -308,6 +308,12 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     if entered_campaign:
         redeem_discount(tenant, discount_code)
     campaign = saved_campaign(tenant) if kind in {'platform','implementation'} else ''
+    if kind=='implementation' and campaign:
+        from service import referrals
+        # The joining business's free setup is stronger than the campaign.
+        # Keep the campaign on its subscription, without stacking coupons.
+        if referrals.has_stronger_reward(tenant,kind,50):
+            campaign = ''
     one_time = kind in {'implementation','api'}
     if kind=='implementation' and (_contract(tenant,'platform')['implementation_paid'] or _contract(tenant,kind)['status']=='paid'):
         raise ValueError('implementation_already_paid')
@@ -547,6 +553,52 @@ def sync_invoice(invoice_id):
     referrals.qualified_payment(identity['tenant'],identity['kind'],verified_invoice)
 
 
+def sync_zero_setup_checkout(checkout_id):
+    """Fulfil a verified free setup order even when Stripe created no invoice.
+
+    Free Checkout orders have no PaymentIntent. A redirect or event metadata
+    alone cannot waive a fee: retrieve the canonical session and match its
+    zero total, coupon, immutable plan choice and current billing generation.
+    """
+    if not isinstance(checkout_id,str) or not re.fullmatch(r'cs_[A-Za-z0-9_]+',checkout_id):
+        raise ValueError('invalid_checkout')
+    data = client().stripe_request('GET','/v1/checkout/sessions/'+checkout_id)
+    _verify_payment_environment(data)
+    metadata = data.get('metadata') or {}
+    if metadata.get('kind') != 'implementation' or data.get('amount_total') != 0:
+        return
+    if (data.get('id')!=checkout_id or data.get('mode')!='payment'
+            or data.get('status')!='complete' or data.get('payment_status')!='no_payment_required'
+            or data.get('currency')!='gbp'):
+        raise ValueError('invalid_zero_setup_checkout')
+    tenant = metadata.get('tenant')
+    if not isinstance(tenant,str) or not session_store._TENANT_KEY.fullmatch(tenant):
+        raise ValueError('unknown_billing_reference')
+    from service import referrals
+    coupons = referrals._coupon_ids(data.get('discounts') or [])
+    with connection(tenant) as db:
+        if not session_store._using_postgres():
+            db.execute('BEGIN IMMEDIATE')
+        row = db.execute("SELECT * FROM billing_contracts WHERE tenant=? AND kind='implementation'"+(' FOR UPDATE' if session_store._using_postgres() else ''),(tenant,)).fetchone()
+        if not row or row['ref']!=metadata.get('billing_ref') or row['checkout']!=checkout_id:
+            raise ValueError('unknown_billing_reference')
+        plan = _confirmed_plan(db,metadata,{'tenant':tenant,'kind':'implementation'})
+        subtotal = plan['setup_pence'] if plan else PRICES['implementation']
+        if data.get('amount_subtotal')!=subtotal:
+            raise ValueError('invalid_zero_setup_checkout')
+        reward = db.execute("SELECT id,coupon FROM referral_rewards WHERE tenant=? AND kind='implementation' AND billing_ref=? AND percent=100 AND status IN ('reserved','used')",
+                            (tenant,row['ref'])).fetchone()
+        if not reward or metadata.get('referral_reward')!=reward['id'] or coupons!={reward['coupon']}:
+            raise ValueError('invalid_zero_setup_checkout')
+        db.execute("UPDATE billing_contracts SET status='paid',customer=? WHERE tenant=? AND kind='implementation'",(data.get('customer'),tenant))
+        db.execute("UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind='platform'",(tenant,))
+        if plan:
+            db.execute('UPDATE billing_plan_state SET setup_plan=? WHERE tenant=?',(plan['id'],tenant))
+        # Preserve the provider checkout ID as the proof; do not invent an
+        # invoice, cash payment, or a qualifying subscription payment.
+        db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND id=? AND status='reserved'",(checkout_id,tenant,reward['id']))
+
+
 def change_whatsapp(tenant, enabled):
     if configured_plan(tenant):
         with connection(tenant) as db:
@@ -630,6 +682,7 @@ def report(tenant, include_api=True):
         usage, rate, approved = [], None, []
     from service import plan_usage
     state = plan_state(tenant)
-    return {'tenant':tenant,'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
+    from service import referrals
+    return {'tenant':tenant,'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
             'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

@@ -238,6 +238,37 @@ def test_sales_agent_leaves_a_grounded_faq_answer_uninterrupted():
     assert response["reply"] == "Every Northstar Travel bag includes a two-year warranty."
 
 
+def test_verified_grounded_agent_state_survives_sales_policy_without_generic_questions():
+    policy = SalesAgentPolicy(overrides=_QualificationOverrides())
+    text = 'The audit matches the scope you described. Use the approved quote page to continue.'
+    agent = {'_validated_grounded': True, 'intent': 'quote', 'stage': 'convert',
+             'objective': 'Guide the customer to the approved quote process.',
+             'next_action': 'open_destination', 'next_question': '', 'suggested_replies': [],
+             'offering_ids': ['offering:audit'], 'selected_offering_id': 'offering:audit',
+             'requirements': ['audit for my business'], 'navigation_ids': ['quote']}
+    result = policy.guide({'reply': text, 'intent': 'grounded_answer', 'agent': agent},
+        user_text='Can I get a quote?',
+        session={'sales_agent': {'stage': 'recommend', 'qualification_complete': True}})
+    assert result['reply'] == text
+    assert result['agent']['next_action'] == 'open_destination'
+    assert result['agent']['requirements'] == ['audit for my business']
+    assert result['agent']['selected_offering_id'] == 'offering:audit'
+    assert result['agent']['qualification_complete'] is True
+    assert result['agent']['previous_stage'] == 'recommend'
+    assert '_validated_grounded' not in result['agent']
+    assert result['ui']['suggested_replies'] == []
+
+
+def test_legacy_grounded_support_answer_does_not_restart_sales_discovery():
+    text = 'Cancel future renewal in account settings.'
+    result = SalesAgentPolicy(overrides=_QualificationOverrides()).guide(
+        {'reply': text, 'intent': 'grounded_answer'}, user_text='I want to cancel', session={})
+    assert result['reply'] == text
+    assert result['agent']['stage'] == 'assist'
+    assert result['agent']['next_question'] == ''
+    assert result['ui']['suggested_replies'] == []
+
+
 def test_greeting_reaches_agent_instead_of_the_short_input_guard(app):
     result = app.container.handler.handle(
         "hi",

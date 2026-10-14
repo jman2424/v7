@@ -195,6 +195,7 @@ class MessageHandlerV7:
 
         self.business_core = None
         storage = getattr(self.catalog, 'storage', None)
+        self.tenant_key = getattr(storage, 'tenant_key', None)
         self.website_knowledge = {}
         self.sales_actions = {}
         self.website_destinations = []
@@ -273,6 +274,13 @@ class MessageHandlerV7:
         )
 
         try:
+            # A handoff is a real saved lead workflow, not a prose-only reply.
+            contact = self._handoff_contact(user_text, sess)
+            if contact and self._has_pending_handoff(sess):
+                return self._wrap_reply(request_id=request_id, t0=t0,
+                    reply="Thanks, I’ve recorded those contact details for the team. You can add details about what you need.",
+                    intent='handoff_contact_captured', plan=None,
+                    facts={'handoff':{'contact_captured':True}}, entities=contact, items=[])
             conversion = self._conversion_action(user_text, channel)
             if conversion:
                 action_type, reply_text = conversion
@@ -286,6 +294,13 @@ class MessageHandlerV7:
                     }[action_type]}],
                 )
 
+            # Explicit requests for a person reach the saved lead workflow.
+            # Booking/quote requests above retain their configured action forms.
+            if self._explicit_human_request(user_text):
+                return self._wrap_reply(request_id=request_id, t0=t0,
+                    reply=self._handoff_reply(), intent='human_handoff', plan=None,
+                    facts={}, entities={}, items=[])
+
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
             intelligent = self._grounded_answer(user_text, sess)
@@ -295,7 +310,14 @@ class MessageHandlerV7:
                     intent="grounded_answer", plan=None,
                     facts={"source": "tenant_knowledge"}, entities={}, items=[],
                     actions=intelligent.get('actions', []) if isinstance(intelligent, dict) else [],
+                    agent=intelligent.get('agent') if isinstance(intelligent, dict) else None,
                 )
+
+            from service.platform_offer_knowledge import public_knowledge, automatic_offer_answer
+            offer_answer = automatic_offer_answer(user_text, public_knowledge(self.tenant_key))
+            if offer_answer:
+                return self._wrap_reply(request_id=request_id,t0=t0,reply=offer_answer,
+                    intent='faq',plan=None,facts={'source':'current_platform_offer'},entities={},items=[])
 
             # 0) Greeting only
             if self._is_greeting(user_text):
@@ -771,6 +793,10 @@ class MessageHandlerV7:
         if client is None:
             return None
         knowledge = {"business": {key: value for key, value in self.sales_context.items() if key != 'business_core'}}
+        from service.platform_offer_knowledge import public_knowledge, public_destinations
+        live_offer = public_knowledge(self.tenant_key)
+        if live_offer:
+            knowledge['current_platform_offer'] = live_offer
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
         query = question
@@ -785,8 +811,20 @@ class MessageHandlerV7:
                                                        'answer': str(row.get('a') or '')[:2000]}
         if self.business_core:
             knowledge['business_core'] = self.business_core.public_context()
+            for offering in knowledge['business_core'].get('offerings', [])[:50]:
+                knowledge['offering:'+offering['id']] = offering
         if self.catalog:
-            items = self.catalog.search(text=question, limit=12)
+            previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+            previous_ids = previous.get('offering_ids', []) if isinstance(previous.get('offering_ids'),list) else []
+            selected_id = previous.get('selected_offering_id')
+            remembered = ([selected_id] if isinstance(selected_id,str) else []) + previous_ids[:3]
+            items = []
+            for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
+                if source_id.startswith('product:'):
+                    item = self.catalog.get_item_by_sku(source_id[len('product:'):])
+                    if item:
+                        items.append(item)
+            items += self.catalog.search(text=question, limit=12)
             items += self.catalog.list_all_items()[:40]
             for sku in (session.get('last_items') or [])[:12]:
                 item = self.catalog.get_item_by_sku(sku)
@@ -825,11 +863,17 @@ class MessageHandlerV7:
         from service.website_destinations import public_targets
         destinations = public_targets(self.website_destinations, self.website_knowledge,
                                       self.business_profile.get('website', ''))
+        destinations += public_destinations(self.tenant_key, self.website_destinations)
         selected = []
+        agent_state = {}
+        previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
-                      destinations=destinations, selected_links=selected)
-        return {'reply': text, 'actions': selected} if text else None
+                      destinations=destinations, selected_links=selected,
+                      agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
+                                     'selected_offering_id':previous.get('selected_offering_id'),
+                                     'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
+        return {'reply': text, 'actions': selected, 'agent':agent_state} if text else None
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:
@@ -1080,6 +1124,13 @@ class MessageHandlerV7:
             r'\b(?:start|join|begin|discuss|sign up for|subscribe to)\s+(?:a |the |your )?(?:subscription|membership|plan)\b',
             text,
         ))
+
+    @staticmethod
+    def _explicit_human_request(user_text: str) -> bool:
+        text = user_text.casefold()
+        if re.search(r"\b(?:don't|do not|no need to)\s+(?:call|contact|speak|talk)|\b(?:do i need|what is|how does)\b",text):
+            return False
+        return bool(re.search(r'\b(?:talk|speak|chat)\s+(?:to|with)\s+(?:a |the |your )?(?:human|person|someone|team|staff)|\b(?:call me back|contact me|human agent|real person)\b',text))
 
     def _store_info_answer(self, user_text: str) -> Optional[str]:
         text = self._clean_text(user_text)
@@ -1598,6 +1649,7 @@ class MessageHandlerV7:
         entities: Dict[str, Any],
         items: List[Dict[str, Any]],
         actions: Optional[List[Dict[str, str]]] = None,
+        agent: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         dt_ms = int((time.perf_counter() - t0) * 1000)
         safe_facts = dict(facts or {})
@@ -1623,6 +1675,8 @@ class MessageHandlerV7:
         }
         if actions:
             result["actions"] = actions
+        if agent:
+            result['agent'] = agent
         return result
 
     def _catalog_categories(self) -> List[Dict[str, Any]]:

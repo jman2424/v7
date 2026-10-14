@@ -131,8 +131,9 @@
       </div>
       {% if referral_offer.enabled %}
       <aside class="referral-offer" aria-labelledby="referral-offer-title">
-        <div><p class="eyebrow" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off for both businesses</span></h3>
-        <p data-i18n>One subscription month and any unpaid setup fee. The new business gets its first month discounted; you earn your reward after its first successful subscription payment.</p>
+        <div><p class="eyebrow" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off one subscription month for both businesses</span></h3>
+        {% if referral_offer.joining_setup_percent == 100 %}<p data-i18n>The new business gets its first subscription month discounted and pays no setup fee.</p>{% endif %}
+        <p><span data-i18n>You earn your reward after its first successful subscription payment, including</span> {{ referral_offer.percent }}% <span data-i18n>off your unpaid setup fee.</span></p>
         <p class="referral-terms" data-i18n>New businesses must accept a referral before their first checkout. Discounts do not stack or apply to AI credit. Already-paid setup fees are not refunded.</p></div>
         <a class="button button-dark" href="/console/account" data-i18n>Get your referral link</a>
       </aside>

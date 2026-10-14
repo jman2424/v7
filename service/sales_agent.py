@@ -64,7 +64,24 @@ class SalesAgentPolicy:
         session: Dict[str, Any],
     ) -> Dict[str, Any]:
         result = dict(response or {})
-        agent = self._next_step(result, user_text=user_text, session=session)
+        supplied = result.get('agent')
+        if (result.get('intent') == 'grounded_answer' and isinstance(supplied, dict)
+                and supplied.get('_validated_grounded') is True):
+            # The accounted answer already chose and validated a grounded next
+            # step. Re-running the catalogue policy used to discard that choice
+            # and restart a generic qualification interview on every question.
+            agent = dict(supplied)
+            agent.pop('_validated_grounded', None)
+            previous = session.get('sales_agent')
+            if isinstance(previous, dict):
+                for key in ('qualification_index', 'qualification_pending', 'qualification_complete'):
+                    if key in previous:
+                        agent[key] = previous[key]
+                if previous.get('stage') in {'discover', 'qualify', 'recommend', 'convert', 'assist', 'handoff', 'recover'}:
+                    if previous['stage'] != agent.get('stage'):
+                        agent['previous_stage'] = previous['stage']
+        else:
+            agent = self._next_step(result, user_text=user_text, session=session)
 
         result["agent"] = agent
         ui = dict(result.get("ui") or {})
@@ -104,6 +121,14 @@ class SalesAgentPolicy:
 
         state = self._default_state(playbook, singular, plural)
 
+        if intent == 'grounded_answer':
+            # Older provider responses have no structured state. Their answer
+            # still must not receive an unrelated purchase/booking question.
+            state.update(stage='assist', objective='Answer the customer\'s current business question.',
+                         next_action='await_customer_question', next_question='', suggested_replies=[])
+            if previous.get('qualification_complete'):
+                state['qualification_complete'] = True
+            return state
         if intent in {"system_error", "out_of_scope"}:
             state.update(
                 stage="recover",

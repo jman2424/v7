@@ -1,0 +1,105 @@
+"""Live platform policy is public, current and scoped to the marketing tenant."""
+import json
+from dataclasses import replace
+from types import SimpleNamespace
+
+from service import platform_offer_knowledge, referrals, subscriptions
+
+
+def test_other_businesses_never_receive_platform_referral_rules(client,monkeypatch):
+    monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:tenant=='VERTEX')
+    assert platform_offer_knowledge.public_knowledge('EXAMPLE') is None
+    assert platform_offer_knowledge.public_destinations('EXAMPLE',[])==[]
+    with client.application.app_context():
+        knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
+    assert knowledge['joining_setup_percent']==100
+    assert all(row['referred_setup']=='£0.00' for row in knowledge['prices'])
+    assert knowledge['prices'][0]['referred_first_month']=='£59.40'
+    encoded=json.dumps(knowledge)
+    assert 'owner_hash' not in encoded and 'qualifying_invoice' not in encoded
+
+
+def test_live_pause_and_saved_knowledge_fallback_reflect_current_terms(client,monkeypatch):
+    monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:True)
+    with client.application.app_context():
+        knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
+        text=platform_offer_knowledge.automatic_offer_answer('How does your referral work?',knowledge)
+        assert 'no setup fee (£0)' in text and '40%' in text
+        referrals.set_program('VERTEX',False,'')
+        knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
+        assert 'paused' in platform_offer_knowledge.automatic_offer_answer('referrals',knowledge)
+        assert platform_offer_knowledge.automatic_offer_answer('Do you deliver lamps?',knowledge) is None
+
+
+def test_automatic_referral_policy_not_catalogue_shortcut(client,monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    handler=MessageHandlerV7(SimpleNamespace())
+    monkeypatch.setattr(handler,'_grounded_answer',lambda *args:None)
+    monkeypatch.setattr(platform_offer_knowledge,'public_knowledge',lambda tenant:{'enabled':1,'percent':40,'joining_setup_percent':100,'sponsor_setup_percent':40})
+    reply=handler.handle('Tell me about referrals',SimpleNamespace(tenant='VERTEX',channel='web'),{})
+    assert reply['intent']=='faq' and 'no setup fee (£0)' in reply['reply']
+
+
+def test_contact_handoff_is_recorded_before_ai_prose(client,monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    handler=MessageHandlerV7(SimpleNamespace())
+    def unexpected(*args):
+        raise AssertionError('Handoff must not be intercepted by a model answer')
+    monkeypatch.setattr(handler,'_grounded_answer',unexpected)
+    reply=handler.handle('Talk to a human',SimpleNamespace(tenant='EXAMPLE',channel='web'),{})
+    assert reply['intent']=='human_handoff'
+    reply=handler.handle('contact@example.test',SimpleNamespace(tenant='EXAMPLE',channel='web'),{'sales_agent':{'stage':'handoff'}})
+    assert reply['intent']=='handoff_contact_captured'
+    assert reply['entities']['email']=='contact@example.test'
+
+
+def test_platform_navigation_respects_disabled_owner_links(client,monkeypatch):
+    monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:True)
+    with client.application.app_context():
+        monkeypatch.setattr(client.application.container,'settings',replace(client.application.container.settings,BASE_URL='https://example.com'))
+        configured=[{'id':'platform_referrals','url':'https://example.com/console/account#business-referrals','enabled':False}]
+        destinations=platform_offer_knowledge.public_destinations('VERTEX',configured)
+    assert not any(row['id']=='platform_referrals' for row in destinations)
+    assert any(row['id']=='platform_plan_starter' for row in destinations)
+
+
+def test_handler_passes_public_playbook_and_preserves_verified_task_state(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    from service import grounded_conversation
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    handler=MessageHandlerV7(SimpleNamespace(rewriter=SimpleNamespace(_client=object(),_model='test-model')))
+    seen={}
+    def answer(*args,**kwargs):
+        seen.update(kwargs['agent_context'])
+        kwargs['agent_state'].update({'_validated_grounded':True,'stage':'convert','next_action':'open_destination'})
+        return 'Open the selected service to review your next step.'
+    monkeypatch.setattr(grounded_conversation,'answer',answer)
+    previous={'selected_offering_id':'product:starter','requirements':['one location']}
+    response=handler._grounded_answer('Choose that one',{'sales_agent':previous})
+    assert seen['previous_agent']==previous
+    assert seen['playbook']['primary_goal']==handler.sales_playbook['primary_goal']
+    assert response['agent']['stage']=='convert'
+
+
+def test_selected_product_beyond_catalogue_preview_remains_available(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    from retrieval.catalog_store import CatalogStore
+    from service import grounded_conversation
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    catalog=CatalogStore(catalog={'categories':[{'id':'services','name':'Services','items':[
+        {'sku':f'package-{index}','name':f'Package {index}','price':index+1} for index in range(70)
+    ]}]})
+    handler=MessageHandlerV7(SimpleNamespace(catalog=catalog,rewriter=SimpleNamespace(_client=object(),_model='test-model')))
+    seen=[]
+    monkeypatch.setattr(grounded_conversation,'answer',lambda *args,**kwargs:seen.append(args[3]))
+    handler._grounded_answer('How do I get started?',{'sales_agent':{'selected_offering_id':'product:package-69','offering_ids':['product:package-69']}})
+    assert seen[0]['product:package-69']['price']==70
+
+
+def test_subscription_report_previews_free_setup_without_spending(client,monkeypatch):
+    from tests.test_referrals import welcome
+    welcome(monkeypatch)
+    assert subscriptions.report('EXAMPLE',include_api=False)['referral_setup_percent']==100
+    assert referrals.reserve('EXAMPLE','implementation','first_setup')['percent']==100

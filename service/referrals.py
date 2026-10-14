@@ -16,10 +16,16 @@ def _schema(db):
     if session_store._using_postgres():
         return
     db.execute('CREATE TABLE IF NOT EXISTS referral_program (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL, percent INTEGER NOT NULL CHECK(percent BETWEEN 1 AND 100))')
-    db.execute('INSERT INTO referral_program VALUES (1,1,40) ON CONFLICT DO NOTHING')
+    db.execute('INSERT INTO referral_program(id,enabled,percent) VALUES (1,1,40) ON CONFLICT DO NOTHING')
     db.execute('CREATE TABLE IF NOT EXISTS referral_codes (tenant TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL, owner_hash TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS referral_claims (tenant TEXT PRIMARY KEY, sponsor TEXT NOT NULL, owner_hash TEXT UNIQUE NOT NULL, percent INTEGER NOT NULL, created INTEGER NOT NULL, qualifying_invoice TEXT UNIQUE, status TEXT NOT NULL DEFAULT \'pending\')')
     db.execute('CREATE TABLE IF NOT EXISTS referral_rewards (tenant TEXT NOT NULL, id TEXT NOT NULL, source_tenant TEXT NOT NULL, kind TEXT NOT NULL, percent INTEGER NOT NULL, created INTEGER NOT NULL, status TEXT NOT NULL DEFAULT \'available\', billing_ref TEXT, coupon TEXT, invoice TEXT, PRIMARY KEY(tenant,id), UNIQUE(tenant,source_tenant,kind))')
+    if 'joining_setup_percent' not in {row['name'] for row in db.execute('PRAGMA table_info(referral_program)')}:
+        db.execute('ALTER TABLE referral_program ADD COLUMN joining_setup_percent INTEGER NOT NULL DEFAULT 100 CHECK(joining_setup_percent BETWEEN 1 AND 100)')
+    if 'joining_setup_percent' not in {row['name'] for row in db.execute('PRAGMA table_info(referral_claims)')}:
+        # Existing accepted offers retain their agreed setup percentage.
+        db.execute('ALTER TABLE referral_claims ADD COLUMN joining_setup_percent INTEGER NOT NULL DEFAULT 40 CHECK(joining_setup_percent BETWEEN 1 AND 100)')
+        db.execute('UPDATE referral_claims SET joining_setup_percent=percent')
     db.commit()
 
 
@@ -31,7 +37,22 @@ def _lock(db):
 def program(tenant):
     with connection(tenant) as db:
         _schema(db)
-        return dict(db.execute('SELECT enabled,percent FROM referral_program WHERE id=1').fetchone())
+        result = dict(db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone())
+        return {**result,'sponsor_setup_percent':result['percent']}
+
+
+def public_offer(tenant):
+    """Public programme rules only; no referral codes or customer records."""
+    return {**program(tenant),'eligibility_before_checkout':True,'excludes_ai_credit':True,
+            'stacks':False,'referrer_requires_verified_payment':True}
+
+
+def setup_preview_percent(tenant):
+    """Match checkout's strongest eligible reward without reserving/spending it."""
+    with connection(tenant) as db:
+        _schema(db)
+        row=db.execute("SELECT percent FROM referral_rewards WHERE tenant=? AND kind='implementation' AND (status='available' OR (status='reserved' AND billing_ref=(SELECT ref FROM billing_contracts WHERE tenant=? AND kind='implementation'))) ORDER BY CASE WHEN status='reserved' THEN 0 ELSE 1 END,percent DESC,created,id LIMIT 1",(tenant,tenant)).fetchone()
+    return row['percent'] if row else 0
 
 
 def set_program(tenant, enabled, token_hash):
@@ -53,7 +74,7 @@ def report(tenant, identity, base_url):
         db.execute('INSERT INTO referral_codes VALUES (?,?,?) ON CONFLICT(tenant) DO NOTHING',
                    (tenant,code,owner_hash(identity)))
         row = db.execute('SELECT code FROM referral_codes WHERE tenant=?',(tenant,)).fetchone()
-        claim = db.execute('SELECT percent,status FROM referral_claims WHERE tenant=?',(tenant,)).fetchone()
+        claim = db.execute('SELECT percent,joining_setup_percent,status FROM referral_claims WHERE tenant=?',(tenant,)).fetchone()
         rewards = [dict(row) for row in db.execute('SELECT id,kind,percent,status FROM referral_rewards WHERE tenant=? ORDER BY created,id',(tenant,))]
     from service import subscriptions
     return {'program':program(tenant),'payments_configured':subscriptions.configured(),'code':row['code'],'link':base_url+'/console/?ref='+row['code'],
@@ -70,7 +91,7 @@ def claim(tenant, identity, code):
         _lock(db)
         if session_store._using_postgres():
             db.execute('SELECT pg_advisory_xact_lock_shared(hashtextextended(?,0))',('v7-referral-program',))
-        settings = db.execute('SELECT enabled,percent FROM referral_program WHERE id=1').fetchone()
+        settings = db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone()
         existing = db.execute('SELECT sponsor,percent,status FROM referral_claims WHERE tenant=?',(tenant,)).fetchone()
         if existing:
             raise ValueError('referral_already_accepted')
@@ -87,19 +108,19 @@ def claim(tenant, identity, code):
                 or db.execute("SELECT 1 FROM billing_contracts WHERE tenant=? AND (subscription IS NOT NULL OR checkout_expires>?) LIMIT 1",(tenant,int(time.time()))).fetchone()):
             raise ValueError('referral_requires_new_business_before_checkout')
         # Unique owner hash and tenant constraints prevent repeated welcome awards.
-        inserted = db.execute('INSERT INTO referral_claims(tenant,sponsor,owner_hash,percent,created) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING tenant',
-            (tenant,sponsor['tenant'],hashed,settings['percent'],int(time.time()))).fetchone()
+        inserted = db.execute('INSERT INTO referral_claims(tenant,sponsor,owner_hash,percent,created,joining_setup_percent) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING tenant',
+            (tenant,sponsor['tenant'],hashed,settings['percent'],int(time.time()),settings['joining_setup_percent'])).fetchone()
         if not inserted:
             raise ValueError('referral_already_accepted')
-        _award(db,tenant,tenant,settings['percent'])
-    return {'ok':True,'percent':settings['percent']}
+        _award(db,tenant,tenant,settings['percent'],settings['joining_setup_percent'])
+    return {'ok':True,'percent':settings['percent'],'joining_setup_percent':settings['joining_setup_percent']}
 
 
-def _award(db,tenant,source,percent):
+def _award(db,tenant,source,percent,setup_percent=None):
     for kind in ('platform','implementation'):
         reward = hashlib.sha256((tenant+'\0'+source+'\0'+kind).encode()).hexdigest()
         db.execute('INSERT INTO referral_rewards(tenant,id,source_tenant,kind,percent,created) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING',
-                   (tenant,reward,source,kind,percent,int(time.time())))
+                   (tenant,reward,source,kind,setup_percent if kind=='implementation' and setup_percent is not None else percent,int(time.time())))
 
 
 def qualified_payment(tenant,kind,invoice):
@@ -205,11 +226,19 @@ def reserve(tenant,kind,billing_ref):
         row = db.execute("SELECT * FROM referral_rewards WHERE tenant=? AND kind=? AND status IN ('reserved','applied') ORDER BY created,id LIMIT 1"+(' FOR UPDATE' if session_store._using_postgres() else ''),(tenant,kind)).fetchone()
         if row:
             return dict(row) if row['billing_ref']==billing_ref else None
-        row = db.execute("SELECT * FROM referral_rewards WHERE tenant=? AND kind=? AND status='available' ORDER BY created,id LIMIT 1"+(' FOR UPDATE' if session_store._using_postgres() else ''),(tenant,kind)).fetchone()
+        row = db.execute("SELECT * FROM referral_rewards WHERE tenant=? AND kind=? AND status='available' ORDER BY percent DESC,created,id LIMIT 1"+(' FOR UPDATE' if session_store._using_postgres() else ''),(tenant,kind)).fetchone()
         if not row:
             return None
         db.execute("UPDATE referral_rewards SET status='reserved',billing_ref=? WHERE tenant=? AND id=?",(billing_ref,tenant,row['id']))
         return {**dict(row),'billing_ref':billing_ref,'status':'reserved'}
+
+
+def has_stronger_reward(tenant,kind,percent):
+    """Choose one stronger offer rather than stacking it with a campaign."""
+    with connection(tenant) as db:
+        _schema(db)
+        return db.execute("SELECT 1 FROM referral_rewards WHERE tenant=? AND kind=? AND percent>? AND status IN ('available','reserved') LIMIT 1",
+                          (tenant,kind,percent)).fetchone() is not None
 
 
 def coupon(stripe,tenant,reward):
@@ -233,7 +262,11 @@ def release(tenant,billing_ref):
 
 
 def consumed_payment(tenant,kind,billing_ref,invoice):
-    if invoice.get('status')!='paid' or invoice.get('amount_paid',0)<=0:
+    if invoice.get('status')!='paid':
+        return
+    zero_setup = (kind=='implementation' and invoice.get('amount_paid')==0
+                  and invoice.get('total')==0 and invoice.get('amount_remaining')==0)
+    if not invoice.get('amount_paid',0)>0 and not zero_setup:
         return
     coupons = _coupon_ids(invoice.get('discounts') or [])
     if not coupons:
@@ -241,7 +274,7 @@ def consumed_payment(tenant,kind,billing_ref,invoice):
     with connection(tenant) as db:
         _schema(db)
         for identifier in coupons:
-            db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND kind=? AND billing_ref=? AND coupon=? AND status IN ('reserved','applied')",(invoice['id'],tenant,kind,billing_ref,identifier))
+            db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND kind=? AND billing_ref=? AND coupon=? AND status IN ('reserved','applied')"+(' AND percent=100' if zero_setup else ''),(invoice['id'],tenant,kind,billing_ref,identifier))
 
 
 def _coupon_ids(discounts):

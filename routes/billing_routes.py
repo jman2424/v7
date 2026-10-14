@@ -231,6 +231,8 @@ def stripe_webhook():
                 subscriptions.sync_subscription(obj['subscription'])
             if obj.get('invoice'):
                 subscriptions.sync_invoice(obj['invoice'])
+            elif not obj.get('subscription'):
+                subscriptions.sync_zero_setup_checkout(obj['id'])
     except (ValueError,KeyError,TypeError):
         # Non-2xx lets Stripe retry transient failures; never log payloads or secrets.
         return jsonify(error='billing_sync_failed'),503

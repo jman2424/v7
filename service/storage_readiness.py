@@ -106,3 +106,11 @@ def validate_postgres_storage(default_tenant):
                 or 'search_path=pg_catalog' not in (referral_guard[1] or [])
                 or 'pg_advisory_xact_lock' not in referral_guard[2]):
             raise RuntimeError('PostgreSQL referral migrations are incomplete')
+        referral_columns = db.execute(
+            "SELECT table_name FROM information_schema.columns "
+            "WHERE table_schema='v7_private' AND table_name=ANY(%s) "
+            "AND column_name='joining_setup_percent' AND is_nullable='NO'",
+            (['referral_program','referral_claims'],),
+        ).fetchall()
+        if {row[0] for row in referral_columns} != {'referral_program','referral_claims'}:
+            raise RuntimeError('PostgreSQL referral offer snapshots are incomplete')

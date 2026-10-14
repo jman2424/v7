@@ -1,12 +1,14 @@
 """Referral snapshots, tenant boundaries and once-only payment rewards."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import sqlite3
 import time
 from unittest.mock import Mock
 
 import pytest
 
 from service import referrals, subscriptions
+from service.plan_catalog import get_plan
 from tests.test_subscriptions import identity, stripe, signature
 
 
@@ -189,3 +191,137 @@ def test_referral_mutations_require_csrf(client):
     identity(client)
     response=client.post('/billing/referrals/program',json={'enabled':False},headers={'X-CSRF-Token':'invalid'})
     assert response.status_code==403
+
+
+def test_new_joiner_gets_free_setup_but_referrer_keeps_40_percent(client,monkeypatch):
+    welcome(monkeypatch)
+    report=referrals.report('EXAMPLE','new@example.test','https://example.test')
+    assert report['claim']['joining_setup_percent']==100
+    assert {row['kind']:row['percent'] for row in report['rewards']}=={'platform':40,'implementation':100}
+    referrals.qualified_payment('EXAMPLE','platform',{'id':'in_first','status':'paid','amount_paid':5940,'billing_reason':'subscription_create'})
+    earned=referrals.report('SPONSOR','owner@example.test','https://example.test')['rewards']
+    assert {row['kind']:row['percent'] for row in earned}=={'platform':40,'implementation':40}
+    offer=referrals.public_offer('EXAMPLE')
+    assert offer['joining_setup_percent']==100 and offer['sponsor_setup_percent']==40
+    assert offer['stacks'] is False and offer['excludes_ai_credit'] is True
+
+
+def test_previous_offer_snapshot_is_not_rewritten_when_program_changes(client,monkeypatch):
+    monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:False)
+    monkeypatch.setattr(subscriptions,'complimentary_plan',lambda tenant:None)
+    code=referrals.report('SPONSOR','owner@example.test','https://example.test')['code']
+    with subscriptions.connection('SPONSOR') as db:
+        db.execute('UPDATE referral_program SET joining_setup_percent=40 WHERE id=1')
+    referrals.claim('EXAMPLE','old@example.test',code)
+    with subscriptions.connection('SPONSOR') as db:
+        db.execute('UPDATE referral_program SET joining_setup_percent=100 WHERE id=1')
+    referrals.claim('OTHER','new@example.test',code)
+    referrals.set_program('SPONSOR',False,'')
+    old=referrals.report('EXAMPLE','old@example.test','https://example.test')
+    new=referrals.report('OTHER','new@example.test','https://example.test')
+    assert old['claim']['joining_setup_percent']==40
+    assert next(row['percent'] for row in old['rewards'] if row['kind']=='implementation')==40
+    assert new['claim']['joining_setup_percent']==100
+
+
+def test_local_schema_upgrade_snapshots_existing_percentage(monkeypatch):
+    monkeypatch.setattr(referrals.session_store,'_using_postgres',lambda:False)
+    with sqlite3.connect(':memory:') as db:
+        db.row_factory=sqlite3.Row
+        db.execute('CREATE TABLE referral_program(id INTEGER PRIMARY KEY,enabled INTEGER NOT NULL,percent INTEGER NOT NULL)')
+        db.execute('INSERT INTO referral_program VALUES(1,1,40)')
+        db.execute('CREATE TABLE referral_claims(tenant TEXT PRIMARY KEY,sponsor TEXT NOT NULL,owner_hash TEXT UNIQUE NOT NULL,percent INTEGER NOT NULL,created INTEGER NOT NULL,qualifying_invoice TEXT UNIQUE,status TEXT NOT NULL DEFAULT \'pending\')')
+        db.execute("INSERT INTO referral_claims(tenant,sponsor,owner_hash,percent,created) VALUES('OLD','SPONSOR','old-owner',35,1)")
+        referrals._schema(db)
+        referrals._schema(db)
+        assert db.execute("SELECT joining_setup_percent FROM referral_claims WHERE tenant='OLD'").fetchone()[0]==35
+        assert db.execute('SELECT joining_setup_percent FROM referral_program WHERE id=1').fetchone()[0]==100
+
+
+@pytest.mark.parametrize('plan_id',['starter','business','scale'])
+@pytest.mark.parametrize('saved_campaign',[False,True])
+def test_zero_setup_coupon_is_once_and_wins_over_weaker_campaign(client,stripe,monkeypatch,plan_id,saved_campaign):
+    monkeypatch.setenv('V7_VAT_REGISTERED','false')
+    welcome(monkeypatch)
+    if saved_campaign:
+        monkeypatch.setattr(subscriptions,'saved_campaign',lambda tenant:'existing-campaign')
+    stripe.side_effect=[{'id':'coupon_free','percent_off':100,'duration':'once','valid':True},{'id':'cs_free','url':'https://checkout.stripe.com/c/pay/free'}]
+    identity(client,'business_owner')
+    response=client.post('/billing/checkout',json={'kind':'implementation','plan_id':plan_id})
+    assert response.status_code==200,response.json
+    assert stripe.call_args_list[0].args[2]['percent_off']==100
+    assert stripe.call_args_list[0].args[2]['duration']=='once'
+    payload=stripe.call_args.args[2]
+    assert payload['discounts[0][coupon]']=='coupon_free'
+    assert payload['line_items[0][price_data][unit_amount]']==get_plan(plan_id)['setup_pence']
+    assert payload['invoice_creation[enabled]']=='true'
+    assert 'metadata[discount_campaign]' not in payload
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==0
+
+
+def free_setup_checkout(client,stripe,monkeypatch):
+    monkeypatch.setenv('V7_VAT_REGISTERED','false')
+    welcome(monkeypatch)
+    stripe.side_effect=[{'id':'coupon_free','percent_off':100,'duration':'once','valid':True},{'id':'cs_free','url':'https://checkout.stripe.com/c/pay/free'}]
+    identity(client,'business_owner')
+    assert client.post('/billing/checkout',json={'kind':'implementation','plan_id':'starter'}).status_code==200
+    payload=stripe.call_args.args[2]
+    stripe.side_effect=None
+    return {'id':'cs_free','mode':'payment','status':'complete','payment_status':'no_payment_required','currency':'gbp',
+            'amount_total':0,'amount_subtotal':14900,'customer':'cus_new','discounts':[{'coupon':'coupon_free'}],
+            'metadata':{'tenant':'EXAMPLE','kind':'implementation','plan_id':'starter','billing_ref':payload['metadata[billing_ref]'],'referral_reward':payload['metadata[referral_reward]']}}
+
+
+def test_verified_zero_invoice_fulfils_setup_and_consumes_reward_without_referrer_award(client,stripe,monkeypatch):
+    checkout=free_setup_checkout(client,stripe,monkeypatch)
+    stripe.return_value={'id':'in_free','currency':'gbp','created':int(time.time()),'total':0,'amount_paid':0,'amount_remaining':0,
+                         'status':'paid','metadata':checkout['metadata'],'lines':{'data':[]},'discounts':[{'coupon':'coupon_free'}]}
+    for _ in range(2):
+        subscriptions.sync_invoice('in_free')
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==1
+    assert subscriptions.plan_state('EXAMPLE')['setup_plan']=='starter'
+    rewards=referrals.report('EXAMPLE','new@example.test','https://example.test')['rewards']
+    assert next(row['status'] for row in rewards if row['kind']=='implementation')=='used'
+    assert next(row['status'] for row in rewards if row['kind']=='platform')=='available'
+    assert referrals.report('SPONSOR','owner@example.test','https://example.test')['rewards']==[]
+    assert subscriptions._contract('OTHER','platform')['implementation_paid']==0
+
+
+def test_signed_no_cost_checkout_without_invoice_requires_canonical_proof(client,stripe,monkeypatch):
+    checkout=free_setup_checkout(client,stripe,monkeypatch)
+    stripe.return_value=checkout
+    body=json.dumps({'type':'checkout.session.completed','data':{'object':{'id':'cs_free','metadata':{'tenant':'OTHER'}}}}).encode()
+    assert client.post('/billing/stripe/webhook',data=body,content_type='application/json').status_code==403
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==0
+    for _ in range(2):
+        assert client.post('/billing/stripe/webhook',data=body,content_type='application/json',headers={'Stripe-Signature':signature(body)}).status_code==200
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==1
+    assert subscriptions._contract('OTHER','platform')['implementation_paid']==0
+    with subscriptions.connection('EXAMPLE') as db:
+        proof=db.execute("SELECT status,invoice FROM referral_rewards WHERE tenant='EXAMPLE' AND kind='implementation'").fetchone()
+        assert proof['status']=='used' and proof['invoice']=='cs_free'
+        assert db.execute("SELECT 1 FROM billing_invoices WHERE tenant='EXAMPLE'").fetchone() is None
+    assert referrals.report('SPONSOR','owner@example.test','https://example.test')['rewards']==[]
+
+
+@pytest.mark.parametrize('field,value',[('status','open'),('payment_status','unpaid'),('currency','usd'),('amount_subtotal',1),('discounts',[]),('discounts',[{'coupon':'not_our_coupon'}]),('metadata',{'tenant':'OTHER','kind':'implementation'})])
+def test_zero_checkout_never_fulfils_unbound_or_incomplete_order(client,stripe,monkeypatch,field,value):
+    checkout=free_setup_checkout(client,stripe,monkeypatch)
+    stripe.return_value={**checkout,field:value}
+    with pytest.raises(ValueError):
+        subscriptions.sync_zero_setup_checkout('cs_free')
+    assert subscriptions._contract('EXAMPLE','platform')['implementation_paid']==0
+    assert subscriptions._contract('OTHER','platform')['implementation_paid']==0
+
+
+@pytest.mark.parametrize('kind,percent,total,remaining',[('platform',40,0,0),('implementation',40,0,0),('implementation',100,1,0),('implementation',100,0,1)])
+def test_zero_payment_cannot_consume_non_free_or_outstanding_reward(client,monkeypatch,kind,percent,total,remaining):
+    welcome(monkeypatch)
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute('UPDATE referral_rewards SET percent=? WHERE tenant=? AND kind=?',(percent,'EXAMPLE',kind))
+    reward=referrals.reserve('EXAMPLE',kind,'bound')
+    provider=Mock()
+    provider.stripe_request.return_value={'id':'coupon_test','percent_off':percent,'duration':'once','valid':True}
+    referrals.coupon(provider,'EXAMPLE',reward)
+    referrals.consumed_payment('EXAMPLE',kind,'bound',{'id':'in_zero','status':'paid','amount_paid':0,'total':total,'amount_remaining':remaining,'discounts':[{'coupon':'coupon_test'}]})
+    assert referrals.reserve('EXAMPLE',kind,'bound')['status']=='reserved'
