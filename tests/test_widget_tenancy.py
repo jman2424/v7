@@ -158,6 +158,8 @@ def test_embed_script_and_hosted_chat_are_tenant_scoped(client):
     assert script.mimetype == "application/javascript"
     assert '"tenant": "EXAMPLE"' in script.get_data(as_text=True)
     assert "/chat_ui?tenant=" in script.get_data(as_text=True)
+    assert "allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox" in script.get_data(as_text=True)
+    assert "allow-top-navigation" not in script.get_data(as_text=True)
     assert chat.status_code == 200
     assert "Example Butchers Assistant" in chat.get_data(as_text=True)
     assert "frame-ancestors" in chat.headers["Content-Security-Policy"]

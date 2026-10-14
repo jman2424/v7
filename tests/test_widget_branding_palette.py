@@ -50,6 +50,8 @@ def test_new_widget_palette_roundtrips_and_renders_only_for_its_tenant(client, a
     assert saved.json["widget"]["style"] == "studio"
     assert 'border-radius:12px' in saved.json["embed"]["iframe_snippet"]
     assert 'allow="microphone"' in saved.json["embed"]["iframe_snippet"]
+    assert 'allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox' in saved.json['embed']['iframe_snippet']
+    assert 'allow-top-navigation' not in saved.json['embed']['iframe_snippet']
     assert app.container.storage.read_json("ALT", "branding.json") == branding
     read = client.get("/admin/api/widget?tenant=EXAMPLE")
     assert {field: read.json["widget"][field] for field in COLORS} == expected

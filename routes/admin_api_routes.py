@@ -873,7 +873,7 @@ def _widget_response(tenant: str, branding: Dict[str, Any]) -> Dict[str, Any]:
                 f'<iframe src="{escape(chat_url + "&embed=1", quote=True)}" '
                 f'title="{escape(assistant_name, quote=True)}" width="100%" height="640" '
                 f'style="max-width:100%;border:0;border-radius:{frame_radius}px" loading="lazy" '
-                'allow="microphone" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>'
+                'allow="microphone" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>'
             ),
         },
     }

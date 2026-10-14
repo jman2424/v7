@@ -214,7 +214,7 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.title = config.title;
   frame.loading = 'lazy';
   frame.referrerPolicy = 'strict-origin-when-cross-origin';
-  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox');
   frame.setAttribute('allow', 'microphone');
   frame.src = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
   var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px',studio:'12px',soft:'24px',bold:'10px'}};

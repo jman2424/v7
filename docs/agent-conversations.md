@@ -13,6 +13,12 @@ catalogue/policy/knowledge settings. Add approved website destinations for produ
 checkout, booking, quote and support pages. The agent selects their IDs; the
 server supplies the configured URLs.
 
+Embedded action links open approved destinations in a separate tab. The script
+and generated iframe snippet allow popups to leave the frame sandbox, so checkout
+and sign-in pages can work normally. The widget remains sandboxed and cannot
+navigate the containing page. Links retain HTTPS validation and
+`rel="noopener noreferrer"`.
+
 Within the existing tenant-scoped session lifetime, the agent remembers a short
 list of offerings, the selected offering and up to six stated customer
 requirements. Requirements must quote the customer's messages or previous
