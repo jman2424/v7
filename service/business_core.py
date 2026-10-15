@@ -134,13 +134,18 @@ class BusinessCore:
                 'revision':revision(self.document()),
                 'next_offset':offset+limit if offset+limit<len(rows) else None}
 
-    def public_context(self):
+    def public_context(self, *, query='', selected_ids=None):
         """Only customer-facing facts. Work, accounts and analytics are private."""
         core = self.document()
+        from service.agent_knowledge import rank_public_records
+        def records(name, limit):
+            rows = [row for row in core[name] if row['active']]
+            if query or selected_ids:
+                rows = rank_public_records(rows, query, selected_ids)
+            return rows[:limit]
         return {'industry':core.get('industry',''), 'operation_types':core.get('operation_types',[]),
-                'offerings':[row for row in core['offerings'] if row['active']][:50],
-                'locations':[row for row in core['locations'] if row['active']][:30],
-                'business_rules':[row for row in core['business_rules'] if row['active']][:50]}
+                'offerings':records('offerings', 50), 'locations':records('locations', 30),
+                'business_rules':records('business_rules', 50)}
 
     def answer_details(self, text, *, selected_ids=None):
         """Return relevant public facts and their text, without executing an action."""

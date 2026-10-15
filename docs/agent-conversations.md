@@ -28,6 +28,31 @@ Numerical option selection follows the previous shortlist's order. Current
 authoritative platform promotions and selected offerings receive priority when
 background knowledge exceeds the bounded provider context.
 
+Current questions also rank matching product, service, FAQ and policy records
+ahead of imported website background. Native offerings and rules are ranked
+before their preview limits, so a relevant service beyond the first 50 records
+can still be found. Old assistant replies do not dominate a new policy lookup.
+
+Explicitly abandoning an option clears the selection. A separate three-item
+shortlist survives support interruptions for later numbered references, without
+showing sales suggestions during support. Corrected requirements use exact
+current customer excerpts and retire superseded constraints in bounded session
+memory. Empty optional updates do not erase verified customer needs.
+
+The provider returns a strict JSON schema with known source/destination IDs and
+nullable optional updates; the server still checks facts and customer choices.
+Monetary validation handles prefix/suffix currencies and localized GBP/USD/EUR
+formats. Explicit customer budgets may be restated only as labelled budgets;
+they cannot establish an offering price, tax, discount or checkout total.
+
+When enabled by the owner, web chat can choose an existing consultation, quote
+or callback request form from natural language in the same accounted answer.
+Only the channel's enabled capabilities are exposed. Forms are rechecked by the
+handler and prioritized within the public three-action limit. Opening a form
+does not submit it: consent, tenant/origin checks, validation and idempotency
+remain in the existing submission endpoint. Cancellation/policy replies do not
+open sales forms. Declined or informational requests do not trigger shortcuts.
+
 Support questions, complaints and cancellations do not restart a sales interview.
 The sales policy preserves a validated grounded next step instead of replacing it
 with a generic purchase or qualification question. When credit or the provider is

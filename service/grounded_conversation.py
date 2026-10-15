@@ -29,7 +29,21 @@ Use recent history to resolve '1', 'option 1', 'the first option' and other foll
 Use the supplied agent_context to retain the customer's selected option and stated
 requirements across turns. A new question does not erase a previous selection.
 If they change their mind, update the selection and requirements. Remember only
-requirements they actually stated, not assumptions about them. Avoid re-asking
+requirements they actually stated, not assumptions about them.
+Treat a customer's latest correction as authoritative over older conversation.
+Mentioning an option in a question or rejecting it is not choosing it.
+Use offering_ids to discuss or compare an option without selecting it.
+Inside the agent object, return selection_update as keep, select or clear: use keep with the previous selected ID
+for unrelated questions, select for an explicit positive choice, and clear with
+a null selected ID when they abandon it. The previous shortlist remains usable
+for numbered references even when a policy or support question interrupts it.
+To change earlier requirements, include requirements_update inside agent with add (exact short
+quotes from this customer message), remove (exact previous requirements to
+retire), clear (boolean, true only for a requested reset) and evidence (an exact
+short excerpt from the current message explaining the change). Do not carry both
+an old constraint and its replacement. Retired requirements must not reappear
+unless the customer explicitly states them again. Do not collect private data.
+Avoid re-asking
 already answered questions. For recommendations, consider their constraints
 (budget, purpose, timing, location or preferences) and explain why one or two
 grounded options fit, including a relevant trade-off. If nothing fits, say so;
@@ -63,8 +77,9 @@ Do not append a generic sales question, repeat the welcome message, narrate your
 reasoning, or describe internal sources/JSON/agent state to the customer.
 Return JSON with answer (plain text), kind (answer, greeting, clarification or
 refusal), and sources (IDs of supporting knowledge).
-Business claims must cite supplied sources. A greeting or clarification needs no
-sources. Never cite conversation history as proof of a business fact.
+Business claims must cite supplied sources, including business capabilities and
+request processes. Cite the business identity as context for a greeting or
+clarification. Never cite conversation history as proof of a business fact.
 Also return navigation: an array of up to three approved destination IDs. Offer
 relevant buttons when the customer wants to view an offering, choose a plan,
 check out, book, read a policy or explore a page. Use the supplied purpose and
@@ -89,6 +104,22 @@ requirements or a completed action. An empty shortlist and requirements are vali
 """
 
 
+INSTRUCTIONS += """
+If approved_request_actions contains an enabled action for this channel, you may
+return requested_action as consultation, quote or callback (otherwise null).
+Offer that existing request form when the customer affirmatively asks for it,
+including natural paraphrases such as a bespoke estimate. Explain that they can
+complete the form and the team must review/confirm it. This opens a form only;
+it does not send a request or create a booking. Do not offer a disabled action,
+infer consent from a question about the process, or override a refusal or 'stop'.
+For a selected form, use agent.next_action open_request_form and a relevant
+intent: consultation uses book, quote uses quote, and callback uses handoff.
+Do not request a sales form for a policy, cancellation or complaint answer.
+Do not claim submission or confirmation. These actions do not
+authorize any payment, account change or other transaction.
+"""
+
+
 AGENT_INTENTS = {
     'discover': 'Understand the customer\'s stated need.',
     'recommend': 'Recommend a suitable option using the business\'s facts.',
@@ -106,7 +137,7 @@ AGENT_INTENTS = {
 }
 AGENT_STAGES = frozenset({'discover', 'qualify', 'recommend', 'convert', 'assist', 'handoff', 'recover'})
 AGENT_ACTIONS = frozenset({'await_customer_question', 'ask_clarification', 'compare_options',
-                           'recommend_option', 'open_destination', 'request_handoff'})
+                           'recommend_option', 'open_destination', 'request_handoff', 'open_request_form'})
 _PRIVATE_REQUIREMENT = re.compile(r'\bsk-(?:proj-)?[\w-]{12,}|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|'
                                   r'\b(?:password|passcode|authenticator|verification code|api key|'
                                   r'contraseña|código de verificación|mot de passe|code de vérification)\b|'
@@ -159,6 +190,142 @@ def _option_number(question):
     return None
 
 
+def _choice_aliases(key, knowledge, shortlist):
+    record = knowledge[key]
+    if not isinstance(record, dict):
+        return []
+    aliases = [record[field] for field in ('name', 'sku', 'id')
+               if isinstance(record.get(field), str) and record[field]]
+    if key in shortlist:
+        words = set(re.findall(r'\w+', str(record.get('name') or '').casefold()))
+        others = set()
+        for other_key in shortlist:
+            other = knowledge[other_key]
+            if other_key != key and isinstance(other, dict):
+                others.update(re.findall(r'\w+', str(other.get('name') or '').casefold()))
+        aliases.extend(word for word in words - others if len(word) >= 3)
+    return aliases
+
+
+def _rejection_matches(question, phrase):
+    prefix = (r"(?:\b(?:not|never|forget|remove|drop|exclude|instead of|rather than|"
+              r"do not want|don't want|no longer want|no quiero|sin|pas|ne veux pas)\b|"
+              r"لا أريد|بدون|ليس)\s+(?:\w+\s+){0,3}")
+    return list(re.finditer(prefix + r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', question, re.I))
+
+
+def _rejected(question, phrase):
+    """Only inspect the latest turn; quoted history cannot revive a rejection."""
+    return bool(_rejection_matches(question, phrase))
+
+
+def _positive_choice(question, aliases):
+    prefix = (r"(?:^|[.!?;,]\s*|\b(?:but|however)\s+)(?:(?:actually|instead|no|okay|ok)\s*,?\s*)?"
+              r"(?:\b(?:i (?:choose|want|prefer|will take|would like)|i['’]d (?:like|prefer)|"
+              r"let['’]s (?:pick|choose|take|go with)|i['’]ll (?:take|have|go with|go for)|"
+              r"my choice is|choose|select|take|buy|book|go with|quiero|elijo|prefiero|je choisis|je prends)\b|"
+              r"أختار|أريد)\s+(?:the\s+)?")
+    positions = []
+    for alias in aliases:
+        name = r'(?<!\w)' + re.escape(alias) + r'(?!\w)'
+        matches = list(re.finditer(prefix + name, question, re.I))
+        short = re.fullmatch(r'\s*' + name + r'(?:,?\s+please)?[.! ]*', question, re.I)
+        if short:
+            matches.append(short)
+        rejected = _rejection_matches(question, alias)
+        positions.extend(match.start() for match in matches if not any(
+            row.start() <= match.start() and row.end() >= match.end() for row in rejected))
+    return max(positions) if positions else None
+
+
+def _selection_state(raw, question, knowledge, context):
+    previous = context.get('selected_offering_id')
+    shortlist = context.get('offering_ids', [])
+    selected = raw.get('selected_offering_id')
+    update = raw.get('selection_update')
+    if update not in (None, 'keep', 'select', 'clear'):
+        raise ValueError('invalid_selection_update')
+    evidence = raw.get('selection_evidence')
+    if evidence is not None and (not _requirement(evidence) or evidence.strip() not in question):
+        raise ValueError('unconfirmed_selection_update')
+    if selected is not None and selected not in _offering_ids([selected], knowledge):
+        raise ValueError('invalid_agent_selection')
+    if update == 'clear' and selected is not None:
+        raise ValueError('invalid_selection_clear')
+    numeric = _option_number(question)
+    explicit = shortlist[numeric - 1] if numeric and numeric <= len(shortlist) else None
+    candidates = []
+    keys = [key for key in knowledge if key.startswith(('product:', 'offering:'))]
+    for key in keys:
+        position = _positive_choice(question, _choice_aliases(key, knowledge, shortlist))
+        if position is not None:
+            candidates.append((position, key))
+    if explicit is None and candidates:
+        last = max(position for position, _ in candidates)
+        choices = [key for position, key in candidates if position == last]
+        if len(choices) == 1:
+            explicit = choices[0]
+    if explicit:
+        if selected is not None and selected != explicit:
+            raise ValueError('incorrect_agent_selection')
+        return explicit
+    if previous and any(_rejected(question, name)
+                        for name in _choice_aliases(previous, knowledge, shortlist)):
+        # The latest rejection takes precedence even if the model repeats its
+        # earlier selection. It does not authorize a replacement purchase.
+        return None
+    if update == 'clear' or (update is None and 'selected_offering_id' in raw and selected is None):
+        return None
+    if selected is not None and selected != previous:
+        raise ValueError('unconfirmed_agent_selection')
+    if update == 'select' and selected is None:
+        raise ValueError('unconfirmed_agent_selection')
+    return selected or previous
+
+
+def _requirements_state(raw, question, history, context):
+    previous = context.get('previous_agent', {})
+    old = previous.get('requirements', [])
+    retired = previous.get('retired_requirements', [])
+    requirements = raw.get('requirements', [])
+    update = raw.get('requirements_update')
+    if (isinstance(update, dict) and not set(update) - {'add', 'remove', 'clear', 'evidence'}
+            and update.get('add', []) == [] and update.get('remove', []) == []
+            and update.get('clear', False) is False and update.get('evidence') in (None, '')):
+        # A model's empty optional object is a no-op, not customer authorization
+        # and not a reason to discard an otherwise grounded answer.
+        update = None
+    if update is None and requirements == []:
+        # A policy interruption with no update must not erase verified needs.
+        # Clearing them requires a validated reset tied to this customer turn.
+        requirements = old
+    if update is not None:
+        if (not isinstance(update, dict) or set(update) - {'add', 'remove', 'clear', 'evidence'}
+                or type(update.get('clear', False)) is not bool):
+            raise ValueError('invalid_requirements_update')
+        added, removed = update.get('add', []), update.get('remove', [])
+        evidence = update.get('evidence')
+        if (not _requirement(evidence) or evidence.strip() not in question
+                or not isinstance(added, list) or len(added) > 6
+                or any(not _requirement(row) or row.strip() not in question for row in added)
+                or not isinstance(removed, list) or len(removed) > 6
+                or any(not isinstance(row, str) or row not in old for row in removed)):
+            raise ValueError('unconfirmed_requirements_update')
+        if update.get('clear'):
+            removed = old
+        requirements = list(dict.fromkeys([row for row in old if row not in removed] + [row.strip() for row in added]))
+        retired = [row for row in retired + removed if row not in requirements]
+    if not isinstance(requirements, list) or len(requirements) > 6:
+        raise ValueError('invalid_agent_requirements')
+    customer_text = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
+    if any(not _requirement(row) or not any(row.strip() in text for text in customer_text + old)
+           or _rejected(question, row.strip())
+           or (row in retired and row not in (update or {}).get('add', [])) for row in requirements):
+        raise ValueError('unconfirmed_customer_requirement')
+    return (list(dict.fromkeys(row.strip() for row in requirements)),
+            list(dict.fromkeys(retired))[-6:])
+
+
 def agent_context_rows(value, knowledge):
     """Only bounded playbook preferences and this session's verified task memory."""
     if not isinstance(value, dict):
@@ -184,7 +351,11 @@ def agent_context_rows(value, knowledge):
     requirements = previous.get('requirements')
     if isinstance(requirements, list):
         safe_previous['requirements'] = [row.strip() for row in requirements[:6] if _requirement(row)]
-    shortlist = _offering_ids(value.get('offering_ids') or previous.get('offering_ids'), knowledge)
+    retired = previous.get('retired_requirements')
+    if isinstance(retired, list):
+        safe_previous['retired_requirements'] = [row.strip() for row in retired[-6:] if _requirement(row)]
+    shortlist = _offering_ids(value.get('offering_ids') or previous.get('offering_ids')
+                              or previous.get('last_offering_ids'), knowledge)
     selected = value.get('selected_offering_id') or previous.get('selected_offering_id')
     selected = selected if selected in _offering_ids([selected], knowledge) else None
     return {'playbook': safe_playbook, 'previous_agent': safe_previous,
@@ -211,60 +382,22 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
             or not key.startswith(('product:', 'offering:')) or key not in knowledge for key in rows)):
         raise ValueError('invalid_agent_offerings')
     offerings = list(dict.fromkeys(rows))
-    requirements = raw.get('requirements', [])
-    if not isinstance(requirements, list) or len(requirements) > 6:
-        raise ValueError('invalid_agent_requirements')
-    customer_text = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
-    previous_requirements = context.get('previous_agent', {}).get('requirements', [])
-    if any(not _requirement(row) or not any(row.strip() in text for text in
-                                           customer_text + previous_requirements) for row in requirements):
-        raise ValueError('unconfirmed_customer_requirement')
-    selected = raw.get('selected_offering_id')
-    numeric = _option_number(question)
-    prior_offerings = context.get('offering_ids', [])
-    numeric_selection = (prior_offerings[numeric - 1]
-                         if numeric and numeric <= len(prior_offerings) else None)
-    if selected is not None:
-        if not isinstance(selected, str) or selected not in _offering_ids([selected], knowledge):
-            raise ValueError('invalid_agent_selection')
-        record = knowledge[selected]
-        names = [record.get(key) for key in ('name', 'sku', 'id') if isinstance(record, dict)
-                 and isinstance(record.get(key), str) and record.get(key)]
-        previous_selected = context.get('selected_offering_id')
-        customer_choice = any(re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', text, re.I)
-                              for name in names for text in customer_text)
-        # Customers often shorten a displayed catalogue title (e.g. leave off
-        # a brand prefix or billing suffix). Accept a distinctive title word
-        # only when it uniquely identifies an option in the verified shortlist.
-        if not customer_choice and selected in prior_offerings:
-            title = record.get('name', '') if isinstance(record, dict) else ''
-            title_words = {word for word in re.findall(r'\w+', title.casefold()) if len(word) >= 3}
-            other_words = set()
-            for key in prior_offerings:
-                other = knowledge[key]
-                if key != selected and isinstance(other, dict) and isinstance(other.get('name'), str):
-                    other_words.update(re.findall(r'\w+', other['name'].casefold()))
-            distinctive = title_words - other_words
-            customer_choice = bool(distinctive & set(re.findall(r'\w+', question.casefold())))
-        if numeric_selection:
-            if numeric_selection != selected:
-                raise ValueError('incorrect_agent_selection')
-            customer_choice = True
-        if selected != previous_selected and not customer_choice:
-            raise ValueError('unconfirmed_agent_selection')
-    else:
-        selected = numeric_selection or context.get('selected_offering_id')
+    requirements, retired = _requirements_state(raw, question, history, context)
+    selected = _selection_state(raw, question, knowledge, context)
+    last_offerings = offerings or context.get('offering_ids', [])
     if action == 'open_destination' and not navigation:
         raise ValueError('missing_agent_destination')
     if intent in {'cancel', 'complaint', 'policy'}:
         # Selling cannot displace a support request, even if model metadata errs.
         stage, offerings = 'assist', []
+        last_offerings = context.get('offering_ids', []) or last_offerings
         if action in {'recommend_option', 'compare_options'}:
             action = 'await_customer_question'
     state = {'intent': intent, 'stage': stage, 'objective': AGENT_INTENTS[intent],
              'next_action': action, 'next_question': '', 'suggested_replies': [],
              'offering_ids': offerings, 'selected_offering_id': selected,
-             'requirements': list(dict.fromkeys(row.strip() for row in requirements)),
+             'last_offering_ids': last_offerings, 'requirements': requirements,
+             'retired_requirements': retired,
              'sources': sources, 'navigation_ids': list(dict.fromkeys(navigation)),
              '_validated_grounded': True}
     # Suggestions contain approved business labels, never model-created claims.
@@ -307,28 +440,31 @@ def bounded_knowledge(knowledge):
 
 
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
-           agent_context=None, agent_state=None):
+           agent_context=None, agent_state=None, allowed_actions=None):
     if client is None or not knowledge:
         return None
     # Keep authoritative current rules and this customer's selection even when
     # broad website/background context exceeds the provider-context budget.
     remembered = agent_context_rows(agent_context, knowledge)
-    priority = ['business', 'current_platform_offer', remembered.get('selected_offering_id')]
-    priority += remembered.get('offering_ids', [])
-    ordered = {key: knowledge[key] for key in priority if isinstance(key, str) and key in knowledge}
-    knowledge = {**ordered, **{key: row for key, row in knowledge.items() if key not in ordered}}
+    from service.agent_knowledge import prioritize_knowledge
+    knowledge = prioritize_knowledge(knowledge, question, remembered)
     knowledge = bounded_knowledge(knowledge)
     destinations = destinations or []
+    allowed_actions = [kind for kind in ('consultation', 'quote', 'callback')
+                       if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
     context = agent_context_rows(agent_context, knowledge)
+    from service.agent_response_schema import response_format
     try:
         result = tracked_completion(
             client, purpose="conversation_answer", model=model, temperature=0.2,
-            timeout=30, response_format={"type": "json_object"},
+            timeout=30, response_format=response_format(knowledge, destinations, allowed_actions,
+                intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS),
             messages=[{"role": "system", "content": INSTRUCTIONS},
                       {"role": "user", "content": json.dumps({
                           "question": question[:4000], "knowledge": knowledge,
                           "recent_conversation": history_rows(history), "tone": tone,
                           "approved_destinations": destinations,
+                          "approved_request_actions": allowed_actions,
                           "agent_context": context,
                       }, ensure_ascii=False)}],
         )
@@ -343,19 +479,12 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             return None
         evidence = json.dumps([knowledge[key] for key in sources], ensure_ascii=False)
         # New monetary amounts and URLs must never be supplied by the model.
-        def amounts(value):
-            symbols = {'£': 'GBP', '$': 'USD', '€': 'EUR'}
-            return {(symbols.get(currency, currency), float(number.replace(',', '')))
-                    for currency, number in re.findall(
-                        r"([£$€]|\bGBP|\bUSD|\bEUR)\s*(\d[\d,]*(?:\.\d+)?)", value)}
-        permitted_amounts = amounts(evidence)
+        from service.grounded_money import monetary_claims_supported
         def percentages(value):
             return {float(number.replace(',', '.')) for number in re.findall(r'(\d+(?:[.,]\d+)?)\s*%', value)}
         permitted_percentages = percentages(evidence)
         def collect_prices(row):
             if isinstance(row, dict):
-                if type(row.get('price')) in (int, float):
-                    permitted_amounts.add((row.get('currency', 'GBP'), float(row['price'])))
                 for key, value in row.items():
                     if (isinstance(key, str) and (key == 'percent' or key.endswith(('_percent', '_percentage')))
                             and type(value) in (int, float)):
@@ -366,7 +495,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                     collect_prices(value)
         for key in sources:
             collect_prices(knowledge[key])
-        if (not amounts(text).issubset(permitted_amounts)
+        customer_quotes = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
+        customer_quotes += context.get('previous_agent', {}).get('requirements', [])
+        if (not monetary_claims_supported(text, [knowledge[key] for key in sources], customer_text=customer_quotes)
                 or not percentages(text).issubset(permitted_percentages)
                 or any(url not in evidence for url in re.findall(r'https?://[^\s<>]+', text))
                 or _UNSUPPORTED_ACTION.search(text)):
@@ -378,8 +509,27 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 not isinstance(key, str) or key not in approved for key in navigation):
             pause_ai_for_turn()
             return None
+        requested_action = payload.get('requested_action')
+        if requested_action is not None and (
+                not isinstance(requested_action, str) or requested_action not in allowed_actions
+                or kind not in {'answer', 'clarification'}):
+            pause_ai_for_turn()
+            return None
         state = _agent_state(payload, knowledge=knowledge, sources=sources, navigation=navigation,
                              question=question, history=history, context=context)
+        action_intents = {'consultation': 'book', 'quote': 'quote', 'callback': 'handoff'}
+        if requested_action and state['intent'] != action_intents[requested_action]:
+            # A technically enabled form is not the customer's chosen task.
+            # Keep the grounded support answer without introducing a sales step.
+            requested_action = None
+            if state['next_action'] == 'open_request_form':
+                state['next_action'] = 'await_customer_question'
+        if state['next_action'] == 'open_request_form' and not requested_action:
+            pause_ai_for_turn()
+            return None
+        if requested_action:
+            state['requested_action'] = requested_action
+            state['next_action'] = 'open_request_form'
         if selected_links is not None:
             selected_links.extend({'type': 'navigate', 'label': approved[key]['label'],
                                    'url': approved[key]['url']} for key in dict.fromkeys(navigation))

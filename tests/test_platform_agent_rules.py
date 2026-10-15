@@ -35,7 +35,7 @@ def test_automatic_referral_policy_not_catalogue_shortcut(client,monkeypatch):
     from handlers.handler_v7 import MessageHandlerV7
     monkeypatch.delenv('OPENAI_API_KEY',raising=False)
     handler=MessageHandlerV7(SimpleNamespace())
-    monkeypatch.setattr(handler,'_grounded_answer',lambda *args:None)
+    monkeypatch.setattr(handler,'_grounded_answer',lambda *args,**kwargs:None)
     monkeypatch.setattr(platform_offer_knowledge,'public_knowledge',lambda tenant:{'enabled':1,'percent':40,'joining_setup_percent':100,'sponsor_setup_percent':40})
     reply=handler.handle('Tell me about referrals',SimpleNamespace(tenant='VERTEX',channel='web'),{})
     assert reply['intent']=='faq' and 'no setup fee (£0)' in reply['reply']
@@ -45,7 +45,7 @@ def test_contact_handoff_is_recorded_before_ai_prose(client,monkeypatch):
     from handlers.handler_v7 import MessageHandlerV7
     monkeypatch.delenv('OPENAI_API_KEY',raising=False)
     handler=MessageHandlerV7(SimpleNamespace())
-    def unexpected(*args):
+    def unexpected(*args,**kwargs):
         raise AssertionError('Handoff must not be intercepted by a model answer')
     monkeypatch.setattr(handler,'_grounded_answer',unexpected)
     reply=handler.handle('Talk to a human',SimpleNamespace(tenant='EXAMPLE',channel='web'),{})

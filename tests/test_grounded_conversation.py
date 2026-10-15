@@ -79,7 +79,7 @@ def test_handler_prefers_grounded_answer_over_delivery_and_catalogue(monkeypatch
     from handlers.handler_v7 import MessageHandlerV7
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
     handler = MessageHandlerV7(SimpleNamespace())
-    monkeypatch.setattr(handler, '_grounded_answer', lambda question, session: 'Prepare your products and delivery policies.')
+    monkeypatch.setattr(handler, '_grounded_answer', lambda question, session, **kwargs: 'Prepare your products and delivery policies.')
     result = handler.handle('What should I prepare for delivery policies?',
                             SimpleNamespace(tenant='EXAMPLE', channel='test'), {})
     assert result['intent'] == 'grounded_answer'
@@ -305,6 +305,15 @@ def test_asking_about_an_option_is_not_an_explicit_purchase_choice():
     assert grounded_conversation._option_number('Is option 2 available?') is None
 
 
+@pytest.mark.parametrize('choice', ["Let's pick Basic", "Let's go with Basic", "I'd like Basic",
+                                   "I’d prefer Basic", 'I would like Basic', "I'll go for Basic"])
+def test_natural_affirmative_selection_phrases_remain_supported(monkeypatch, choice):
+    payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'],
+               'agent': {**_state('checkout', selected='product:basic'), 'selection_update': 'select'}}
+    answer, state, _, _ = _structured_answer(monkeypatch, payload, question=choice)
+    assert answer and state['selected_offering_id'] == 'product:basic'
+
+
 def test_customer_can_select_using_a_distinctive_shortened_catalogue_name(monkeypatch):
     knowledge = {'product:basic': {'name': 'Acme Basic monthly', 'price': 99, 'currency': 'GBP'},
                  'product:pro': {'name': 'Acme Pro monthly', 'price': 199, 'currency': 'GBP'}}
@@ -326,3 +335,134 @@ def test_customer_credentials_are_never_added_to_multilingual_task_memory(monkey
                'agent': _state('price', requirements=[private])}
     reply, state, _, _ = _structured_answer(monkeypatch, payload, question=private)
     assert reply is None and state == {}
+
+
+def test_explicit_clear_does_not_restore_an_abandoned_selection(monkeypatch):
+    payload = {'answer': 'Which other option would suit you?', 'kind': 'clarification', 'sources': [],
+               'agent': _state('discover', stage='discover', action='ask_clarification')}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload,
+        question='Forget Basic; I no longer want that option.',
+        context={'selected_offering_id': 'product:basic'})
+    assert reply and state['selected_offering_id'] is None
+
+
+def test_explicit_keep_preserves_selection_during_an_unrelated_question(monkeypatch):
+    agent = {**_state('policy'), 'selection_update': 'keep'}
+    payload = {'answer': 'Cancel future renewal through subscription settings.', 'kind': 'answer',
+               'sources': ['faq:cancel'], 'agent': agent}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question='How do cancellations work?',
+        context={'selected_offering_id': 'product:basic'})
+    assert reply and state['selected_offering_id'] == 'product:basic'
+
+
+@pytest.mark.parametrize('question', ['I do not want Basic.', 'Do not choose Basic.', 'No quiero Basic.'])
+def test_latest_rejection_cannot_count_as_positive_selection(monkeypatch, question):
+    agent = _state('answer', selected='product:basic')
+    payload = {'answer': 'I can help with another option.', 'kind': 'answer',
+               'sources': ['product:basic'], 'agent': agent}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question,
+        history=[{'role': 'user', 'content': 'I choose Basic'}],
+        context={'selected_offering_id': 'product:basic', 'offering_ids': ['product:basic']})
+    assert reply and state['selected_offering_id'] is None
+
+
+def test_latest_positive_choice_overrides_historic_choice_and_negated_name(monkeypatch):
+    knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Pro', 'price': 199, 'currency': 'GBP'}}
+    context = {'selected_offering_id': 'product:basic', 'offering_ids': ['product:basic', 'product:pro']}
+    payload = {'answer': 'Pro is £199.', 'kind': 'answer', 'sources': ['product:pro'],
+               'agent': _state('price', selected='product:pro')}
+    question = 'I do not want Basic. I want Pro instead.'
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question,
+        knowledge=knowledge, context=context, history=[{'role': 'user', 'content': 'I choose Basic'}])
+    assert reply and state['selected_offering_id'] == 'product:pro'
+    payload['agent']['selected_offering_id'] = 'product:basic'
+    assert _structured_answer(monkeypatch, payload, question=question, knowledge=knowledge,
+                              context=context)[0] is None
+
+
+@pytest.mark.parametrize('question', ['Is Basic suitable for a small office?', 'Should I choose Basic?',
+                                     'Can I choose Basic?', 'Would you choose Basic?'])
+def test_mentioning_a_product_in_a_question_is_not_selection(monkeypatch, question):
+    payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'],
+               'agent': _state('price', selected='product:basic')}
+    assert _structured_answer(monkeypatch, payload, question=question)[0] is None
+
+
+def test_policy_interruption_preserves_numbered_shortlist_without_sales_suggestions(monkeypatch):
+    knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Pro', 'price': 199, 'currency': 'GBP'}}
+    payload = {'answer': 'Cancel future renewal through subscription settings.', 'kind': 'answer',
+               'sources': ['faq:cancel'], 'agent': _state('policy')}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question='What is the cancellation policy?',
+        knowledge=knowledge, context={'offering_ids': ['product:basic', 'product:pro']})
+    assert reply and state['offering_ids'] == [] and state['suggested_replies'] == []
+    assert state['last_offering_ids'] == ['product:basic', 'product:pro']
+    followup = {'answer': 'Pro is £199.', 'kind': 'answer', 'sources': ['product:pro'],
+                'agent': _state('price', selected='product:pro')}
+    reply, state, _, _ = _structured_answer(monkeypatch, followup, question='2', knowledge=knowledge,
+        context={'previous_agent': state, 'offering_ids': []})
+    assert reply and state['selected_offering_id'] == 'product:pro'
+
+
+def test_requirement_replacement_removes_old_constraint_and_preserves_unrelated_needs(monkeypatch):
+    question = 'Actually under 300 pounds now, not under 100 pounds.'
+    agent = _state('recommend', requirements=['under 100 pounds', 'under 300 pounds'])
+    agent['requirements_update'] = {'remove': ['under 100 pounds'], 'add': ['under 300 pounds'],
+                                     'evidence': question}
+    payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'], 'agent': agent}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question,
+        context={'previous_agent': {'requirements': ['under 100 pounds', 'for my office']}})
+    assert reply and state['requirements'] == ['for my office', 'under 300 pounds']
+    assert state['retired_requirements'] == ['under 100 pounds']
+    payload['agent'].pop('requirements_update')
+    payload['agent']['requirements'] = ['under 100 pounds']
+    assert _structured_answer(monkeypatch, payload, question='How much?',
+        history=[{'role': 'user', 'content': 'My budget is under 100 pounds'}],
+        context={'previous_agent': state})[0] is None
+
+
+def test_new_exact_customer_request_can_restore_a_retired_requirement(monkeypatch):
+    agent = _state('recommend')
+    agent['requirements_update'] = {'remove': [], 'add': ['under 100 pounds'],
+                                     'evidence': 'I need under 100 pounds again'}
+    payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'], 'agent': agent}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload,
+        question='I need under 100 pounds again', context={'previous_agent': {
+            'requirements': ['for my office'], 'retired_requirements': ['under 100 pounds']}})
+    assert reply and state['requirements'] == ['for my office', 'under 100 pounds']
+    assert not state['retired_requirements']
+
+
+@pytest.mark.parametrize('update', [
+    {'remove': ['invented previous need'], 'evidence': 'Change my requirements'},
+    {'add': ['an invented requirement'], 'evidence': 'Change my requirements'},
+    {'clear': True, 'evidence': 'A quote only found in old history'},
+    {'add': ['my password is secret'], 'evidence': 'Change my requirements'},
+    {'clear': 'yes', 'evidence': 'Change my requirements'},
+])
+def test_requirement_updates_cannot_invent_inputs_or_use_old_authorization(monkeypatch, update):
+    agent = {**_state(), 'requirements_update': update}
+    payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'], 'agent': agent}
+    assert _structured_answer(monkeypatch, payload, question='Change my requirements',
+        history=[{'role': 'user', 'content': 'A quote only found in old history'}],
+        context={'previous_agent': {'requirements': ['for my office']}})[0] is None
+
+
+def test_explicit_reset_clears_requirements_and_keeps_a_bounded_retirement_list(monkeypatch):
+    agent = {**_state(), 'requirements_update': {'clear': True, 'evidence': 'Start again'}}
+    payload = {'answer': 'What would you like to find?', 'kind': 'clarification', 'sources': [], 'agent': agent}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question='Start again',
+        context={'previous_agent': {'requirements': ['for my office'],
+                                    'retired_requirements': [f'old requirement {number}' for number in range(6)]}})
+    assert reply and state['requirements'] == []
+    assert len(state['retired_requirements']) == 6 and state['retired_requirements'][-1] == 'for my office'
+
+
+@pytest.mark.parametrize('question', ['I choose Basic but I choose Pro',
+                                     'I choose Basic, actually I choose Pro'])
+def test_last_positive_choice_within_current_message_takes_precedence(monkeypatch, question):
+    knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Pro', 'price': 199, 'currency': 'GBP'}}
+    payload = {'answer': 'Pro is £199.', 'kind': 'answer', 'sources': ['product:pro'],
+               'agent': _state('price', selected='product:pro')}
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question, knowledge=knowledge,
+        context={'offering_ids': ['product:basic', 'product:pro'], 'selected_offering_id': 'product:basic'})
+    assert reply and state['selected_offering_id'] == 'product:pro'

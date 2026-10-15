@@ -303,7 +303,7 @@ class MessageHandlerV7:
 
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
-            intelligent = self._grounded_answer(user_text, sess)
+            intelligent = self._grounded_answer(user_text, sess, channel=channel)
             if intelligent:
                 return self._wrap_reply(
                     request_id=request_id, t0=t0, reply=intelligent['reply'] if isinstance(intelligent, dict) else intelligent,
@@ -787,7 +787,7 @@ class MessageHandlerV7:
 
         return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
 
-    def _grounded_answer(self, question: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _grounded_answer(self, question: str, session: Dict[str, Any], *, channel: str = 'web') -> Optional[Dict[str, Any]]:
         from service.grounded_conversation import answer
         client = getattr(self.rewriter, '_client', None)
         if client is None:
@@ -799,10 +799,25 @@ class MessageHandlerV7:
             knowledge['current_platform_offer'] = live_offer
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
-        query = question
-        if isinstance(history, list):
-            query += ' ' + ' '.join(str(row.get('content', ''))[:400] for row in history[-4:] if isinstance(row, dict))
-        for index, page in enumerate(relevant_passages(self.website_knowledge, query, limit=6)):
+        previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+        previous_ids = previous.get('offering_ids') or previous.get('last_offering_ids', [])
+        previous_ids = previous_ids[:3] if isinstance(previous_ids,list) else []
+        selected_id = previous.get('selected_offering_id')
+        remembered = ([selected_id] if isinstance(selected_id,str) else []) + previous_ids
+        # Start with the current question. Old assistant replies used to swamp
+        # a new policy question with the previous product/pricing vocabulary.
+        pages = relevant_passages(self.website_knowledge, question, limit=6)
+        follow_up = len(re.findall(r'\w+', question)) <= 10 and bool(re.search(
+            r'\b(?:it|its|they|them|their|that|those|one|ones|option|first|second|third|'
+            r'eso|esa|ellos|ellas|primero|segundo|tercero|cela|celui|celle|premier|deuxième|troisième|'
+            r'هذا|ذلك|تلك|الأول|الثاني|الثالث)\b|^\s*[1-3١-٣]\s*[.)]?\s*$', question, re.I))
+        if follow_up and isinstance(history, list):
+            query = question + ' ' + ' '.join(str(row.get('content', ''))[:400]
+                for row in history[-4:] if isinstance(row, dict) and row.get('role') == 'user')
+            for page in relevant_passages(self.website_knowledge, query, limit=6):
+                if len(pages) < 6 and page not in pages:
+                    pages.append(page)
+        for index, page in enumerate(pages):
             knowledge[f'website:{index}'] = page
         if self.faq:
             for index, row in enumerate(self.faq.best_match(question, top_k=5)):
@@ -810,14 +825,14 @@ class MessageHandlerV7:
                     knowledge[f'matched_faq:{index}'] = {'question': str(row.get('q') or '')[:500],
                                                        'answer': str(row.get('a') or '')[:2000]}
         if self.business_core:
-            knowledge['business_core'] = self.business_core.public_context()
-            for offering in knowledge['business_core'].get('offerings', [])[:50]:
+            core = self.business_core.public_context(query=question,
+                selected_ids=[key[len('offering:'):] for key in remembered
+                              if isinstance(key,str) and key.startswith('offering:')])
+            knowledge['business_core'] = {**core, 'offerings':core.get('offerings', [])[:12],
+                'locations':core.get('locations', [])[:8], 'business_rules':core.get('business_rules', [])[:8]}
+            for offering in knowledge['business_core'].get('offerings', []):
                 knowledge['offering:'+offering['id']] = offering
         if self.catalog:
-            previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
-            previous_ids = previous.get('offering_ids', []) if isinstance(previous.get('offering_ids'),list) else []
-            selected_id = previous.get('selected_offering_id')
-            remembered = ([selected_id] if isinstance(selected_id,str) else []) + previous_ids[:3]
             items = []
             for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
                 if source_id.startswith('product:'):
@@ -866,14 +881,28 @@ class MessageHandlerV7:
         destinations += public_destinations(self.tenant_key, self.website_destinations)
         selected = []
         agent_state = {}
+        allowed_actions = [action for action in ('consultation', 'quote', 'callback')
+                           if channel == 'web' and isinstance(self.sales_actions.get(action), dict)
+                           and self.sales_actions[action].get('enabled') is True]
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected,
+                      allowed_actions=allowed_actions,
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
-        return {'reply': text, 'actions': selected, 'agent':agent_state} if text else None
+        requested_action = agent_state.get('requested_action')
+        if (agent_state.get('_validated_grounded') is True and requested_action in allowed_actions):
+            # Render an existing authenticated request form. This is only a
+            # customer-controlled next step, never an executed model action.
+            selected.insert(0, {'type': requested_action, 'label': {
+                'consultation': 'Book consultation', 'quote': 'Request quote',
+                'callback': 'Request callback',
+            }[requested_action]})
+        else:
+            agent_state.pop('requested_action', None)
+        return {'reply': text, 'actions': selected[:3], 'agent':agent_state} if text else None
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:
@@ -889,17 +918,23 @@ class MessageHandlerV7:
     def _conversion_action(self, user_text: str, channel: str) -> Optional[Tuple[str, str]]:
         if channel != "web" or not isinstance(self.sales_actions, dict):
             return None
-        text = self._clean_text(user_text)
-        if (re.search(r"\b(cancel|cancellation|reschedule|change|move|refund|existing|already booked)\b", text)
+        text = self._action_request_text(user_text)
+        if (re.search(r"\b(cancel|cancellation|reschedule|change|move|refund|existing|already booked|"
+                      r"cancelar|cancelación|reprogramar|cambiar|anular|annuler|annulation|reporter|modifier|"
+                      r"إلغاء|الغاء|تغيير|إعادة جدولة)\b", text)
                 or re.search(r"\bmy (consultation|appointment|demo|meeting|quote|callback)\b", text)):
             return None
         if re.search(r"\b(what|which|when|where|how much|price|cost|tell me about)\b", text):
             return None
-        intent = re.search(r"\b(book|schedule|arrange|request|need|want|get|set up|sign up for)\b", text)
+        intent = re.search(
+            r"\b(book|schedule|arrange|request|need|want|get|set up|sign up for|"
+            r"reservar|agendar|organizar|pedir|solicitar|quiero|necesito|gustaría|"
+            r"réserver|planifier|organiser|demander|souhaite|veux|voudrais|besoin|"
+            r"احجز|أحجز|حجز|أريد|اريد|أحتاج|احتاج|اطلب|طلب)\b", text)
         requests = (
-            ("consultation", r"\b(consultation|appointment|demo|meeting)\b"),
-            ("quote", r"\b(quote|quotation|estimate|bulk order|custom pricing)\b"),
-            ("callback", r"\b(call me|call back|callback|speak to (someone|a person|sales|the team)|talk to a human)\b"),
+            ("consultation", r"\b(consultation|appointment|demo|meeting|cita|consulta|demostración|reunión|rendez-vous|démo|démonstration|réunion|موعد|استشارة|عرض توضيحي|اجتماع)\b"),
+            ("quote", r"\b(quote|quotation|estimate|bulk order|custom pricing|presupuesto|cotización|devis|estimation|عرض سعر|تقدير تكلفة)\b"),
+            ("callback", r"\b(call me|call back|callback|speak to (someone|a person|sales|the team)|talk to a human|llámame|llamen|devolver la llamada|rappelez-moi|rappelle-moi|appelez-moi|rappel|اتصل بي|اتصلوا بي|عاود الاتصال)\b"),
         )
         for action_type, pattern in requests:
             settings = self.sales_actions.get(action_type)
@@ -1113,7 +1148,7 @@ class MessageHandlerV7:
         return any(word in text for word in self._EXPLICIT_SHOPPING_WORDS)
 
     def _requests_handoff(self, user_text: str) -> bool:
-        text = self._clean_text(user_text)
+        text = self._clean_text(self._action_request_text(user_text))
         if any(phrase in text for phrase in self._HANDOFF_PHRASES):
             return True
         subscriptions = self.sales_playbook.get('primary_goal') == 'start_subscription'
@@ -1126,11 +1161,52 @@ class MessageHandlerV7:
         ))
 
     @staticmethod
-    def _explicit_human_request(user_text: str) -> bool:
-        text = user_text.casefold()
-        if re.search(r"\b(?:don't|do not|no need to)\s+(?:call|contact|speak|talk)|\b(?:do i need|what is|how does)\b",text):
+    def _action_request_text(user_text: str) -> str:
+        """Keep affirmative request clauses for shortcuts, never change AI input.
+
+        Negating a demo or callback must not open its form before the model can
+        answer. Scope that exclusion to its clause so a separate positive request
+        still works, including when the customer has no website or account yet.
+        """
+        clauses = re.split(
+            r"[,،;.!?\n]+|\b(?:but|however|instead|rather|pero|sino|mais|plutôt|لكن|بل)\b|"
+            r"\band\s+(?=(?:can|could|please|i (?:want|need|would)|book|request|get|send)\b)",
+            str(user_text or '').casefold(),
+        )
+        negative = re.compile(
+            r"\b(?:don['’]?t|do not|cannot|can['’]?t|never|not(?: to)?|no need to)\s+"
+            r"(?:(?:really|actually|please)\s+)?(?:want|need|wish|plan|intend|like|"
+            r"call|contact|book|schedule|arrange|request|get|send|speak|talk|chat)\b|"
+            r"\b(?:no|without)\s+(?:(?:a|an|any|more|another)\s+)?"
+            r"(?:demo|appointment|consultation|meeting|quote|quotation|estimate|callback|call|contact|human|person)\b|"
+            r"\bnot\s+(?:interested|ready|looking)\b|\bno need(?:\s+(?:for|to))?\b|"
+            r"\b(?:no thanks|not now|stop calling|stop contacting)\b|"
+            r"\bno\s+(?:quiero|necesito|deseo|llames|llamen|contactes|contacten|reservar|agendar)\b|"
+            r"\bsin\s+(?:cita|consulta|presupuesto|llamada)\b|"
+            r"\b(?:ne|n['’])(?:\s*[\w'’]+){0,4}\s+pas\b|"
+            r"\b(?:pas de|sans)\s+(?:démo|consultation|rendez-vous|devis|rappel)\b|"
+            r"(?:لا|لن)\s+(?:أريد|اريد|أحتاج|احتاج|تتصل|تتصلوا|تحجز|تطلب|تتواصل)|"
+            r"(?:بدون|دون)\s+(?:موعد|استشارة|اتصال|عرض سعر)", re.I,
+        )
+        informational = re.compile(r"^(?:do i need|what is|how does|tengo que|qué es|qu['’]est-ce|هل يجب)\b")
+        return ' '.join(clause.strip() for clause in clauses
+                        if clause.strip() and not negative.search(clause)
+                        and not informational.match(clause.strip()))
+
+    @classmethod
+    def _explicit_human_request(cls, user_text: str) -> bool:
+        clauses = cls._action_request_text(user_text)
+        # These ask about the need or meaning of a handoff, rather than asking
+        # us to collect contact details. Other business questions go to AI too.
+        if re.match(r"^(?:do i need|what is|how does|tengo que|qué es|qu['’]est-ce|هل يجب)\b", clauses):
             return False
-        return bool(re.search(r'\b(?:talk|speak|chat)\s+(?:to|with)\s+(?:a |the |your )?(?:human|person|someone|team|staff)|\b(?:call me back|contact me|human agent|real person)\b',text))
+        return bool(re.search(
+            r'\b(?:talk|speak|chat)\s+(?:to|with)\s+(?:a |the |your )?(?:human|person|someone|team|staff)|'
+            r'\b(?:call me back|contact me|human agent|real person)\b|'
+            r'\b(?:hablar|chatear|comunicarme)\s+con\s+(?:(?:una?|el|tu)\s+)?(?:persona|alguien|equipo|humano|agente)\b|'
+            r'\b(?:parler|discuter)\s+(?:avec|à)\s+(?:(?:un|une|le|la|votre)\s+)?(?:personne|humain|équipe|conseiller)\b|'
+            r'(?:التحدث مع|التكلم مع|أكلم|اكلم)\s+(?:شخص|إنسان|انسان|موظف|الفريق|أحد)', clauses,
+        ))
 
     def _store_info_answer(self, user_text: str) -> Optional[str]:
         text = self._clean_text(user_text)
