@@ -178,7 +178,7 @@
   {#if busy}<p class="notice" role="status">{$t('Updating usage credit…')}</p>{/if}
   {#if !canViewCosts}<p>{$t('Your account can see AI availability. Detailed usage credit and costs require cost-view permission.')}</p>{/if}
   {#if data}
-    {#if data.internal}<p class="notice">Internal workspace: this balance is an administrative ledger record. The internal AI exemption remains active; provider funding is separate.</p>{/if}
+    {#if data.internal}<p class="notice">{$t('Internal workspace: this balance is an administrative ledger record. The internal AI exemption remains active; provider funding is separate.')}</p>{/if}
     {#each alerts as alert}<p class="notice error" role="alert">{alertText(alert.code)}</p>{/each}
     {#if canViewCosts}
       <div class="balances"><article><h3>{$t('Available credit')}</h3><strong><bdi>{money(data.wallet.available_pence)}</bdi></strong><p>{$t(data.internal ? 'Administrative credit record; internal AI does not spend this balance.' : 'Available for new paid AI requests.')}</p></article><article><h3>{$t('Reserved credit')}</h3><strong><bdi>{money(data.wallet.reserved_pence)}</bdi></strong><p>{$t('Held for requests awaiting a confirmed cost; not charged twice.')}</p></article><article><h3>{$t('Confirmed AI spend')}</h3><strong><bdi>{money(data.wallet.spent_pence)}</bdi></strong><p>{$t('Recorded usage charges, separate from token counts.')}</p></article></div>

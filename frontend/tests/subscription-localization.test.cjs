@@ -30,6 +30,7 @@ const i18n = loadModule('i18n.ts', {
   '../../../dashboard/static/i18n/features.json': require('../../dashboard/static/i18n/features.json'),
   '../../../dashboard/static/i18n/subscription.json': dictionary,
   '../../../dashboard/static/i18n/accounts.json': require('../../dashboard/static/i18n/accounts.json'),
+  '../../../dashboard/static/i18n/referrals.json': require('../../dashboard/static/i18n/referrals.json'),
 });
 
 function walk(node, visit, parent) {
@@ -93,6 +94,17 @@ test('each translation preserves every dynamic placeholder', () => {
   }
 });
 
+test('plan review hint explains that opening the link does not select or pay in every language', () => {
+  for (const language of ['en', 'es', 'fr', 'ar']) {
+    i18n.language.set(language);
+    const translate = stores.get(i18n.t);
+    assert.equal(translate('Review {plan}', {plan: 'Starter'}), dictionary[language]['Review {plan}'].replace('{plan}', 'Starter'));
+    const notice = 'Opening this link does not select a plan or take payment.';
+    assert.ok(dictionary[language][notice]?.trim());
+    assert.equal(translate(notice), dictionary[language][notice]);
+  }
+});
+
 test('monthly and setup totals include exclusive VAT and saved discounts in pence', () => {
   for (const [before, total] of [[9900,11880], [19900,23880], [34900,41880], [14900,17880], [29900,35880], [59900,71880]]) {
     const price = format.subscriptionPrice(before, 0, 20);
@@ -104,6 +116,23 @@ test('monthly and setup totals include exclusive VAT and saved discounts in penc
   }
   assert.equal(format.subscriptionPrice(99, 50, 20).total, 60, 'Round the discounted line before adding rounded VAT');
   assert.equal(format.subscriptionPrice(9900, 0, 0).total, 9900);
+});
+
+test('referral setup is free while the first Starter month remains discounted to £59.40', () => {
+  const names = new Set(['setupPercent', 'setupTotal', 'totalWithVat']);
+  const calculations = parse(component).instance.content.body.filter(node =>
+    node.type === 'LabeledStatement' && node.label.name === '$' &&
+    node.body.type === 'ExpressionStatement' &&
+    names.has(node.body.expression.left?.name));
+  assert.equal(calculations.length, 3);
+  const source = 'let setupPercent, setupTotal, totalWithVat;\n' +
+    calculations.map(node => component.slice(node.body.start, node.body.end)).join('\n') +
+    '\nglobalThis.result = {setup: setupTotal(14900), monthly: totalWithVat(9900)};';
+  const executable = ts.transpileModule(source, {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText;
+  const context = {data: {discount_percent: 40, referral_setup_percent: 100, vat_percent: 0}, subscriptionPrice: format.subscriptionPrice};
+  vm.runInNewContext(executable, context);
+  assert.equal(context.result.setup, 0);
+  assert.equal(context.result.monthly, 5940);
 });
 
 test('GBP, counts and calendar months follow the selected locale, including Arabic numerals', () => {
@@ -163,7 +192,7 @@ test('a real billing read/action failure keeps the friendly error through normal
 test('plan cards disclose tax totals and separate phone costs without advertising a WhatsApp message quota', () => {
   const plans = component.slice(component.indexOf('<div class="cards plans tiered-plans">'), component.indexOf('{#if planLocked}'));
   assert.match(plans, /totalWithVat\(plan\.monthly_pence\)/);
-  assert.match(plans, /totalWithVat\(plan\.setup_pence\)/);
+  assert.match(plans, /setupTotal\(plan\.setup_pence\)/);
   assert.match(plans, /AI processing paid separately with prepaid usage credit/);
   assert.match(plans, /WhatsApp phone numbers are not included/);
   assert.doesNotMatch(plans, /plan\.whatsapp_messages/);

@@ -19,6 +19,11 @@ and sign-in pages can work normally. The widget remains sandboxed and cannot
 navigate the containing page. Links retain HTTPS validation and
 `rel="noopener noreferrer"`.
 
+Subscription destinations may include a known plan ID for review. Anonymous
+sign-in preserves only a valid subscription plan hint; the dashboard can highlight
+it without changing the saved plan or starting checkout. The customer still
+chooses the plan and approves payment through the normal billing workflow.
+
 Within the existing tenant-scoped session lifetime, the agent remembers a short
 list of offerings, the selected offering and up to six stated customer
 requirements. Requirements must quote the customer's messages or previous
@@ -43,8 +48,8 @@ The provider returns a strict JSON schema with known source/destination IDs and
 nullable optional updates; the server still checks facts and customer choices.
 If the model proposes a known option without a verifiable customer choice,
 that optional selection is discarded while a fully validated answer and approved
-navigation can remain. An explicitly rejected option, unknown ID or conflicting
-explicit selection still fails validation. Selection metadata never authorizes
+navigation can remain. An explicitly rejected newly proposed option, unknown ID
+or conflicting explicit selection still fails validation. Selection metadata never authorizes
 a payment or other transaction.
 Monetary validation handles prefix/suffix currencies and localized GBP/USD/EUR
 formats. Explicit customer budgets may be restated only as labelled budgets;

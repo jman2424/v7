@@ -97,6 +97,36 @@ def test_private_console_sections_redirect_anonymous_users_to_safe_sign_in(clien
     assert 'Console</main>' not in response.text
 
 
+@pytest.mark.parametrize('plan', ['starter', 'business', 'scale'])
+def test_subscription_review_hint_survives_sign_in_redirect(client, compiled_console, plan):
+    response = client.get('/console/subscription?plan='+plan)
+    assert response.status_code == 303
+    location = urlsplit(response.headers['Location'])
+    assert location.path == '/console/' and not location.netloc
+    assert parse_qs(location.query) == {'next': ['subscription'], 'tenant': ['EXAMPLE'], 'plan': [plan]}
+
+
+@pytest.mark.parametrize('hint', ['unknown', 'STARTER', 'https://external.example', '../scale', ''])
+def test_unrecognised_subscription_hint_is_not_carried_into_sign_in(client, compiled_console, hint):
+    response = client.get('/console/subscription', query_string={'plan': hint})
+    assert response.status_code == 303
+    assert 'plan' not in parse_qs(urlsplit(response.headers['Location']).query)
+
+
+def test_plan_review_hint_never_selects_or_changes_saved_subscription(client, compiled_console):
+    from service import subscriptions
+    subscriptions.select_plan('EXAMPLE', 'business')
+    before = subscriptions.plan_state('EXAMPLE')
+    sign_in(client)
+    assert client.get('/console/subscription?plan=starter').status_code == 200
+    assert subscriptions.plan_state('EXAMPLE') == before
+
+
+def test_plan_hint_is_ignored_for_other_console_sections(client, compiled_console):
+    response = client.get('/console/account?plan=scale')
+    assert parse_qs(urlsplit(response.headers['Location']).query) == {'next': ['account'], 'tenant': ['EXAMPLE']}
+
+
 @pytest.mark.parametrize('alias', ['catalog.html', 'catalog.HTML', 'CATALOG', 'catalog.html/.', 'catalog.html/'])
 def test_html_and_filesystem_aliases_keep_private_console_protection(client, compiled_console, alias):
     assert client.get('/console/'+alias).status_code == 303

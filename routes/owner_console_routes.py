@@ -34,7 +34,13 @@ def _authorize_section(section):
     except Unauthorized:
         if tenant is None:
             tenant = container.storage.canonical_tenant_key(Storage.validate_tenant_key(container.settings.BUSINESS_KEY))
-        return redirect('/console/?'+urlencode({'next': section, 'tenant': tenant}), code=303)
+        destination = {'next': section, 'tenant': tenant}
+        if section == 'subscription':
+            from service.plan_catalog import PLANS
+            plan = request.args.get('plan')
+            if plan in PLANS:
+                destination['plan'] = plan
+        return redirect('/console/?'+urlencode(destination), code=303)
     tenant = authorized_tenant(tenant, container.settings.BUSINESS_KEY)
     tenant = container.storage.canonical_tenant_key(tenant)
     if not container.storage.tenant_exists(tenant):

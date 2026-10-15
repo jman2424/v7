@@ -37,6 +37,7 @@
   let invoiceKind='all';
   let invoicePage=1;
   let discountCode='';
+  let reviewPlanId='';
   let controller:AbortController|undefined;
   let companyController:AbortController|undefined;
   let companyBusy=false;
@@ -60,6 +61,8 @@
   $: setupPlan=data?.plans?.find(plan=>plan.id===data?.plan_state?.setup_plan)||selectedPlan;
   $: planLocked=Boolean(activePlan||implementationPaid||legacyBilling);
   $: checkoutPending=Boolean(data?.plan_state?.checkout_pending);
+  $: reviewPlan=canManageBilling&&!planLocked&&!checkoutPending
+    ? data?.plans?.find(plan=>plan.id===reviewPlanId) : undefined;
   $: monthlyPrice=activePlan?activePlan.monthly_pence:40000;
   $: discounted=(pence:number)=>subscriptionPrice(pence,data?.discount_percent||0,data?.vat_percent||0).beforeVat;
   $: setupPercent=Math.max(data?.discount_percent||0,data?.referral_setup_percent||0);
@@ -111,7 +114,10 @@
     }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'The billing update could not be confirmed. Refresh payments before trying again.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
   }
-  onMount(refresh);onDestroy(()=>{disposed=true;controller?.abort();companyController?.abort();});
+  onMount(()=>{
+    reviewPlanId=new URLSearchParams(window.location.search).get('plan')||'';
+    void refresh();
+  });onDestroy(()=>{disposed=true;controller?.abort();companyController?.abort();});
 </script>
 
 <section class="billing" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-label={$t('Subscription and payments')}>
@@ -128,9 +134,9 @@
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
     {#if canManageBilling}{#key tenant}<Referrals {tenant} {csrf} {apiPrefix} {isPlatform} configured={data.configured} on:changed={refresh}/>{/key}{/if}
-    {#if data.complimentary}<p class="notice">Complimentary Scale access. No subscription payment or setup invoice was created. AI credit is separate.</p>{/if}
-    {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>Revoke complimentary Scale for {tenant}</button>{/if}
-    {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>Grant complimentary Scale to {tenant}</button>{/if}
+    {#if data.complimentary}<p class="notice">{$t('Complimentary Scale access. No subscription payment or setup invoice was created. AI credit is separate.')}</p>{/if}
+    {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>{$t('Revoke complimentary Scale for {tenant}',{tenant})}</button>{/if}
+    {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>{$t('Grant complimentary Scale to {tenant}',{tenant})}</button>{/if}
     {#if !canManageBilling}<p class="notice">{$t('Read-only access. Your business owner manages payments and subscriptions.')}</p>{/if}
     {#if !data.configured && !data.internal && !data.complimentary}<p class="notice">{$t('Stripe payments are not connected yet.')} {$t(isPlatform?(data.vat_percent ? 'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.' : 'Configure the Stripe live API key and matching webhook signing secret on the server. No VAT tax rate is required while unregistered.'):'Your platform administrator needs to connect payments.')} {$t('No payment has been taken.')}</p>{/if}
     {#if data.internal}<p class="notice">{$t('Internal website agent. This platform-owned workspace does not need a customer subscription.')}</p>{/if}
@@ -139,10 +145,12 @@
       {:else}<details class="panel"><summary>{$t('Have a discount code?')}</summary><form on:submit|preventDefault={()=>action('discount',{code:discountCode})}><label>{$t('Discount code')}<input bind:value={discountCode} maxlength="100" autocomplete="off" spellcheck="false" required /></label><button disabled={busy||!discountCode.trim()}>{$t('Apply to this business')}</button></form></details>{/if}
     {/if}
     {#if !legacyBilling && !data.internal && !data.complimentary}
+      {#if reviewPlan}<p class="notice" role="status"><strong>{$t('Review {plan}',{plan:reviewPlan.name})}.</strong> {$t('Opening this link does not select a plan or take payment.')}</p>{/if}
       <div class="cards plans tiered-plans">
         {#each data.plans||[] as plan}
-          <article class="panel" class:selected={selectedPlan?.id===plan.id}>
+          <article class="panel" class:selected={selectedPlan?.id===plan.id} class:reviewing={reviewPlan?.id===plan.id}>
             <p class="plan-audience">{$t(plan.audience)}</p><div class="plan-title"><h3><bdi>{plan.name}</bdi></h3>{#if activePlan?.id===plan.id}<span class="plan-badge">{$t('Current plan')}</span>{:else if selectedPlan?.id===plan.id}<span class="plan-badge">{$t('Selected')}</span>{/if}</div>
+            {#if reviewPlan?.id===plan.id}<p class="plan-badge">{$t('Review {plan}',{plan:plan.name})}</p>{/if}
             <strong class="price"><bdi>{money(discounted(plan.monthly_pence))}</bdi><small>{$t(data?.vat_percent ? 'per month before VAT' : 'per month')}</small></strong>
             <p class="tax-total">{$t(data?.vat_percent ? '{price} / month including {percent}% VAT' : '{price} / month — no VAT charged',{price:money(totalWithVat(plan.monthly_pence)),percent:count(data.vat_percent)})}</p>
             <p class="setup-price">{$t(data?.vat_percent ? '{price} one-time setup before VAT' : '{price} one-time setup',{price:money(setupDiscounted(plan.setup_pence))})}<small class="tax-total">{$t(data?.vat_percent ? '{price} setup including {percent}% VAT' : '{price} setup — no VAT charged',{price:money(setupTotal(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>
@@ -199,7 +207,7 @@
       </article>
     </div>
     {/if}
-    <div class="cards summaries"><article class="panel"><h3>{$t('Total paid')}</h3><strong class="price"><bdi>{money(data.totals.paid)}</bdi></strong><p>{$t('Recorded invoice payments, before refunds.')}</p></article><article class="panel"><h3>{$t('Total payment due')}</h3><strong class="price"><bdi>{money(data.totals.due+data.totals.approved_api_due)}</bdi></strong><p>{$t('Open invoices at their recorded totals.')}{#if canViewCosts} {$t('Approved API charges awaiting checkout: {price}.',{price:money(data.totals.approved_api_due)})}{/if}</p></article><article class="panel"><h3>{$t('Regular monthly price')}</h3><strong class="price">{data.complimentary?'Complimentary Scale':data.internal?$t('Internal workspace'):baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?undiscountedTotal(20000):0)):status(undefined)}</strong><p>{$t(data?.vat_percent ? 'Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.' : 'Final price after any saved subscription discount. No VAT charged; your checkout and invoices show the amount payable.')}</p></article></div>
+    <div class="cards summaries"><article class="panel"><h3>{$t('Total paid')}</h3><strong class="price"><bdi>{money(data.totals.paid)}</bdi></strong><p>{$t('Recorded invoice payments, before refunds.')}</p></article><article class="panel"><h3>{$t('Total payment due')}</h3><strong class="price"><bdi>{money(data.totals.due+data.totals.approved_api_due)}</bdi></strong><p>{$t('Open invoices at their recorded totals.')}{#if canViewCosts} {$t('Approved API charges awaiting checkout: {price}.',{price:money(data.totals.approved_api_due)})}{/if}</p></article><article class="panel"><h3>{$t('Regular monthly price')}</h3><strong class="price">{data.complimentary?$t('Complimentary Scale'):data.internal?$t('Internal workspace'):baseContract?.status==='active'?money(totalWithVat(monthlyPrice)+(legacyBilling&&waContract?.status==='active'&&!waContract.paused?undiscountedTotal(20000):0)):status(undefined)}</strong><p>{$t(data?.vat_percent ? 'Including VAT and any saved subscription discount. Your Stripe checkout and invoices show the amount charged.' : 'Final price after any saved subscription discount. No VAT charged; your checkout and invoices show the amount payable.')}</p></article></div>
     {#if months.length}<TrendChart title={$t('Recorded payments by invoice month')} labels={months.map(month)} unit="GBP" series={[{name:$t('Paid'),values:paidMonths,color:'#087f5b'},{name:$t('Outstanding'),values:dueMonths,color:'#bd5b28'}]} {locale} notRecordedLabel={$t('Not recorded')} periodLabel={$t('Period (UTC)')} figuresLabel={$t('View figures')} exactValuesLabel={$t('Exact values in the table below')} figuresRegionLabel={$t('Recorded payment figures')}/>{/if}
     <article class="panel"><header><div><h2>{$t('Payment history')}</h2><p>{$t('Previous subscription, setup, WhatsApp and API invoices. Older platform invoices may include setup. Showing the latest 120 recorded invoices.')}</p></div><label>{$t('Show')}<select bind:value={invoiceKind} on:change={()=>invoicePage=1}><option value="all">{$t('All charges')}</option><option value="platform">{$t('Platform subscription')}</option><option value="implementation">{$t('Implementation')}</option><option value="whatsapp">WhatsApp</option>{#if canViewCosts}<option value="api">{$t('API usage')}</option>{/if}</select></label></header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
@@ -264,6 +272,7 @@
   .plans .panel:first-child { border-color:var(--v7-accent); }
   .tiered-plans .panel:first-child { border-color:var(--v7-line); }
   .tiered-plans .panel.selected { border-color:var(--v7-accent); background:var(--v7-soft,#edf6f1); }
+  .tiered-plans .panel.reviewing { border-color:var(--v7-accent); box-shadow:0 0 0 2px var(--v7-soft,#edf6f1); }
   .plan-audience { margin:0 0 10px; font-size:12px; }
   .plan-title { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
   .plan-title h3 { font-size:21px; margin:0; }
