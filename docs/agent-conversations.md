@@ -41,6 +41,11 @@ memory. Empty optional updates do not erase verified customer needs.
 
 The provider returns a strict JSON schema with known source/destination IDs and
 nullable optional updates; the server still checks facts and customer choices.
+If the model proposes a known option without a verifiable customer choice,
+that optional selection is discarded while a fully validated answer and approved
+navigation can remain. An explicitly rejected option, unknown ID or conflicting
+explicit selection still fails validation. Selection metadata never authorizes
+a payment or other transaction.
 Monetary validation handles prefix/suffix currencies and localized GBP/USD/EUR
 formats. Explicit customer budgets may be restated only as labelled budgets;
 they cannot establish an offering price, tax, discount or checkout total.

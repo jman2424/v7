@@ -398,7 +398,26 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
         raise ValueError('invalid_agent_offerings')
     offerings = list(dict.fromkeys(rows))
     requirements, retired = _requirements_state(raw, question, history, context)
-    selected = _selection_state(raw, question, knowledge, context)
+    try:
+        selected = _selection_state(raw, question, knowledge, context)
+    except ValueError as exc:
+        if str(exc) != 'unconfirmed_agent_selection':
+            raise
+        proposed = raw.get('selected_offering_id')
+        if isinstance(proposed, str) and proposed in knowledge:
+            aliases = _choice_aliases(proposed, knowledge, context.get('offering_ids', []))
+            record = knowledge[proposed]
+            if isinstance(record, dict) and isinstance(record.get('name'), str):
+                # Rejection is conservative even without a prior shortlist:
+                # 'not Starter' also rejects 'Brand Starter monthly'. These
+                # words cannot positively confirm or persist a selection.
+                aliases.extend(word for word in re.findall(r'\w+', record['name']) if len(word) >= 3)
+            if any(_rejected(question, alias) for alias in aliases):
+                raise ValueError('rejected_agent_selection') from None
+        # Selection is optional session metadata, not transaction authority.
+        # Keep a fully grounded answer and approved next-step links when a
+        # natural choice cannot be confirmed, without remembering that choice.
+        selected = None
     last_offerings = offerings or context.get('offering_ids', [])
     if action == 'open_destination' and not navigation:
         raise ValueError('missing_agent_destination')

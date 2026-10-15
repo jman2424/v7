@@ -324,8 +324,9 @@ def test_customer_can_select_using_a_distinctive_shortened_catalogue_name(monkey
         question='I choose Pro', knowledge=knowledge, context=context)
     assert reply and state['selected_offering_id'] == 'product:pro'
     # The common brand prefix does not identify a particular offering.
-    assert _structured_answer(monkeypatch, payload,
-        question='I choose Acme', knowledge=knowledge, context=context)[0] is None
+    reply, state, _, _ = _structured_answer(monkeypatch, payload,
+        question='I choose Acme', knowledge=knowledge, context=context)
+    assert reply and state['selected_offering_id'] is None
 
 
 @pytest.mark.parametrize('private', ['mi contraseña es private', 'mon mot de passe est private',
@@ -385,7 +386,8 @@ def test_latest_positive_choice_overrides_historic_choice_and_negated_name(monke
 def test_mentioning_a_product_in_a_question_is_not_selection(monkeypatch, question):
     payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'],
                'agent': _state('price', selected='product:basic')}
-    assert _structured_answer(monkeypatch, payload, question=question)[0] is None
+    reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question)
+    assert reply and state['selected_offering_id'] is None
 
 
 def test_policy_interruption_preserves_numbered_shortlist_without_sales_suggestions(monkeypatch):
@@ -466,3 +468,62 @@ def test_last_positive_choice_within_current_message_takes_precedence(monkeypatc
     reply, state, _, _ = _structured_answer(monkeypatch, payload, question=question, knowledge=knowledge,
         context={'offering_ids': ['product:basic', 'product:pro'], 'selected_offering_id': 'product:basic'})
     assert reply and state['selected_offering_id'] == 'product:pro'
+
+
+def test_unconfirmed_optional_selection_keeps_grounded_checkout_link_without_persisting_choice(monkeypatch):
+    knowledge = {'product:starter': {'name': 'Acme Starter monthly', 'price': 99, 'currency': 'GBP'}}
+    agent = {**_state('checkout', stage='convert', action='open_destination', selected='product:starter'),
+             'selection_update': 'select', 'selection_evidence': "Let's pick Starter"}
+    payload = {'answer': 'Starter is £99 per month. Review the plan at checkout.', 'kind': 'answer',
+               'sources': ['product:starter'], 'navigation': ['starter_checkout'], 'agent': agent}
+    destination = {'id': 'starter_checkout', 'label': 'Choose Starter', 'url': 'https://shop.example/starter'}
+    reply, state, links, calls = _structured_answer(monkeypatch, payload,
+        question="Let's pick Starter. Take me to checkout", knowledge=knowledge,
+        destinations=[destination], context={'selected_offering_id': 'product:starter'})
+    # With an already confirmed selection, compatibility remains unchanged.
+    assert reply and state['selected_offering_id'] == 'product:starter'
+    reply, state, links, calls = _structured_answer(monkeypatch, payload,
+        question="Let's pick Starter. Take me to checkout", knowledge=knowledge,
+        destinations=[destination])
+    assert reply and state['selected_offering_id'] is None
+    assert links == [{'type': 'navigate', 'label': 'Choose Starter', 'url': 'https://shop.example/starter'}]
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('question', ['Do not choose Pro.', 'I do not want Pro.', 'No quiero Pro.'])
+def test_optional_selection_downgrade_does_not_allow_an_explicitly_rejected_new_option(monkeypatch, question):
+    knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Acme Pro monthly', 'price': 199, 'currency': 'GBP'}}
+    payload = {'answer': 'Pro is £199.', 'kind': 'answer', 'sources': ['product:pro'],
+               'navigation': ['pro_checkout'], 'agent': _state('checkout', selected='product:pro')}
+    reply, state, links, _ = _structured_answer(monkeypatch, payload, question=question, knowledge=knowledge,
+        destinations=[{'id': 'pro_checkout', 'label': 'Choose Pro', 'url': 'https://shop.example/pro'}])
+    assert reply is None and state == {} and links == []
+
+
+@pytest.mark.parametrize('change', ['unknown_selection', 'incorrect_selection', 'private_requirement',
+                                   'invalid_selection_evidence', 'invented_amount', 'unknown_navigation',
+                                   'completed_payment'])
+def test_selection_metadata_downgrade_does_not_weaken_other_validation(monkeypatch, change):
+    knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Pro', 'price': 199, 'currency': 'GBP'}}
+    payload = {'answer': 'Pro is £199.', 'kind': 'answer', 'sources': ['product:pro'],
+               'agent': _state('price', selected='product:pro')}
+    question = 'Tell me more about Pro'
+    context = {'offering_ids': ['product:basic', 'product:pro']}
+    if change == 'unknown_selection':
+        payload['agent']['selected_offering_id'] = 'product:other_company'
+    elif change == 'incorrect_selection':
+        question = 'option 1'
+    elif change == 'private_requirement':
+        question = 'My email is me@example.com'
+        payload['agent']['requirements'] = ['me@example.com']
+    elif change == 'invalid_selection_evidence':
+        payload['agent']['selection_evidence'] = 'not in the customer message'
+    elif change == 'invented_amount':
+        payload['answer'] = 'Pro is £999.'
+    elif change == 'unknown_navigation':
+        payload['navigation'] = ['other_company_checkout']
+    elif change == 'completed_payment':
+        payload['answer'] = 'I have processed your payment.'
+    reply, state, links, _ = _structured_answer(monkeypatch, payload,
+        question=question, knowledge=knowledge, context=context)
+    assert reply is None and state == {} and links == []
