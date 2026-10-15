@@ -29,16 +29,19 @@ data do not guarantee indexing, rich results or ranking.
 
 The homepage product schema describes Starter, Business and Scale monthly plans.
 The shared `service/plan_catalog.py` supplies the website, checkout and dashboard
-prices: £99, £199 and £349/month before VAT, with separate one-time setup fees of
-£149, £299 and £599. Each schema offer identifies its monthly billing unit and
-excludes VAT, matching the labelled base price in the visible cards. Monthly and
-setup totals including the catalogue's 20% VAT rate appear immediately beneath
-their base prices, where VAT applies; the final checkout total is authoritative.
+prices: £99, £199 and £349/month, with separate one-time setup fees of
+£149, £299 and £599. Each schema offer identifies its monthly billing unit,
+matching the visible cards. `V7_VAT_REGISTERED` controls the tax wording and
+calculation. With the current unregistered configuration, no VAT is added and
+the displayed GBP price is the final price. If registration is enabled, the
+catalogue's VAT rate and inclusive totals are displayed; final checkout remains
+authoritative. Product and offer descriptions follow the same configuration.
 Both agent channels are included, with no fixed message or conversation cap. WhatsApp phone
 numbers, number rental and provider messaging charges are not included.
 AI credit is purchased separately, with no included monthly processing budget.
-Prepaid packs provide £5, £20 or £50 of usable credit before VAT (£6, £24 or £60
-including 20% VAT, where applicable). One GBP balance covers paid processing
+Prepaid packs provide £5, £20 or £50 of usable credit for the same payment while
+unregistered. VAT-inclusive charges apply only when registration is configured.
+One GBP balance covers paid processing
 across website and WhatsApp; it does not cover the WhatsApp provider's bill.
 Insufficient prepaid credit pauses paid model calls with saved-knowledge fallback.
 Website and WhatsApp capacity depends on the selected model and tokens consumed;
@@ -99,7 +102,16 @@ nine marketing pages. The homepage title and social titles include Vertex Seven
 to distinguish V7 Agents from unrelated products with similar names.
 
 
-The public `/guides/getting-started` page supplies a setup checklist and clearly fictional retail, service and branch demonstrations. It uses the existing public page template and is linked from public footers. The sitemap now contains 11 URLs. It adds no customer claims or Analytics scope.
+The public `/guides/getting-started` page supplies a setup checklist and clearly fictional retail, service and branch demonstrations. It uses the existing public page template and is linked from public footers. The sitemap contains 12 URLs. It adds no customer claims or Analytics scope.
+
+The FAQ, setup guide and website/sales solution pages explain bounded website
+imports, approved destinations, enabled enquiry forms and follow-up testing.
+They distinguish a suggested next step from a submitted request, purchase or
+confirmed appointment. Public product pages link directly to the existing demo
+enquiry section and setup guide, without requiring a visitor to sign in first.
+Their `BreadcrumbList` JSON-LD mirrors the visible navigation and uses the same
+configured origin as each canonical URL. No translated URL alternatives,
+physical-office claims, ratings or customer results are invented.
 
 The homepage now offers a demo enquiry via the business email address, using a mailto link. It opens the visitor's email app and does not claim that an enquiry has been sent or create a server-side lead. Inbox delivery still requires an end-to-end mailbox test.
 

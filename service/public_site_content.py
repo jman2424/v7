@@ -38,12 +38,14 @@ SOLUTIONS: dict[str, Solution] = {
         "sections": [
             {"heading": "Help visitors navigate real business information", "paragraphs": [
                 "Use a website chatbot to support the questions customers already ask: which product fits their needs, when a branch opens, whether delivery covers their area, or how to contact the team. V7 uses the information configured for your company. Accurate product descriptions, current prices and clear policies give the assistant a more useful foundation than a welcome message alone.",
+                "You can also import up to 20 public pages from the HTTPS website saved in your business profile. Relevant excerpts supplement your managed knowledge. Review them and refresh the import when those pages change; it is not continuous synchronisation or access to private customer accounts.",
             ]},
             {"heading": "Keep your website and your brand", "paragraphs": [
                 "Your workspace provides an embed snippet for an approved website origin. Choose the assistant name, greeting, logo, layout and colours to suit your site. The widget offers a compact entry point for the conversation, with a customer chat experience that adapts to smaller screens. Your website remains the place to browse, compare and buy; chat helps explain what visitors find there.",
             ]},
             {"heading": "Give your team a useful next step", "paragraphs": [
-                "Set a primary conversation goal and the contact information your business can fulfil. Where enabled, customer actions can collect a quote or callback request, or offer configured consultation slots. Review retained conversations and leads in the company workspace. That context helps your people continue an enquiry rather than asking the customer to start again, but follow-up still needs a responsible team member.",
+                "Configure approved product, checkout, booking and support destinations so the assistant can offer relevant links. The visitor opens the link and completes the relevant website workflow. Where enabled, chat can open a quote, callback or consultation request form; opening a form does not submit it or confirm an appointment.",
+                "Set a primary conversation goal and the contact information your business can fulfil. Review retained conversations and leads in the company workspace. That context helps your people continue an enquiry rather than asking the customer to start again, but follow-up still needs a responsible team member.",
             ]},
         ],
         "steps": [
@@ -88,12 +90,14 @@ SOLUTIONS: dict[str, Solution] = {
         "sections": [
             {"heading": "Start with the customer and the offering", "paragraphs": [
                 "Configure whether your business offers products, services or both. Describe your business focus, customer type and ideal customer so the assistant has context for the enquiry. Your catalog supplies the details behind product guidance; the playbook supplies qualification questions and value propositions. Those inputs let a sales chatbot ask a relevant next question instead of applying the same pitch to every visitor.",
+                "During a conversation, the model-powered agent can keep track of the visitor's shortlisted options and stated requirements, including a corrected budget or changed choice. Questions about support or cancellation should use your supplied policies without restarting the sales pitch. Test those follow-ups with your own business facts; AI can misunderstand a choice or requirement.",
             ]},
             {"heading": "Choose a goal that matches your sales process", "paragraphs": [
                 "Some businesses need a purchase enquiry, while others need a quote request or consultation. V7 supports playbook goals such as driving sales, capturing leads, answering questions and requesting quotes. Configure fulfilment context for delivery, collection, on-site or remote work where appropriate. A service business can focus on understanding requirements; a retailer can focus on product details and the customer's preferred option.",
             ]},
             {"heading": "Make the handoff deliberate", "paragraphs": [
-                "Set a handoff message and clear contact paths for larger orders, custom work or questions that need staff judgement. Quote and callback requests are available when the company enables those actions. Consultation times must be configured, and a slot is confirmed only after a successful customer submission. The workspace lets your team review requests and retained conversation context before following up.",
+                "Add approved destinations for the product, checkout, booking and support pages you want visitors to reach. A relevant link helps the visitor continue through your existing website; suggesting it does not place an order or take payment. Set a handoff message and clear contact paths for larger orders, custom work or questions that need staff judgement.",
+                "Quote and callback request forms are available when the company enables those actions. Consultation times must be configured, and a slot is confirmed only after a successful customer submission. Opening a form is not submitting it. The workspace lets your team review requests and retained conversation context before following up.",
             ]},
         ],
         "steps": [
@@ -115,7 +119,7 @@ SOLUTIONS: dict[str, Solution] = {
                 "AI customer service software works best with clear answers to the questions customers ask most often. Add the policies that explain them. Branch records cover locations and hours; delivery information explains the areas and rules your company has configured. A customer support chatbot can bring these details into the conversation, rather than expecting someone to find the right footer link. Write policies in plain language, including any conditions that change the answer.",
             ]},
             {"heading": "Use website knowledge with care", "paragraphs": [
-                "The workspace can import up to six public pages from the HTTPS website saved in your business profile. Imported excerpts can supplement structured information for questions it does not cover. This is a bounded import, not continuous synchronisation of an entire website. Review the source pages, refresh the import when they change, and keep important prices, rules and FAQs in the relevant management screens.",
+                "The workspace can import up to 20 public pages from the HTTPS website saved in your business profile. Imported excerpts can supplement structured information for questions it does not cover. This is a bounded import, not continuous synchronisation of an entire website. Review the source pages, refresh the import when they change, and keep important prices, rules and FAQs in the relevant management screens.",
             ]},
             {"heading": "Recognise when support needs a person", "paragraphs": [
                 "Provide contact details and a handoff message for complaints, unusual requests or missing information. Your team can review retained conversations and customer requests in the company workspace. Chat should not imply that it has checked a private order or processed a refund unless a real configured integration provides that capability. For account-specific matters, direct the customer to the support process your business already uses.",

@@ -39,6 +39,10 @@
       'publisher': {'@type': 'Organization', '@id': site_origin ~ '/#organization', 'name': 'Vertex Seven', 'url': site_origin ~ '/'}
     }
   }|tojson }}</script>
+  {% set breadcrumb_items = [{'@type': 'ListItem', 'position': 1, 'name': 'Home', 'item': site_origin ~ '/'}] %}
+  {% if not brand_page %}{% set breadcrumb_items = breadcrumb_items + [{'@type': 'ListItem', 'position': 2, 'name': 'Solutions', 'item': site_origin ~ '/#solutions'}] %}{% endif %}
+  {% set breadcrumb_items = breadcrumb_items + [{'@type': 'ListItem', 'position': breadcrumb_items|length + 1, 'name': solution.label, 'item': canonical_url}] %}
+  <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {'@context': 'https://schema.org', '@type': 'BreadcrumbList', 'itemListElement': breadcrumb_items}|tojson }}</script>
   {% if faq_page %}
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{
     "@context": "https://schema.org", "@type": "FAQPage", "url": {{ canonical_url|tojson }},
@@ -63,7 +67,7 @@
       <h1 id="solution-title">{{ solution.h1 }}</h1>
       <p class="solution-intro">{{ solution.intro }}</p>
       <p class="solution-audience">{{ solution.audience }}</p>
-      <div class="actions"><a class="button button-dark" href="/console/">Open your workspace <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a></div>
+      <div class="actions"><a class="button button-dark" href="/#contact">Request a demo <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/console/">Open your workspace <span aria-hidden="true">→</span></a><a class="text-link" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a></div>
     </section>
     <div class="solution-content">
       <div class="solution-explanation">
@@ -74,7 +78,7 @@
       <aside class="solution-setup" aria-labelledby="setup-title">
         <p class="eyebrow">SETUP & REVIEW</p><h2 id="setup-title">Put it into practice</h2>
         <ol>{% for step in solution.steps %}<li><h3>{{ step.title }}</h3><p>{{ step.description }}</p></li>{% endfor %}</ol>
-        <a class="text-link" href="/#how-it-works">How onboarding works <span aria-hidden="true">→</span></a>
+        {% if canonical_url == site_origin ~ '/guides/getting-started' %}<a class="text-link" href="/#contact">Discuss your setup <span aria-hidden="true">→</span></a>{% else %}<a class="text-link" href="/guides/getting-started">Read the setup guide <span aria-hidden="true">→</span></a>{% endif %}
       </aside>
     </div>
     <section class="solution-limits" aria-labelledby="limits-title"><h2 id="limits-title">What to check before launch</h2><p>{{ solution.caution }}</p></section>

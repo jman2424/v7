@@ -225,6 +225,52 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     assert '£149.00 setup' in response.text
 
 
+@pytest.mark.parametrize('registered', [True, False])
+def test_product_schema_describes_separate_credit_and_actual_tax_state(seo_client, monkeypatch, registered):
+    monkeypatch.setenv('V7_VAT_REGISTERED', str(registered).lower())
+    page = HomeStructuredData()
+    page.feed(seo_client.get('/').text)
+    graph = json.loads(page.scripts[0]['text'])['@graph']
+    product = next(item for item in graph if item['@type'] == 'Product')
+    description = product['description']
+    assert 'AI processing credit is purchased separately' in description
+    assert 'no AI credit is included in the subscription' in description
+    assert 'no fixed message or conversation cap' in description
+    assert 'included usage allowances' not in description
+    assert ('before VAT' in description) is registered
+    assert ('No VAT charged' in description) is not registered
+
+
+@pytest.mark.parametrize('path', ['/about', '/faqs', '/guides/getting-started'] +
+                         ['/solutions/' + slug for slug in SOLUTIONS])
+def test_public_breadcrumb_schema_matches_visible_trail_and_safe_canonical(seo_client, path):
+    page = HomeStructuredData()
+    page.feed(seo_client.get(path + '?tenant=EXAMPLE', base_url='https://untrusted.example').text)
+    schemas = [json.loads(script['text']) for script in page.scripts]
+    breadcrumb = next(item for item in schemas if item.get('@type') == 'BreadcrumbList')
+    trail = breadcrumb['itemListElement']
+    assert [item['position'] for item in trail] == list(range(1, len(trail) + 1))
+    assert trail[0]['name'] == 'Home' and trail[0]['item'] == ORIGIN + '/'
+    assert trail[-1]['item'] == ORIGIN + path
+    assert all(item['name'] in ' '.join(page.visible_text) for item in trail)
+    if path.startswith('/solutions/'):
+        assert len(trail) == 3
+        assert trail[1]['name'] == 'Solutions' and trail[1]['item'] == ORIGIN + '/#solutions'
+    else:
+        assert len(trail) == 2
+    assert 'untrusted.example' not in json.dumps(breadcrumb)
+    assert 'EXAMPLE' not in json.dumps(breadcrumb)
+
+
+@pytest.mark.parametrize('path', ['/about', '/faqs', '/guides/getting-started', '/solutions/website-chatbot'])
+def test_public_buyer_can_enquire_without_signing_in(seo_client, path):
+    page = PublicAnchors()
+    page.feed(seo_client.get(path).text)
+    assert any(link['href'] == '/#contact' and 'Request a demo' in link['text'] for link in page.links)
+    assert any(link['href'] == '/console/' and 'Open your workspace' in link['text'] for link in page.links)
+    assert any(link['href'] == '/guides/getting-started' for link in page.links)
+
+
 @pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
     response = seo_client.get(path, base_url="https://untrusted.example")

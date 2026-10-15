@@ -35,9 +35,14 @@ SETUP_GUIDE: Solution = {
             "Prepare your current products or services, prices, FAQs, delivery rules, opening hours and contact details. Include conditions and exceptions: where delivery is available, when a quote needs review, and which questions your team must handle.",
             "Use the business workspace to maintain this information. Keep private credentials and unnecessary customer details out of the knowledge you supply. Choose a conversation goal your team can fulfil, such as helping a visitor compare products or requesting a callback.",
         ]},
+        {"heading": "Connect public knowledge and useful next steps", "paragraphs": [
+            "If useful, import up to 20 public pages from the HTTPS website saved in your business profile. Check the excerpts before relying on them and refresh the import when those pages change. This supplements your managed catalogue, FAQs and policies; it does not continuously synchronise the whole website or connect private order records.",
+            "Add approved destinations for product details, checkout, booking or support, with a clear label and purpose for each. Enable only the quote, callback or consultation request forms your team can fulfil. Test where each link opens and what a successful submission looks like. A suggested link or an opened form is not a completed purchase, submitted request or confirmed appointment.",
+        ]},
         {"heading": "Retail demonstration: narrow the choice", "paragraphs": [
             "Fictional catalogue: a compact desk lamp costs £35 and has adjustable warm light. A customer asks, ‘Which lamp fits a small desk?’ A useful response explains the known size and lighting features, then asks about the customer's needs before recommending it.",
             "Test ‘Can you deliver tomorrow?’ separately. If your policy does not confirm a delivery date, the assistant should explain the published delivery rules and offer the configured contact path. A product recommendation must not invent stock availability or promise an unverified arrival date.",
+            "Continue the fictional conversation with ‘My budget is now £25’ and then a question about returns. Check that a cheaper option is suggested only if your catalogue contains one, the changed budget is respected, and the returns answer uses your policy rather than restarting the product list. If the visitor chooses an item, check the approved product or checkout link before asking them to complete the purchase on your website.",
         ]},
         {"heading": "Service demonstration: qualify an enquiry", "paragraphs": [
             "Fictional service: a design studio offers website consultations, with final prices provided after reviewing scope. A visitor asks, ‘How much is a new website?’ A useful conversation asks about the work needed and explains the quote process instead of inventing a fixed price.",
@@ -48,7 +53,7 @@ SETUP_GUIDE: Solution = {
             "Check ambiguous location names, temporary opening changes and enquiries outside the supplied service area. Maintain branch-specific facts so a visitor receives the policy for the location they need.",
         ]},
         {"heading": "Test before embedding on your website", "paragraphs": [
-            "Use the widget section to test a known fact, missing information, an out-of-scope request and a request needing your team. Compare answers with your source material. Check the welcome message, brand colours, mobile layout and contact links.",
+            "Use the widget section to test a known fact, missing information, an out-of-scope request and a request needing your team. Compare answers with your source material. Try follow-up questions, a changed product choice and a declined callback. Check the welcome message, brand colours, mobile layout and contact links. Select a supported model and check the prepaid AI credit balance when testing model-powered replies; saved-knowledge fallback is available when paid processing cannot run.",
             "Configure the approved website origin and use the workspace's generated embed instructions. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp agent software is included in the current monthly plans and needs its own provider setup. Phone numbers are not included; number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit.",
         ]},
         {"heading": "Review actual conversations after launch", "paragraphs": [
