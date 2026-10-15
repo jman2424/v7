@@ -246,6 +246,9 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     var open = frame.style.display !== 'none';
     if (open) {{ closeChat(); return; }}
     sizeFrame();
+    // Hidden lazy frames can remain on about:blank after becoming visible.
+    // An explicit open starts navigation without loading every visitor's chat.
+    frame.loading = 'eager';
     frame.style.display = 'block';
     launcher.setAttribute('aria-expanded', 'true');
   }});
