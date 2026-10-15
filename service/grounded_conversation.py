@@ -190,6 +190,21 @@ def _option_number(question):
     return None
 
 
+def _same_offering(first, second):
+    """Recognize an exact public mirror, not similarly named alternatives."""
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return False
+    name = lambda row: ' '.join(str(row.get('name') or '').casefold().split())
+    if (not name(first) or name(first) != name(second)
+            or type(first.get('price')) not in (int, float)
+            or type(second.get('price')) not in (int, float)
+            or first['price'] != second['price']
+            or str(first.get('currency', 'GBP')).upper() != str(second.get('currency', 'GBP')).upper()):
+        return False
+    return all(first[field] == second[field] for field in ('unit', 'in_stock', 'stock', 'url')
+               if field in first and field in second)
+
+
 def _choice_aliases(key, knowledge, shortlist):
     record = knowledge[key]
     if not isinstance(record, dict):
@@ -201,7 +216,7 @@ def _choice_aliases(key, knowledge, shortlist):
         others = set()
         for other_key in shortlist:
             other = knowledge[other_key]
-            if other_key != key and isinstance(other, dict):
+            if other_key != key and isinstance(other, dict) and not _same_offering(record, other):
                 others.update(re.findall(r'\w+', str(other.get('name') or '').casefold()))
         aliases.extend(word for word in words - others if len(word) >= 3)
     return aliases
@@ -266,7 +281,7 @@ def _selection_state(raw, question, knowledge, context):
         if len(choices) == 1:
             explicit = choices[0]
     if explicit:
-        if selected is not None and selected != explicit:
+        if selected is not None and selected != explicit and not _same_offering(knowledge[selected], knowledge[explicit]):
             raise ValueError('incorrect_agent_selection')
         return explicit
     if previous and any(_rejected(question, name)
@@ -476,6 +491,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 or not isinstance(sources, list) or len(sources) > 12
                 or any(not isinstance(key, str) or key not in knowledge for key in sources)):
             pause_ai_for_turn()
+            logger.warning('Grounded conversation rejected (output_contract)')
             return None
         evidence = json.dumps([knowledge[key] for key in sources], ensure_ascii=False)
         # New monetary amounts and URLs must never be supplied by the model.
@@ -502,6 +518,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 or any(url not in evidence for url in re.findall(r'https?://[^\s<>]+', text))
                 or _UNSUPPORTED_ACTION.search(text)):
             pause_ai_for_turn()
+            logger.warning('Grounded conversation rejected (unsupported_claim)')
             return None
         navigation = payload.get('navigation', [])
         approved = {row['id']: row for row in destinations}
@@ -540,5 +557,11 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         # Missing credit, provider quota and invalid responses all use saved knowledge.
         # Stop additional planning/rewriting attempts for this same request.
         pause_ai_for_turn()
-        logger.warning("Grounded conversation unavailable (%s)", type(exc).__name__)
+        safe_reasons = {'incorrect_agent_selection', 'invalid_agent_offerings', 'invalid_agent_requirements',
+            'invalid_agent_selection', 'invalid_agent_state', 'invalid_agent_step', 'invalid_requirements_update',
+            'invalid_selection_clear', 'invalid_selection_update', 'missing_agent_destination',
+            'unconfirmed_agent_selection', 'unconfirmed_customer_requirement', 'unconfirmed_requirements_update',
+            'unconfirmed_selection_update'}
+        reason = str(exc) if isinstance(exc, ValueError) and str(exc) in safe_reasons else type(exc).__name__
+        logger.warning("Grounded conversation unavailable (%s)", reason)
         return None
