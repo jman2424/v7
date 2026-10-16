@@ -40,9 +40,32 @@ can still be found. Old assistant replies do not dominate a new policy lookup.
 
 Explicitly abandoning an option clears the selection. A separate three-item
 shortlist survives support interruptions for later numbered references, without
-showing sales suggestions during support. Corrected requirements use exact
+showing sales suggestions during support. Price and checkout follow-ups preserve
+that numbering when discussing just one remembered option; a new recommendation
+or comparison establishes a new shortlist. Corrected requirements use exact
 current customer excerpts and retire superseded constraints in bounded session
 memory. Empty optional updates do not erase verified customer needs.
+
+Saved-knowledge and provider-fallback replies preserve the same verified task
+memory. Explicitly abandoning a known option also clears it during fallback;
+support cancellation and declining qualification do not discard a shopping
+choice. A positive compound choice such as "I'll take the second option; where
+can I buy it?" follows the remembered shortlist. Questions about an option and
+quantities such as "I'll take two bottles" do not establish an option choice.
+
+Fallback qualification records bounded customer evidence for each configured
+question. Unknown answers pause the interview; declined answers stop it without
+marking qualification complete. Concrete later answers can resume a paused
+interview. Superseded requirements also retire matching qualification evidence,
+so an old budget cannot return through a previously completed question. This
+remains session memory with the existing lifetime, not durable cross-device
+customer identity.
+
+Grounded catalogue facts include bounded public tags, name/value options and
+valid stock quantities. Unknown availability is represented explicitly; zero
+quantity overrides an old in-stock flag. Product-level quantities and listed
+options do not prove that a particular size or variant is available. Arbitrary
+nested metadata and private/inactive options are excluded.
 
 The provider returns a strict JSON schema with known source/destination IDs and
 nullable optional updates; the server still checks facts and customer choices.
@@ -79,6 +102,10 @@ links, source/tenant isolation, unsupported completed-action claims and the
 single-request usage charge. These mocked tests verify routing and validation;
 they do not guarantee that every model response will be correct. Small live
 scenario checks remain useful when changing business knowledge or model settings.
+The optional grounded-answer diagnostics distinguish provider completion from
+validation acceptance using safe reason codes, timing and validated source IDs;
+they contain no customer messages or generated prose. See the bounded synthetic
+[agent benchmark](AGENT_EVALUATION.md) for offline replay and explicit live checks.
 
 Run:
 

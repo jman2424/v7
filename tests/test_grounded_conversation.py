@@ -6,7 +6,10 @@ import pytest
 
 from service import api_usage, grounded_conversation, usage_wallet
 from service.plan_usage import AllowancePaused
-from tests.test_api_usage import completion, fake_exchange, ledger
+from tests import test_api_usage
+from tests.test_api_usage import completion, fake_exchange
+
+ledger = test_api_usage.ledger
 
 
 KNOWLEDGE = {'product:basic': {'name': 'Basic', 'price': 99, 'currency': 'GBP'},

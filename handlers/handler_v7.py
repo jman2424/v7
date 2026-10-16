@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import math
 import re
 import time
 import uuid
@@ -15,6 +16,49 @@ from service.tenant_sales_context import build_tenant_sales_context, discovery_q
 from service.validators import normalize_phone
 
 logger = logging.getLogger("handler_v7")
+
+
+def _public_product_facts(item: Dict[str, Any], currency: str) -> Dict[str, Any]:
+    """Project bounded customer facts without exposing arbitrary nested metadata."""
+    fields = ('sku', 'name', 'description', 'price', 'unit', 'stock', 'url')
+    facts: Dict[str, Any] = {
+        key: value[:1500] if isinstance(value, str) else value
+        for key in fields if isinstance((value := item.get(key)), (str, int, float, bool))
+        and (type(value) is not float or math.isfinite(value))
+    }
+    facts['currency'] = currency
+
+    # A missing flag is unknown. A known zero quantity cannot be advertised as
+    # in stock, even if an older boolean flag still says otherwise.
+    in_stock = item.get('in_stock')
+    facts['in_stock'] = in_stock if type(in_stock) is bool else None
+    quantity = item.get('stock_quantity')
+    if type(quantity) in (int, float) and 0 <= quantity <= 1_000_000_000 and math.isfinite(quantity):
+        facts['stock_quantity'] = quantity
+        if quantity == 0:
+            facts['in_stock'] = False
+
+    def text(value: Any, maximum: int) -> str:
+        return ' '.join(value.split())[:maximum] if isinstance(value, str) else ''
+
+    tags = item.get('tags')
+    if isinstance(tags, list):
+        facts['tags'] = list(dict.fromkeys(tag for value in tags[:40]
+                                          if (tag := text(value, 80))))[:20]
+    options = item.get('options')
+    if isinstance(options, list):
+        public_options = []
+        for option in options[:40]:
+            if (not isinstance(option, dict) or option.get('public') is False
+                    or option.get('active') is False):
+                continue
+            name, value = text(option.get('name'), 80), text(option.get('value'), 160)
+            if name and value:
+                public_options.append({'name': name, 'value': value})
+            if len(public_options) == 20:
+                break
+        facts['options'] = public_options
+    return facts
 
 
 class MessageHandlerV7:
@@ -451,7 +495,7 @@ class MessageHandlerV7:
 
             selected_product = self._selected_product_from_session(user_text, sess)
             price_product = selected_product or self._price_product_in_text(user_text)
-            if price_product and price_product.get("in_stock", True):
+            if price_product and price_product.get("in_stock") is not False:
                 sku = str(price_product.get("sku") or "").strip()
                 plan = self._simple_plan("price_check", "PRICE_CHECK", session_snapshot)
                 plan["sku"] = sku
@@ -461,7 +505,7 @@ class MessageHandlerV7:
                         "name": str(price_product.get("name") or "").strip(),
                         "price": price_product.get("price"),
                         "unit": str(price_product.get("unit") or "").strip(),
-                        "in_stock": True,
+                        "in_stock": price_product.get("in_stock"),
                     },
                     "currency": self._catalog_currency(),
                 }
@@ -478,7 +522,7 @@ class MessageHandlerV7:
                 )
 
             unavailable_product = (
-                price_product if price_product and not price_product.get("in_stock", True)
+                price_product if price_product and price_product.get("in_stock") is False
                 else self._unavailable_product_in_text(user_text)
             )
             if unavailable_product:
@@ -800,7 +844,8 @@ class MessageHandlerV7:
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
-        previous_ids = previous.get('offering_ids') or previous.get('last_offering_ids', [])
+        previous_ids = (previous['last_offering_ids'] if 'last_offering_ids' in previous
+                        else previous.get('offering_ids', []))
         previous_ids = previous_ids[:3] if isinstance(previous_ids,list) else []
         selected_id = previous.get('selected_offering_id')
         remembered = ([selected_id] if isinstance(selected_id,str) else []) + previous_ids
@@ -845,15 +890,12 @@ class MessageHandlerV7:
                 item = self.catalog.get_item_by_sku(sku)
                 if item:
                     items.append(item)
-            fields = ('sku', 'name', 'description', 'price', 'unit', 'currency', 'in_stock', 'stock', 'url')
             for item in items:
                 if not isinstance(item, dict) or item.get('active') is False or item.get('public') is False:
                     continue
                 sku = str(item.get('sku') or '')[:120]
                 if sku:
-                    knowledge['product:' + sku] = {key: value[:1500] if isinstance(value, str) else value
-                        for key in fields if isinstance((value := item.get(key)), (str, int, float, bool))}
-                    knowledge['product:' + sku]['currency'] = self.catalog.currency()
+                    knowledge['product:' + sku] = _public_product_facts(item, self.catalog.currency())
         if self.faq:
             for index, row in enumerate(self.faq.all()[:40]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
@@ -1466,7 +1508,7 @@ class MessageHandlerV7:
 
     def _unavailable_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
         item = self._exact_catalog_item_in_text(user_text)
-        return item if item and not item.get("in_stock", True) else None
+        return item if item and item.get("in_stock") is False else None
 
     def _in_stock_alternatives(self, unavailable_item: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
         """Return related, tenant-catalog alternatives only when they are in stock."""
@@ -1495,7 +1537,7 @@ class MessageHandlerV7:
         for item in candidates:
             if not isinstance(item, dict):
                 continue
-            if str(item.get("sku") or "").strip() == unavailable_sku or not item.get("in_stock", True):
+            if str(item.get("sku") or "").strip() == unavailable_sku or item.get("in_stock") is not True:
                 continue
 
             item_category = str(item.get("_category_id") or "").strip()

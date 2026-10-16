@@ -2,8 +2,10 @@
 import time
 
 from service import subscriptions
-from tests.test_subscriptions import stripe
-from tests.test_postgres_plan_runtime import stripe_plan_provider
+from tests import test_postgres_plan_runtime, test_subscriptions
+
+stripe = test_subscriptions.stripe
+stripe_plan_provider = test_postgres_plan_runtime.stripe_plan_provider
 
 
 def test_restarting_canceled_subscription_reserves_plan_before_provider_work(client, stripe, monkeypatch):

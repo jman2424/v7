@@ -5,7 +5,10 @@ import pytest
 
 from service import subscriptions
 from service.plan_catalog import get_plan
-from tests.test_subscriptions import identity, stripe
+from tests import test_subscriptions
+from tests.test_subscriptions import identity
+
+stripe = test_subscriptions.stripe
 
 
 @pytest.mark.parametrize('plan_id', ['starter','business','scale'])

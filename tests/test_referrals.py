@@ -9,7 +9,10 @@ import pytest
 
 from service import referrals, subscriptions
 from service.plan_catalog import get_plan
-from tests.test_subscriptions import identity, stripe, signature
+from tests import test_subscriptions
+from tests.test_subscriptions import identity, signature
+
+stripe = test_subscriptions.stripe
 
 
 def welcome(monkeypatch):

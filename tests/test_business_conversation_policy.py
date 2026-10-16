@@ -61,7 +61,8 @@ def test_declining_qualification_stops_repeated_questions():
                    qualification_questions=["When do you need the work?"])
     first = agent.guide(offering_reply(), user_text="I need that service", session={})
     declined = agent.guide(offering_reply(), user_text="No thanks", session={"sales_agent": first["agent"]})
-    assert declined["agent"]["qualification_complete"] is True
+    assert declined["agent"]["qualification_complete"] is False
+    assert declined["agent"]["qualification_declined"] is True
     assert declined["agent"]["next_question"] == ""
     later = agent.guide(offering_reply(), user_text="More information", session={"sales_agent": declined["agent"]})
     assert "When do you need the work?" not in later["reply"]

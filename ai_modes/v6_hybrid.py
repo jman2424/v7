@@ -140,7 +140,9 @@ class AIV6Hybrid(ModeStrategy):
         if facts.get("price"):
             p = facts["price"]
             if p.get("price") is not None:
-                stock = "in stock" if p.get("in_stock") else "out of stock"
+                status = p.get("in_stock")
+                stock = ("in stock" if status is True else "out of stock" if status is False
+                         else "availability needs confirmation from the team")
                 return f"{p['sku']} is £{p['price']:.2f} and {stock}."
 
         # 5) FAQ direct answer

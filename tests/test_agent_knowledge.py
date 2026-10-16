@@ -85,5 +85,7 @@ def test_policy_interruption_can_recover_a_shortlist_outside_catalogue_preview(m
     seen = []
     monkeypatch.setattr(grounded_conversation, 'answer', lambda *args, **kwargs: seen.append(args[3]))
     handler._grounded_answer('The second one', {'sales_agent': {
-        'offering_ids': [], 'last_offering_ids': ['product:pack-73', 'product:pack-74']}})
+        'offering_ids': ['product:pack-74'],
+        'last_offering_ids': ['product:pack-73', 'product:pack-74']}})
+    assert seen[0]['product:pack-73']['price'] == 74
     assert seen[0]['product:pack-74']['price'] == 75

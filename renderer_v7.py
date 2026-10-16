@@ -364,7 +364,7 @@ class RendererV7:
                 continue
             name = str(item.get("name") or item.get("_norm_name") or "").strip()
             price = item.get("price")
-            stock = self._availability_label(bool(item.get("in_stock", True)))
+            stock = self._availability_label(item.get("in_stock"))
             if not name or not isinstance(price, (int, float)):
                 continue
             lines.append(f"{name}: {self._format_money(float(price), currency)}, {stock}.")
@@ -373,7 +373,9 @@ class RendererV7:
             return f"I found the {self.offering_plural}, but I could not confirm both prices."
         return " ".join(lines)
 
-    def _availability_label(self, is_available: bool) -> str:
+    def _availability_label(self, is_available: Optional[bool]) -> str:
+        if type(is_available) is not bool:
+            return "availability needs confirmation from the team"
         if self.offering_singular == "product":
             return "in stock" if is_available else "out of stock"
         return "available" if is_available else "unavailable"

@@ -446,7 +446,11 @@ class MessageHandler:
                     "qualification_index": agent.get("qualification_index"),
                     "qualification_pending": bool(agent.get("qualification_pending")),
                     "qualification_complete": bool(agent.get("qualification_complete")),
-                    **{key:agent[key] for key in ('intent','offering_ids','last_offering_ids','selected_offering_id','requirements','retired_requirements','navigation_ids') if key in agent},
+                    **{key:agent[key] for key in (
+                        'intent', 'offering_ids', 'last_offering_ids', 'selected_offering_id',
+                        'requirements', 'retired_requirements', 'navigation_ids',
+                        'qualification_answers', 'qualification_declined', 'qualification_paused',
+                    ) if key in agent},
                 },
                 ttl,
             )

@@ -10,7 +10,10 @@ import pytest
 from service import account_email, account_mfa, registration_mail, session_store, tenant_access
 from service.account_service import AccountService
 from service.security import generate_totp_token, hash_password, verify_password
-from tests.test_account_passwords import account, OLD, EMAIL, login  # noqa: F401
+from tests import test_account_passwords
+from tests.test_account_passwords import OLD, EMAIL, login
+
+account = test_account_passwords.account
 
 NEW_EMAIL = 'changed@example.test'
 

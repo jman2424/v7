@@ -192,7 +192,11 @@ class CatalogStore:
 
                 price = _parse_price_str(item.get("price_str") or "")
                 stock_str = str(item.get("stock") or "").strip().lower()
-                in_stock = not any(x in stock_str for x in ("out", "sold", "no"))
+                in_stock = None
+                if re.search(r'\b(?:out of stock|sold out|unavailable|no stock|not available)\b', stock_str) or stock_str == 'no':
+                    in_stock = False
+                elif stock_str in {'in stock', 'available', 'yes'}:
+                    in_stock = True
 
                 base = f"{cat_id}_{_slug_id(raw_name)}"
                 sku = base
@@ -343,7 +347,8 @@ class CatalogStore:
         item = self.get_item_by_sku(sku)
         if not item:
             return None
-        return bool(item.get("in_stock", True))
+        status = item.get("in_stock")
+        return status if type(status) is bool else None
 
     # --------------- SEARCH -----------------
 

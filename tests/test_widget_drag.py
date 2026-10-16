@@ -21,6 +21,9 @@ class Element {
   constructor(){this.style={};this.listeners={};this.children=[];this.attrs={};this.capture=null;}
   appendChild(el){this.children.push(el);}
   setAttribute(k,v){this.attrs[k]=v;}
+  hasAttribute(k){return Object.hasOwn(this.attrs,k);}
+  set src(value){this.attrs.src=value;}
+  get src(){return this.attrs.src;}
   addEventListener(k,fn){(this.listeners[k] ||= []).push(fn);}
   fire(k,e={}){for(const fn of this.listeners[k] || []) fn(e);}
   setPointerCapture(id){this.capture=id;}

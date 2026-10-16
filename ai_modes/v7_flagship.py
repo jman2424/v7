@@ -207,7 +207,8 @@ class AIV7Flagship(ModeStrategy):
         if price is None:
             return self._cta(f"I couldn’t find a price for {sku}.")
 
-        stock_text = "in stock" if stock else "out of stock"
+        stock_text = ("in stock" if stock is True else "out of stock" if stock is False
+                      else "availability needs confirmation from the team")
         return self._cta(f"{sku} is £{price:.2f} and {stock_text}.")
 
     # ------------------------------------------------------------------

@@ -20,6 +20,11 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         'add': strings(6), 'remove': strings(6), 'clear': {'type': 'boolean'},
         'evidence': {'type': 'string', 'minLength': 1, 'maxLength': 180},
     })
+    update['properties']['add']['description'] = (
+        'Exact contiguous excerpts from the current customer question, including connecting words. '
+        'Never shorten, paraphrase or infer a requirement.')
+    update['properties']['remove']['description'] = (
+        'Copy exact strings from previous_agent.requirements that the current customer replaces or withdraws.')
     state = object_({
         'intent': {'type': 'string', 'enum': sorted(intents)},
         'stage': {'type': 'string', 'enum': sorted(stages)},
@@ -33,6 +38,13 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         'requirements_update': {'anyOf': [update, {'type': 'null'}],
                                 'description': 'Null unless adding, replacing or clearing a stated requirement.'},
     })
+    for field, description in {
+        'intent': 'Classify the current request. Returns/policies use policy; a callback uses handoff even after a booking question.',
+        'offering_ids': 'Only offerings discussed and cited in this answer. The previous shortlist is already in agent_context; do not repeat uncited old IDs.',
+        'selected_offering_id': 'Only an explicit positive customer choice or a previous verified choice. A recommendation or stated need is not a choice.',
+        'requirements': 'Copy exact contiguous customer excerpts or exact previous requirements, including connecting words. Never paraphrase; an empty array is valid.',
+    }.items():
+        state['properties'][field]['description'] = description
     sources = strings(12, choices=list(knowledge))
     sources.update(minItems=1, description='Cite business facts used in the answer, including form/capability facts. '
                    'For a greeting, cite the available business identity as context.')
@@ -41,7 +53,8 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         'kind': {'type': 'string', 'enum': ['answer', 'greeting', 'clarification', 'refusal']},
         'sources': sources,
         'navigation': strings(3, choices=[row['id'] for row in destinations]),
-        'requested_action': {'type': ['string', 'null'], 'enum': [None, *allowed_actions]},
+        'requested_action': {'type': ['string', 'null'], 'enum': [None, *allowed_actions],
+                             'description': 'Null for informational pricing/process questions. Select an enabled form when the customer asks for it; callback requires agent.intent handoff.'},
         'agent': state,
     })
     return {'type': 'json_schema', 'json_schema': {

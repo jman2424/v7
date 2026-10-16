@@ -43,6 +43,8 @@ _CUSTOMER_BUDGET = tuple(re.compile(pattern + rf'\s*[:=]?\s*(?P<money>{_BUDGET_M
         r'(?:ميزانيتي(?:\s+(?:هي|تبلغ|بحدود))?|أقل من|حتى|حد أقصى)',
     )) + (re.compile(rf'(?P<money>{_BUDGET_MONEY})\s+(?:budget|maximum|limit)\b', re.I),)
 _ANSWER_BUDGET = tuple(re.compile(pattern, re.I) for pattern in (
+    rf'\b(?:with|given)\s+(?:a|the|your)\s+(?:(?:new|current|updated|revised|stated)\s+)?'
+    rf'budget(?:\s+of)?\s*:?\s*(?P<money>{_BUDGET_MONEY})',
     rf'\byour\s+(?P<money>{_BUDGET_MONEY})\s+budget\b',
     (rf'\byour\s+(?:(?:new|current|updated|revised|stated)\s+)?budget'
      rf'(?:\s+(?:of|is|was|at))?(?:\s+now)?'
@@ -215,6 +217,13 @@ def _without_customer_budgets(text: str, customer_text: object) -> str | None:
         for match in pattern.finditer(text):
             amounts = _budget_amounts(match['money'])
             before, after = text[:match.start()], text[match.end():]
+            # "Within your budget at £20" quotes an offering price, not a
+            # different customer budget. Leave it visible for the normal cited
+            # price check instead of masking it as customer-supplied money.
+            if (re.search(r'\b(?:within|under|below|fits?|meets?)\s*$', before, re.I)
+                    and re.match(r'(?i)your\s+(?:(?:new|current|updated|revised|stated)\s+)?'
+                                 r'budget\s+at\s+', match.group())):
+                continue
             if (not amounts or not amounts.issubset(allowed)
                     or re.search(r'\b(?:costs?|charges?|priced at|price of|pay)\s*$', before, re.I)
                     or re.match(r'\s+(?:is|will be)\s+(?:our |the )?(?:price|cost|charge)\b', after, re.I)):

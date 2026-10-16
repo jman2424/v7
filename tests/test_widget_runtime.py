@@ -306,6 +306,9 @@ class Element {
     }};
   }
   setAttribute(name,value){this.attributes[name]=value;}
+  hasAttribute(name){return Object.hasOwn(this.attributes,name);}
+  set src(value){this.attributes.src=value;}
+  get src(){return this.attributes.src;}
   appendChild(child){this.children.push(child);}
   addEventListener(name,callback){this.listeners[name]=callback;}
   focus(){}
