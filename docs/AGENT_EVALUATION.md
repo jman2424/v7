@@ -121,6 +121,9 @@ Retain failures as new fixture cases after removing private data.
 The deterministic checks cover supplied facts, state, selection, approved
 navigation and form intent. They do not establish full factual entailment of
 every sentence, fluency, helpfulness, customer satisfaction or sales conversion.
+Known workflow inventions found in manual review have explicit exclusion checks,
+including invented return-window start events and stock-confirmation timing.
+These are narrow regression checks, not a general entailment validator.
 Review the synthetic live answers against those qualities, then expand with
 owner-approved cases and human labels. This six-case benchmark is an initial
 regression gate, not a statistically representative evaluation or production SLA.

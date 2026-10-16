@@ -68,6 +68,26 @@ def test_unsupported_model_claim_is_failure_even_when_provider_completed(monkeyp
     assert report['usage']['known_cost_usd'] > 0  # Rejected output still incurs usage.
 
 
+@pytest.mark.parametrize('scenario_id,turn_index,extra', [
+    ('retail_budget_correction', 2, 'The team confirms stock after you place your order.'),
+    ('retail_support_interruption', 1, 'This means 30 days of purchase.'),
+    ('retail_support_interruption', 2, 'The team confirms stock after your order is placed.'),
+    ('services_quote_only', 1, 'Completing the form does not submit a request until review.'),
+    ('services_booking_and_callback', 0, 'The team will confirm payment status.'),
+])
+def test_manual_review_workflow_findings_cannot_count_as_benchmark_passes(
+        monkeypatch, scenario_id, turn_index, extra):
+    scenarios = copy.deepcopy(agent_eval.SCENARIOS)
+    scenario = next(row for row in scenarios if row['id'] == scenario_id)
+    scenario['turns'][turn_index]['reference']['answer'] += ' ' + extra
+    monkeypatch.setattr(agent_eval, 'SCENARIOS', scenarios)
+    report = run_suite(Settings(scenario_ids=(scenario_id,)))
+    assert report['status'] == 'failed'
+    result = report['results'][turn_index]
+    assert result['validation']['accepted'] is True
+    assert result['checks']['answer_excludes'] is False
+
+
 def test_sandbox_restores_environment_and_cannot_use_production_stores(monkeypatch, tmp_path):
     import os
 

@@ -193,7 +193,7 @@ def make_client(settings):
 
 
 def check_turn(answer, state, links, expected, business):
-    """Deterministic semantic/state checks; no wording match or LLM judge call."""
+    """Check selected facts, state and known wording regressions without a judge call."""
     checks = {'validator_accepted': bool(answer) and state.get('_validated_grounded') is True}
     text = (answer or '').casefold()
     needs = '\n'.join(state.get('requirements', [])).casefold()
