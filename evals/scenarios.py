@@ -11,7 +11,7 @@ def agent(intent='answer', stage='assist', action='await_customer_question', *,
 
 def reply(answer, sources, *, state=None, navigation=None, requested_action=None, kind='answer'):
     return {'answer': answer, 'sources': sources, 'kind': kind, 'agent': state or agent(),
-            'navigation': navigation or [], 'requested_action': requested_action}
+            'navigation': navigation or [], 'requested_action': requested_action, 'statement_ids': []}
 
 
 BUSINESSES = {
@@ -148,7 +148,7 @@ SCENARIOS = [
             {'user': 'Yes, open the quote request form for my bespoke website.',
              'expect': {'intent_in': ['quote'], 'next_action': 'open_request_form', 'requested_action': 'quote',
                         'answer_contains_any': ['form', 'review'],
-                        'answer_excludes': ['completing the form does not submit', 'does not submit a request']},
+                        'answer_excludes': ['completing the form does not submit', 'does not submit a request until']},
              'reference': reply('Complete the quote request form with your project scope. The team will review it and confirm a quote.',
                                 ['offering:design', 'policy:quotes', 'capability:requests'], requested_action='quote',
                                 state=agent('quote', 'convert', 'open_request_form', offerings=['offering:design']))},

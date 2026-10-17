@@ -101,8 +101,9 @@ missing grounded answer fails that turn and ends its conversation.
 
 For a failed turn, the report also retains a bounded `candidate` from the model's
 final JSON answer: at most 4000 answer characters, approved fixture source and
-navigation IDs, and allowlisted agent-state fields. This helps distinguish a bad
-answer from overly strict validation. It captures no reasoning, response headers,
+navigation and statement IDs, and allowlisted agent-state fields. This helps
+distinguish unsupported answers and unsafe selections from overly strict
+validation. Only known statement IDs are retained. It captures no reasoning, response headers,
 provider error body or arbitrary extra fields; key-shaped text is redacted. These
 synthetic benchmark candidates remain separate from the runtime's text-free
 diagnostics. Passing turns do not duplicate their answer in a candidate field.
@@ -124,6 +125,15 @@ every sentence, fluency, helpfulness, customer satisfaction or sales conversion.
 Known workflow inventions found in manual review have explicit exclusion checks,
 including invented return-window start events and stock-confirmation timing.
 These are narrow regression checks, not a general entailment validator.
+The runtime additionally renders protected policy/process replies from complete
+request-local source units. Regressions inject the old unsupported workflow
+phrases and assert that the final displayed answer contains the complete valid
+policy instead. A repaired displayed answer may pass even when the discarded
+model prose was incorrect. Safe diagnostics identify `mode=source_statements`;
+the benchmark evaluates the final answer, preserving its existing criteria.
+The form exclusion distinguishes a false claim about completing a form from
+the true statement that merely opening it submits nothing. Enabled capability
+facts are derived from the same channel action allowlist as production.
 Review the synthetic live answers against those qualities, then expand with
 owner-approved cases and human labels. This six-case benchmark is an initial
 regression gate, not a statistically representative evaluation or production SLA.

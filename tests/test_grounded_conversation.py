@@ -32,7 +32,8 @@ def ask(client, tenant='EXAMPLE', question='How much?', history=None):
 def test_funded_answer_uses_accounted_provider_and_only_its_tenant(ledger):
     other = usage_wallet.report('BETA')['balance_pence']
     client = client_for('Basic is £99. Cancellation is managed in settings.', ['product:basic', 'faq:cancel'])
-    assert ask(client).startswith('Basic is £99.')
+    reply = ask(client)
+    assert reply.startswith('Basic: £99.00.')
     assert api_usage.summary('EXAMPLE', 30)['totals']['total_tokens'] == 2500
     assert api_usage.summary('BETA', 30)['totals']['calls'] == 0
     assert usage_wallet.report('BETA')['balance_pence'] == other
@@ -153,7 +154,13 @@ def test_reusable_agent_understands_different_business_tasks(monkeypatch, busine
                'agent': _state(intent, stage=stage, offerings=offerings, requirements=requirements)}
     reply, state, _, calls = _structured_answer(monkeypatch, payload, question=question, knowledge=knowledge,
         context={'playbook': {'business_model': business, 'response_guidance': 'Be concise.'}})
-    assert reply == text
+    if business in {'appointments', 'professional_services'}:
+        # An about field is not an authoritative appointment/quote policy.
+        assert 'not established' in reply
+    elif business == 'hospitality':
+        assert reply == knowledge['faq:cancel']['answer']
+    else:
+        assert reply == text
     assert state['intent'] == intent and state['stage'] == stage
     assert state['requirements'] == requirements
     assert len(calls) == 1

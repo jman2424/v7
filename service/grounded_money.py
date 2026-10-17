@@ -204,6 +204,37 @@ def _budget_amounts(text: str) -> set[Money] | None:
     return extract_money_claims(text)
 
 
+def unqualified_customer_budget(requirements: object) -> Money | None:
+    """Use only one whole, current budget requirement for listed-price labels.
+
+    These server-verified requirements describe the active customer request.
+    Amount validation alone cannot establish quantity, recurring or other scope.
+    Be conservative when a requirement contains any such qualification.
+    """
+    if not isinstance(requirements, list):
+        return None
+    budgets: set[Money] = set()
+    for quote in requirements:
+        if not isinstance(quote, str):
+            return None
+        text = quote.strip().rstrip('.!?').strip()
+        match = next((match for pattern in _CUSTOMER_BUDGET
+                      if (match := pattern.fullmatch(text))), None)
+        if match:
+            if (re.search(r'\bwas\b', text, re.I)
+                    or re.match(r'(?:under|below|less than|menos de|moins de|أقل من)\b', text, re.I)):
+                return None
+            amounts = _budget_amounts(match['money'])
+            if not amounts or len(amounts) != 1:
+                return None
+            budgets.update(amounts)
+        elif re.search(r'\d|\b(?:budget|limit|presupuesto|ميزاني|one|two|three|four|five|six|seven|'
+                       r'eight|nine|ten|dozen|pair|pairs|couple|multiple|several|each|per|monthly|weekly|daily|yearly|annually)\b',
+                       text, re.I):
+            return None
+    return next(iter(budgets)) if len(budgets) == 1 else None
+
+
 def _without_customer_budgets(text: str, customer_text: object) -> str | None:
     allowed: set[Money] = set()
     if isinstance(customer_text, (list, tuple)):
@@ -217,10 +248,10 @@ def _without_customer_budgets(text: str, customer_text: object) -> str | None:
         for match in pattern.finditer(text):
             amounts = _budget_amounts(match['money'])
             before, after = text[:match.start()], text[match.end():]
-            # "Within your budget at £20" quotes an offering price, not a
-            # different customer budget. Leave it visible for the normal cited
-            # price check instead of masking it as customer-supplied money.
-            if (re.search(r'\b(?:within|under|below|fits?|meets?)\s*$', before, re.I)
+            # "Within/above your budget at £20" quotes an offering price,
+            # not a different customer budget. Leave it visible for the normal
+            # cited price check instead of masking it as customer-supplied money.
+            if (re.search(r'\b(?:within|under|below|fits?|meets?|above|over|outside|exceeds?)\s*$', before, re.I)
                     and re.match(r'(?i)your\s+(?:(?:new|current|updated|revised|stated)\s+)?'
                                  r'budget\s+at\s+', match.group())):
                 continue

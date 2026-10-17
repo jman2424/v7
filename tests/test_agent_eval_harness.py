@@ -75,17 +75,19 @@ def test_unsupported_model_claim_is_failure_even_when_provider_completed(monkeyp
     ('services_quote_only', 1, 'Completing the form does not submit a request until review.'),
     ('services_booking_and_callback', 0, 'The team will confirm payment status.'),
 ])
-def test_manual_review_workflow_findings_cannot_count_as_benchmark_passes(
+def test_manual_review_workflow_findings_are_repaired_before_benchmark_checks(
         monkeypatch, scenario_id, turn_index, extra):
     scenarios = copy.deepcopy(agent_eval.SCENARIOS)
     scenario = next(row for row in scenarios if row['id'] == scenario_id)
     scenario['turns'][turn_index]['reference']['answer'] += ' ' + extra
     monkeypatch.setattr(agent_eval, 'SCENARIOS', scenarios)
     report = run_suite(Settings(scenario_ids=(scenario_id,)))
-    assert report['status'] == 'failed'
+    assert report['status'] == 'passed'
     result = report['results'][turn_index]
     assert result['validation']['accepted'] is True
-    assert result['checks']['answer_excludes'] is False
+    assert result['checks']['answer_excludes'] is True
+    assert extra not in result['answer']
+    assert result['validation']['mode'] == 'source_statements'
 
 
 def test_sandbox_restores_environment_and_cannot_use_production_stores(monkeypatch, tmp_path):

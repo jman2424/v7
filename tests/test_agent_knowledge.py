@@ -24,7 +24,8 @@ def test_new_product_and_policy_facts_survive_large_website_context(monkeypatch)
     monkeypatch.setattr(grounded_conversation, 'tracked_completion', complete)
     result = grounded_conversation.answer(Mock(), 'test-model',
         'What does the quiet office fan cost, and how do returns work?', knowledge, [], 'professional')
-    assert result == 'The Quiet office fan is £59. Return within 14 days.'
+    assert 'Quiet office fan: £59.00.' in result
+    assert result.endswith('Return within 14 days.')
     assert 'product:quiet' in seen[0]['knowledge'] and 'faq:returns' in seen[0]['knowledge']
     assert len(json.dumps(seen[0]['knowledge'], ensure_ascii=False)) <= 32000
 

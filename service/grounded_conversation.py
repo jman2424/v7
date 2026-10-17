@@ -139,6 +139,11 @@ intent: consultation uses book, quote uses quote, and callback uses handoff.
 The latest request determines that intent: a callback after a booking question
 uses handoff, not book. Always keep requested_action, intent and next_action
 consistent with one another.
+The supplied approved_statements contain complete public policy/process units.
+Select relevant statement_ids and cite their source_ids. The server renders
+those complete statements for protected requests; answer prose cannot add or
+override their timing, exceptions or team capabilities. Do not select a statement
+that does not apply. Use an empty list when the policy detail is not established.
 Do not request a sales form for a policy, cancellation or complaint answer.
 Do not claim submission or confirmation. These actions do not
 authorize any payment, account change or other transaction.
@@ -554,10 +559,54 @@ def bounded_knowledge(knowledge):
     return result
 
 
+def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_urls=None):
+    from service.grounded_money import monetary_claims_supported
+
+    evidence = json.dumps([knowledge[key] for key in sources], ensure_ascii=False)
+
+    def percentages(value):
+        return {float(number.replace(',', '.')) for number in re.findall(r'(\d+(?:[.,]\d+)?)\s*%', value)}
+
+    permitted_percentages = percentages(evidence)
+
+    def collect_percentages(row):
+        if isinstance(row, dict):
+            for key, value in row.items():
+                if (isinstance(key, str) and (key == 'percent' or key.endswith(('_percent', '_percentage')))
+                        and type(value) in (int, float)):
+                    permitted_percentages.add(float(value))
+                collect_percentages(value)
+        elif isinstance(row, list):
+            for value in row:
+                collect_percentages(value)
+
+    for key in sources:
+        collect_percentages(knowledge[key])
+    urls = re.findall(r'https?://[^\s<>]+', text)
+    if (not monetary_claims_supported(text, [knowledge[key] for key in sources], customer_text=customer_quotes)
+            or not percentages(text).issubset(permitted_percentages)
+            or any(url not in evidence for url in urls) or _UNSUPPORTED_ACTION.search(text)):
+        return False
+    if approved_urls is not None:
+        from service.website_destinations import validate
+        for url in urls:
+            if url not in approved_urls:
+                return False
+            try:
+                validate([{'id': 'statement', 'label': 'Business page', 'url': url}])
+            except ValueError:
+                return False
+        if re.search(r'\bsk-(?:proj-)?[\w-]{12,}|\bbearer\s+[A-Za-z0-9._-]{12,}', text, re.I):
+            return False
+    return True
+
+
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
            agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None):
     started = time.perf_counter()
     provider_completed = False
+    rendering_mode = 'generated'
+    rendered_statements = []
 
     def finish(reason=None, *, accepted=False, sources=()):
         # Record outcomes separately from provider completion. Never include customer
@@ -567,6 +616,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                    'knowledge_count': len(knowledge) if isinstance(knowledge, dict) else 0,
                    'latency_ms': round((time.perf_counter() - started) * 1000, 2),
                    'source_ids': list(dict.fromkeys(sources)) if accepted else []}
+        outcome.update(mode=rendering_mode, statement_ids=rendered_statements if accepted else [])
         if isinstance(diagnostics, dict):
             diagnostics.update(outcome)
         logger.info('Grounded conversation outcome accepted=%s reason=%s provider_completed=%s latency_ms=%s',
@@ -577,26 +627,33 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         return None
     # Keep authoritative current rules and this customer's selection even when
     # broad website/background context exceeds the provider-context budget.
+    from service.grounded_statements import request_facts, statement_catalog, render_response
+    allowed_actions = [kind for kind in ('consultation', 'quote', 'callback')
+                       if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
+    knowledge = {**knowledge, **request_facts(allowed_actions)}
     remembered = agent_context_rows(agent_context, knowledge)
     from service.agent_knowledge import prioritize_knowledge
     knowledge = prioritize_knowledge(knowledge, question, remembered)
+    # Advertised form capabilities must survive the same context cap as facts.
+    knowledge = {**request_facts(allowed_actions), **knowledge}
+    statements = statement_catalog(knowledge)
     knowledge = bounded_knowledge(knowledge)
+    statements = {key: row for key, row in statements.items() if row['source_id'] in knowledge}
     destinations = destinations or []
-    allowed_actions = [kind for kind in ('consultation', 'quote', 'callback')
-                       if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
     context = agent_context_rows(agent_context, knowledge)
     from service.agent_response_schema import response_format
     try:
         result = tracked_completion(
             client, purpose="conversation_answer", model=model, temperature=0.2,
             timeout=30, response_format=response_format(knowledge, destinations, allowed_actions,
-                intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS),
+                intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS, statements=statements),
             messages=[{"role": "system", "content": INSTRUCTIONS},
                       {"role": "user", "content": json.dumps({
                           "question": question[:4000], "knowledge": knowledge,
                           "recent_conversation": history_rows(history), "tone": tone,
                           "approved_destinations": destinations,
                           "approved_request_actions": allowed_actions,
+                          "approved_statements": statements,
                           "agent_context": context,
                       }, ensure_ascii=False)}],
         )
@@ -612,30 +669,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             logger.warning('Grounded conversation rejected (output_contract)')
             finish('output_contract')
             return None
-        evidence = json.dumps([knowledge[key] for key in sources], ensure_ascii=False)
-        # New monetary amounts and URLs must never be supplied by the model.
-        from service.grounded_money import monetary_claims_supported
-        def percentages(value):
-            return {float(number.replace(',', '.')) for number in re.findall(r'(\d+(?:[.,]\d+)?)\s*%', value)}
-        permitted_percentages = percentages(evidence)
-        def collect_prices(row):
-            if isinstance(row, dict):
-                for key, value in row.items():
-                    if (isinstance(key, str) and (key == 'percent' or key.endswith(('_percent', '_percentage')))
-                            and type(value) in (int, float)):
-                        permitted_percentages.add(float(value))
-                    collect_prices(value)
-            elif isinstance(row, list):
-                for value in row:
-                    collect_prices(value)
-        for key in sources:
-            collect_prices(knowledge[key])
         customer_quotes = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
         customer_quotes += context.get('previous_agent', {}).get('requirements', [])
-        if (not monetary_claims_supported(text, [knowledge[key] for key in sources], customer_text=customer_quotes)
-                or not percentages(text).issubset(permitted_percentages)
-                or any(url not in evidence for url in re.findall(r'https?://[^\s<>]+', text))
-                or _UNSUPPORTED_ACTION.search(text)):
+        if not _claims_supported(text, sources, knowledge, customer_quotes):
             pause_ai_for_turn()
             logger.warning('Grounded conversation rejected (unsupported_claim)')
             finish('unsupported_claim')
@@ -672,6 +708,19 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         if requested_action:
             state['requested_action'] = requested_action
             state['next_action'] = 'open_request_form'
+        rendered = render_response(question, payload, state, knowledge, statements, navigation, requested_action)
+        if rendered is not None:
+            text, rendered_sources, rendered_statements = rendered
+            rendering_mode = 'source_statements'
+            sources = rendered_sources
+            if not sources and kind == 'refusal':
+                sources = [key for key in payload['sources'] if key in {'business', 'business:identity'}]
+            if not _claims_supported(text, sources, knowledge, customer_quotes,
+                                     approved_urls={row['url'] for row in destinations}):
+                pause_ai_for_turn()
+                finish('unsafe_statement')
+                return None
+            state['sources'] = sources
         if selected_links is not None:
             selected_links.extend({'type': 'navigate', 'label': approved[key]['label'],
                                    'url': approved[key]['url']} for key in dict.fromkeys(navigation))
@@ -687,7 +736,8 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             'invalid_agent_selection', 'invalid_agent_state', 'invalid_agent_step', 'invalid_requirements_update',
             'invalid_selection_clear', 'invalid_selection_update', 'missing_agent_destination',
             'unconfirmed_agent_selection', 'unconfirmed_customer_requirement', 'unconfirmed_requirements_update',
-            'unconfirmed_selection_update'}
+            'unconfirmed_selection_update', 'invalid_statement_selection', 'uncited_statement_selection',
+            'statement_response_too_long'}
         reason = str(exc) if isinstance(exc, ValueError) and str(exc) in safe_reasons else type(exc).__name__
         logger.warning("Grounded conversation unavailable (%s)", reason)
         diagnostic_reason = str(exc) if isinstance(exc, ValueError) and str(exc) in safe_reasons else (

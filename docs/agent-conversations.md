@@ -93,6 +93,7 @@ unavailable, the existing saved-knowledge fallback remains available; it does no
 attempt further chargeable planning for that turn.
 
 Relevant implementation: `service/grounded_conversation.py`,
+`service/grounded_statements.py`,
 `service/sales_agent.py`, `handlers/handler_v7.py` and
 `service/message_handler.py`.
 
@@ -106,6 +107,32 @@ The optional grounded-answer diagnostics distinguish provider completion from
 validation acceptance using safe reason codes, timing and validated source IDs;
 they contain no customer messages or generated prose. See the bounded synthetic
 [agent benchmark](AGENT_EVALUATION.md) for offline replay and explicit live checks.
+
+Protected policy/process replies now render complete curated source statements
+instead of the model's policy prose. The bounded `statement_ids` selection must
+belong to this request and cite its sources. Eligible units are complete public
+FAQ answers, native business rules, delivery statements and server-owned enabled
+form facts. Imported website windows and arbitrary about text cannot establish
+policy conditions. Oversized or already truncated FAQ answers are ineligible;
+exceptions are never removed to fit the output limit. Missing evidence produces
+an explicit unknown response and keeps approved navigation available.
+
+Mixed replies retain server-rendered product facts, units, exact prices, stock
+uncertainty and the previous numerical reference order. Opening a form does not
+submit it; subsequent confirmation follows the existing submission endpoint and
+any applicable published business policy. All rendered text still passes the
+money and completed-action checks, and raw links must be approved public HTTPS
+destinations. This uses the same single accounted model call.
+For a single current, unqualified customer budget, fixed listed prices receive
+within/above-budget labels. Qualified, historical, strict or ambiguous budgets,
+different currencies and recurring, per-unit, from or quote prices are excluded
+from this comparison; the label does not establish an order total.
+
+The protected route uses the customer request, consequential terms in proposed
+prose, task metadata and selected curated evidence. It is a conservative routing
+boundary, not a universal semantic classifier. Ordinary generated conversation
+can still require factual review. Published statements retain their original
+language; accurate, localized owner policies improve multilingual replies.
 
 Run:
 

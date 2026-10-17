@@ -1,7 +1,10 @@
 """Provider output contract; authorization remains in server-side validation."""
 
 
-def response_format(knowledge, destinations, allowed_actions, *, intents, stages, actions):
+def response_format(knowledge, destinations, allowed_actions, *, intents, stages, actions, statements=None):
+    if statements is None:
+        from service.grounded_statements import statement_catalog
+        statements = statement_catalog(knowledge)
     def object_(properties):
         return {'type': 'object', 'properties': properties,
                 'required': list(properties), 'additionalProperties': False}
@@ -52,11 +55,16 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         'answer': {'type': 'string', 'maxLength': 4000},
         'kind': {'type': 'string', 'enum': ['answer', 'greeting', 'clarification', 'refusal']},
         'sources': sources,
+        'statement_ids': strings(3, choices=list(statements)),
         'navigation': strings(3, choices=[row['id'] for row in destinations]),
         'requested_action': {'type': ['string', 'null'], 'enum': [None, *allowed_actions],
                              'description': 'Null for informational pricing/process questions. Select an enabled form when the customer asks for it; callback requires agent.intent handoff.'},
         'agent': state,
     })
+    schema['properties']['statement_ids']['description'] = (
+        'Select complete published policy/process statement IDs from approved_statements and cite '
+        'their source_ids. The server renders their full wording for protected requests. Never '
+        'invent timing, conditions or team capabilities. An empty array is valid when no statement applies.')
     return {'type': 'json_schema', 'json_schema': {
         'name': 'grounded_business_agent', 'strict': True, 'schema': schema,
     }}

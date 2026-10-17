@@ -117,7 +117,8 @@ def _working_tree_dirty():
 
 
 def _runtime_hashes():
-    paths = ('service/grounded_conversation.py', 'service/sales_agent.py', 'service/message_handler.py',
+    paths = ('service/grounded_conversation.py', 'service/grounded_statements.py',
+             'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/openai_completion.py', 'service/api_usage.py',
              'service/usage_pricing.py', 'evals/agent_eval.py', 'evals/scenarios.py')
@@ -200,8 +201,10 @@ def check_turn(answer, state, links, expected, business):
     approved_urls = {row['url'] for row in business['destinations']}
     checks['approved_navigation_only'] = all(row.get('url') in approved_urls for row in links)
     checks['approved_action_only'] = state.get('requested_action') in [None, *business['allowed_actions']]
+    from service.grounded_statements import request_facts
+    public_sources = {**business['knowledge'], **request_facts(business['allowed_actions'])}
     checks['approved_sources_only'] = bool(state.get('sources')) and all(
-        source in business['knowledge'] for source in state.get('sources', []))
+        source in public_sources for source in state.get('sources', []))
     for key, value in expected.items():
         if key == 'selected':
             checks[key] = state.get('selected_offering_id') == value
@@ -255,7 +258,8 @@ def candidate_output(response, business):
         return None
     if not isinstance(payload, dict) or not business:
         return None
-    known = business['knowledge']
+    from service.grounded_statements import request_facts, statement_catalog
+    known = {**business['knowledge'], **request_facts(business['allowed_actions'])}
     offerings = {key for key in known if key.startswith(('product:', 'offering:'))}
     destinations = {row['id'] for row in business['destinations']}
 
@@ -268,6 +272,7 @@ def candidate_output(response, business):
     result = {'answer': _candidate_text(payload.get('answer'), 4000),
               'kind': payload.get('kind') if payload.get('kind') in {'answer', 'greeting', 'clarification', 'refusal'} else None,
               'sources': ids(payload.get('sources'), known, 12),
+              'statement_ids': ids(payload.get('statement_ids'), statement_catalog(known), 3),
               'navigation': ids(payload.get('navigation'), destinations, 3),
               'requested_action': payload.get('requested_action') if payload.get('requested_action') in business['allowed_actions'] else None}
     raw = payload.get('agent')

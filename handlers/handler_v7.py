@@ -867,8 +867,11 @@ class MessageHandlerV7:
         if self.faq:
             for index, row in enumerate(self.faq.best_match(question, top_k=5)):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
+                    raw_answer = row.get('a')
                     knowledge[f'matched_faq:{index}'] = {'question': str(row.get('q') or '')[:500],
-                                                       'answer': str(row.get('a') or '')[:2000]}
+                                                       'answer': str(raw_answer or '')[:2000],
+                                                       'answer_complete': isinstance(raw_answer, str)
+                                                       and bool(raw_answer.strip()) and len(raw_answer) <= 2000}
         if self.business_core:
             core = self.business_core.public_context(query=question,
                 selected_ids=[key[len('offering:'):] for key in remembered
@@ -899,14 +902,26 @@ class MessageHandlerV7:
         if self.faq:
             for index, row in enumerate(self.faq.all()[:40]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
+                    raw_answer = row.get('a')
                     knowledge[f'faq:{index}'] = {'question': str(row.get('q') or '')[:500],
-                                               'answer': str(row.get('a') or '')[:2000]}
+                                               'answer': str(raw_answer or '')[:2000],
+                                               'answer_complete': isinstance(raw_answer, str)
+                                               and bool(raw_answer.strip()) and len(raw_answer) <= 2000}
         if self.policy:
             knowledge['delivery'] = {'notes': self.policy.delivery_notes(),
                                      'notices': self.policy.service_notices()}
             postcode = self._extract_postcode(question) or session.get('postcode')
             if postcode:
                 knowledge['delivery']['matching_rule'] = self.policy.delivery_rule_for(postcode)
+                knowledge['delivery']['notices'] = self.policy.service_notices(postcode=postcode)
+                summary = self.policy.delivery_summary(postcode)
+                rule = knowledge['delivery']['matching_rule'] or {}
+                parts = [f'Delivery information for {postcode}: ' +
+                         (summary or 'The available rules do not establish delivery terms for this postcode.')]
+                parts += [str(value).strip() for value in (rule.get('notes'), knowledge['delivery']['notes'])
+                          if isinstance(value, str) and value.strip()]
+                parts += knowledge['delivery']['notices']
+                knowledge['delivery']['statement'] = '\n'.join(parts)
         if self.geo:
             for index, branch in enumerate(self.geo.branches()[:20]):
                 if isinstance(branch, dict) and branch.get('active') is not False:

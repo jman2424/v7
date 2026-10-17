@@ -118,6 +118,26 @@ def test_malformed_evidence_does_not_authorize_a_claim():
     assert not monetary_claims_supported('£99', {'price': 99, 'currency': 'NOTGBP'})
 
 
+@pytest.mark.parametrize('requirements', [
+    ['My budget is £25 for two bottles.'], ['My budget was £25.'], ['Not under £25.'],
+    ['My budget is £25 per month.'], ['My budget is £25.', 'two bottles'],
+    ['My budget is £25.', 'My budget is £40.'], ['My budget is £25 to £40.'],
+    ['Our budget is £25.', 'for 2 people'], ['Your budget is £25.'],
+    ['Under £25.'], ['Below £25.'], ['Less than £25.'],
+    ['Menos de 25 euros.'], ['Moins de 25 euros.'], ['أقل من ٢٥ يورو'],
+])
+def test_qualified_or_ambiguous_budgets_cannot_label_listed_prices(requirements):
+    from service.grounded_money import unqualified_customer_budget
+
+    assert unqualified_customer_budget(requirements) is None
+
+
+def test_only_current_unqualified_budget_supports_listed_price_comparison():
+    from service.grounded_money import unqualified_customer_budget
+
+    assert unqualified_customer_budget(['Light bottle for walks', 'My budget is £25.']) == ('GBP', Decimal('25'))
+
+
 @pytest.mark.parametrize('question,answer', [
     ('I need a quiet office fan under 100 pounds.', 'Quiet costs £59, within your £100 budget.'),
     ('My budget is GBP 100.', 'This is within your budget of £100.'),

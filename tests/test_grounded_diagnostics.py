@@ -203,6 +203,21 @@ def test_budget_comparison_keeps_offering_price_subject_to_cited_evidence(prefix
                                         customer_text=customer)
 
 
+@pytest.mark.parametrize('prefix', ['is priced above', 'is over', 'is outside', 'exceeds'])
+def test_above_budget_comparison_does_not_change_customer_budget(prefix):
+    from service.grounded_money import monetary_claims_supported
+
+    facts = [{'name': 'Summit', 'price': 35, 'currency': 'GBP'}]
+    customer = ['My budget is £25.']
+    assert monetary_claims_supported(
+        f'With your budget of £25, Summit {prefix} your budget at £35.', facts,
+        customer_text=customer)
+    assert not monetary_claims_supported(
+        f'Summit {prefix} your budget at £999.', facts, customer_text=customer)
+    assert not monetary_claims_supported(
+        'With your budget of £35, Summit costs £35.', facts, customer_text=customer)
+
+
 def test_remembered_uncited_shortlist_is_not_a_new_recommendation(monkeypatch):
     from service.memory import Memory
     from service.message_handler import MessageHandler
