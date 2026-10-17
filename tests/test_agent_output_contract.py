@@ -10,8 +10,8 @@ from service.openai_completion import responses_options
 from tests.test_grounded_conversation import _state, _structured_answer
 
 
-def contract():
-    return response_format({'business': {'name': 'Fixture'}}, [], ['quote'],
+def contract(knowledge=None):
+    return response_format(knowledge or {'business': {'name': 'Fixture'}}, [], ['quote'],
         intents=grounded_conversation.AGENT_INTENTS, stages=grounded_conversation.AGENT_STAGES,
         actions=grounded_conversation.AGENT_ACTIONS)
 
@@ -21,17 +21,33 @@ def test_request_contract_requires_citations_known_ids_and_explicit_nullable_upd
     validator = Draft202012Validator(schema)
     payload = {'answer': 'Complete the quote request form for the team to review.',
                'kind': 'answer', 'sources': ['business'], 'navigation': [], 'requested_action': 'quote',
+               'statement_ids': [],
                'agent': {**_state('quote', stage='convert', action='open_request_form'),
                          'selection_update': 'keep', 'selection_evidence': None, 'requirements_update': None}}
     validator.validate(payload)
     for changes in ({'sources': []}, {'sources': ['other-company']},
-                    {'navigation': ['not-enabled']}, {'requested_action': 'refund'}):
+                    {'navigation': ['not-enabled']}, {'requested_action': 'refund'},
+                    {'statement_ids': None}, {'statement_ids': 'unknown'}, {'statement_ids': ['unknown']}):
         with pytest.raises(ValidationError):
             validator.validate({**payload, **changes})
+    missing_statements = copy.deepcopy(payload)
+    missing_statements.pop('statement_ids')
+    with pytest.raises(ValidationError):
+        validator.validate(missing_statements)
     invalid = copy.deepcopy(payload)
     invalid['agent']['requirements_update'] = {'add': [], 'remove': [], 'clear': False, 'evidence': ''}
     with pytest.raises(ValidationError):
         validator.validate(invalid)
+
+
+def test_statement_selection_schema_allows_only_bounded_request_local_ids():
+    schema = contract({'policy:returns': {'answer': 'Return unused items within 30 days.'}})
+    validator = Draft202012Validator(schema['json_schema']['schema']['properties']['statement_ids'])
+    validator.validate([])
+    validator.validate(['policy:returns:answer'])
+    for selected in (['policy:other:answer'], ['policy:returns:answer'] * 4):
+        with pytest.raises(ValidationError):
+            validator.validate(selected)
 
 
 def test_existing_responses_adapter_preserves_the_strict_output_schema():
