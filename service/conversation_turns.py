@@ -9,7 +9,7 @@ import re
 def unrelated_task(text):
     task = re.search(r"\b(?:write|make|create|build|generate|debug|solve|translate|help me|help.*with)\b", text, re.I)
     artifact = re.search(r'\b(?:python|javascript|typescript|hello[ ,]+world|calculator|homework|essay|poem|sql query)\b', text, re.I)
-    business_question = re.search(r'\b(?:do you (?:sell|offer|support)|your (?:services?|products?|integration|api|widget)|pricing|cost|documentation)\b', text, re.I)
+    business_question = re.search(r'\b(?:do you (?:sell|offer|support)|your (?:services?|products?|integration|api|widget|documentation))\b', text, re.I)
     return bool(task and artifact and not business_question)
 
 
@@ -19,7 +19,8 @@ def _definition(text):
         return None
     match = re.fullmatch(r'\s*([\w][\w -]{0,39}?)\s*(?:=|means)\s*([^\n=]{1,80}?)\s*[.!]?\s*', text, re.I)
     if match and _requirement(text) and not re.search(
-            r'\b(?:ignore|instructions?|system|developer|execute|forget|override)\b', text, re.I):
+            r'\b(?:ignore|instructions?|system|developer|execute|forget|override|credentials?|secrets?|tokens?|keys?)\b|'
+            r'\b(?:sk|rk|pk)_(?:live|test)_|\bwhsec_', text, re.I):
         return match[1].strip(), match[2].strip()
     return None
 
