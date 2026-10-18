@@ -318,6 +318,17 @@ class MessageHandlerV7:
         )
 
         try:
+            # Executing unrelated tasks is outside a customer-facing sales agent,
+            # even when a funded model could answer them. Do this before the LLM.
+            if self._unrelated_task(user_text):
+                return self._wrap_reply(request_id=request_id, t0=t0,
+                    reply=f"I can help with {self._business_scope()}, but I can't carry out unrelated tasks here.",
+                    intent='out_of_scope', plan=None, facts={}, entities={}, items=[])
+            from service.conversation_turns import reply as conversational_reply
+            casual = conversational_reply(user_text, sess.get('conversation_history'), sess.get('_memory_settings'))
+            if casual:
+                return self._wrap_reply(request_id=request_id, t0=t0, reply=casual,
+                    intent='conversation', plan=None, facts={}, entities={}, items=[])
             # A handoff is a real saved lead workflow, not a prose-only reply.
             contact = self._handoff_contact(user_text, sess)
             if contact and self._has_pending_handoff(sess):
@@ -944,7 +955,7 @@ class MessageHandlerV7:
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
-                      destinations=destinations, selected_links=selected,
+                      destinations=destinations, selected_links=selected if channel == 'web' else None,
                       allowed_actions=allowed_actions,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
@@ -1110,6 +1121,26 @@ class MessageHandlerV7:
     # ------------------------------------------------------------------
     # Detection helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _unrelated_task(text: str) -> bool:
+        """High-confidence task requests, not mentions of technical services."""
+        from service.conversation_turns import unrelated_task
+        return unrelated_task(text)
+
+    def finalize_navigation(self, response, channel):
+        if channel != 'web':
+            return response
+        from service.website_destinations import public_targets, buttonize_reply
+        from service.platform_offer_knowledge import public_destinations
+        targets = public_targets(self.website_destinations, self.website_knowledge,
+                                 self.business_profile.get('website', ''))
+        targets += public_destinations(self.tenant_key, self.website_destinations)
+        text, actions = buttonize_reply(response['reply'], targets, response.get('actions'))
+        response['reply'] = text
+        if actions:
+            response['actions'] = actions
+        return response
 
     def _looks_out_of_scope(self, text: str) -> bool:
         t = self._clean_text(text)

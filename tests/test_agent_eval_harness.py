@@ -20,14 +20,14 @@ def test_offline_references_exercise_real_validation_without_network(monkeypatch
     report = run_suite(Settings())
     assert report['mode'] == 'offline_reference_replay'
     assert report['status'] == 'passed'
-    assert report['scenarios_planned'] == report['scenarios_passed'] == 6
-    assert report['turns_planned'] == report['turns_executed'] == report['turns_passed'] == 14
+    assert report['scenarios_planned'] == report['scenarios_passed'] == 7
+    assert report['turns_planned'] == report['turns_executed'] == report['turns_passed'] == 20
     assert report['usage']['provider_requests'] == 14
     assert report['usage']['usage_kind'] == 'synthetic_not_billable'
     assert report['accounting']['consistent'] is True
     assert report['accounting']['recorded_calls'] == 14
     assert all(row['validation']['accepted'] for row in report['results'])
-    assert all(row['validation']['provider_completed'] for row in report['results'])
+    assert sum(row['validation']['provider_completed'] for row in report['results']) == 14
 
 
 def test_budget_gate_stops_before_any_provider_request():
@@ -215,7 +215,7 @@ def test_actual_supervised_subprocess_runs_offline_without_a_key():
     report = agent_eval.supervised_live(Settings())
     assert report['mode'] == 'offline_reference_replay'
     assert report['status'] == 'passed'
-    assert report['turns_passed'] == 14
+    assert report['turns_passed'] == 20
     assert report['accounting']['consistent'] is True
     assert '£20' in report['results'][0]['answer']
     assert '\ufffd' not in json.dumps(report, ensure_ascii=False)

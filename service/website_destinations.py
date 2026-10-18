@@ -8,6 +8,32 @@ from service.website_knowledge import _validate_public_https_url
 FILENAME = 'website_destinations.json'
 
 
+def buttonize_reply(text, destinations, actions=None):
+    """Convert exact approved links after rendering, including extractive FAQs.
+
+    Never infer a destination from a hostname or enable a disabled URL. Preserve
+    unapproved links as text; only configured public targets become UI actions.
+    """
+    approved = {row['url']: row for row in destinations if row.get('enabled', True)}
+    result = list(actions or [])[:3]
+
+    def replace(match):
+        url = match.group('markdown') or match.group('bare').rstrip('.,;:!?')
+        target = approved.get(url)
+        if target is None:
+            return match.group(0)
+        if not any(row.get('type') == 'navigate' and row.get('url') == url for row in result):
+            if len(result) >= 3:
+                return match.group(0)
+            result.append({'type': 'navigate', 'label': target['label'], 'url': url})
+        suffix = '' if match.group('markdown') else match.group('bare')[len(url):]
+        return target['label'] + suffix
+
+    text = re.sub(r'\[[^\]\n]*\]\((?P<markdown>https?://[^\s)]+)\)|(?P<bare>https?://[^\s<>\)\]]+)',
+                  replace, text)
+    return text, result
+
+
 def validate(value):
     if not isinstance(value, list) or len(value) > 30:
         raise ValueError('Use at most 30 website destinations.')

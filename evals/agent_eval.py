@@ -118,6 +118,7 @@ def _working_tree_dirty():
 
 def _runtime_hashes():
     paths = ('service/grounded_conversation.py', 'service/grounded_statements.py',
+             'service/conversation_turns.py', 'service/website_destinations.py',
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
@@ -203,7 +204,8 @@ def check_turn(answer, state, links, expected, business):
     checks['approved_action_only'] = state.get('requested_action') in [None, *business['allowed_actions']]
     from service.grounded_statements import request_facts
     public_sources = {**business['knowledge'], **request_facts(business['allowed_actions'])}
-    checks['approved_sources_only'] = bool(state.get('sources')) and all(
+    checks['approved_sources_only'] = (bool(state.get('sources')) or state.get('_response_kind') in {
+        'conversation', 'greeting', 'clarification', 'refusal'}) and all(
         source in public_sources for source in state.get('sources', []))
     for key, value in expected.items():
         if key == 'selected':
@@ -270,7 +272,7 @@ def candidate_output(response, business):
         return [_candidate_text(row, 180) for row in value[:6] if isinstance(row, str)] if isinstance(value, list) else []
 
     result = {'answer': _candidate_text(payload.get('answer'), 4000),
-              'kind': payload.get('kind') if payload.get('kind') in {'answer', 'greeting', 'clarification', 'refusal'} else None,
+              'kind': payload.get('kind') if payload.get('kind') in {'answer', 'greeting', 'clarification', 'refusal', 'conversation'} else None,
               'sources': ids(payload.get('sources'), known, 12),
               'statement_ids': ids(payload.get('statement_ids'), statement_catalog(known), 3),
               'navigation': ids(payload.get('navigation'), destinations, 3),
@@ -412,6 +414,7 @@ def accounting_result(directory, recorder):
 def run_suite(settings, emit=None, client=None):
     """Run only in a dedicated process; all persistent state lives in a temp dir."""
     from service import api_usage, grounded_conversation, openai_completion, usage_wallet
+    from service.conversation_memory import bounded_history, DEFAULTS
     settings.validate()
     validate_fixtures(settings)
     report = initial_report(settings)
@@ -451,7 +454,8 @@ def run_suite(settings, emit=None, client=None):
                                 agent_context={'previous_agent': previous,
                                                'offering_ids': previous.get('offering_ids') or previous.get('last_offering_ids', []),
                                                'selected_offering_id': previous.get('selected_offering_id')},
-                                agent_state=state, allowed_actions=business['allowed_actions'], diagnostics=diagnostics)
+                                agent_state=state, allowed_actions=business['allowed_actions'], diagnostics=diagnostics,
+                                memory_settings=DEFAULTS)
                         checks = check_turn(answer, state, links, turn['expect'], business)
                         row = {'scenario_id': scenario['id'], 'turn': index, 'passed': all(checks.values()),
                                'checks': checks, 'validation': diagnostics, 'answer': answer,
@@ -469,7 +473,7 @@ def run_suite(settings, emit=None, client=None):
                             break  # No fallback or reference answer can mask a failed live turn.
                         history.extend([{'role': 'user', 'content': turn['user']},
                                         {'role': 'assistant', 'content': answer}])
-                        history = history[-6:]
+                        history = bounded_history(history, DEFAULTS)
                         previous = state
                     complete = len(rows) == len(scenario['turns'])
                     report['scenarios_completed'] += complete

@@ -79,3 +79,24 @@ inactive/private options. Support questions do not automatically turn into sales
 shortlists. Real navigation buttons replace redundant generic button instructions.
 Answers and actions remain limited to configured facts and supported integrations;
 missing business information must not be invented.
+
+Clear requests for unrelated coding or homework are rejected before a provider
+call. Questions about the business's technical services and documented widget/API
+integration remain eligible for grounded help. Simple social check-ins and short
+customer definitions such as `amber = ready` are handled without a model call.
+Recall searches only this conversation's bounded customer messages and uses the
+latest definition. It never promotes those definitions to public business facts.
+Disabling memory, expiry and the configured history budget also apply to this
+recall. Unknown business terms still reach business knowledge retrieval.
+
+The final web-chat response converts exact approved URLs into navigation actions,
+including URLs introduced by full policy/FAQ rendering after the model's answer.
+Disabled and unknown destinations cannot become buttons. WhatsApp retains text
+links. The widget's existing signed click reporting and visible Clicked state
+apply to the resulting buttons.
+
+The evaluation suite includes a customer-transcript regression scenario alongside
+the retail and service quality scenarios. It uses the production default memory
+budget and distinguishes local turns from paid provider completions. Run
+`python -m evals.agent_eval` for offline validation; the explicit `--live` flag
+and an authorized test credential are required for paid model checks.

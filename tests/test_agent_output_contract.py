@@ -16,7 +16,7 @@ def contract(knowledge=None):
         actions=grounded_conversation.AGENT_ACTIONS)
 
 
-def test_request_contract_requires_citations_known_ids_and_explicit_nullable_updates():
+def test_request_contract_requires_known_ids_and_explicit_nullable_updates():
     schema = contract()['json_schema']['schema']
     validator = Draft202012Validator(schema)
     payload = {'answer': 'Complete the quote request form for the team to review.',
@@ -25,7 +25,9 @@ def test_request_contract_requires_citations_known_ids_and_explicit_nullable_upd
                'agent': {**_state('quote', stage='convert', action='open_request_form'),
                          'selection_update': 'keep', 'selection_evidence': None, 'requirements_update': None}}
     validator.validate(payload)
-    for changes in ({'sources': []}, {'sources': ['other-company']},
+    # Empty sources support conversation-only replies. The server separately
+    # requires citations for kind=answer before accepting business claims.
+    for changes in ({'sources': ['other-company']},
                     {'navigation': ['not-enabled']}, {'requested_action': 'refund'},
                     {'statement_ids': None}, {'statement_ids': 'unknown'}, {'statement_ids': ['unknown']}):
         with pytest.raises(ValidationError):
@@ -38,6 +40,13 @@ def test_request_contract_requires_citations_known_ids_and_explicit_nullable_upd
     invalid['agent']['requirements_update'] = {'add': [], 'remove': [], 'clear': False, 'evidence': ''}
     with pytest.raises(ValidationError):
         validator.validate(invalid)
+
+
+def test_server_still_rejects_business_answers_without_citations(monkeypatch):
+    answer, _, _, _ = _structured_answer(monkeypatch,
+        {'answer': 'Basic includes free delivery.', 'kind': 'answer', 'sources': []},
+        question='What does Basic include?')
+    assert answer is None
 
 
 def test_statement_selection_schema_allows_only_bounded_request_local_ids():

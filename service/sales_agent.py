@@ -150,7 +150,7 @@ class SalesAgentPolicy:
                          offering_ids=[], navigation_ids=[])
             return state
 
-        if intent == 'grounded_answer':
+        if intent in {'grounded_answer', 'conversation'}:
             # Older provider responses have no structured state. Their answer
             # still must not receive an unrelated purchase/booking question.
             state.update(stage='assist', objective='Answer the customer\'s current business question.',
@@ -164,7 +164,7 @@ class SalesAgentPolicy:
                 objective="Bring the conversation back to supported business help.",
                 next_action="offer_supported_help",
                 next_question="",
-                suggested_replies=["Check delivery", "Nearest branch"],
+                suggested_replies=[],
             )
         elif intent in {"check_delivery_needs_postcode", "ask_postcode"}:
             state.update(

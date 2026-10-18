@@ -49,11 +49,12 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
     }.items():
         state['properties'][field]['description'] = description
     sources = strings(12, choices=list(knowledge))
-    sources.update(minItems=1, description='Cite business facts used in the answer, including form/capability facts. '
+    sources.update(minItems=0, description='Cite business facts used in the answer, including form/capability facts. '
+                   'For kind conversation use []; no business facts or policy claims are allowed. '
                    'For a greeting, cite the available business identity as context.')
     schema = object_({
         'answer': {'type': 'string', 'maxLength': 4000},
-        'kind': {'type': 'string', 'enum': ['answer', 'greeting', 'clarification', 'refusal']},
+        'kind': {'type': 'string', 'enum': ['answer', 'greeting', 'clarification', 'refusal', 'conversation']},
         'sources': sources,
         'statement_ids': strings(3, choices=list(statements)),
         'navigation': strings(3, choices=[row['id'] for row in destinations]),

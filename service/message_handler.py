@@ -263,6 +263,8 @@ class MessageHandler:
 
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
+        if dispatch_mode == 'v7':
+            reply = self.h_v7.finalize_navigation(reply, ctx.channel)
         from service.conversation_memory import bounded_history
         config = sess.get('_memory_settings')
         history = list(sess.get('conversation_history') or [])
