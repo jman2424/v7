@@ -322,7 +322,7 @@ class MessageHandlerV7:
             # even when a funded model could answer them. Do this before the LLM.
             if self._unrelated_task(user_text):
                 return self._wrap_reply(request_id=request_id, t0=t0,
-                    reply=f"I can help with {self._business_scope()}, but I can't carry out unrelated tasks here.",
+                    reply=f"I can answer questions about {self._business_label()}, but I can't carry out unrelated tasks here.",
                     intent='out_of_scope', plan=None, facts={}, entities={}, items=[])
             from service.conversation_turns import reply as conversational_reply
             casual = conversational_reply(user_text, sess.get('conversation_history'), sess.get('_memory_settings'))
