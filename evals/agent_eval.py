@@ -118,6 +118,7 @@ def _working_tree_dirty():
 
 def _runtime_hashes():
     paths = ('service/grounded_conversation.py', 'service/grounded_statements.py',
+             'service/chat_diagnostics.py', 'retrieval/faq_store.py',
              'service/conversation_turns.py', 'service/website_destinations.py',
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',

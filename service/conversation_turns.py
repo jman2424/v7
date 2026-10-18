@@ -25,7 +25,7 @@ def _definition(text):
     return None
 
 
-def reply(text, history, settings=None):
+def reply(text, history, settings=None, facts=None):
     from service.grounded_conversation import history_rows
     history = history_rows(history, settings)
     normalized = text.strip().casefold().rstrip('?! .')
@@ -35,10 +35,19 @@ def reply(text, history, settings=None):
         return ("Still here and ready to help—thanks for checking in!" if first in previous else first)
     definition = _definition(text)
     if definition:
+        if isinstance(facts, dict) and (not settings or settings.get('enabled', True)):
+            facts.pop(definition[0].casefold(), None)
+            facts[definition[0].casefold()] = {'term': definition[0], 'meaning': definition[1]}
+            while len(facts) > 6:
+                facts.pop(next(iter(facts)))
         return f"Got it—you mean {definition[0]} = {definition[1]} in this conversation."
     recall = re.fullmatch(r'(?:does\s+(.+?)\s*=\s*what|what does\s+(.+?)\s+mean|what did i say\s+(.+?)\s+means)', normalized)
     if recall:
         key = next(part for part in recall.groups() if part).strip()
+        stored = facts.get(key) if isinstance(facts, dict) and (not settings or settings.get('enabled', True)) else None
+        if (isinstance(stored, dict) and str(stored.get('term', '')).casefold() == key
+                and _definition(f"{stored.get('term', '')} = {stored.get('meaning', '')}")):
+            return f"You said {stored['term']} = {stored['meaning']}."
         for row in reversed(history):
             remembered = _definition(row['content']) if row['role'] == 'user' else None
             if remembered and remembered[0].casefold() == key:

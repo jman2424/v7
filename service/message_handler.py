@@ -176,8 +176,10 @@ class MessageHandler:
     # ---------------------------------------------------------
     def handle(self, user_text: str, *, tenant: str, session_id: str, channel: str = 'web',
                metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        from service.chat_diagnostics import turn_scope
         turn = getattr(self.memory, 'turn', None)
-        with turn(session_id) if turn else nullcontext():
+        with turn_scope(channel, (metadata or {}).get('request_id', ''), session_id), \
+                turn(session_id) if turn else nullcontext():
             return self._handle_turn(user_text, tenant=tenant, session_id=session_id,
                                      channel=channel, metadata=metadata)
 
@@ -191,8 +193,10 @@ class MessageHandler:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         from service.tenant_access import activation
-        if not activation(tenant)['active']:
-            return {'reply': 'This business is awaiting activation.', 'intent': 'business_inactive'}
+        from service.chat_diagnostics import phase, emit
+        with phase('activation'):
+            if not activation(tenant)['active']:
+                return {'reply': 'This business is awaiting activation.', 'intent': 'business_inactive'}
         ctx = MessageContext(
             tenant=tenant,
             session_id=session_id,
@@ -203,7 +207,9 @@ class MessageHandler:
         user_text = (user_text or "").strip()
         user_text = _maybe_normalize_postcode_for_dispatch(user_text)
 
-        sess = self._load_session(ctx)
+        with phase('session_read'):
+            sess = self._load_session(ctx)
+        emit('chat_context', history_messages=len(sess.get('conversation_history') or []))
         mode = self._decide_mode(ctx)
 
         rid = (
@@ -217,7 +223,9 @@ class MessageHandler:
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
             guarded = self.sales_agent.guide(guarded, user_text=user_text, session=sess)
+            self._remember_turn(ctx, sess, user_text, guarded)
             self._save_session(ctx, sess, guarded)
+            emit('chat_routed', route=guarded.get('intent', 'unknown'))
             logger.info(
                 "DISPATCH_GUARDED tenant=%s channel=%s mode=%s rid=%s intent=%s session_present=%s text_len=%s",
                 ctx.tenant, ctx.channel, mode, rid, guarded.get("intent"), bool(ctx.session_id), len(user_text),
@@ -248,7 +256,7 @@ class MessageHandler:
         )
 
         dispatch_mode = mode if mode in {"v5", "v6"} else "v7"
-        with usage_context(ctx.tenant, ctx.channel, dispatch_mode):
+        with phase('dispatch'), usage_context(ctx.tenant, ctx.channel, dispatch_mode):
             if dispatch_mode == "v5":
                 reply = self.h_v5.handle(user_text, ctx, sess)
             elif dispatch_mode == "v6":
@@ -265,6 +273,30 @@ class MessageHandler:
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
             reply = self.h_v7.finalize_navigation(reply, ctx.channel)
+        self._remember_turn(ctx, sess, user_text, reply)
+        self._save_session(ctx, sess, reply)
+        try:
+            with phase('crm'):
+                self._log_crm(ctx, user_text, reply)
+        except Exception:
+            # CRM is downstream of the accepted reply and conversation memory.
+            # Its failure must not turn a completed answer into a failed request.
+            emit('chat_optional_failure', phase='crm', outcome='reply_preserved')
+            if reply.get('intent') == 'handoff_contact_captured':
+                reply = {**reply, 'reply': "I couldn't save those contact details. Please try again or contact the business directly.",
+                         'intent': 'handoff_failed', 'entities': {}, 'actions': []}
+                self._remember_turn(ctx, sess, user_text, reply)
+                self._save_session(ctx, sess, reply)
+        emit('chat_routed', route=reply.get('intent', 'unknown'))
+
+        self._telemetry(ctx, event_type='pipeline_out', meta={
+            'mode': mode, 'rid': rid, 'intent': reply.get('intent'), 'reply_len': len(reply.get('reply') or '')})
+
+        self._telemetry(ctx, event_type='pipeline_turn', meta={
+            'mode': mode, 'rid': rid, 'intent': reply.get('intent'), 'ok': True, 'channel': ctx.channel})
+        return reply
+
+    def _remember_turn(self, ctx, sess, user_text, reply):
         from service.conversation_memory import bounded_history
         config = sess.get('_memory_settings')
         history = list(sess.get('conversation_history') or [])
@@ -272,26 +304,6 @@ class MessageHandler:
                         {'role': 'assistant', 'content': str(reply.get('reply') or '')[:4000]}])
         ttl = config['retention_minutes'] * 60 if config else DEFAULT_SESSION_TTL
         self.memory.set(ctx.session_id, 'conversation_history', bounded_history(history, config), ttl)
-        self._save_session(ctx, sess, reply)
-        self._log_crm(ctx, user_text, reply)
-
-        self._telemetry(
-            ctx,
-            event_type="pipeline_out",
-            meta={
-                "mode": mode,
-                "rid": rid,
-                "intent": reply.get("intent"),
-                "reply_len": len((reply.get("reply") or "")),
-            },
-        )
-        self._telemetry(
-            ctx,
-            event_type="pipeline_turn",
-            meta={"mode": mode, "rid": rid, "intent": reply.get("intent"), "ok": True, "channel": ctx.channel},
-        )
-
-        return reply
 
     # ---------------------------------------------------------
     # PRE-DISPATCH INPUT GUARD
@@ -413,6 +425,7 @@ class MessageHandler:
         return {
             '_memory_settings': self.memory.configuration() if hasattr(self.memory, 'configuration') else None,
             "conversation_history": self.memory.get(ctx.session_id, "conversation_history"),
+            "conversation_facts": self.memory.get(ctx.session_id, "conversation_facts", {}),
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),
             "last_category": self.memory.get(ctx.session_id, "last_category"),
@@ -428,6 +441,9 @@ class MessageHandler:
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
         config = sess.get('_memory_settings')
         ttl = config['retention_minutes'] * 60 if config else DEFAULT_SESSION_TTL
+        facts = sess.get('conversation_facts')
+        if isinstance(facts, dict) and facts:
+            self.memory.set(ctx.session_id, 'conversation_facts', facts, ttl)
         entities = reply.get("entities") or {}
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
@@ -539,8 +555,9 @@ class MessageHandler:
                     lead_id=analytics_lead_id,
                     session_id=ctx.session_id,
                 )
-        except Exception:
-            logger.exception("analytics lead upsert failed")
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='lead_analytics', error_type=type(exc).__name__)
 
     @staticmethod
     def _analytics_lead_id(ctx: MessageContext) -> str:
@@ -576,5 +593,6 @@ class MessageHandler:
                 lead_id=None,
                 meta_json=meta_json,
             )
-        except Exception:
-            logger.exception("telemetry failed event_type=%s", event_type)
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='telemetry', error_type=type(exc).__name__)

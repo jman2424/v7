@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
+  import SectionSearch from './SectionSearch.svelte';
   import PlatformOverview from './PlatformOverview.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
   import Subscription from './Subscription.svelte';
@@ -333,6 +334,19 @@
   let formError = false;
   let loading = true;
   let navigationOpen = false;
+  const sectionKeywords:Record<string,string>={
+    subscription:'billing plans payment invoices cancel change plan',usage:'API AI models memory tokens credit costs',
+    website:'widget branding colours embed agent test',integrations:'MCP API OpenAI connections',
+    faqs:'FAQ knowledge answers support',account:'login password authenticator 2FA security',
+    team:'staff users permissions access',catalog:'products services prices stock',
+    branches:'locations opening times hours',conversations:'chat history messages customers',
+    implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
+  };
+  function searchableSections(){return navigationGroups.flatMap(group=>group.keys).filter(mayOpenScreen);}
+  $: sectionSearchItems=user?searchableSections().map(key=>({
+    key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:sectionKeywords[key]||'',
+    href:base+'/'+key+'?tenant='+encodeURIComponent(tenant),reload:isWidgetSection(key)||isWidgetSection(section)
+  })):[];
 
   let newTenantKey = '';
   let newTenantName = '';
@@ -1667,6 +1681,7 @@
       <header class="workspace-head">
         <div class="workspace-title"><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1>{#if pageDescriptions[section]}<p class="page-description">{$t(pageDescriptions[section])}</p>{/if}</div>
         <div class="workspace-actions">
+          <SectionSearch items={sectionSearchItems} label={$t('Find account sections')} placeholder={$t('Search sections…')} empty={$t('No matching sections available to your account.')} />
           <LanguagePicker />
         {#if (isPlatform || isOwner) && tenants.length > 0 && !['platform','companies'].includes(section)}
           <label class="tenant-picker">{$t("Company")}<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>

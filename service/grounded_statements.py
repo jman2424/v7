@@ -241,6 +241,10 @@ def _offering_summary(row, *, product=False, budget=None, question=''):
 
 def render_response(question, payload, state, knowledge, statements, navigation, requested_action):
     """Return protected text/citations, or None for the normal generated path."""
+    if payload.get('kind') in {'greeting', 'clarification', 'refusal'} and not _PROCESS.search(question):
+        # Citing a FAQ as context is not permission to replace a conversational
+        # clarification/refusal with that FAQ's unrelated onboarding paragraph.
+        return None
     selected = payload.get('statement_ids', [])
     if (not isinstance(selected, list) or len(selected) > 3
             or any(not isinstance(key, str) or key not in statements for key in selected)):

@@ -95,7 +95,10 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
-    if(String(url).includes('/chat/actions')) return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
+    if(String(url).includes('/chat/actions')) {
+      if(scenario==='actions-unavailable-chat') throw Error('PRIVATE_ACTION_FAILURE');
+      return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
+    }
     if(String(url).includes('/chat/navigation-click')) {
       if(scenario==='navigation-failure') throw new Error('Telemetry unavailable');
       return {ok:true,json:async()=>({ok:true})};
@@ -110,6 +113,9 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
     if(scenario==='chat-paused') return {ok:false,status:429,json:async()=>({error:'website_allowance_paused'})};
     if(scenario==='chat-rate-limit') return {ok:false,status:429,json:async()=>({error:'rate_limited'})};
     if(scenario==='chat-expired') return {ok:false,status:403,json:async()=>({error:'conversation_expired'})};
+    if(scenario==='chat-cold-start') return {ok:false,status:503,headers:{get:name=>name==='Content-Type'?'text/html':null},json:async()=>{throw Error('Render loading page');}};
+    if(scenario==='chat-provider-reference') return {ok:false,status:503,headers:{get:name=>name==='X-Request-ID'?'a'.repeat(24):'application/json'},json:async()=>({error:'agent_failure'})};
+    if(scenario==='chat-first-timeout') throw Object.assign(Error('PRIVATE_TIMEOUT_BODY'),{name:'AbortError'});
     if(scenario==='chat-malformed') return {ok:true,json:async()=>({reply:null})};
     return {ok:true,json:async()=>({reply:'Our opening hours are 9am to 5pm.',conversation_token:'synthetic-only'})};
   }});
@@ -192,12 +198,23 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     pending[0]({ok:true,json:async()=>({reply:'A helpful reply',conversation_token:'synthetic-only'})});await response;
     assert.equal(document.activeElement,get('chat-action-name'),'A reply must not pull focus from the request form');
     assert.equal(get('chat-status').textContent,'');
+  } else if(scenario==='actions-unavailable-chat') {
+    get('chat-input').value='When are you open?';await get('chat-form').fire('submit');
+    assert.equal(get('chat-log').children.at(-1).children[0].children[0].textContent,'Our opening hours are 9am to 5pm.');
+    assert.equal(get('chat-send').disabled,false);
   } else if(scenario.startsWith('chat-')) {
     get('chat-input').value='Original question';await get('chat-form').fire('submit');
     const message=get('chat-log').children.at(-1).children[0].children[0].textContent;
     if(scenario==='chat-paused') assert.match(message,/contact the business directly/);
     else if(scenario==='chat-rate-limit') assert.match(message,/wait a moment/);
     else if(scenario==='chat-expired') {assert.match(message,/session expired/);assert.equal(storedToken,'');}
+    else if(scenario==='chat-cold-start') assert.match(message,/temporarily unavailable or starting up/);
+    else if(scenario==='chat-provider-reference') assert.match(message,/Reference: a{24}/);
+    else if(scenario==='chat-first-timeout') {
+      assert.match(message,/took too long/);assert.equal(storedToken,'synthetic-only');
+      const chat=requests.filter(item=>item.url==='/chat_api');assert.equal(chat.length,1);
+      assert.equal(JSON.parse(chat[0].options.body).conversation_token,'synthetic-only');
+    }
     else assert.equal(message,'The message could not be completed. Please try again.');
     assert.equal(get('chat-input').value,'Original question');assert.equal(get('chat-send').disabled,false);
     assert.equal(get('chat-status').textContent,'');assert.equal(utterances.length,0);
@@ -309,7 +326,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",
     "pending-chat-draft", "pending-chat-focus", "chat-paused", "chat-rate-limit",
-    "chat-expired", "chat-malformed", "escape-close",
+    "chat-expired", "chat-malformed", "chat-cold-start", "chat-provider-reference", "chat-first-timeout", "actions-unavailable-chat", "escape-close",
     "server-audio-wav", "server-audio-too-long", "server-audio-invalid",
     "server-audio-decode-timeout", "server-audio-decode-cancel",
 ])

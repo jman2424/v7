@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
@@ -23,6 +24,21 @@ from service.analytics_db import log_error, log_message, log_navigation_click, s
 
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
+
+
+@bp.before_request
+def _chat_request_started():
+    if request.endpoint == 'webchat.chat_api':
+        g.chat_started = time.monotonic()
+
+
+@bp.after_request
+def _chat_request_finished(response):
+    if hasattr(g, 'chat_started'):
+        from service.chat_diagnostics import emit
+        emit('chat_http_finished', status_code=response.status_code,
+             elapsed_ms=round((time.monotonic()-g.chat_started)*1000, 2))
+    return response
 
 
 _WIDGET_STYLES = {"midnight", "daylight", "minimal", "editorial", "neon", "warm", "glass", "studio", "soft", "bold"}
@@ -567,22 +583,16 @@ def _safe_log_message(**kwargs) -> None:
     try:
         _call_compat(log_message, kwargs)
     except Exception as e:
-        logger.exception(
-            "ANALYTICS log_message FAILED: %s | keys=%s",
-            e,
-            sorted(list(kwargs.keys())),
-        )
+        from service.chat_diagnostics import emit
+        emit('chat_optional_failure', phase='message_audit', error_type=type(e).__name__)
 
 
 def _safe_log_error(**kwargs) -> None:
     try:
         _call_compat(log_error, kwargs)
     except Exception as e:
-        logger.exception(
-            "ANALYTICS log_error FAILED: %s | keys=%s",
-            e,
-            sorted(list(kwargs.keys())),
-        )
+        from service.chat_diagnostics import emit
+        emit('chat_optional_failure', phase='error_audit', error_type=type(e).__name__)
 
 
 # ---------------------------------------------------------------------
@@ -701,7 +711,7 @@ def chat_api():
         session_id = "web_" + secrets.token_urlsafe(24)
         token = _signer().dumps({"tenant": tenant, "id": session_id})
     channel = "web"
-    metadata = {"source": "widget"}
+    metadata = {"source": "widget", "request_id": g.get('request_id', '')}
     # Ignore caller identities/metadata: they must not select another conversation.
     message_id = data.get("message_id") or secrets.token_hex(16)
     if not isinstance(message_id, str) or len(message_id) > 128:
@@ -715,12 +725,13 @@ def chat_api():
 
     lead_id = _lead_id_from_session(session_id)
 
-    # Lead table helpers (non-blocking)
+    # Lead table helpers (non-fatal; included in HTTP duration measurements).
     try:
         upsert_lead(tenant=tenant, lead_id=lead_id)
         set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
-    except Exception:
-        logger.exception("WEB: lead upsert failed (non-fatal)")
+    except Exception as exc:
+        from service.chat_diagnostics import emit
+        emit('chat_optional_failure', phase='lead_audit', error_type=type(exc).__name__)
 
     # ✅ KPI inbound row (dedup if retried)
     _safe_log_message(
@@ -764,7 +775,8 @@ def chat_api():
             is_error = True
             error_code = "web_handler_crash"
             error_type = type(exc).__name__
-            logger.exception("WEB: handler.handle crashed: %s", exc)
+            from service.chat_diagnostics import emit
+            emit('chat_failed', phase='handler', error_type=type(exc).__name__)
             result = {"reply": "Sorry—server error.", "intent": "system_error", "entities": {}}
 
     if not isinstance(result, dict):

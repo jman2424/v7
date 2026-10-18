@@ -325,10 +325,15 @@ class MessageHandlerV7:
                     reply=f"I can answer questions about {self._business_label()}, but I can't carry out unrelated tasks here.",
                     intent='out_of_scope', plan=None, facts={}, entities={}, items=[])
             from service.conversation_turns import reply as conversational_reply
-            casual = conversational_reply(user_text, sess.get('conversation_history'), sess.get('_memory_settings'))
+            casual = conversational_reply(user_text, sess.get('conversation_history'), sess.get('_memory_settings'),
+                                          sess.setdefault('conversation_facts', {}))
             if casual:
                 return self._wrap_reply(request_id=request_id, t0=t0, reply=casual,
                     intent='conversation', plan=None, facts={}, entities={}, items=[])
+            if self._is_greeting(user_text):
+                return self._wrap_reply(request_id=request_id, t0=t0,
+                    reply=f"Hello! I'm the {self._assistant_label()}. What would you like to know about {self._business_label()}?",
+                    intent='greeting', plan=None, facts={}, entities={}, items=[])
             # A handoff is a real saved lead workflow, not a prose-only reply.
             contact = self._handoff_contact(user_text, sess)
             if contact and self._has_pending_handoff(sess):
@@ -843,6 +848,8 @@ class MessageHandlerV7:
         return f"I'm the {self._assistant_label()}. Ask me about {self._business_scope()}."
 
     def _grounded_answer(self, question: str, session: Dict[str, Any], *, channel: str = 'web') -> Optional[Dict[str, Any]]:
+        from service.chat_diagnostics import emit
+        retrieval_started = time.perf_counter()
         from service.grounded_conversation import answer
         client = getattr(self.rewriter, '_client', None)
         if client is None:
@@ -876,7 +883,7 @@ class MessageHandlerV7:
         for index, page in enumerate(pages):
             knowledge[f'website:{index}'] = page
         if self.faq:
-            for index, row in enumerate(self.faq.best_match(question, top_k=5)):
+            for index, row in enumerate(self._optional_faq_rows(question)):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
                     knowledge[f'matched_faq:{index}'] = {'question': str(row.get('q') or '')[:500],
@@ -911,7 +918,7 @@ class MessageHandlerV7:
                 if sku:
                     knowledge['product:' + sku] = _public_product_facts(item, self.catalog.currency())
         if self.faq:
-            for index, row in enumerate(self.faq.all()[:40]):
+            for index, row in enumerate(self._optional_faq_rows()[:40]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
                     knowledge[f'faq:{index}'] = {'question': str(row.get('q') or '')[:500],
@@ -953,6 +960,8 @@ class MessageHandlerV7:
                            if channel == 'web' and isinstance(self.sales_actions.get(action), dict)
                            and self.sales_actions[action].get('enabled') is True]
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+        emit('chat_phase', phase='knowledge_retrieval', outcome='completed', knowledge_count=len(knowledge),
+             elapsed_ms=round((time.perf_counter()-retrieval_started)*1000, 2))
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected if channel == 'web' else None,
@@ -972,6 +981,14 @@ class MessageHandlerV7:
         else:
             agent_state.pop('requested_action', None)
         return {'reply': text, 'actions': selected[:3], 'agent':agent_state} if text else None
+
+    def _optional_faq_rows(self, question=None):
+        try:
+            return self.faq.best_match(question, top_k=5) if question is not None else self.faq.all()
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='faq_retrieval', error_type=type(exc).__name__)
+            return []
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:
@@ -1752,7 +1769,7 @@ class MessageHandlerV7:
                 continue
             items = self._catalog_search_safe(request_id, query=token, tags=[token], limit=limit)
             if items:
-                self._info(request_id, "V7.catalog.retry", token=token, limit=limit)
+                self._info(request_id, "V7.catalog.retry", token_length=len(token), limit=limit)
                 return items
         return None
 
@@ -2338,13 +2355,10 @@ class MessageHandlerV7:
             pass
 
     def _exc(self, rid: str, msg: str, **fields: Any) -> None:
-        try:
-            if self.logger:
-                self.logger.exception("%s | %s | %s", rid, msg, self._compact(fields))
-            else:
-                logger.exception("%s | %s | %s", rid, msg, self._compact(fields))
-        except Exception:
-            pass
+        import sys
+        from service.chat_diagnostics import emit
+        error = sys.exc_info()[0]
+        emit('handler_failed', phase=msg, error_type=error.__name__ if error else 'UnknownError')
 
     @staticmethod
     def _compact(d: Dict[str, Any]) -> Dict[str, Any]:

@@ -162,15 +162,18 @@ class ConversationMemory:
 
     @contextmanager
     def turn(self, session_id):
-        settings, generation = profile(self.storage, self.tenant)
-        sid = self._identity(session_id)
-        active = {'sid': sid, 'generation': generation, 'settings': settings, 'pending': {},
-                  'values': self._read(sid, generation, settings) if settings['enabled'] else {}}
+        from service.chat_diagnostics import phase
+        with phase('memory_read'):
+            settings, generation = profile(self.storage, self.tenant)
+            sid = self._identity(session_id)
+            active = {'sid': sid, 'generation': generation, 'settings': settings, 'pending': {},
+                      'values': self._read(sid, generation, settings) if settings['enabled'] else {}}
         token = self._active.set(active)
         try:
             yield
             if settings['enabled']:
-                self._write(active)
+                with phase('memory_write'):
+                    self._write(active)
         finally:
             self._active.reset(token)
 

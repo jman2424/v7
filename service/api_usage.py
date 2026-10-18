@@ -310,10 +310,14 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     from service import usage_wallet, subscriptions
     from service.usage_pricing import snapshot
     kwargs = completion_options(kwargs, purpose=purpose, configuration=configuration)
+    from service.chat_diagnostics import provider_timeout, provider_started, emit
+    import time
+    kwargs['timeout'] = provider_timeout(kwargs['timeout'])
     internal = subscriptions.internal_business(context[0])
     try:
         pricing = snapshot()
     except ValueError:
+        emit('provider_skipped', outcome='pricing_unavailable')
         if not internal:
             try:
                 usage_wallet.reserve_usage(context[0], None,
@@ -328,17 +332,34 @@ def tracked_completion(client, *, purpose: str, **kwargs):
              "status": "pending", "price_version": pricing.version,
              "rate_snapshot": rate_metadata(pricing, kwargs["model"])})
     except (usage_wallet.UsagePaused, ValueError):
+        emit('provider_skipped', outcome='ai_credit_paused')
         raise AllowancePaused("ai_credit_paused") from None
+    provider_start = time.monotonic()
     try:
+        try:
+            kwargs['timeout'] = provider_timeout(kwargs['timeout'])
+        except AllowancePaused:
+            response = rejected_usage(kwargs['model'])  # Known local skip: no provider work took place.
+            raise
+        provider_started()
+        emit('provider_started', purpose=purpose, model=kwargs['model'], timeout_seconds=kwargs['timeout'])
         response = create(client, kwargs)
         status = "completed"
         return response
     except APIStatusError as exc:
+        emit('provider_failed', purpose=purpose, error_type=type(exc).__name__, status_code=exc.status_code)
         if rejected_before_inference(exc):
             response = rejected_usage(kwargs["model"])
         raise
+    except Exception as exc:
+        emit('provider_failed', purpose=purpose, error_type=type(exc).__name__)
+        raise
     finally:
         details = completion_usage(response, kwargs["model"], purpose, status, pricing=pricing)
+        emit('provider_finished', purpose=purpose, outcome=status,
+             elapsed_ms=round((time.monotonic()-provider_start)*1000, 2),
+             input_tokens=details.get('input_tokens'), output_tokens=details.get('output_tokens'),
+             cached_tokens=details.get('cached_tokens'))
         details["channel"] = context[1]
         try:
             _record(response, kwargs["model"], purpose, status, pricing=pricing)

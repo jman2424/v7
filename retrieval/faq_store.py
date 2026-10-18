@@ -29,6 +29,7 @@ _QUESTION_WORDS = {
     "have", "how", "i", "if", "in", "is", "it", "me", "my", "of", "on",
     "or", "our", "please", "the", "this", "to", "we", "what", "when", "where",
     "which", "who", "will", "with", "would", "you", "your",
+    "help", "some", "about", "tell", "know", "need", "want",
 }
 
 
@@ -145,6 +146,8 @@ class FAQStore:
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for f in self._faqs:
+            if not topic_tokens and _norm(user_question) != f['_q_norm']:
+                continue
             candidate_topics = f.get("_topic_tokens") or []
             # Topic coverage is intentionally based on the customer's terms,
             # not sentence filler. Answers are included so that a tenant can

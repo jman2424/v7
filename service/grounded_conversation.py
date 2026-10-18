@@ -667,6 +667,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                    'latency_ms': round((time.perf_counter() - started) * 1000, 2),
                    'source_ids': list(dict.fromkeys(sources)) if accepted else []}
         outcome.update(mode=rendering_mode, statement_ids=rendered_statements if accepted else [])
+        from service.chat_diagnostics import emit
+        emit('grounded_outcome', outcome=reason or 'accepted', elapsed_ms=outcome['latency_ms'],
+             knowledge_count=outcome['knowledge_count'])
         if isinstance(diagnostics, dict):
             diagnostics.update(outcome)
         logger.info('Grounded conversation outcome accepted=%s reason=%s provider_completed=%s latency_ms=%s',

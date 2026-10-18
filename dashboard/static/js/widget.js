@@ -289,13 +289,18 @@
     actionRetry.hidden = true;
     const url = new URL(config.actionsEndpoint, window.location.origin);
     url.searchParams.set("tenant", config.tenant);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(url, {credentials: "same-origin"});
+      const response = await fetch(url, {credentials: "same-origin", signal:controller.signal});
       if (!response.ok) throw new Error("Action options unavailable");
       const data = await response.json();
       availableActions = data && typeof data === "object" ? data : {};
       actionToken = typeof availableActions.conversation_token === "string" ? availableActions.conversation_token : "";
       if (!actionToken) throw new Error("Missing request token");
+      // Preserve a server-issued identity before the first paid reply. If that
+      // reply times out, a manual retry can still use this same conversation.
+      if (!token && !busy) remember(actionToken);
       renderActionButtons();
       if (activeAction === "consultation") refreshSlots(actionSlot.value);
       setActionStatus("");
@@ -306,6 +311,8 @@
       actionSection.hidden = false;
       actionRetry.hidden = false;
       setActionStatus("Booking and request options could not be loaded. You can still use chat.", true);
+    } finally {
+      clearTimeout(timer);
     }
   };
   const openAction = action => {
@@ -465,7 +472,8 @@
   const chatErrors = {
     conversation_expired: "This chat session expired. Send your message again to start a new conversation.",
     website_allowance_paused: "Chat is temporarily unavailable. Please contact the business directly.",
-    rate_limited: "Too many messages. Please wait a moment before trying again."
+    rate_limited: "Too many messages. Please wait a moment before trying again.",
+    service_unavailable: "The chat service is temporarily unavailable or starting up. Please wait a moment and try again."
   };
   form.addEventListener("submit", async event => {
     event.preventDefault();
@@ -488,6 +496,7 @@
     add(text, "me"); input.value = "";
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
+    let reference = "";
     try {
       const response = await fetch(config.endpoint, {
         method: "POST", headers: {"Content-Type": "application/json"},
@@ -495,7 +504,13 @@
         body: JSON.stringify({tenant: config.tenant, message: text,
           conversation_token: token || undefined, message_id: newRequestId()})
       });
-      const data = await response.json();
+      const requestId = response.headers?.get?.('X-Request-ID') || '';
+      if (/^[a-f0-9]{24}$/.test(requestId)) reference = requestId;
+      const contentType = response.headers?.get?.('Content-Type') || '';
+      if (contentType && !contentType.includes('application/json')) throw new Error('service_unavailable');
+      let data;
+      try { data = await response.json(); }
+      catch { throw new Error(response.status >= 500 ? 'service_unavailable' : 'request_failed'); }
       if (!response.ok) {
         if (data && data.error === "conversation_expired") {
           remember("");
@@ -518,7 +533,7 @@
         ? "The reply took too long. Please try again."
         : error instanceof Error && Object.prototype.hasOwnProperty.call(chatErrors, error.message)
           ? chatErrors[error.message] : "The message could not be completed. Please try again.";
-      add(message, "bot");
+      add(message + (reference ? ' Reference: ' + reference : ''), "bot");
       // Keep a new draft typed while this reply was pending.
       if (!input.value) input.value = text;
     } finally {
