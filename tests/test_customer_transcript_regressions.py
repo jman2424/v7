@@ -136,10 +136,11 @@ def test_webchat_final_render_provides_signed_clickable_destination(app, client,
     assert click.status_code == 200
 
 
-def test_business_overview_does_not_expand_into_pricing_terms(monkeypatch):
+@pytest.mark.parametrize('faq_question', ['What do you sell?', 'What is Example?'])
+def test_business_overview_does_not_expand_into_pricing_terms(monkeypatch, faq_question):
     intro = 'Example makes business chat assistants. They use your saved business knowledge.'
     pricing = 'Starter costs GBP 99 per month. A separate setup fee applies. AI credit is purchased separately.'
-    knowledge = {'faq:overview': {'question': 'What do you sell?', 'answer': intro + ' ' + pricing}}
+    knowledge = {'faq:overview': {'question': faq_question, 'answer': intro + ' ' + pricing}}
     payload = {'answer': intro, 'kind': 'answer', 'sources': ['faq:overview'],
                'statement_ids': ['faq:overview:answer']}
     answer, _, _, _ = _structured_answer(monkeypatch, payload, question='what do you sell', knowledge=knowledge)

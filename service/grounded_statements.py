@@ -49,7 +49,10 @@ def _overview_statement(question, payload, knowledge, statements):
         return None
     for source in payload['sources']:
         row = knowledge[source]
-        if not isinstance(row, dict) or not _overview_request(row.get('question', '')):
+        if not isinstance(row, dict):
+            continue
+        topic = row.get('question', '')
+        if not (_overview_request(topic) or re.match(r'\s*what (?:is|are)\b', topic, re.I)):
             continue
         statement = next((key for key, value in statements.items() if value['source_id'] == source), None)
         if statement is None:
