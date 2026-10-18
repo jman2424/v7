@@ -131,3 +131,15 @@ def test_webchat_final_render_provides_signed_clickable_destination(app, client,
     click = client.post('/chat/navigation-click', json={'tenant': 'EXAMPLE',
         'conversation_token': response['conversation_token'], 'click_token': action['click_token']})
     assert click.status_code == 200
+
+
+def test_business_overview_does_not_expand_into_pricing_terms(monkeypatch):
+    intro = 'Example makes business chat assistants. They use your saved business knowledge.'
+    pricing = 'Starter costs GBP 99 per month. A separate setup fee applies. AI credit is purchased separately.'
+    knowledge = {'faq:overview': {'question': 'What do you sell?', 'answer': intro + ' ' + pricing}}
+    payload = {'answer': intro, 'kind': 'answer', 'sources': ['faq:overview'],
+               'statement_ids': ['faq:overview:answer']}
+    answer, _, _, _ = _structured_answer(monkeypatch, payload, question='what do you sell', knowledge=knowledge)
+    assert answer == intro
+    priced, _, _, _ = _structured_answer(monkeypatch, payload, question='How much does it cost?', knowledge=knowledge)
+    assert pricing in priced

@@ -34,6 +34,40 @@ _OPTION_DETAILS = re.compile(
 _SUPPORT_TOPIC = re.compile(r'\b(?:returns?|refunds?|cancel\w*|complain\w*|warrant\w*|exchang\w*)\b', re.I)
 
 
+def _overview_request(text):
+    return bool(re.fullmatch(r'what (?:do you (?:sell|offer|provide)|(?:products|services) do you (?:sell|offer|provide))',
+                             text.strip().casefold().rstrip('?! .')))
+
+
+def _overview_statement(question, payload, knowledge, statements):
+    """An overview may quote complete introductory sentences, never price terms.
+
+    This applies only to a matching broad-overview FAQ. Consequential sentences
+    are not summarized or truncated: pricing/policy questions retain full units.
+    """
+    if not _overview_request(question):
+        return None
+    for source in payload['sources']:
+        row = knowledge[source]
+        if not isinstance(row, dict) or not _overview_request(row.get('question', '')):
+            continue
+        statement = next((key for key, value in statements.items() if value['source_id'] == source), None)
+        if statement is None:
+            continue
+        lines = []
+        for sentence in re.split(r'(?<=[.!?])\s+', statements[statement]['text']):
+            if (_PROCESS.search(sentence) or re.search(
+                    r'[$£€]|https?://|\b(?:GBP|USD|EUR|VAT|per month|monthly|setup|onboarding|subscriptions?|credit)\b',
+                    sentence, re.I)):
+                break
+            lines.append(sentence)
+            if len(lines) >= 3:
+                break
+        if lines:
+            return ' '.join(lines), [source], [statement]
+    return None
+
+
 def request_facts(allowed_actions):
     """Capabilities come from this channel's enabled server configuration."""
     return {f'capability:request:{action}': {
@@ -211,6 +245,9 @@ def render_response(question, payload, state, knowledge, statements, navigation,
     cited = payload['sources']
     if any(statements[key]['source_id'] not in cited for key in selected):
         raise ValueError('uncited_statement_selection')
+    overview = _overview_statement(question, payload, knowledge, statements)
+    if overview is not None and not requested_action and payload['kind'] != 'refusal':
+        return overview
     if not protected_request(question, payload, statements):
         return None
     if not selected:
