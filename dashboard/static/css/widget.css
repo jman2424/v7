@@ -307,3 +307,6 @@ body[data-style="bold"] #chat-send { border-radius: 8px; }
 
 .widget__navigation { display:inline-flex; align-items:center; min-height:44px; padding:10px 14px; border:1px solid currentColor; border-radius:8px; color:inherit; text-decoration:none; font-weight:600; }
 .widget__navigation:focus-visible { outline:3px solid currentColor; outline-offset:3px; }
+.widget__navigation--clicked { border-style:dashed; }
+.msg--activity { justify-content:center; }
+.msg--activity .msg__bubble { max-width:100%; font-size:.82rem; background:transparent; border:0; text-align:center; }

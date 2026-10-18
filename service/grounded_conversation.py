@@ -51,6 +51,10 @@ retire), clear (boolean, true only for a requested reset) and evidence (an exact
 short excerpt from the current message explaining the change). Do not carry both
 an old constraint and its replacement. Retired requirements must not reappear
 unless the customer explicitly states them again. Do not collect private data.
+Store the new positive constraint alone, excluding the negated old value. For
+'Actually my budget is £25, not £40.', add the exact substring 'my budget is £25'
+and retire the previous £40 requirement; use the full correction as evidence.
+Apply the same distinction to corrected dates, locations and preferences.
 Avoid re-asking
 already answered questions. For recommendations, consider their constraints
 (budget, purpose, timing, location or preferences) and explain why one or two
@@ -123,7 +127,8 @@ If approved_request_actions contains an enabled action for this channel, you may
 return requested_action as consultation, quote or callback (otherwise null).
 Offer that existing request form when the customer affirmatively asks for it,
 including natural paraphrases such as a bespoke estimate. Explain that they can
-complete the form and the team must review/confirm it. This opens a form only;
+open the configured form. Describe submission and review/confirmation only when
+the supplied business facts establish those steps. This opens a form only;
 it does not send a request or create a booking. Do not offer a disabled action,
 infer consent from a question about the process, or override a refusal or 'stop'.
 Distinguish opening a form, submitting a request and the team's later review.
@@ -144,6 +149,10 @@ Select relevant statement_ids and cite their source_ids. The server renders
 those complete statements for protected requests; answer prose cannot add or
 override their timing, exceptions or team capabilities. Do not select a statement
 that does not apply. Use an empty list when the policy detail is not established.
+For a mixed question, address each requested part and cite the relevant offering
+facts as well as the complete policy. A support question alone does not request
+a sales shortlist. Include relevant public options for size, colour or feature
+questions; do not infer missing attributes or availability.
 Do not request a sales form for a policy, cancellation or complaint answer.
 Do not claim submission or confirmation. These actions do not
 authorize any payment, account change or other transaction.
@@ -339,11 +348,26 @@ def _selection_state(raw, question, knowledge, context):
     return selected or previous
 
 
-def _requirements_state(raw, question, history, context):
+def _customer_quote(value, texts):
+    """Allow casing differences only; retain the actual customer substring."""
+    if not _requirement(value):
+        return None
+    for text in texts:
+        if not isinstance(text, str):
+            continue
+        match = re.search(re.escape(value.strip()), text, re.I)
+        if match and _requirement(match.group(0)):
+            return match.group(0)
+    return None
+
+
+def _requirements_state(raw, question, history, context, memory_settings=None):
     previous = context.get('previous_agent', {})
     old = previous.get('requirements', [])
     retired = previous.get('retired_requirements', [])
     requirements = raw.get('requirements', [])
+    customer_text = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
+    added = []
     update = raw.get('requirements_update')
     if (isinstance(update, dict) and not set(update) - {'add', 'remove', 'clear', 'evidence'}
             and update.get('add', []) == [] and update.get('remove', []) == []
@@ -361,25 +385,31 @@ def _requirements_state(raw, question, history, context):
             raise ValueError('invalid_requirements_update')
         added, removed = update.get('add', []), update.get('remove', [])
         evidence = update.get('evidence')
-        if (not _requirement(evidence) or evidence.strip() not in question
-                or not isinstance(added, list) or len(added) > 6
-                or any(not _requirement(row) or row.strip() not in question for row in added)
-                or not isinstance(removed, list) or len(removed) > 6
-                or any(not isinstance(row, str) or row not in old for row in removed)):
+        if (not isinstance(added, list) or len(added) > 6
+                or not isinstance(removed, list) or len(removed) > 6):
             raise ValueError('unconfirmed_requirements_update')
+        added_quotes = [_customer_quote(row, [question]) for row in added]
+        removed_quotes = [next((prior for prior in old if isinstance(row, str)
+                               and re.fullmatch(re.escape(row), prior, re.I)), None) for row in removed]
+        if (_customer_quote(evidence, [question]) is None
+                or any(row is None for row in added_quotes + removed_quotes)):
+            raise ValueError('unconfirmed_requirements_update')
+        added, removed = added_quotes, removed_quotes
         if update.get('clear'):
             removed = old
         requirements = list(dict.fromkeys([row for row in old if row not in removed] + [row.strip() for row in added]))
-        retired = [row for row in retired + removed if row not in requirements]
+        active_quotes = {row.casefold() for row in requirements}
+        retired = [row for row in retired + removed if row.casefold() not in active_quotes]
     if not isinstance(requirements, list) or len(requirements) > 6:
         raise ValueError('invalid_agent_requirements')
-    customer_text = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
-    if any(not _requirement(row) or not any(row.strip() in text for text in customer_text + old)
-           or _rejected(question, row.strip())
-           or (row in retired and row not in (update or {}).get('add', [])) for row in requirements):
+    requirements = [_customer_quote(row, customer_text + old) for row in requirements]
+    retired_quotes = {row.casefold() for row in retired}
+    added_quotes = {row.casefold() for row in added}
+    if any(row is None or _rejected(question, row)
+           or (row.casefold() in retired_quotes and row.casefold() not in added_quotes) for row in requirements):
         raise ValueError('unconfirmed_customer_requirement')
-    return (list(dict.fromkeys(row.strip() for row in requirements)),
-            list(dict.fromkeys(retired))[-6:])
+    return (list({row.casefold(): row for row in requirements}.values()),
+            list({row.casefold(): row for row in retired}.values())[-6:])
 
 
 def agent_context_rows(value, knowledge):
@@ -447,7 +477,7 @@ def agent_context_rows(value, knowledge):
             'offering_ids': shortlist, 'selected_offering_id': selected}
 
 
-def _agent_state(payload, *, knowledge, sources, navigation, question, history, context):
+def _agent_state(payload, *, knowledge, sources, navigation, question, history, context, memory_settings=None):
     """Validate model task metadata; it never authorizes or executes an operation."""
     raw = payload.get('agent')
     if raw is None:
@@ -474,7 +504,7 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
     # before checking citations for visible recommendations; source and claim
     # validation of the actual answer remains mandatory.
     offerings = [] if support_only else list(dict.fromkeys(key for key in rows if key in sources))
-    requirements, retired = _requirements_state(raw, question, history, context)
+    requirements, retired = _requirements_state(raw, question, history, context, memory_settings)
     try:
         selected = _selection_state(raw, question, knowledge, context)
     except ValueError as exc:
@@ -528,7 +558,10 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
     return state
 
 
-def history_rows(value):
+def history_rows(value, settings=None):
+    if settings is not None:
+        from service.conversation_memory import bounded_history
+        return bounded_history(value, settings)
     if not isinstance(value, list):
         return []
     return [{"role": row["role"], "content": row["content"][:1200]}
@@ -602,7 +635,7 @@ def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_url
 
 
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
-           agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None):
+           agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None, memory_settings=None):
     started = time.perf_counter()
     provider_completed = False
     rendering_mode = 'generated'
@@ -650,7 +683,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             messages=[{"role": "system", "content": INSTRUCTIONS},
                       {"role": "user", "content": json.dumps({
                           "question": question[:4000], "knowledge": knowledge,
-                          "recent_conversation": history_rows(history), "tone": tone,
+                          "recent_conversation": history_rows(history, memory_settings), "tone": tone,
                           "approved_destinations": destinations,
                           "approved_request_actions": allowed_actions,
                           "approved_statements": statements,
@@ -669,7 +702,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             logger.warning('Grounded conversation rejected (output_contract)')
             finish('output_contract')
             return None
-        customer_quotes = [question] + [row['content'] for row in history_rows(history) if row['role'] == 'user']
+        customer_quotes = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
         customer_quotes += context.get('previous_agent', {}).get('requirements', [])
         if not _claims_supported(text, sources, knowledge, customer_quotes):
             pause_ai_for_turn()
@@ -693,7 +726,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             finish('invalid_requested_action')
             return None
         state = _agent_state(payload, knowledge=knowledge, sources=sources, navigation=navigation,
-                             question=question, history=history, context=context)
+                             question=question, history=history, context=context, memory_settings=memory_settings)
         action_intents = {'consultation': 'book', 'quote': 'quote', 'callback': 'handoff'}
         if requested_action and state['intent'] != action_intents[requested_action]:
             # A technically enabled form is not the customer's chosen task.

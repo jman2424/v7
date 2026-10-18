@@ -599,7 +599,18 @@
     "Invoice line items": "Invoice line items",
     "Top up AI credit": "Top up AI credit",
     "Administrative credit record; internal AI does not spend this balance.": "Administrative credit record; internal AI does not spend this balance.",
-    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below."
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.",
+    "Change plan or cancel": "Change plan or cancel",
+    "Compare plans below. An active plan change opens Stripe for a final review before you confirm.": "Compare plans below. An active plan change opens Stripe for a final review before you confirm.",
+    "Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.": "Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.",
+    "Cancellation scheduled for {date}.": "Cancellation scheduled for {date}.",
+    "Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.": "Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.",
+    "Cancel subscription": "Cancel subscription",
+    "Separate WhatsApp subscriptions have their own cancellation controls below.": "Separate WhatsApp subscriptions have their own cancellation controls below.",
+    "Renewal is already cancelled. Refresh payments to see the end date.": "Renewal is already cancelled. Refresh payments to see the end date.",
+    "This subscription has a scheduled change. Contact your platform administrator.": "This subscription has a scheduled change. Contact your platform administrator.",
+    "This subscription needs review before its plan can change. Contact your platform administrator.": "This subscription needs review before its plan can change. Contact your platform administrator.",
+    "This is already your current plan.": "This is already your current plan."
   },
   "es": {
     "Subscription and payments": "Suscripción y pagos",
@@ -1201,7 +1212,18 @@
     "Invoice line items": "Conceptos de la factura",
     "Top up AI credit": "Recargar crédito de IA",
     "Administrative credit record; internal AI does not spend this balance.": "Registro administrativo de crédito; la IA interna no consume este saldo.",
-    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Este agente interno no necesita una recarga de cliente. Añade fondos a tu cuenta central de OpenAI por separado; los administradores pueden registrar un ajuste de crédito auditado abajo."
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Este agente interno no necesita una recarga de cliente. Añade fondos a tu cuenta central de OpenAI por separado; los administradores pueden registrar un ajuste de crédito auditado abajo.",
+    "Change plan or cancel": "Cambiar de plan o cancelar",
+    "Compare plans below. An active plan change opens Stripe for a final review before you confirm.": "Compara los planes a continuación. Para cambiar un plan activo, Stripe muestra una revisión final antes de confirmar.",
+    "Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.": "Stripe muestra cualquier cargo o abono proporcional y te pide confirmación. Se conservan tu fecha de facturación y la configuración ya pagada.",
+    "Cancellation scheduled for {date}.": "Cancelación programada para el {date}.",
+    "Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.": "La cancelación detiene la renovación al finalizar el periodo de facturación actual. Revísala y confírmala en Stripe.",
+    "Cancel subscription": "Cancelar suscripción",
+    "Separate WhatsApp subscriptions have their own cancellation controls below.": "Las suscripciones independientes de WhatsApp tienen sus propios controles de cancelación a continuación.",
+    "Renewal is already cancelled. Refresh payments to see the end date.": "La renovación ya está cancelada. Actualiza los pagos para ver la fecha de finalización.",
+    "This subscription has a scheduled change. Contact your platform administrator.": "Esta suscripción tiene un cambio programado. Contacta con el administrador de la plataforma.",
+    "This subscription needs review before its plan can change. Contact your platform administrator.": "Esta suscripción necesita una revisión antes de cambiar de plan. Contacta con el administrador de la plataforma.",
+    "This is already your current plan.": "Este ya es tu plan actual."
   },
   "fr": {
     "Subscription and payments": "Abonnement et paiements",
@@ -1803,7 +1825,18 @@
     "Invoice line items": "Lignes de facture",
     "Top up AI credit": "Recharger le crédit IA",
     "Administrative credit record; internal AI does not spend this balance.": "Registre administratif de crédit ; l’IA interne ne consomme pas ce solde.",
-    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Cet agent interne ne nécessite pas de recharge client. Alimentez séparément votre compte OpenAI central ; les administrateurs peuvent enregistrer un ajustement de crédit audité ci-dessous."
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "Cet agent interne ne nécessite pas de recharge client. Alimentez séparément votre compte OpenAI central ; les administrateurs peuvent enregistrer un ajustement de crédit audité ci-dessous.",
+    "Change plan or cancel": "Changer d’offre ou résilier",
+    "Compare plans below. An active plan change opens Stripe for a final review before you confirm.": "Comparez les offres ci-dessous. Pour changer une offre active, Stripe affiche une dernière vérification avant confirmation.",
+    "Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.": "Stripe affiche tout débit ou avoir au prorata et vous demande de confirmer. Votre date de facturation et la configuration déjà payée sont conservées.",
+    "Cancellation scheduled for {date}.": "Résiliation prévue le {date}.",
+    "Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.": "La résiliation arrête le renouvellement à la fin de la période de facturation en cours. Vérifiez et confirmez dans Stripe.",
+    "Cancel subscription": "Résilier l’abonnement",
+    "Separate WhatsApp subscriptions have their own cancellation controls below.": "Les abonnements WhatsApp distincts disposent de leurs propres commandes de résiliation ci-dessous.",
+    "Renewal is already cancelled. Refresh payments to see the end date.": "Le renouvellement est déjà annulé. Actualisez les paiements pour voir la date de fin.",
+    "This subscription has a scheduled change. Contact your platform administrator.": "Une modification est déjà programmée pour cet abonnement. Contactez l’administrateur de la plateforme.",
+    "This subscription needs review before its plan can change. Contact your platform administrator.": "Cet abonnement doit être vérifié avant de changer d’offre. Contactez l’administrateur de la plateforme.",
+    "This is already your current plan.": "Il s’agit déjà de votre offre actuelle."
   },
   "ar": {
     "Subscription and payments": "الاشتراك والمدفوعات",
@@ -2405,6 +2438,17 @@
     "Invoice line items": "بنود الفاتورة",
     "Top up AI credit": "إضافة رصيد الذكاء الاصطناعي",
     "Administrative credit record; internal AI does not spend this balance.": "سجل رصيد إداري؛ الذكاء الاصطناعي الداخلي لا يستهلك هذا الرصيد.",
-    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "هذا الوكيل الداخلي لا يحتاج إلى تعبئة رصيد عميل. موّل حساب OpenAI المركزي بشكل منفصل؛ يمكن لمسؤولي المنصة تسجيل تعديل رصيد موثق أدناه."
+    "This internal agent does not need a customer top-up. Fund your central OpenAI account separately; platform administrators can record an audited credit adjustment below.": "هذا الوكيل الداخلي لا يحتاج إلى تعبئة رصيد عميل. موّل حساب OpenAI المركزي بشكل منفصل؛ يمكن لمسؤولي المنصة تسجيل تعديل رصيد موثق أدناه.",
+    "Change plan or cancel": "تغيير الخطة أو الإلغاء",
+    "Compare plans below. An active plan change opens Stripe for a final review before you confirm.": "قارن الخطط أدناه. يفتح تغيير الخطة النشطة Stripe للمراجعة النهائية قبل التأكيد.",
+    "Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.": "يعرض Stripe أي رسوم أو رصيد محسوب بالتناسب ويطلب تأكيدك. يبقى تاريخ الفوترة والإعداد المدفوع كما هما.",
+    "Cancellation scheduled for {date}.": "تم تحديد الإلغاء في {date}.",
+    "Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.": "يوقف الإلغاء التجديد في نهاية فترة الفوترة الحالية. راجع الإلغاء وأكّده في Stripe.",
+    "Cancel subscription": "إلغاء الاشتراك",
+    "Separate WhatsApp subscriptions have their own cancellation controls below.": "توجد أدناه أدوات إلغاء مستقلة لاشتراكات WhatsApp المنفصلة.",
+    "Renewal is already cancelled. Refresh payments to see the end date.": "تم إلغاء التجديد بالفعل. حدّث المدفوعات لعرض تاريخ الانتهاء.",
+    "This subscription has a scheduled change. Contact your platform administrator.": "يوجد تغيير مجدول لهذا الاشتراك. تواصل مع مسؤول المنصة.",
+    "This subscription needs review before its plan can change. Contact your platform administrator.": "يحتاج هذا الاشتراك إلى مراجعة قبل تغيير خطته. تواصل مع مسؤول المنصة.",
+    "This is already your current plan.": "هذه خطتك الحالية بالفعل."
   }
 }

@@ -19,7 +19,7 @@ const ts = require('./frontend/node_modules/typescript/lib/typescript.js');
 const scenario = process.argv[1];
 let source = fs.readFileSync('frontend/src/lib/AgentTest.svelte','utf8').match(/<script lang="ts">([\s\S]*?)<\/script>/)[1];
 source = source.replace(/import[^;]+;/g,'').replaceAll('export let','let');
-source += `globalThis.h = {send,restart,dictate,listenToReply,stopPlayback,
+source += `globalThis.h = {send,restart,dictate,listenToReply,stopPlayback,markLinkClicked,
   draft:(value)=>{draft=value;}, aloud:(value)=>{readAloud=value;},
   state:()=>({draft,messages,token,busy,error,voiceStatus,listening,dictationStarting,speakingMessageId,canDictate,canReadAloud})};
 tenant='SHOP';csrf='synthetic-csrf';transcript={scrollTop:0,scrollHeight:0};composer={focus:()=>{}};`;
@@ -46,7 +46,7 @@ const documentMock = {
   removeEventListener:name=>documentEvents.delete(name),
 };
 if(scenario==='unsupported'){delete windowMock.SpeechRecognition;delete windowMock.speechSynthesis;}
-const context = vm.createContext({AbortController,Date,
+const context = vm.createContext({AbortController,Date,URL,
   $t:text=>scenario==='missing-reply' && text==='No reply was returned.'?'Aucune réponse reçue.':text,
   onMount:callback=>{mount=callback;},onDestroy:callback=>{destroy=callback;},tick:async()=>{},
   window:scenario==='ssr-destroy'?undefined:windowMock,document:documentMock,
@@ -127,6 +127,15 @@ function runTimer(delay){
     requests[0].resolve(response('A completed text reply'));await sending;
     assert.equal(h.state().messages.length,2);assert.equal(h.state().error,'');assert.equal(h.state().busy,false);
     assert.equal(h.state().draft,'');assert.equal(h.state().speakingMessageId,null);assert.match(h.state().voiceStatus,/Audio could not play/);
+  } else if(scenario==='navigation-click'){
+    h.draft('Show products');const sending=h.send();await flush();
+    requests[0].resolve({...response('Open our product page'),actions:[{type:'navigate',label:'See products',url:'https://shop.example/products'}]});await sending;
+    const message=h.state().messages.at(-1);
+    assert.equal(message.links[0].clicked,undefined);
+    h.markLinkClicked(message.id,message.links[0].url);
+    assert.equal(h.state().messages.at(-1).links[0].clicked,true);
+    assert.equal(requests.length,1,'Private preview clicks must not record customer activity or call AI');
+    h.restart();assert.equal(h.state().messages.length,0);
   } else if(scenario==='missing-reply'){
     h.draft('Question');const sending=h.send();await flush();
     requests[0].resolve(response(''));await sending;
@@ -150,7 +159,7 @@ function runTimer(delay){
 
 
 @pytest.mark.parametrize('scenario', [
-    'dictation', 'denied', 'playback', 'restart', 'destroy', 'hidden-reply', 'audio-failure', 'timeout', 'network-failure', 'missing-reply', 'unsupported', 'ssr-destroy',
+    'dictation', 'denied', 'playback', 'restart', 'destroy', 'hidden-reply', 'audio-failure', 'timeout', 'network-failure', 'missing-reply', 'unsupported', 'ssr-destroy', 'navigation-click',
 ])
 def test_agent_test_voice_and_requests_discard_stale_callbacks(scenario):
     result = subprocess.run([NODE, '-e', SCRIPT, scenario], cwd=ROOT, capture_output=True,

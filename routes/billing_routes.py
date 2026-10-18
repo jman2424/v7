@@ -33,6 +33,32 @@ def _body():
     return data
 
 
+@bp.post('/change-plan')
+def change_plan_post():
+    from service import billing_management
+    tenant, data = _tenant(), _body()
+    try:
+        result = billing_management.change_plan(tenant, data.get('plan_id'), get_container().settings.BASE_URL.rstrip('/'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    from routes.admin_api_routes import _audit
+    _audit('billing.change_plan_review', tenant, after={'plan_id': data.get('plan_id')})
+    return jsonify(result)
+
+
+@bp.post('/cancel-subscription')
+def cancel_subscription_post():
+    from service import billing_management
+    tenant = _tenant()
+    try:
+        result = billing_management.cancel_subscription(tenant, get_container().settings.BASE_URL.rstrip('/'))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    from routes.admin_api_routes import _audit
+    _audit('billing.cancel_subscription_review', tenant)
+    return jsonify(result)
+
+
 @bp.get('/referrals')
 def referrals_get():
     from service import referrals

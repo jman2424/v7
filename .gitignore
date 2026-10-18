@@ -20,6 +20,7 @@ __pycache__/
 .pytest_cache/
 .pytest-v7/
 .ruff_cache/
+supabase/.temp/
 .codex-test-deps/
 .push-worktree/
 .security-publish/

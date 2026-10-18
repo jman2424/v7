@@ -315,6 +315,51 @@ def test_asking_about_an_option_is_not_an_explicit_purchase_choice():
     assert grounded_conversation._option_number('Is option 2 available?') is None
 
 
+def test_requirement_casing_is_canonicalized_to_actual_customer_quotes():
+    question = 'I need a light bottle for walks. My budget is £40.'
+    requirements, retired = grounded_conversation._requirements_state(
+        {'requirements': ['a light bottle for walks', 'my budget is £40']}, question, [], {})
+    assert requirements == ['a light bottle for walks', 'My budget is £40'] and retired == []
+
+
+@pytest.mark.parametrize('invented', ['my budget is £41', 'my budget equals £40',
+                                     'my  budget is £40', 'my budget is GBP40'])
+def test_case_tolerance_does_not_allow_paraphrases_amounts_or_spacing_changes(invented):
+    with pytest.raises(ValueError, match='unconfirmed_customer_requirement'):
+        grounded_conversation._requirements_state({'requirements': [invented]},
+            'My budget is £40.', [], {})
+
+
+def test_case_tolerant_requirement_updates_keep_customer_casing_and_retire_old_budget():
+    raw = {'requirements_update': {'add': ['my budget is £25'], 'remove': ['MY BUDGET IS £40'],
+                                  'clear': False, 'evidence': 'my budget is £25'}}
+    requirements, retired = grounded_conversation._requirements_state(raw, 'My budget is £25.', [],
+        {'previous_agent': {'requirements': ['My budget is £40']}})
+    assert requirements == ['My budget is £25'] and retired == ['My budget is £40']
+
+
+def test_changed_casing_cannot_resurrect_a_retired_requirement():
+    with pytest.raises(ValueError, match='unconfirmed_customer_requirement'):
+        grounded_conversation._requirements_state({'requirements': ['MY BUDGET IS £40']},
+            'What is suitable?', [{'role': 'user', 'content': 'my budget is £40'}],
+            {'previous_agent': {'requirements': ['My budget is £25'],
+                                'retired_requirements': ['My budget is £40']}})
+
+
+def test_explicit_current_case_tolerant_update_can_restore_a_retired_requirement():
+    raw = {'requirements_update': {'add': ['my budget is £40'], 'remove': [],
+                                  'clear': False, 'evidence': 'my budget is £40'}}
+    requirements, retired = grounded_conversation._requirements_state(raw, 'My budget is £40.', [],
+        {'previous_agent': {'requirements': [], 'retired_requirements': ['MY BUDGET IS £40']}})
+    assert requirements == ['My budget is £40'] and retired == []
+
+
+def test_case_tolerant_excerpt_still_cannot_come_from_assistant_history():
+    with pytest.raises(ValueError, match='unconfirmed_customer_requirement'):
+        grounded_conversation._requirements_state({'requirements': ['my budget is £40']}, 'Hello',
+            [{'role': 'assistant', 'content': 'My budget is £40.'}], {})
+
+
 @pytest.mark.parametrize('choice', ["Let's pick Basic", "Let's go with Basic", "I'd like Basic",
                                    "I’d prefer Basic", 'I would like Basic', "I'll go for Basic"])
 def test_natural_affirmative_selection_phrases_remain_supported(monkeypatch, choice):

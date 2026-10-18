@@ -18,7 +18,24 @@ registration is effective, with a verified exclusive 20% Stripe tax rate.
 Public and dashboard prices show the final payable total. Discounts apply before
 any configured VAT; recorded invoices keep their original financial amounts.
 
-Changing an active subscription or a paid setup plan needs administrator review.
+Owners can use **Change plan or cancel** in Billing for eligible active tiered
+subscriptions. Plan changes open a Stripe confirmation for the exact existing
+subscription item and server-catalog price. Stripe invoices prorations immediately
+and keeps the billing date. The dashboard changes entitlements only after a fresh
+provider read verifies the requested price and its paid invoice against a
+tenant-bound, expiring `billing_plan_changes` authorization. The original checkout
+binding and paid setup remain intact; switching plans does not charge setup again.
+An unpaid change cannot replace the last verified active plan.
+
+Cancellation opens Stripe's hosted review and takes effect at the end of the
+current paid period. Returning to the dashboard does not itself change access;
+verified subscription events update the cancellation status and effective date.
+This does not cancel separately billed legacy WhatsApp contracts. Legacy plans,
+scheduled or pending changes, and unsupported subscription shapes require review.
+The Stripe key must permit reading subscriptions/invoices and creating prices,
+portal configurations and portal sessions. Portal configurations are isolated to
+the requested operation; the browser cannot submit a price or subscription ID.
+
 Before changing an unpaid selection, cancel its pending checkout through the
 dashboard. Completed payments cannot be cancelled this way. Historical invoice
 callbacks remain in the ledger and cannot grant a retired plan's entitlements.
@@ -82,6 +99,8 @@ Analytics/API service labels do not change existing permission scopes.
 
 Apply `20261010015021_tiered_subscription_plans.sql` before deploying the new
 runtime, followed by `20261011042205_ai_usage_wallet.sql` for prepaid accounting.
+Apply `20261017192010_conversation_memory_and_plan_changes.sql` before deploying
+conversation memory and hosted plan-management controls.
 All tables use forced tenant RLS in `v7_private` and grant only the
 restricted backend role access. Startup checks reject a missing migration.
 Backup preparation includes plan state, immutable choices, counters, wallet

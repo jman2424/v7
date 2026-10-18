@@ -167,7 +167,7 @@ def install_rate_limit(app, settings):
         general_capacity = general_rate + max(0, settings.RATE_LIMIT_BURST)
         limits = [((ip, "request"), general_rate, general_capacity)]
         key, rate, capacity = (ip, "login"), 5, 5
-        if not login and request.path in {"/chat_api", "/chat/actions", "/chat/transcribe"}:
+        if not login and request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/chat/navigation-click"}:
             key, rate, capacity = (ip, "public_chat"), 30, 40
         elif not login and request.path.startswith(("/analytics", "/admin/api/")) and request.method == "GET":
             key, rate, capacity = (ip, "analytics"), 30, 40
@@ -201,7 +201,7 @@ def install_csrf(app, settings):
     @app.before_request
     def csrf():
         # Webhooks and chat have separate authentication.
-        if request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
+        if request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/chat/navigation-click", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
             return
         if "_csrf" not in session:
             session["_csrf"] = secrets.token_urlsafe(32)

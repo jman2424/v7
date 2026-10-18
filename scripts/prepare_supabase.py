@@ -30,6 +30,7 @@ except ModuleNotFoundError:
 
 
 SECURITY_TABLES = {
+    'conversation_memory', 'billing_plan_changes',
     'management_sessions', 'login_attempts', 'account_authenticators', 'mfa_challenges',
     'auth_login_failures', 'mfa_code_uses', 'trusted_devices', 'oidc_states', 'oidc_links',
     'managed_businesses', 'registration_requests', 'billing_contracts', 'billing_invoices',
@@ -46,7 +47,7 @@ ANALYTICS_TABLES = {
 EXTRA_TABLES = {'tenants', 'business_documents', 'document_versions', 'operator_accounts', 'crm_records', 'audit_records'}
 DATA_TABLES = SECURITY_TABLES | ANALYTICS_TABLES | EXTRA_TABLES
 TRANSIENT_TABLES = {'management_sessions', 'mfa_challenges', 'mcp_grants', 'sales_action_attempts',
-                    'trusted_devices', 'oidc_states'}
+                    'trusted_devices', 'oidc_states', 'conversation_memory'}
 TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}')
 FILENAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,100}')
 

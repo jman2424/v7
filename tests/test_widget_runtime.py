@@ -24,7 +24,7 @@ class Element {
     this.classList={toggle(){},contains(){return false;}};this.parentElement={title:''};
   }
   addEventListener(name, callback){(this.listeners[name] ||= []).push(callback);}
-  async fire(name){for(const callback of this.listeners[name] || []) await callback({preventDefault(){}});}
+  async fire(name,event={preventDefault(){}}){for(const callback of this.listeners[name] || []) await callback(event);}
   setAttribute(name,value){this.attributes[name]=value;}
   getAttribute(name){return this.attributes[name];}
   append(child){this.children.push(child);}
@@ -76,7 +76,7 @@ const pending=[];
 const requests=[];
 let storedToken=scenario==='chat-expired'?'stale-conversation':'';
 let closeNotifications=0;
-const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',theme:{},accentColor:'#ffffff',
+const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
   transcriptionEnabled:scenario.startsWith('server-'),transcriptionEndpoint:'/chat/transcribe',transcriptionToken:'synthetic-only'};
@@ -96,6 +96,14 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
     if(String(url).includes('/chat/actions')) return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
+    if(String(url).includes('/chat/navigation-click')) {
+      if(scenario==='navigation-failure') throw new Error('Telemetry unavailable');
+      return {ok:true,json:async()=>({ok:true})};
+    }
+    if(scenario.startsWith('navigation-')) return {ok:true,json:async()=>({
+      reply:'Open our product page.',conversation_token:requests.filter(item=>item.url==='/chat_api').length>1?'second-conversation':'synthetic-only',
+      actions:[{type:'navigate',label:'See products',url:'https://shop.example/products#catalog',click_token:'issued-button-proof'}]
+    })};
     if(String(url).includes('/chat/transcribe')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('late-playback')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('pending-chat')) return new Promise(resolve=>pending.push(resolve));
@@ -124,6 +132,30 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     assert.equal(s['--wbg'],'#fafafa');assert.equal(s['--wpanel'],'#101010');
     assert.equal(s['--wpanel-text'],'#eeeeee','Readable custom text is retained');
     assert.equal(s['--wtext'],'#000000','Unreadable custom text receives a readable fallback');
+  } else if(scenario.startsWith('navigation-')) {
+    get('chat-input').value='Show products';await get('chat-form').fire('submit');
+    const bubble=get('chat-log').children.at(-1).children[0];
+    const link=bubble.children.find(child=>child.className==='msg__actions').children[0];
+    assert.equal(link.href,'https://shop.example/products#catalog');assert.equal(link.target,'_blank');
+    assert.equal(link.textContent,'See products');
+    get('chat-input').value='Second conversation';await get('chat-form').fire('submit');
+    assert.equal(storedToken,'second-conversation');
+    await link.fire('click',{preventDefault(){throw new Error('Click reporting must preserve native navigation');}});
+    await flush();
+    assert.equal(link.textContent,'See products · Clicked');
+    assert.match(link.getAttribute('aria-label'),/Clicked/);
+    assert.equal(get('chat-log').children.at(-1).children[0].children[0].textContent,'You clicked: See products');
+    const clickRequests=()=>requests.filter(item=>item.url==='/chat/navigation-click');
+    assert.equal(clickRequests().length,1);
+    const report=JSON.parse(clickRequests()[0].options.body);
+    assert.equal(report.conversation_token,'synthetic-only','Each button retains its issued conversation identity');
+    assert.equal(report.click_token,'issued-button-proof');assert.equal(report.tenant,'EXAMPLE');
+    assert.equal(clickRequests()[0].options.keepalive,true);
+    const count=get('chat-log').children.length;
+    await link.fire('click');await flush();
+    assert.equal(get('chat-log').children.length,count,'Repeated clicks do not duplicate the local activity row');
+    assert.equal(clickRequests().length,scenario==='navigation-failure'?2:1);
+    assert.equal(requests.filter(item=>item.url==='/chat_api').length,2,'Click reporting never starts an AI request');
   } else if(scenario==='microphone') {
     await get('dictate').fire('click');assert.equal(starts,1);assert.equal(get('dictate').getAttribute('aria-pressed'),'true');
     assert.ok([...timers.values()].some(timer=>timer.delay===30000));
@@ -272,7 +304,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
 
 
 @pytest.mark.parametrize("scenario", [
-    "palette", "microphone", "playback", "server-cancel", "unsupported",
+    "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",

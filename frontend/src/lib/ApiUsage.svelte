@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
+  import MemorySettings from './MemorySettings.svelte';
   export let tenant: string;
   export let isPlatform = false;
   export let csrf = '';
@@ -122,6 +123,7 @@
       {/if}
     </article>
     <article class="panel">
+      {#if data.configuration.can_change_model}<MemorySettings {tenant} {csrf} {apiPrefix}/>{/if}
       <h3>Estimated cost by agent mode</h3>
       {#if data.mode_totals.length}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->

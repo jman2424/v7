@@ -14,9 +14,10 @@ RETURNS = 'Return unused items within 30 days. Made-to-order items are excluded 
 
 def run(monkeypatch, knowledge, *, text='The team checks stock after checkout.',
         question='How does the policy work?', sources=None, intent='policy', ids=(),
-        context=None, agent=None, allowed_actions=None, requested_action=None):
+        context=None, agent=None, allowed_actions=None, requested_action=None,
+        navigation=None, destinations=None):
     payload = {'answer': text, 'kind': 'answer', 'sources': list(knowledge) if sources is None else sources,
-               'agent': agent or _state(intent), 'navigation': [], 'requested_action': requested_action}
+               'agent': agent or _state(intent), 'navigation': navigation or [], 'requested_action': requested_action}
     if ids != ():
         payload['statement_ids'] = ids
     calls = []
@@ -26,7 +27,8 @@ def run(monkeypatch, knowledge, *, text='The team checks stock after checkout.',
     monkeypatch.setattr(grounded_conversation, 'tracked_completion', complete)
     state, diagnostics = {}, {}
     answer = grounded_conversation.answer(object(), 'gpt-4.1', question, knowledge, [], 'professional',
-        agent_context=context, agent_state=state, diagnostics=diagnostics, allowed_actions=allowed_actions)
+        agent_context=context, agent_state=state, diagnostics=diagnostics, allowed_actions=allowed_actions,
+        destinations=destinations)
     return answer, state, diagnostics, calls
 
 
@@ -271,6 +273,19 @@ def test_common_money_back_paraphrase_cannot_bypass_protection(monkeypatch):
     assert diagnostics['mode'] == 'source_statements'
 
 
+def test_current_offer_replaces_stale_mixed_referral_and_cancellation_faq(monkeypatch):
+    knowledge = {'current_platform_offer': {'enabled': True, 'percent': 50,
+        'joining_setup_percent': 100, 'sponsor_setup_percent': 50,
+        'prices': [{'standard_monthly': '£30', 'referred_first_month': '£15', 'referred_setup': '£0'}]},
+        'faq:0': {'question': 'How do I cancel the referral discount?',
+                  'answer': 'The referral discount is 10%. Cancel renewal in subscription settings.'}}
+    answer, _, diagnostics, _ = run(monkeypatch, knowledge, sources=['faq:0'],
+        question='What referral discount applies, and how do I cancel?',
+        text=knowledge['faq:0']['answer'], ids=['faq:0:answer'])
+    assert '50%' in answer and '10%' not in answer
+    assert 'faq:0' not in diagnostics['source_ids']
+
+
 def test_enabled_capability_survives_large_unrelated_context(monkeypatch):
     knowledge = {f'website:{index}': {'text': 'Unrelated business history. ' * 100} for index in range(30)}
     knowledge['business'] = {'name': 'Studio'}
@@ -281,3 +296,84 @@ def test_enabled_capability_survives_large_unrelated_context(monkeypatch):
     supplied = json.loads(calls[0]['messages'][1]['content'])['knowledge']
     assert 'capability:request:callback' in supplied
     assert 'requires review' not in answer
+
+
+@pytest.mark.parametrize('topic,policy', [
+    ('cancel', 'Cancel renewal in subscription settings. Cancellation does not refund an existing payment.'),
+    ('returns', 'Items bought with a discount may be returned unused within 30 days. Custom items are excluded.'),
+])
+def test_mixed_promotion_preserves_unrelated_complete_policy(monkeypatch, topic, policy):
+    knowledge = {'current_platform_offer': {'enabled': True, 'percent': 50,
+        'joining_setup_percent': 100, 'sponsor_setup_percent': 50,
+        'prices': [{'standard_monthly': '£30', 'referred_first_month': '£15', 'referred_setup': '£0'}]},
+        'faq:' + topic: {'answer': policy}, 'faq:old_offer': {'answer': 'The referral discount is 10%.'}}
+    answer, _, diagnostics, _ = run(monkeypatch, knowledge,
+        question='What referral discount applies and what is the ' + topic + ' policy?',
+        text='Please see the published terms.', ids=['faq:' + topic + ':answer', 'faq:old_offer:answer'])
+    assert policy in answer and '50%' in answer and '10%' not in answer
+    assert 'faq:' + topic in diagnostics['source_ids']
+
+
+def test_mixed_comparison_answers_policy_first_and_preserves_numbering(monkeypatch):
+    knowledge = {'product:basic': {'name': 'Basic', 'price': 20, 'currency': 'GBP'},
+                 'product:pro': {'name': 'Pro', 'price': 35, 'currency': 'GBP'},
+                 'policy:returns': {'answer': RETURNS}}
+    answer, state, diagnostics, _ = run(monkeypatch, knowledge,
+        question='Compare Basic and Pro prices and explain the return policy.',
+        text='Here are the published prices and terms.', ids=['policy:returns:answer'],
+        agent=_state('policy', offerings=['product:pro', 'product:basic']),
+        context={'offering_ids': ['product:basic', 'product:pro']})
+    assert answer.startswith(RETURNS)
+    assert answer.index('1. Basic: £20.00') < answer.index('2. Pro: £35.00')
+    assert state['offering_ids'] == [] and state['suggested_replies'] == [] and state['stage'] == 'assist'
+    assert state['last_offering_ids'] == ['product:basic', 'product:pro']
+    assert set(diagnostics['source_ids']) == set(knowledge)
+
+
+def test_named_product_return_does_not_dump_unsolicited_catalogue(monkeypatch):
+    knowledge = {'product:tent': {'name': 'Tent', 'price': 79, 'currency': 'GBP'},
+                 'policy:returns': {'answer': RETURNS}}
+    answer, _, _, _ = run(monkeypatch, knowledge, question='Can I return Tent?',
+        text=RETURNS, ids=['policy:returns:answer'], agent=_state('policy', offerings=['product:tent']))
+    assert answer == RETURNS
+
+
+@pytest.mark.parametrize('question', ['What sizes does Tent have and is it in stock?',
+                                    '¿Qué tallas tiene Tent y hay disponibilidad?'])
+def test_requested_public_options_survive_stock_answer(monkeypatch, question):
+    knowledge = {'product:tent': {'name': 'Tent', 'price': 79, 'currency': 'GBP',
+        'in_stock': True, 'options': [
+            {'name': 'Size', 'value': 'Small'}, {'name': 'Size', 'value': 'Large, except custom fittings'},
+            {'name': 'Size', 'value': 'Secret prototype', 'public': False},
+            {'name': 'Size', 'value': 'Discontinued size', 'active': False}]}}
+    answer, _, diagnostics, _ = run(monkeypatch, knowledge, question=question,
+        intent='answer', text='See the catalogue details.')
+    assert 'Size: Small' in answer and 'Size: Large, except custom fittings' in answer
+    assert 'Secret prototype' not in answer and 'Discontinued size' not in answer
+    assert 'Product-level stock does not confirm availability of a specific variant' in answer
+    assert diagnostics['source_ids'] == ['product:tent']
+
+
+def test_large_option_list_is_bounded_without_truncating_values(monkeypatch):
+    options = [{'name': 'Colour', 'value': 'Shade ' + str(index)} for index in range(15)]
+    knowledge = {'product:tent': {'name': 'Tent', 'options': options}}
+    answer, _, _, _ = run(monkeypatch, knowledge, question='What colours does Tent have in stock?',
+                          intent='answer', text='See the catalogue options.')
+    assert answer.count('Colour: Shade ') == 8
+    assert 'Additional catalogue options are not listed here' in answer and 'Shade 8' not in answer
+
+
+def test_unrequested_options_are_not_dumped_with_price(monkeypatch):
+    knowledge = {'product:tent': {'name': 'Tent', 'price': 79, 'currency': 'GBP',
+        'options': [{'name': 'Colour', 'value': 'Purple'}]}}
+    answer, _, _, _ = run(monkeypatch, knowledge, question='I want to buy Tent.',
+                          intent='checkout', text='Tent costs £79.')
+    assert '£79.00' in answer and 'Purple' not in answer
+
+
+def test_policy_button_has_no_generic_repetitive_footer(monkeypatch):
+    answer, state, _, _ = run(monkeypatch, {'policy:returns': {'answer': RETURNS}},
+        question='Show the return policy.', text=RETURNS, ids=['policy:returns:answer'],
+        agent=_state('policy', action='open_destination'), navigation=['returns'],
+        destinations=[{'id': 'returns', 'label': 'Read return policy', 'url': 'https://shop.example/returns'}])
+    assert answer == RETURNS and state['navigation_ids'] == ['returns']

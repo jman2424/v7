@@ -21,7 +21,7 @@
   type ChannelAllowance={used:number;limit:number;paused:boolean;enforced?:boolean;measured_by?:string};
   type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;alerts:UsageAlert[]};
   type PlanState={selected_plan:string|null;active_plan:string|null;setup_plan:string|null;whatsapp_paused:boolean;checkout_pending:boolean;checkout_expires:number|null};
-  type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null};
+  type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null;management?:{can_change_plan:boolean;can_cancel:boolean}};
   type Company={key:string;name:string;contracts:Contract[];totals:{paid:number;due:number};plan_state?:PlanState|null;allowance?:Allowance|null};
   const dispatch=createEventDispatcher<{company:string;creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data:(Report&{referral_setup_percent?:number})|null=null;
@@ -138,6 +138,15 @@
     {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>{$t('Revoke complimentary Scale for {tenant}',{tenant})}</button>{/if}
     {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>{$t('Grant complimentary Scale to {tenant}',{tenant})}</button>{/if}
     {#if !canManageBilling}<p class="notice">{$t('Read-only access. Your business owner manages payments and subscriptions.')}</p>{/if}
+    {#if !data.internal && !data.complimentary}
+      <article class="panel" id="change-plan"><h2>{$t('Change plan or cancel')}</h2>
+        <p>{$t('Compare plans below. An active plan change opens Stripe for a final review before you confirm.')}</p>
+        {#if activePlan}<p>{$t('Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.')}</p>{/if}
+        {#if baseContract?.cancel_at_end}<p class="notice" role="status">{$t('Cancellation scheduled for {date}.',{date:date(baseContract.next_due)})}</p>
+        {:else if data.management?.can_cancel}<p>{$t('Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.')}</p><button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('cancel-subscription',{})}>{$t('Cancel subscription')}</button>{/if}
+        {#if legacyBilling}<p>{$t('Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.')}</p><p>{$t('Separate WhatsApp subscriptions have their own cancellation controls below.')}</p>{/if}
+      </article>
+    {/if}
     {#if !data.configured && !data.internal && !data.complimentary}<p class="notice">{$t('Stripe payments are not connected yet.')} {$t(isPlatform?(data.vat_percent ? 'Configure the Stripe API key, webhook signing secret and exclusive 20% VAT tax rate on the server.' : 'Configure the Stripe live API key and matching webhook signing secret on the server. No VAT tax rate is required while unregistered.'):'Your platform administrator needs to connect payments.')} {$t('No payment has been taken.')}</p>{/if}
     {#if data.internal}<p class="notice">{$t('Internal website agent. This platform-owned workspace does not need a customer subscription.')}</p>{/if}
     {#if canManageBilling && !data.internal && !data.complimentary}
@@ -153,15 +162,15 @@
             {#if reviewPlan?.id===plan.id}<p class="plan-badge">{$t('Review {plan}',{plan:plan.name})}</p>{/if}
             <strong class="price"><bdi>{money(discounted(plan.monthly_pence))}</bdi><small>{$t(data?.vat_percent ? 'per month before VAT' : 'per month')}</small></strong>
             <p class="tax-total">{$t(data?.vat_percent ? '{price} / month including {percent}% VAT' : '{price} / month — no VAT charged',{price:money(totalWithVat(plan.monthly_pence)),percent:count(data.vat_percent)})}</p>
-            <p class="setup-price">{$t(data?.vat_percent ? '{price} one-time setup before VAT' : '{price} one-time setup',{price:money(setupDiscounted(plan.setup_pence))})}<small class="tax-total">{$t(data?.vat_percent ? '{price} setup including {percent}% VAT' : '{price} setup — no VAT charged',{price:money(setupTotal(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>
+            {#if activePlan && implementationPaid}<p class="setup-price">{$t('Setup paid.')}</p>{:else}<p class="setup-price">{$t(data?.vat_percent ? '{price} one-time setup before VAT' : '{price} one-time setup',{price:money(setupDiscounted(plan.setup_pence))})}<small class="tax-total">{$t(data?.vat_percent ? '{price} setup including {percent}% VAT' : '{price} setup — no VAT charged',{price:money(setupTotal(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>{/if}
             <ul class="plan-features"><li>{$t('Website and WhatsApp agents')}</li><li>{$t('No fixed message or conversation cap')}</li><li>{$t('AI processing paid separately with prepaid usage credit')}</li><li>{$t('{count} locations / service areas',{count:count(plan.locations)})}</li><li>{$t('{count} staff accounts, plus the owner',{count:count(plan.staff)})}</li><li>{$t('{analytics} analytics · {access} API access',{analytics:$t(plan.analytics),access:$t(plan.api_access)})}</li><li>{$t('{support} onboarding support',{support:$t(plan.onboarding)})}</li></ul>
-            <button disabled={!canManageBilling||busy||planLocked||checkoutPending||selectedPlan?.id===plan.id} on:click={()=>action('select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?$t('Current subscription'):selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>
+            <button disabled={!canManageBilling||busy||checkoutPending||selectedPlan?.id===plan.id||(activePlan?!data.management?.can_change_plan:planLocked)} on:click={()=>action(activePlan?'change-plan':'select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?$t('Current subscription'):activePlan?$t('Review {plan}',{plan:plan.name}):selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>
           </article>
         {/each}
       </div>
       <p class="notice">{$t('WhatsApp phone numbers are not included. Bring a suitable business number or obtain one from a provider. Number rental and Meta/provider messaging charges are paid separately and are not covered by V7 usage credit.')}</p>
       <p>{$t('Analytics and API labels describe plan service levels. Access to business data and tools still follows your account permissions.')}</p>
-      {#if planLocked}<p class="notice">{$t('Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.')}</p>{/if}
+      {#if planLocked && !data.management?.can_change_plan}<p class="notice">{$t('Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.')}</p>{/if}
       {#if checkoutPending}
         <div class="notice"><p>{$t('An unpaid checkout is open for {plan}. Continue with this plan below.',{plan:selectedPlan?.name||$t('your selected plan')})}{#if !planLocked} {$t('Cancel the pending checkout before choosing another plan.')}{/if}{#if data.plan_state?.checkout_expires} {$t('It expires {date} (UTC).',{date:dateTime(data.plan_state.checkout_expires)})}{/if}</p>{#if canManageBilling}<button disabled={busy||!data.configured} on:click={()=>action('cancel-checkout',{})}>{$t('Cancel pending checkout')}</button>{/if}</div>
       {/if}

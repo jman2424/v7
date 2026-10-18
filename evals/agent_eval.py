@@ -120,7 +120,7 @@ def _runtime_hashes():
     paths = ('service/grounded_conversation.py', 'service/grounded_statements.py',
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
-             'service/model_settings.py', 'service/openai_completion.py', 'service/api_usage.py',
+             'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
              'service/usage_pricing.py', 'evals/agent_eval.py', 'evals/scenarios.py')
     return {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths}
 

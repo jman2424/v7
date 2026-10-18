@@ -23,6 +23,15 @@ _PROCESS = re.compile(
 _INTENTS = {'policy', 'cancel', 'complaint', 'book', 'quote', 'checkout', 'handoff'}
 _FORMS = {'consultation': 'consultation', 'quote': 'quote', 'callback': 'callback'}
 _OFFER = re.compile(r'\b(?:referr?al|refer|referred|discount|promotion|parrainage|invitar)\b|إحالة', re.I)
+_PRODUCT_DETAILS = re.compile(
+    r'\b(?:recommend\w*|compar\w*|differences?|features?|prices?|costs?|how much)\b', re.I,
+)
+_OPTION_DETAILS = re.compile(
+    r'\b(?:options?|variants?|sizes?|colou?rs?|materials?|dimensions?|measurements?|'
+    r'tallas?|colores?|materiales?|opciones?|tailles?|couleurs?|variantes?)\b|'
+    r'مقاسات|ألوان|الوان|خيارات|خامة|أبعاد|ابعاد', re.I,
+)
+_SUPPORT_TOPIC = re.compile(r'\b(?:returns?|refunds?|cancel\w*|complain\w*|warrant\w*|exchang\w*)\b', re.I)
 
 
 def request_facts(allowed_actions):
@@ -89,7 +98,58 @@ def protected_request(question, payload, statements):
                    for row in statements.values()))
 
 
-def _offering_summary(row, *, product=False, budget=None):
+def _option_summary(row, question):
+    """Show requested catalogue attributes without inferring variant inventory."""
+    options = row.get('options')
+    if not isinstance(options, list):
+        return ''
+    asked = bool(_OPTION_DETAILS.search(question))
+    parts = []
+    for option in options[:20]:
+        if not isinstance(option, dict) or option.get('public') is False or option.get('active') is False:
+            continue
+        name, value = option.get('name'), option.get('value')
+        if (not isinstance(name, str) or not 0 < len(name.strip()) <= 80
+                or not isinstance(value, str) or not 0 < len(value.strip()) <= 160):
+            continue
+        if not asked and not re.search(r'(?<!\w)' + re.escape(name.strip()) + r'(?!\w)', question, re.I):
+            continue
+        part = name.strip() + ': ' + value.strip()
+        if part not in parts:
+            parts.append(part)
+    if not parts:
+        return ''
+    shown = []
+    for part in parts:
+        if len(shown) >= 8 or len('; '.join(shown + [part])) > 900:
+            break
+        shown.append(part)
+    suffix = '. Additional catalogue options are not listed here' if len(shown) < len(parts) else ''
+    return '. Catalogue options — ' + '; '.join(shown) + suffix
+
+
+def _mixed_product_request(question, cited, knowledge):
+    if not (_PRODUCT_DETAILS.search(question) or _OPTION_DETAILS.search(question)):
+        return False
+    for key in cited:
+        row = knowledge.get(key)
+        name = row.get('name') if isinstance(row, dict) else None
+        if (key.startswith(('product:', 'offering:')) and isinstance(name, str) and name.strip()
+                and re.search(r'(?<!\w)' + re.escape(name.strip()) + r'(?!\w)', question, re.I)):
+            return True
+    return False
+
+
+def _promotion_unit(key, statements, knowledge):
+    row = knowledge.get(statements[key]['source_id'])
+    topic = key.replace('_', ' ')
+    if isinstance(row, dict) and isinstance(row.get('question'), str):
+        topic += ' ' + row['question']
+    return bool(_OFFER.search(statements[key]['text'])) and (
+        bool(_OFFER.search(topic)) or not _SUPPORT_TOPIC.search(topic))
+
+
+def _offering_summary(row, *, product=False, budget=None, question=''):
     name = row.get('name')
     if not isinstance(name, str) or not name.strip() or len(name) > 180:
         return ''
@@ -120,6 +180,7 @@ def _offering_summary(row, *, product=False, budget=None):
     description = row.get('description')
     if isinstance(description, str) and 0 < len(description.strip()) <= 1000:
         line += '. ' + description.strip().rstrip('. ')
+    line += _option_summary(row, question)
     if row.get('type') == 'subscription':
         line += '. Billing interval and renewal terms need confirmation from the team'
     if not (product or row.get('type') == 'product'
@@ -160,16 +221,18 @@ def render_response(question, payload, state, knowledge, statements, navigation,
     offer_id = 'current_platform_offer:terms'
     if offer_id in statements and ('current_platform_offer' in cited
             or _OFFER.search(question + ' ' + payload.get('answer', ''))):
-        selected = [offer_id] + [key for key in selected
-                                if not key.startswith(('faq:', 'matched_faq:')) and key != offer_id][:2]
+        selected = [offer_id] + [key for key in selected if key != offer_id
+                                and not (key.startswith(('faq:', 'matched_faq:'))
+                                         and _promotion_unit(key, statements, knowledge))][:2]
     selected = list(dict.fromkeys(selected))
     if requested_action in _FORMS:
         # The action line below comes from the enabled channel capability.
         # Avoid repeating overlapping capability explanations selected by the model.
         selected = [key for key in selected if not statements[key]['source_id'].startswith('capability:')]
     lines, sources = [], []
+    offering_lines, offering_sources = [], []
     support = state.get('intent') in {'policy', 'cancel', 'complaint'} or payload['kind'] == 'refusal'
-    if not support:
+    if not support or (payload['kind'] != 'refusal' and _mixed_product_request(question, cited, knowledge)):
         from service.grounded_money import unqualified_customer_budget
         budget = unqualified_customer_budget(state.get('requirements'))
         offerings = state.get('offering_ids', [])
@@ -180,21 +243,29 @@ def render_response(question, payload, state, knowledge, statements, navigation,
         ordered += [key for key in offerings if key not in ordered]
         if any(key not in reference for key in ordered):
             reference = ordered
-        state['offering_ids'] = ordered
+        if not support:
+            state['offering_ids'] = ordered
         state['last_offering_ids'] = list(reference)
         for key in ordered:
             if key not in cited or key not in knowledge:
                 continue
             row = knowledge[key]
-            text = _offering_summary(row, product=key.startswith('product:'), budget=budget) if isinstance(row, dict) else ''
+            text = _offering_summary(row, product=key.startswith('product:'), budget=budget,
+                                     question=question) if isinstance(row, dict) else ''
             if text:
-                lines.append((f'{reference.index(key) + 1}. ' if len(ordered) > 1 else '') + text)
-                sources.append(key)
+                offering_lines.append((f'{reference.index(key) + 1}. ' if len(ordered) > 1 else '') + text)
+                offering_sources.append(key)
     for key in selected:
         row = statements[key]
         if row['text'] not in lines:
             lines.append(row['text'])
             sources.append(row['source_id'])
+    if support:
+        lines += offering_lines
+        sources += offering_sources
+    else:
+        lines = offering_lines + lines
+        sources = offering_sources + sources
     if requested_action in _FORMS:
         source = f'capability:request:{requested_action}'
         text = f'Open the {_FORMS[requested_action]} request form to continue.'
@@ -204,8 +275,6 @@ def render_response(question, payload, state, knowledge, statements, navigation,
     if not lines:
         lines.append('I cannot perform transactions or provide private information.' if payload['kind'] == 'refusal'
                      else 'That detail is not established in the available business policy. Please ask the team to confirm.')
-    if navigation:
-        lines.append('Use the available button to continue.')
     text = '\n\n'.join(lines)
     if len(text) > 4000:
         raise ValueError('statement_response_too_long')

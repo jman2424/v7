@@ -94,7 +94,7 @@
   <div class="content" aria-busy={busy}>
     <div class="content-heading">
       <div><h2>{view === 'messages' ? 'Recent messages' : view === 'leads' ? 'Latest leads' : 'Common questions'}</h2>
-        <p class="hint">{view === 'messages' ? 'Customer and agent messages in the selected period.' : view === 'leads' ? 'The most recent 50 leads across all dates. Manage follow-ups in Sales pipeline.' : 'The most frequent recorded questions in the selected period.'}</p></div>
+        <p class="hint">{view === 'messages' ? 'Messages and reported website button clicks in the selected period. A click does not confirm a purchase, booking or completed page visit.' : view === 'leads' ? 'The most recent 50 leads across all dates. Manage follow-ups in Sales pipeline.' : 'The most frequent recorded questions in the selected period.'}</p></div>
       {#if !busy && !error}<span class="result-count">{view === 'messages' ? `${messages.length} loaded` : view === 'leads' ? `${leads.length} leads` : `${questions.length} questions`}</span>{/if}
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -102,8 +102,8 @@
     {#if !busy || (view === 'messages' && messages.length)}
     {#if !error && view === 'messages'}
       {#each messages as message (message.id)}
-        <article class="message" class:agent={message.event_type !== 'msg_in'}>
-          <div class="message-meta"><strong>{message.event_type === 'msg_in' ? 'Customer' : 'Agent'}</strong><span>{message.channel}</span><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div>
+        <article class="message" class:agent={message.event_type === 'msg_out'} class:activity={message.event_type === 'navigation_click'}>
+          <div class="message-meta"><strong>{message.event_type === 'navigation_click' ? 'Customer clicked a button' : message.event_type === 'msg_in' ? 'Customer' : 'Agent'}</strong><span>{message.channel}</span><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div>
           <p>{message.text}</p>
         </article>
       {:else}<div class="empty"><strong>No messages recorded</strong><p>Try a longer time period to find earlier customer conversations.</p></div>{/each}

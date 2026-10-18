@@ -42,3 +42,8 @@ Rates were checked on 23 September 2026 against the
 
 Checks: `pytest tests/test_model_settings.py tests/test_api_usage.py -o addopts='' -q`,
 plus `npm --prefix frontend run check` and `npm --prefix frontend run build`.
+
+The API usage section also includes [conversation memory controls](conversation-memory-and-navigation.md).
+Owners can set the current conversation's transcript budget and expiry, disable
+recall or clear active context. Its transcript-only cost estimate is separate
+from the complete request and the actual usage ledger.

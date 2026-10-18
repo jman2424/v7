@@ -232,7 +232,7 @@
   };
   const add = (text, from) => {
     const row = document.createElement("div");
-    row.className = from === "me" ? "msg msg--me" : "msg";
+    row.className = from === "me" ? "msg msg--me" : from === "activity" ? "msg msg--activity" : "msg";
     const bubble = document.createElement("div");
     bubble.className = "msg__bubble";
     const content = document.createElement("span");
@@ -425,6 +425,7 @@
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", "Suggested next steps");
     names.forEach(action => group.append(makeActionButton(action)));
+    const conversationToken = token;
     links.forEach(item => {
       try {
         const url = new URL(item.url);
@@ -435,6 +436,27 @@
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         link.className = 'widget__navigation';
+        let clicked = false, tracked = false, pending = false;
+        link.addEventListener('click', () => {
+          if (!clicked) {
+            clicked = true;
+            link.textContent = item.label.slice(0, 80) + ' · Clicked';
+            link.setAttribute('aria-label', item.label.slice(0, 80) + ' — Clicked');
+            link.classList.toggle('widget__navigation--clicked', true);
+            add('You clicked: ' + item.label.slice(0, 80), 'activity');
+          }
+          if (tracked || pending || typeof item.click_token !== 'string' || !conversationToken || !config.navigationClickEndpoint) return;
+          pending = true;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 8000);
+          fetch(config.navigationClickEndpoint, {
+            method: 'POST', credentials: 'same-origin', keepalive: true, signal: controller.signal,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({tenant: config.tenant, conversation_token: conversationToken, click_token: item.click_token})
+          }).then(response => { tracked = response.ok; }).catch(() => {
+            // Failed activity reporting must not block native navigation.
+          }).finally(() => { clearTimeout(timer); pending = false; });
+        });
         group.append(link);
       } catch (_) { /* Invalid navigation must not interrupt a chat reply. */ }
     });

@@ -3,6 +3,7 @@ from service.session_store import postgres_connection
 
 
 _TABLES = {
+    'conversation_memory', 'billing_plan_changes',
     'referral_program','referral_codes','referral_claims','referral_rewards',
     'tenants', 'business_documents', 'document_versions', 'operator_accounts',
     'crm_records', 'audit_records', 'migration_runs', 'schema_version', 'events',

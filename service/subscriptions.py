@@ -162,7 +162,9 @@ def select_plan(tenant, plan_id):
                 raise ValueError('existing_subscription_requires_review')
             return dict(state)
         if state and state['setup_plan'] and state['setup_plan'] != plan_id:
-            raise ValueError('paid_setup_plan_requires_review')
+            from service.billing_management import paid_setup_covers
+            if not paid_setup_covers(tenant, plan_id, state['setup_plan'], db=db):
+                raise ValueError('paid_setup_plan_requires_review')
         if row and row['implementation_paid'] and not state:
             raise ValueError('existing_setup_requires_review')
         # Different setup/monthly checkout generations must never be sold for
@@ -494,17 +496,23 @@ def sync_subscription(subscription_id):
     if not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant):
         raise ValueError('unknown_billing_reference')
     with connection(tenant) as db:
+        from service.billing_management import locked_subscription
+        data = locked_subscription(db, tenant, subscription_id, data)
+        metadata = data.get('metadata') or {}
         row = db.execute('SELECT tenant,kind FROM billing_references WHERE ref=?', (metadata.get('billing_ref',''),)).fetchone()
         if not row or row['tenant'] != metadata.get('tenant') or row['kind'] != metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
         plan = _confirmed_plan(db, metadata, row)
+        if plan and row['kind'] == 'platform':
+            from service.billing_management import confirmed_plan
+            plan = confirmed_plan(db, tenant, metadata['billing_ref'], subscription_id, data, plan)
         periods = [item.get('current_period_end') for item in data.get('items',{}).get('data',[]) if item.get('current_period_end')]
         db.execute('UPDATE billing_contracts SET subscription=?,customer=?,status=?,next_due=?,cancel_at_end=? WHERE ref=?',
                    (subscription_id,data.get('customer'),data.get('status','unknown'),min(periods) if periods else None,int(bool(data.get('cancel_at_period_end'))),metadata['billing_ref']))
         if plan and row['kind'] == 'platform':
             current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
             if current and current['ref'] == metadata['billing_ref']:
-                db.execute('UPDATE billing_plan_state SET active_plan=? WHERE tenant=?', (plan['id'],tenant))
+                db.execute('UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant=?', (plan['id'],plan['id'],tenant))
     return {**dict(row),'billing_ref':metadata['billing_ref']}
 
 
@@ -683,6 +691,7 @@ def report(tenant, include_api=True):
     from service import plan_usage
     state = plan_state(tenant)
     from service import referrals
+    from service.billing_management import summary as management_summary
     return {'tenant':tenant,'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
             'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
-            'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'allowance':plan_usage.report(tenant, include_costs=include_api)}
+            'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'management':management_summary(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

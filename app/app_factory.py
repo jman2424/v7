@@ -43,6 +43,7 @@ def _wants_json_response() -> bool:
         "/chat_api",
         "/chat/actions",
         "/chat/transcribe",
+        "/chat/navigation-click",
         "/chat_ui",
         "/webchat",
         "/whatsapp",

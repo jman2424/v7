@@ -19,6 +19,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
 from handlers.handler_v5 import MessageHandlerV5
@@ -173,7 +174,14 @@ class MessageHandler:
     # ---------------------------------------------------------
     # MAIN ENTRYPOINT
     # ---------------------------------------------------------
-    def handle(
+    def handle(self, user_text: str, *, tenant: str, session_id: str, channel: str = 'web',
+               metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        turn = getattr(self.memory, 'turn', None)
+        with turn(session_id) if turn else nullcontext():
+            return self._handle_turn(user_text, tenant=tenant, session_id=session_id,
+                                     channel=channel, metadata=metadata)
+
+    def _handle_turn(
         self,
         user_text: str,
         *,
@@ -255,11 +263,13 @@ class MessageHandler:
 
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
-        from service.grounded_conversation import history_rows
-        history = history_rows(sess.get('conversation_history'))
-        history.extend([{'role': 'user', 'content': user_text[:1200]},
-                        {'role': 'assistant', 'content': str(reply.get('reply') or '')[:1200]}])
-        self.memory.set(ctx.session_id, 'conversation_history', history[-6:], DEFAULT_SESSION_TTL)
+        from service.conversation_memory import bounded_history
+        config = sess.get('_memory_settings')
+        history = list(sess.get('conversation_history') or [])
+        history.extend([{'role': 'user', 'content': user_text[:4000]},
+                        {'role': 'assistant', 'content': str(reply.get('reply') or '')[:4000]}])
+        ttl = config['retention_minutes'] * 60 if config else DEFAULT_SESSION_TTL
+        self.memory.set(ctx.session_id, 'conversation_history', bounded_history(history, config), ttl)
         self._save_session(ctx, sess, reply)
         self._log_crm(ctx, user_text, reply)
 
@@ -399,6 +409,7 @@ class MessageHandler:
     # ---------------------------------------------------------
     def _load_session(self, ctx: MessageContext) -> Dict[str, Any]:
         return {
+            '_memory_settings': self.memory.configuration() if hasattr(self.memory, 'configuration') else None,
             "conversation_history": self.memory.get(ctx.session_id, "conversation_history"),
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),
@@ -413,7 +424,8 @@ class MessageHandler:
         }
 
     def _save_session(self, ctx: MessageContext, sess: Dict[str, Any], reply: Dict[str, Any]) -> None:
-        ttl = DEFAULT_SESSION_TTL
+        config = sess.get('_memory_settings')
+        ttl = config['retention_minutes'] * 60 if config else DEFAULT_SESSION_TTL
         entities = reply.get("entities") or {}
         facts = reply.get("facts") or {}
         items = facts.get("items") or []

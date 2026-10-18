@@ -139,3 +139,9 @@ Run:
 ```powershell
 python -m pytest tests/test_grounded_conversation.py tests/test_sales_agent.py tests/test_website_destinations.py
 ```
+
+See [conversation memory and navigation activity](conversation-memory-and-navigation.md)
+for durable per-conversation recall, owner cost controls and reported button clicks.
+Requirement quotes tolerate casing differences only and retain the customer's
+actual substring; altered amounts, paraphrases and assistant-only evidence remain
+invalid. A retired requirement cannot return just by changing its casing.

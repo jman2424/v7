@@ -19,7 +19,7 @@ from service.rate_limit import RateLimiter
 from service.speech_transcription import SpeechTranscriptionError, transcribe_audio
 
 # DB-backed analytics (same DB used by dashboard)
-from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
+from service.analytics_db import log_error, log_message, log_navigation_click, set_lead_session, upsert_lead
 
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
@@ -291,7 +291,8 @@ def _public_agent_payload(result: Dict[str, Any]) -> Dict[str, list[str]]:
     return {"suggested_replies": suggestions} if suggestions else {}
 
 
-def _public_action_payload(result: Dict[str, Any]) -> list[dict[str, str]]:
+def _public_action_payload(result: Dict[str, Any], *, tenant: str = "", session_id: str = "",
+                           message_id: str = "") -> list[dict[str, str]]:
     actions = result.get("actions")
     if not isinstance(actions, list):
         return []
@@ -305,7 +306,13 @@ def _public_action_payload(result: Dict[str, Any]) -> list[dict[str, str]]:
                 row = validate([{'id': 'navigation', 'label': action.get('label'), 'url': action.get('url')}])[0]
             except ValueError:
                 continue
-            selected.append({'type': 'navigate', 'label': row['label'], 'url': row['url']})
+            public = {'type': 'navigate', 'label': row['label'], 'url': row['url']}
+            if tenant and session_id and message_id:
+                public['click_token'] = _navigation_signer().dumps({
+                    'tenant': tenant, 'session_id': session_id, 'label': row['label'], 'url': row['url'],
+                    'event_id': f'{message_id}:navigation:{len(selected)}',
+                })
+            selected.append(public)
             continue
         if action_type in labels and not any(item["type"] == action_type for item in selected):
             selected.append({"type": action_type, "label": labels[action_type]})
@@ -381,6 +388,55 @@ def _signer():
 
 def _transcription_signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="web-transcription-v1")
+
+
+def _navigation_signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="web-navigation-click-v1")
+
+
+@bp.route("/chat/navigation-click", methods=["POST", "OPTIONS"])
+def navigation_click():
+    """Record a browser-reported click on an issued button, without an AI call."""
+    data = request.get_json(silent=True) if request.method == "POST" else request.args
+    if not isinstance(data, dict) and request.method == "POST":
+        return jsonify(error="json_object_required"), 400
+    tenant = data.get("tenant") or get_container().settings.BUSINESS_KEY
+    if not isinstance(tenant, str):
+        return jsonify(error="invalid_tenant"), 400
+    c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
+    _check_origin(c)
+    if request.method == "OPTIONS":
+        return _cors(make_response("", 204))
+    token, proof = data.get("conversation_token"), data.get("click_token")
+    if not isinstance(token, str) or not token or len(token) > 2048:
+        return _cors(jsonify(error="invalid_conversation")), 403
+    if not isinstance(proof, str) or not proof or len(proof) > 8192:
+        return _cors(jsonify(error="invalid_navigation_click")), 403
+    try:
+        identity = _signer().loads(token, max_age=86400)
+        issued = _navigation_signer().loads(proof, max_age=86400)
+    except (BadSignature, SignatureExpired):
+        return _cors(jsonify(error="navigation_click_expired")), 403
+    if (not isinstance(identity, dict) or not isinstance(issued, dict)
+            or identity.get("tenant") != tenant or issued.get("tenant") != tenant
+            or not isinstance(identity.get("id"), str)
+            or issued.get("session_id") != identity["id"]
+            or not isinstance(issued.get("event_id"), str)
+            or not 1 <= len(issued["event_id"]) <= 300):
+        return _cors(jsonify(error="invalid_navigation_click")), 403
+    from service.website_destinations import validate
+    try:
+        destination = validate([{'id': 'clicked', 'label': issued.get('label'), 'url': issued.get('url')}])[0]
+    except ValueError:
+        return _cors(jsonify(error="invalid_navigation_click")), 403
+    try:
+        log_navigation_click(tenant=tenant, session_id=identity["id"], label=destination["label"],
+                             url=destination["url"], event_id=issued["event_id"])
+    except Exception:
+        logger.warning("WEB: navigation click storage unavailable")
+        return _cors(jsonify(error="click_tracking_unavailable")), 503
+    return _cors(jsonify(ok=True))
 
 
 # ---------------------------------------------------------------------
@@ -769,4 +825,5 @@ def chat_api():
 
     return _cors(jsonify(reply=reply, conversation_token=token, session_id=session_id,
                          error=error_code or None, agent=_public_agent_payload(result),
-                         actions=_public_action_payload(result))), 503 if is_error else 200
+                         actions=_public_action_payload(result, tenant=tenant, session_id=session_id,
+                                                        message_id=out_message_id))), 503 if is_error else 200

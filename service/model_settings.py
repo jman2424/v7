@@ -55,7 +55,7 @@ def document(storage, tenant):
     except FileNotFoundError:
         return {}
     if (not isinstance(value,dict) or ('model' in value and value['model'] not in MODELS)
-            or ('model' not in value and 'parameters' not in value)):
+            or ('model' not in value and 'parameters' not in value and 'memory' not in value)):
         raise ValueError('invalid_model_configuration')
     validated_parameters(value.get('parameters', {}))
     return value

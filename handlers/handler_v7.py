@@ -946,6 +946,7 @@ class MessageHandlerV7:
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected,
                       allowed_actions=allowed_actions,
+                      memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)

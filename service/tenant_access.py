@@ -100,7 +100,8 @@ def activation(tenant):
     from service.subscriptions import plan_state
     state = plan_state(tenant)
     if state:
-        active = active and bool(state['active_plan'] and state['setup_plan'] == state['active_plan'])
+        from service.billing_management import paid_setup_covers
+        active = active and paid_setup_covers(tenant, state['active_plan'], state['setup_plan'])
     return {'active': active, 'status': 'active' if active else 'awaiting_payments'}
 
 

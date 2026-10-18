@@ -105,7 +105,8 @@ class Container:
         # ---------- Services ----------
         self.analytics = AnalyticsService(self.settings)
         self.crm = CRMService()
-        self.memory = Memory()
+        from service.conversation_memory import ConversationMemory
+        self.memory = ConversationMemory(self.storage, self.settings.BUSINESS_KEY)
         self.rewriter = Rewriter()
         self.sales = SalesFlows(self.catalog)
 

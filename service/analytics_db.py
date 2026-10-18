@@ -453,6 +453,13 @@ def log_message(
     )
 
 
+def log_navigation_click(*, tenant: str, session_id: str, label: str, url: str, event_id: str) -> None:
+    """A deduplicated reported link click; it is never a message or a conversion."""
+    _insert_event(tenant=tenant, channel="web", session_id=session_id, event_type="navigation_click",
+                  text=f'Clicked website button: {label}', message_id=event_id,
+                  meta_json=json.dumps({'label': label, 'url': url}, ensure_ascii=False))
+
+
 def log_error(
     *,
     tenant: str,

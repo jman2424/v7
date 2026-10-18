@@ -1264,7 +1264,7 @@ def api_conversations():
                 rows = cursor.execute(
                     "WITH tenant_messages AS ("
                     "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
-                    "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out')) "
+                    "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out','navigation_click')) "
                     "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
                     "WHERE id<%s AND ts_utc>=%s ORDER BY id DESC LIMIT 51",
                     (tenant, before, since),
@@ -1275,7 +1275,7 @@ def api_conversations():
         rows = db.execute(
             "WITH tenant_messages AS ("
             "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
-            "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out')) "
+            "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out','navigation_click')) "
             "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
             "WHERE id<? AND ts_utc>=? ORDER BY id DESC LIMIT 51", (tenant, before, since)
         ).fetchall()

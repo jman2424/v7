@@ -37,6 +37,46 @@ def parameters_get():
     return jsonify(model_settings.parameter_status(storage, tenant))
 
 
+@bp.get('/memory')
+def memory_get():
+    from service.conversation_memory import status
+    _, tenant, storage = identity(write=False)
+    return jsonify(status(storage, tenant))
+
+
+@bp.route('/memory', methods=['PUT', 'DELETE'])
+def memory_save():
+    from service.conversation_memory import status, validated
+    user, tenant, storage = identity()
+    data = body({'settings', 'revision'})
+    if not isinstance(data.get('revision'), str):
+        abort(400, description='invalid_memory_revision')
+    clearing = request.method == 'DELETE'
+    try:
+        config = None if clearing else validated(data.get('settings'))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    with storage.write_lock(tenant):
+        before = model_settings.document(storage, tenant)
+        if model_settings.revision(before) != data['revision']:
+            abort(409, description='Memory settings changed. Reload before saving.')
+        after = dict(before)
+        if config is not None:
+            after['memory'] = config
+        if clearing or (config is not None and not config['enabled']):
+            after['memory_generation'] = secrets.token_hex(16)
+        if clearing and not any(key in after for key in ('model', 'parameters', 'memory')):
+            after['memory'] = validated({})
+        entry = dict(user=user['id'], role=user['roles'][0], ip=request.remote_addr or '',
+                     action='ai_memory.clear' if clearing else 'ai_memory.settings', target=tenant,
+                     before=before.get('memory', {}), after=after.get('memory', {}))
+        audit = AuditService()
+        audit.record(**entry, extra={'result': 'prepared', 'source': 'API'})
+        storage._write_json(tenant, model_settings.FILENAME, after)
+    audit.record(**entry, extra={'result': 'success', 'source': 'API'})
+    return jsonify(status(storage, tenant, after))
+
+
 @bp.get('')
 def model_get():
     user, tenant, storage = identity(write=False, require_activation=False)
