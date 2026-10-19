@@ -11,6 +11,7 @@
   const localTime = value => new Date(value).toLocaleString(undefined, {dateStyle:'medium',timeStyle:'short'});
   let booking, busy = false;
   const errors = {invalid_receipt:'This booking link is invalid or expired. Contact the business.',
+    management_unavailable:'Self-service changes are currently disabled. Contact the business.',
     slot_unavailable:'That time is no longer available. Reload your booking before choosing another time.',
     booking_changed:'Your appointment changed elsewhere. Reload before making another change.',
     booking_started:'This appointment has already started. Contact the business.',

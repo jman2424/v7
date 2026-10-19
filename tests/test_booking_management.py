@@ -6,13 +6,13 @@ from threading import Barrier
 
 import pytest
 
-from service.conversion_actions import ActionError, submit_action, public_availability
+from service.conversion_actions import ActionError, submit_action, public_availability, validate_actions_config
 from service.booking_management import manage_booking
 from tests.test_widget_tenancy import _add_tenant
 
 
 def settings():
-    return {'consultation': {'enabled': True, 'slots': [
+    return {'consultation': {'enabled': True, 'manage_bookings': True, 'slots': [
         {'id': name, 'label': 'Review '+name,
          'start_at': (datetime.now(timezone.utc)+timedelta(days=day)).isoformat()}
         for day, name in enumerate(['first', 'second', 'third'], start=2)]},
@@ -147,6 +147,52 @@ def test_real_browser_requires_csrf_even_with_a_valid_booking_receipt(app):
     assert browser.post('/chat/booking', json=body, headers={'X-CSRF-Token':csrf}).status_code == 200
     assert browser.get('/static/js/booking.js').status_code == 200
     assert browser.get('/static/css/booking.css').status_code == 200
+
+
+def test_legacy_settings_do_not_issue_management_receipts(app, client):
+    config = settings()
+    del config['consultation']['manage_bookings']
+    app.container.storage.write_json('EXAMPLE', 'sales_actions.json', config)
+    chat = client.post('/chat_api', json={'tenant':'EXAMPLE', 'message':'hello'}).json
+    result = client.post('/chat/actions', json={'tenant':'EXAMPLE',
+        'conversation_token':chat['conversation_token'], 'action':'consultation',
+        'slot_id':'first', 'consent':True, 'name':'Synthetic', 'contact':'synthetic@example.test',
+        'idempotency_key':'legacy-config'})
+    assert result.status_code == 200 and result.json['status'] == 'confirmed'
+    assert 'receipt_token' not in result.json
+
+
+@pytest.mark.parametrize('operation', ['cancel', 'reschedule'])
+def test_owner_can_disable_existing_receipt_mutations(app, client, operation):
+    from routes.conversion_routes import _receipt_signer
+    from service.booking_management import receipt_claims
+    storage, config = app.container.storage, settings()
+    storage.write_json('EXAMPLE', 'sales_actions.json', config)
+    reference = book(storage, 'EXAMPLE')['reference']
+    with app.app_context():
+        receipt = _receipt_signer().dumps(receipt_claims('EXAMPLE', reference))
+    config['consultation']['manage_bookings'] = False
+    storage.write_json('EXAMPLE', 'sales_actions.json', config)
+    result = client.post('/chat/booking', json={'tenant':'EXAMPLE', 'receipt_token':receipt,
+        'operation':operation, 'confirm':True, 'expected_slot_id':'first', 'slot_id':'second'})
+    assert result.status_code == 409 and result.json['error'] == 'management_unavailable'
+    assert manage_booking(storage, 'EXAMPLE', reference, 'view')['slot_id'] == 'first'
+
+
+@pytest.mark.parametrize('value', ['true', 1, None, {}])
+def test_management_permission_requires_explicit_boolean(value):
+    config = settings()
+    config['consultation']['manage_bookings'] = value
+    with pytest.raises(ValueError, match='management setting'):
+        validate_actions_config(config)
+
+
+def test_native_management_capability_requires_owner_opt_in_and_channel_action():
+    from service.grounded_statements import request_facts
+    capability = 'capability:native_booking_management'
+    assert capability not in request_facts(['consultation'])
+    assert capability not in request_facts([], native_booking_management=True)
+    assert capability in request_facts(['consultation'], native_booking_management=True)
 
 
 @pytest.mark.parametrize('operation', ['view', 'cancel', 'reschedule'])

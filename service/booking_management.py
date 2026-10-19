@@ -60,11 +60,13 @@ def manage_booking(storage, tenant, reference, operation, *, slot_id=None, expec
                 return result  # Safe retry after a successful change.
             if expected_slot_id != result['slot_id']:
                 raise ActionError('booking_changed', 409)
+            config = load_actions(storage, tenant)['consultation']
+            if not config.get('manage_bookings', False):
+                raise ActionError('management_unavailable', 409)
             if operation == 'cancel':
                 db.execute(f'UPDATE {table} SET status={p},slot_id=NULL WHERE tenant={p} AND reference={p}',
                            ('cancelled', tenant, reference))
                 return {**result, 'status': 'cancelled', 'slot_id': None}
-            config = load_actions(storage, tenant)['consultation']
             if not config['enabled']:
                 raise ActionError('action_unavailable', 409)
             slot = next((item for item in config['slots'] if item['id'] == slot_id), None)

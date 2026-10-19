@@ -962,6 +962,10 @@ class MessageHandlerV7:
                            if channel == 'web' and isinstance(self.sales_actions.get(action), dict)
                            and self.sales_actions[action].get('enabled') is True]
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+        if ('consultation' in allowed_actions
+                and self.sales_actions['consultation'].get('manage_bookings') is True):
+            from service.grounded_statements import request_facts
+            knowledge.update(request_facts(allowed_actions, native_booking_management=True))
         emit('chat_phase', phase='knowledge_retrieval', outcome='completed', knowledge_count=len(knowledge),
              elapsed_ms=round((time.perf_counter()-retrieval_started)*1000, 2))
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,

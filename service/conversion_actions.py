@@ -47,8 +47,11 @@ def validate_actions_config(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict) or set(data) != _ACTIONS:
         raise ValueError("Expected consultation, quote and callback settings")
     consultation = data["consultation"]
-    if not isinstance(consultation, dict) or set(consultation) != {"enabled", "slots"}:
+    if (not isinstance(consultation, dict) or not {'enabled', 'slots'} <= set(consultation)
+            or set(consultation) - {'enabled', 'slots', 'manage_bookings'}):
         raise ValueError("Invalid consultation settings")
+    if type(consultation.get('manage_bookings', False)) is not bool:
+        raise ValueError('Invalid appointment management setting')
     if type(consultation["enabled"]) is not bool or not isinstance(consultation["slots"], list):
         raise ValueError("Invalid consultation settings")
     if len(consultation["slots"]) > 100:

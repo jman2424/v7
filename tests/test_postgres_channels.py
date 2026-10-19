@@ -6,6 +6,7 @@ Flask startup, signatures, tenant routing, the agent and storage run normally.
 import hashlib
 import hmac
 import json
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Barrier
@@ -16,7 +17,7 @@ from twilio.request_validator import RequestValidator
 
 from app import create_app
 from retrieval.storage import Storage
-from service import analytics_db, api_usage, session_store, speech_transcription
+from service import analytics_db, api_usage, session_store, speech_transcription, usage_currency, usage_wallet
 from service.account_service import AccountService
 from service.conversion_actions import ActionError, list_action_requests, submit_action
 from service.security import _revision, authenticate_user
@@ -42,7 +43,10 @@ def _app(runtime, monkeypatch):
 
 def _voice_app(runtime, monkeypatch):
     storage = Storage(runtime['tenant'])
+    monkeypatch.setattr(usage_currency, 'gbp_rate', lambda: {
+        'rate': 1, 'date': date.today().isoformat(), 'stale': False})
     for tenant, marker in [(runtime['tenant'], 'Northstar'), (runtime['other'], 'Harbour')]:
+        usage_wallet.adjust(tenant, 100, 'Synthetic transcription funding', 'test-admin', 'voice-funding')
         storage.write_json(tenant, 'faq.json', [{
             'q': 'Do you offer roof surveys?',
             'a': f'{marker} offers roof surveys.', 'tags': ['roof', 'surveys'],

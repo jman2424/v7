@@ -2,7 +2,10 @@
 
 ## Native appointment management
 
-Enable consultation slots in the existing Website widget sales-action settings.
+Enable consultation slots in the existing Website widget sales-action settings,
+then explicitly enable customer changes/cancellation if it matches your business
+policy. The new permission defaults off for existing configurations. Disabling
+self-service changes stops further mutations even for an existing receipt.
 Only a confirmed appointment against a V7-managed slot receives a private
 management link. Customers can view it, select another available slot, or cancel.
 This modifies the actual V7 booking record and releases the old slot atomically.

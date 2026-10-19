@@ -8,7 +8,7 @@
   export let canEdit = false;
 
   type Slot = { id: string; label: string; start_at: string };
-  type Settings = { consultation: { enabled: boolean; slots: Slot[] }; quote: { enabled: boolean }; callback: { enabled: boolean } };
+  type Settings = { consultation: { enabled: boolean; slots: Slot[]; manage_bookings?: boolean }; quote: { enabled: boolean }; callback: { enabled: boolean } };
   type Request = { reference: string; action: string; status: string; slot_label?: string; name: string; contact: string; details: string; created_at: string };
   let settings: Settings = { consultation: { enabled: false, slots: [] }, quote: { enabled: false }, callback: { enabled: false } };
   let requests: Request[] = [];
@@ -95,6 +95,8 @@
     <form on:submit|preventDefault={save}>
       <fieldset disabled={!canEdit || busy}>
       <label class="toggle"><input type="checkbox" bind:checked={settings.consultation.enabled} />Book consultations</label>
+      <label class="toggle"><input type="checkbox" bind:checked={settings.consultation.manage_bookings} />Allow customers to change or cancel V7 appointments before they start</label>
+      <p>Enable this only when it matches your cancellation policy. It applies to V7 appointment slots and does not change external calendars, take payments or issue refunds.</p>
       {#if settings.consultation.enabled}
         <div class="slots"><div class="slot-heading"><h3>Available time slots</h3><button type="button" on:click={addSlot}>Add time</button></div>
           <p>Times use your computer's local time zone. A slot confirms only after the customer submits it successfully.</p>

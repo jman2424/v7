@@ -14,6 +14,7 @@ from service.conversion_actions import (
     ActionError,
     public_availability,
     submit_action,
+    load_actions,
 )
 from connectors.web_widget import allowed_origins_from_branding
 
@@ -136,8 +137,13 @@ def post_chat_actions():
         ).hexdigest()
         result = submit_action(get_container().storage, tenant, data, ip_digest, conversation_id=conversation_id)
         if data.get('action') == 'consultation' and result.get('status') == 'confirmed':
-            from service.booking_management import receipt_claims
-            result['receipt_token'] = _receipt_signer().dumps(receipt_claims(tenant, result['reference']))
+            try:
+                from service.booking_management import receipt_claims
+                if load_actions(get_container().storage, tenant)['consultation'].get('manage_bookings', False):
+                    result['receipt_token'] = _receipt_signer().dumps(receipt_claims(tenant, result['reference']))
+            except Exception as error:
+                from service.chat_diagnostics import emit
+                emit('chat_optional_failure', phase='booking_receipt', error_type=type(error).__name__)
     except ActionError as error:
         return _cors(jsonify(error=error.code)), error.status
     return _cors(jsonify(result))

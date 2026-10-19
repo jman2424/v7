@@ -1,12 +1,13 @@
 """Native PostgreSQL storage, isolation and customer-channel regressions."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 
 from retrieval.storage import Storage
-from service import analytics_db, api_usage, session_store, speech_transcription
+from service import analytics_db, api_usage, session_store, speech_transcription, usage_currency, usage_wallet
 from service.account_service import AccountService
 from service.audit import AuditService
 from service.crm_service import CRMService
@@ -75,6 +76,9 @@ def test_native_document_batch_preserves_tenant_scope_and_missing_values(pg_runt
 
 def test_native_events_usage_and_append_only_audit(pg_runtime, monkeypatch):
     tenant, other = pg_runtime['tenant'], pg_runtime['other']
+    monkeypatch.setattr(usage_currency, 'gbp_rate', lambda: {
+        'rate': 1, 'date': date.today().isoformat(), 'stale': False})
+    usage_wallet.adjust(tenant, 100, 'Synthetic transcription funding', 'test-admin', 'voice-funding')
     analytics_db.log_message(tenant=tenant, channel='web', direction='inbound',
                              session_id='session', text='Test message', message_id='one')
     analytics_db.log_message(tenant=tenant, channel='web', direction='inbound',

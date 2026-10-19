@@ -60,7 +60,7 @@ for index, question in enumerate(COMPARE_QUESTIONS):
             {'user':'Which one holds more?', 'expect':{'answer_contains_any':['Summit','1000']},
              'reference':reply('Summit Bottle holds more: 1000 ml, compared with Trail Bottle at 500 ml.',
                 ['product:trail','product:summit'],state=agent('compare',offerings=['product:trail','product:summit']))},
-            {'user':'Can you promise ten are available today?', 'expect':{'answer_contains_any':['confirm','not connected','cannot guarantee',"can't guarantee"], 'requested_action':None},
+            {'user':'Can you promise ten are available today?', 'expect':{'answer_contains_any':['must confirm','needs confirmation','not connected','cannot guarantee',"can't guarantee",'cannot promise',"can't promise"], 'requested_action':None},
              'reference':reply('Live stock is not connected. The team must confirm availability.', ['policy:stock'])},
         ]})
 for index, task in enumerate(UNRELATED):
