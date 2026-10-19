@@ -361,6 +361,18 @@ class MessageHandlerV7:
                     reply=self._handoff_reply(), intent='human_handoff', plan=None,
                     facts={}, entities={}, items=[])
 
+            # Current billing plans must not be compared as retail SKUs (where
+            # a setup fee and a subscription can share a plan-name keyword).
+            from service.platform_offer_knowledge import public_knowledge, automatic_plan_answer, public_destinations
+            live_offer = public_knowledge(self.tenant_key)
+            plan_answer = automatic_plan_answer(user_text, live_offer, sess.get('conversation_history'))
+            if plan_answer:
+                targets = public_destinations(self.tenant_key, self.website_destinations)
+                actions = [{'type': 'navigate', 'label': row['label'], 'url': row['url']}
+                           for row in targets if row['id'] == 'platform_plans']
+                return self._wrap_reply(request_id=request_id, t0=t0, reply=plan_answer,
+                    intent='faq', plan=None, facts={'source':'current_platform_plans'}, entities={}, items=[], actions=actions)
+
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
             intelligent = self._grounded_answer(user_text, sess, channel=channel)

@@ -118,7 +118,7 @@ def _working_tree_dirty():
 
 def _runtime_hashes():
     paths = ('service/grounded_conversation.py', 'service/grounded_statements.py',
-             'service/chat_diagnostics.py', 'retrieval/faq_store.py',
+             'service/chat_diagnostics.py', 'retrieval/faq_store.py', 'service/platform_offer_knowledge.py',
              'service/conversation_turns.py', 'service/website_destinations.py',
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
@@ -198,7 +198,7 @@ def make_client(settings):
 def check_turn(answer, state, links, expected, business):
     """Check selected facts, state and known wording regressions without a judge call."""
     checks = {'validator_accepted': bool(answer) and state.get('_validated_grounded') is True}
-    text = (answer or '').casefold()
+    text = (answer or '').casefold().replace('\u2019', "'")
     needs = '\n'.join(state.get('requirements', [])).casefold()
     approved_urls = {row['url'] for row in business['destinations']}
     checks['approved_navigation_only'] = all(row.get('url') in approved_urls for row in links)

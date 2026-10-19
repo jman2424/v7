@@ -6,6 +6,39 @@ from types import SimpleNamespace
 from service import platform_offer_knowledge, referrals, subscriptions
 
 
+def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(client, monkeypatch):
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'VERTEX')
+    with client.application.app_context():
+        knowledge = platform_offer_knowledge.public_knowledge('VERTEX')
+        answer = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', knowledge)
+        assert 'Starter: £99.00/month plus £149.00 one-time setup' in answer
+        assert 'Business: £199.00/month plus £299.00 one-time setup' in answer
+        assert '5 staff accounts' in answer and 'No AI credit is included' in answer
+        assert 'available' not in answer and 'Scale:' not in answer
+        followup = platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge,
+            [{'role': 'user', 'content': 'Compare Starter and Business pricing plans'}])
+        assert 'Business:' in followup and '5 staff accounts' in followup
+        for question in ['green means good', 'how do I setup V7?', 'cancel my plan', 'how does referral pricing work?']:
+            assert platform_offer_knowledge.automatic_plan_answer(question, knowledge) is None
+        assert platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge) is None
+        assert platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', None) is None
+
+
+def test_platform_pricing_cannot_fall_into_retail_compare_or_model(client, monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'VERTEX')
+    with client.application.app_context():
+        handler = MessageHandlerV7(SimpleNamespace())
+        handler.tenant_key = 'VERTEX'
+        def unexpected(*args, **kwargs):
+            raise AssertionError('Current platform plans should not depend on model availability')
+        monkeypatch.setattr(handler, '_grounded_answer', unexpected)
+        result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
+        assert result['facts']['source'] == 'current_platform_plans'
+        assert '£99.00/month' in result['reply'] and '£299.00 one-time setup' in result['reply']
+
+
 def test_other_businesses_never_receive_platform_referral_rules(client,monkeypatch):
     monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:tenant=='VERTEX')
     assert platform_offer_knowledge.public_knowledge('EXAMPLE') is None

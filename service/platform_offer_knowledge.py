@@ -4,6 +4,7 @@ Other tenants use their own saved offers. No account, referral code or payment
 record is supplied to a public conversation.
 """
 from decimal import Decimal, ROUND_HALF_UP
+import re
 from flask import current_app
 
 from service import referrals, subscriptions
@@ -68,3 +69,33 @@ def automatic_offer_answer(question, knowledge):
             f"The referrer earns {knowledge['percent']}% off its next subscription month and {knowledge['sponsor_setup_percent']}% off any unpaid setup after the first subscription payment is verified. "
             'AI credit is separate. Existing setup payments are not refunded and discounts do not stack. '
             'Sign in to Account & security or Subscription to share or accept a referral.')
+
+
+def automatic_plan_answer(question, knowledge, history=None):
+    """Render actual billing plans for narrow marketing-plan questions only."""
+    if not knowledge or re.search(r'\b(cancel|refund|referr?al|refer)\b', question, re.I):
+        return None
+    plans = public_plans()
+    names = '|'.join(re.escape(plan['name']) for plan in plans)
+    plan_context = rf'\b(?:{names}|plans?|pricing)\b'
+    details = r'\b(?:compar\w*|pric\w*|cost\w*|monthly|setup|staff|locations?|limits?|allow\w*)\b'
+    explicit = bool(re.search(plan_context, question, re.I) and re.search(details, question, re.I))
+    explicit = explicit or bool(re.fullmatch(r'\s*(?:show (?:me )?(?:your )?)?(?:plans|pricing)\s*[?.!]?\s*', question, re.I))
+    prior = [row['content'] for row in (history or []) if isinstance(row, dict)
+             and row.get('role') == 'user' and isinstance(row.get('content'), str)]
+    follow_up = (bool(re.search(r'\b(?:which|what|one|those|they|it)\b', question, re.I))
+                 and bool(re.search(r'\b(?:staff|locations?|limits?)\b', question, re.I))
+                 and any(re.search(plan_context, text, re.I) and re.search(details, text, re.I)
+                         for text in prior[-4:]))
+    if not explicit and not follow_up:
+        return None
+    named = [plan for plan in plans if re.search(r'\b'+re.escape(plan['name'])+r'\b', question, re.I)]
+    selected = named or plans
+    lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month plus £{plan['setup_pence']/100:.2f} one-time setup; "
+             f"{plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
+             for plan in selected]
+    from service.plan_catalog import vat_percent
+    tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ' No VAT is charged; Vertex Seven is not VAT-registered.'
+    lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
+                 'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overages or recharges.' + tax)
+    return '\n\n'.join(lines)
