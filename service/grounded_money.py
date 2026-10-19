@@ -47,7 +47,7 @@ _ANSWER_BUDGET = tuple(re.compile(pattern, re.I) for pattern in (
     rf'budget(?:\s+of)?\s*:?\s*(?P<money>{_BUDGET_MONEY})',
     rf'\byour\s+(?P<money>{_BUDGET_MONEY})\s+budget\b',
     (rf'\byour\s+(?:(?:new|current|updated|revised|stated)\s+)?budget'
-     rf'(?:\s+(?:of|is|was|at))?(?:\s+now)?'
+     rf'(?:\s+(?:of|is|was|at))?(?:\s+now(?:\s+at)?)?'
      rf'(?:\s+(?:under|below|up to|at most|less than|no more than))?'
      rf'\s*:?\s*(?P<money>{_BUDGET_MONEY})'),
     rf'\b(?:tu|su|vuestro)\s+presupuesto(?:\s+(?:de|es|es de))?\s*:?\s*(?P<money>{_BUDGET_MONEY})',

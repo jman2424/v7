@@ -192,6 +192,7 @@ def test_budget_source_requires_explicit_customer_quote_list():
 @pytest.mark.parametrize('phrase', [
     'your new budget of under £30', 'your updated budget of up to £30',
     'your current budget is now under £30', 'your revised budget below £30',
+    'your budget now at £30',
 ])
 def test_revised_budget_can_be_repeated_alongside_real_prices(phrase):
     facts = [{'price': 59, 'currency': 'GBP'}, {'price': 129, 'currency': 'GBP'}]
@@ -209,3 +210,5 @@ def test_revised_budget_phrase_does_not_bridge_sentences_or_authorize_a_price():
     assert not monetary_claims_supported('Your new budget. The fan costs £30.', {}, customer_text=quotes)
     assert not monetary_claims_supported('The fan costs your new budget of under £30.', {}, customer_text=quotes)
     assert not monetary_claims_supported('Your new budget of under £40.', {}, customer_text=quotes)
+    assert not monetary_claims_supported('Your budget now at £40.', {}, customer_text=quotes)
+    assert not monetary_claims_supported('The fan costs £30, within your budget now at £30.', {}, customer_text=quotes)
