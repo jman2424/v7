@@ -88,7 +88,8 @@ def test_native_events_usage_and_append_only_audit(pg_runtime, monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', 'test-only-placeholder')
     monkeypatch.setenv('V7_TRANSCRIPTION_MODEL', 'gpt-transcribe')
     monkeypatch.setattr(speech_transcription, 'OpenAI', Provider)
-    assert speech_transcription.transcribe_audio(b'OggS'+b'\0'*32, 'audio/ogg',
+    from tests.test_speech_transcription import wav_audio
+    assert speech_transcription.transcribe_audio(wav_audio(12), 'audio/wav',
         tenant=tenant, channel='web') == 'Book a consultation'
     assert api_usage.summary(tenant, 30)['totals']['audio_seconds'] == 12
     assert api_usage.summary(other, 30)['totals']['calls'] == 0

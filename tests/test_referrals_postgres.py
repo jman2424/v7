@@ -14,9 +14,10 @@ def test_referral_records_cannot_cross_native_tenant_boundary(pg_runtime):
 
 
 def test_native_program_toggle_requires_a_live_platform_session(pg_runtime):
-    import psycopg
-    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+    before = referrals.program(pg_runtime['tenant'])
+    with pytest.raises(RuntimeError, match='Security database operation failed'):
         referrals.set_program(pg_runtime['tenant'],False,'0'*64)
+    assert referrals.program(pg_runtime['tenant']) == before
 
 
 def test_native_concurrent_referral_spending_is_serialized(pg_runtime):

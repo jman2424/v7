@@ -55,7 +55,8 @@ def _voice_app(runtime, monkeypatch):
 
     def download(event, settings):
         downloads.append((event['source'], settings.BUSINESS_KEY))
-        return b'OggS' + b'\0' * 32, 'audio/ogg'
+        from tests.test_speech_transcription import wav_audio
+        return wav_audio(9), 'audio/wav'
 
     class Provider:
         def __init__(self, **kwargs):

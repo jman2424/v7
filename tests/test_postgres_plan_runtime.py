@@ -77,7 +77,9 @@ def test_native_plan_tables_force_rls_and_hide_other_tenant(pg_runtime):
 @pytest.mark.parametrize('plan_id,monthly,setup', [('starter', 9900, 14900),
                                                  ('business', 19900, 29900),
                                                  ('scale', 34900, 59900)])
-def test_native_checkout_binds_server_plan_prices_and_vat(pg_runtime, stripe_plan_provider, plan_id, monthly, setup):
+@pytest.mark.parametrize('vat_registered', [False, True])
+def test_native_checkout_binds_server_plan_prices_and_vat(pg_runtime, stripe_plan_provider, plan_id, monthly, setup, monkeypatch, vat_registered):
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'true' if vat_registered else 'false')
     tenant = pg_runtime['tenant']
     for kind, amount in [('platform', monthly), ('implementation', setup)]:
         result = subscriptions.checkout(tenant, 'native@example.test', kind, 'https://example.test', plan_id=plan_id)
@@ -86,7 +88,10 @@ def test_native_checkout_binds_server_plan_prices_and_vat(pg_runtime, stripe_pla
         assert body['line_items[0][price_data][unit_amount]'] == amount
         assert body['line_items[0][price_data][currency]'] == 'gbp'
         assert body['line_items[0][price_data][tax_behavior]'] == 'exclusive'
-        assert body['line_items[0][tax_rates][0]'] == 'txr_native'
+        if vat_registered:
+            assert body['line_items[0][tax_rates][0]'] == 'txr_native'
+        else:
+            assert 'line_items[0][tax_rates][0]' not in body
         assert body['metadata[plan_id]'] == plan_id
         with subscriptions.connection(tenant) as db:
             choice = db.execute('SELECT * FROM billing_plan_choices WHERE ref=?', (body['metadata[billing_ref]'],)).fetchone()

@@ -67,8 +67,8 @@ def test_postgres_email_change_moves_authenticator_with_credentials(pg_runtime, 
     from service import account_email
     app = _app(pg_runtime)
     app.container.settings = SimpleNamespace(BUSINESS_KEY=pg_runtime['tenant'])
-    email = 'native-email-change@example.test'
-    new_email = 'native-email-changed@example.test'
+    email = pg_runtime['tenant'].lower() + '-email-change@example.test'
+    new_email = pg_runtime['tenant'].lower() + '-email-changed@example.test'
     password = 'Native-email-change-password-123'
     sent = {}
     monkeypatch.setattr(registration_mail, 'configured', lambda: True)
