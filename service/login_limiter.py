@@ -33,8 +33,7 @@ class LoginAttemptLimiter:
 
     @classmethod
     def identity_key(cls, user: dict) -> str:
-        platform = bool({'platform_admin', 'admin'}.intersection(user.get('roles', [])))
-        return cls.key(tenant='' if platform else user.get('tenant', ''), identifier=user['email'])
+        return cls.key(tenant='', identifier=user['email'])
 
     def retry_after(self, key: str) -> int:
         return session_store.login_retry_after(key, max_attempts=self.max_attempts, window_seconds=self.window_seconds)

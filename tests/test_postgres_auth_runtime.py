@@ -98,6 +98,28 @@ def _app(runtime):
     return app
 
 
+def test_postgres_email_login_discovery_is_minimal_and_ambiguous_accounts_fail_closed(pg_runtime):
+    from service.login_discovery import tenant_for_email
+    app = _app(pg_runtime)
+    app.container.settings = SimpleNamespace(BUSINESS_KEY=pg_runtime['tenant'])
+    email = pg_runtime['tenant'].lower()+'-login@example.test'
+    payload = {'email':email,'password':'Native-login-discovery-password-123','roles':['business_staff']}
+    AccountService(app.container.storage).create_account(pg_runtime['other'], payload)
+    with app.test_request_context():
+        assert tenant_for_email(app.container, email) == pg_runtime['other']
+        with session_store.postgres_connection() as db:
+            result = db.execute('SELECT * FROM v7_private.email_login_tenants(%s)', (email,))
+            assert [column.name for column in result.description] == ['tenant']
+            assert result.fetchall() == [(pg_runtime['other'],)]
+            assert db.execute('SELECT count(*) FROM v7_private.business_documents').fetchone()[0] == 0
+        AccountService(app.container.storage).create_account(pg_runtime['tenant'], payload)
+        assert tenant_for_email(app.container, email) is None
+    admin = pg_runtime['admin']
+    assert admin.execute("SELECT has_function_privilege('v7_backend','v7_private.email_login_tenants(text)','EXECUTE')").fetchone()[0]
+    for role in ('anon','authenticated','service_role'):
+        assert not admin.execute("SELECT has_function_privilege(%s,'v7_private.email_login_tenants(text)','EXECUTE')", (role,)).fetchone()[0]
+
+
 def _mailbox(monkeypatch):
     sent = {}
     monkeypatch.setattr(registration_mail, 'configured', lambda: True)

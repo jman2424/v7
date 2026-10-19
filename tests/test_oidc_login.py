@@ -50,6 +50,15 @@ def _begin(client, provider='google', intent='link', **data):
     return query
 
 
+def test_linked_provider_login_can_start_without_a_company_key(oidc):
+    client, _ = oidc
+    client.post('/auth/logout')
+    response = client.post('/auth/oidc/google/start', json={'intent':'login'})
+    assert response.status_code == 200
+    with session_store.connection() as db:
+        assert db.execute('SELECT tenant FROM oidc_states').fetchone()[0] == ''
+
+
 def _mock_token(monkeypatch, signing_key, query, provider='google', *, claims=None, header=None, key_fields=None):
     now = int(time.time())
     issuer = 'https://accounts.google.com' if provider == 'google' else f'https://login.microsoftonline.com/{_TENANT}/v2.0'
@@ -96,7 +105,8 @@ def test_missing_provider_credentials_are_disabled_and_fail_closed(client, monke
 
 
 @pytest.mark.parametrize('provider', ['google', 'microsoft'])
-def test_explicit_link_then_provider_login_keeps_mfa(oidc, monkeypatch, signing_key, provider):
+@pytest.mark.parametrize('select_company', [True, False])
+def test_explicit_link_then_provider_login_keeps_mfa(oidc, monkeypatch, signing_key, provider, select_company):
     client, secret = oidc
     query = _begin(client, provider)
     assert query['response_type'] == ['code'] and query['code_challenge_method'] == ['S256']
@@ -110,7 +120,7 @@ def test_explicit_link_then_provider_login_keeps_mfa(oidc, monkeypatch, signing_
     assert next(row for row in client.get('/auth/oidc/providers').json['providers'] if row['id'] == provider)['linked']
     assert 'unit-provider-secret' not in client.get('/auth/oidc/providers').text
     client.post('/auth/logout')
-    query = _begin(client, provider, 'login')
+    query = _begin(client, provider, 'login', tenant='EXAMPLE' if select_company else '')
     _mock_token(monkeypatch, signing_key, query, provider)
     result = _callback(client, query, provider)
     assert result.location == f'/console/?oidc=mfa_required&provider={provider}'

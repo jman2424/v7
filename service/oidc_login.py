@@ -138,8 +138,9 @@ def start(name, data):
     if intent == 'login' and session.get('user'):
         raise ValueError('already_signed_in')
     storage = current_app.container.storage
-    tenant = storage.canonical_tenant_key(data.get('tenant') or current_app.container.settings.BUSINESS_KEY)
-    if not storage.tenant_exists(tenant):
+    tenant = ('' if intent == 'login' and not data.get('tenant') else
+              storage.canonical_tenant_key(data.get('tenant') or current_app.container.settings.BUSINESS_KEY))
+    if tenant and not storage.tenant_exists(tenant):
         raise ValueError('unknown_tenant')
     reference = _reference(user) if user else None
     revision = _revision(user) if user else None
@@ -347,9 +348,9 @@ def finish(name, state, code, *, provider_error=False):
     user = resolve_linked_account(reference)
     if not user:
         raise ValueError('account_unavailable')
-    tenant = user.get('tenant') or flow['tenant']
+    tenant = user.get('tenant') or flow['tenant'] or current_app.container.settings.BUSINESS_KEY
     # A provider cannot move a business account into the tenant supplied at login.
-    if user.get('tenant') and user['tenant'] != flow['tenant']:
+    if user.get('tenant') and flow['tenant'] and user['tenant'] != flow['tenant']:
         raise ValueError('invalid_tenant')
     trusted = trusted_devices.verified_first_factor_login(user, tenant)
     if trusted:

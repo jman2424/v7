@@ -151,6 +151,7 @@ def login_post():
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
     totp = (data.get("totp") or None)
+    explicit_tenant = bool(data.get('tenant', '').strip())
     tenant = str(data.get("tenant") or c.settings.BUSINESS_KEY).strip()
     try:
         tenant = c.storage.canonical_tenant_key(Storage.validate_tenant_key(tenant))
@@ -159,18 +160,22 @@ def login_post():
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_tenant"}), 400
 
-    from service.security import authenticate_user, login_tenant_scope
+    from service.security import authenticate_user
     from service.account_mfa import begin, complete_login
     from service import trusted_devices
     limiter = current_app.extensions["auth_login_limiter"]
-    attempt_key = limiter.key(tenant=login_tenant_scope(c, email=email, tenant=tenant), identifier=email)
+    # Every sign-in route for this email shares the same failed-attempt bound.
+    attempt_key = limiter.key(tenant='', identifier=email)
     try:
         attempt = limiter.begin(attempt_key)
     except LoginThrottled as exc:
         return jsonify(ok=False, error='try_again_later', retry_after=exc.retry_after), 429
 
     # IMPORTANT: pass container
-    user = authenticate_user(c, email=email, password=password, tenant=tenant)
+    if not explicit_tenant:
+        from service.login_discovery import tenant_for_email
+        tenant = tenant_for_email(c, email)
+    user = authenticate_user(c, email=email, password=password, tenant=tenant) if tenant else None
     if not user:
         limiter.fail(attempt_key, attempt)
         return jsonify({"ok": False, "error": "invalid_credentials"}), 401

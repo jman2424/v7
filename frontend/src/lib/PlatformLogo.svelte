@@ -6,7 +6,7 @@
 </script>
 
 <span class="platform-logo" class:lockup class:horizontal style={`--logo-size:${size}px`} role={label ? 'img' : undefined} aria-label={label || undefined} aria-hidden={label ? undefined : true}>
-  <img src={horizontal ? '/static/img/vertex-seven-horizontal.svg?v=20261010logo' : lockup ? '/static/img/vertex-seven.svg?v=20261010logo' : '/static/img/vertex-seven-mark.svg?v=20261010logo'} width={horizontal ? 240 : lockup ? 1254 : 1044} height={horizontal ? 40 : lockup ? 1254 : 599} alt="" />
+  <img src={horizontal ? '/static/img/vertex-seven-horizontal.svg?v=20261019svg' : lockup ? '/static/img/vertex-seven.svg?v=20261019svg' : '/static/img/vertex-seven-mark.svg?v=20261019svg'} width={horizontal ? 240 : lockup ? 1254 : 1044} height={horizontal ? 40 : lockup ? 1254 : 599} alt="" />
 </span>
 
 <style>

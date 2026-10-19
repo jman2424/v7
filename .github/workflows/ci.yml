@@ -60,12 +60,8 @@ jobs:
         working-directory: sdk/js
         run: npm test
 
-      - name: Unit & integration tests
-        run: python -m pytest -v
-
-      - name: Coverage (xml)
-        run: |
-          python -m pytest --cov=. --cov-report=xml
+      - name: Unit, integration and coverage checks
+        run: python -m pytest -v --cov=. --cov-report=xml
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 

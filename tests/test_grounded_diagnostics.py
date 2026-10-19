@@ -31,7 +31,8 @@ def test_validated_answer_records_only_public_source_ids(monkeypatch):
     assert diagnostics['provider_completed'] is True
     assert diagnostics['rejection_reason'] is None
     assert diagnostics['source_ids'] == ['product:basic']
-    assert diagnostics['knowledge_count'] == 1
+    # Public product plus the server-owned transaction capability boundary.
+    assert diagnostics['knowledge_count'] == 2
     assert diagnostics['latency_ms'] >= 0
     assert 'Private customer question' not in json.dumps(diagnostics)
     assert text not in json.dumps(diagnostics)

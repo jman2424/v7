@@ -38,3 +38,9 @@ the hero image fade-in and mirror its text-protection gradient in RTL layouts.
 Platform artwork references include a version query so existing browsers reload
 the revised assets. Company-specific logos, avatars, favicons and widget
 colours continue to use each business's saved configuration.
+
+Every visible platform logo uses the outlined SVG variants above, including the
+public header/footer, sign-in, console, default chat avatar and hero artwork.
+The `20261019svg` asset version refreshes existing browser caches. Organization
+structured metadata also uses the SVG source. PNG social cards and legacy icon
+exports remain compatibility assets rather than on-page logo images.

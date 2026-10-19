@@ -32,7 +32,7 @@
   {% endfor %}
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
     "@context": "https://schema.org", "@graph": [
-      {"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "description": "Vertex Seven provides V7 Agents, a configurable AI sales assistant platform for business websites.", "logo": site_origin + url_for('static', filename='img/vertex-seven-logo.png')},
+      {"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "description": "Vertex Seven provides V7 Agents, a configurable AI sales assistant platform for business websites.", "logo": site_origin + url_for('static', filename='img/vertex-seven.svg')},
       {"@type": "SoftwareApplication", "@id": site_origin + "/#v7-agents", "name": "V7 Agents", "applicationCategory": "BusinessApplication", "operatingSystem": "Web browser", "url": canonical_url, "description": "A configurable AI sales assistant with business knowledge, a branded website chat widget and a management workspace.", "publisher": {"@id": site_origin + "/#organization"}},
       {"@type": "WebSite", "@id": site_origin + "/#website", "name": "V7 Agents by Vertex Seven", "url": canonical_url, "publisher": {"@id": site_origin + "/#organization"}, "inLanguage": "en"},
       {"@type": "Product", "@id": site_origin + "/#monthly-plan", "name": "V7 Agents monthly subscription plans",
@@ -60,7 +60,7 @@
   </header>
   <main id="main">
     <section class="hero wrap">
-      <div class="hero-art" aria-hidden="true"><img src="{{ url_for('static', filename='img/vertex-seven-banner.svg', v='20261010logo') }}" width="1672" height="941" alt="Vertex Seven — AI agents for business operations" fetchpriority="high"></div>
+      <div class="hero-art" aria-hidden="true"><img src="{{ url_for('static', filename='img/vertex-seven-banner.svg', v='20261019svg') }}" width="1672" height="941" alt="Vertex Seven — AI agents for business operations" fetchpriority="high"></div>
       <div class="hero-copy">
         <p class="eyebrow" data-i18n>AI SALES ASSISTANT</p>
         <h1><span data-i18n>Your business.</span><span class="hero-accent" data-i18n>Better conversations.</span></h1>
@@ -77,7 +77,7 @@
       <div class="hero-visual" id="demo">
         <div class="demo-heading"><strong data-i18n>See a typical conversation</strong><span data-i18n>Illustrative example</span></div>
         <section class="conversation" lang="en" dir="ltr" aria-label="Illustrative sales conversation">
-          <header class="conversation-header"><img class="agent-icon" src="{{ url_for('static', filename='img/logo.svg', v='20261010logo') }}" width="38" height="38" alt="V7 Agents"><div><strong>Your store assistant</strong><span>Powered by V7 Agents</span></div></header>
+          <header class="conversation-header"><img class="agent-icon" src="{{ url_for('static', filename='img/logo.svg', v='20261019svg') }}" width="38" height="38" alt="V7 Agents"><div><strong>Your store assistant</strong><span>Powered by V7 Agents</span></div></header>
           <div class="conversation-body" aria-live="polite" aria-atomic="true">
             <p class="sample-label">FICTIONAL STORE · PRODUCT ENQUIRY</p>
             <div class="bubble customer" id="sample-question">I need a desk lamp for a small home office.</div>

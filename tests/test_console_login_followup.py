@@ -54,8 +54,8 @@ const fullDocumentNavigations = [];
 let sessionReads = 0;
 let mount;
 const failures = {
-  'password-invalid':{status:401,error:'invalid_credentials',expected:'Check your company key, email and password'},
-  'password-company':{status:404,error:'unknown_tenant',expected:'Check the company key'},
+  'password-invalid':{status:401,error:'invalid_credentials',expected:'Check your email and password'},
+  'password-company':{status:404,error:'unknown_tenant',expected:'account workspace could not be opened'},
   'password-csrf':{status:403,error:'csrf_failed',expected:'Reload the page, allow cookies'},
   'password-rate-limit':{status:429,error:'try_again_later',retry_after:900,expected:'900 seconds'},
   'password-global-rate-limit':{status:429,error:'too_many_requests',expected:'60 seconds'},
@@ -67,7 +67,7 @@ const failures = {
   'mfa-invalid-rate-limit':{status:429,error:'try_again_later',retry_after:'private-provider-detail',expected:'60 seconds'},
   'mfa-private-error':{status:503,error:'private-provider-detail',expected:'temporarily unavailable'},
   'provider-unconfigured':{status:400,error:'provider_not_configured',expected:'awaiting server setup'},
-  'provider-company':{status:400,error:'unknown_tenant',expected:'Check the company key'},
+  'provider-company':{status:400,error:'unknown_tenant',expected:'account workspace could not be opened'},
   'provider-rate-limit':{status:429,error:'try_again_later',expected:'60 seconds'},
 };
 const failure = failures[scenario];
