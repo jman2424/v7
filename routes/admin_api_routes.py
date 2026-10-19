@@ -896,9 +896,13 @@ def api_website_knowledge_get():
     except FileNotFoundError:
         knowledge = {}
     pages = knowledge.get("pages", []) if isinstance(knowledge, dict) else []
+    from service.website_knowledge import current_website_knowledge
+    profile = _storage().read_json(tenant, 'store_info.json')
+    current = current_website_knowledge(knowledge, profile.get('website') if isinstance(profile, dict) else None)
     return jsonify(source_url=knowledge.get("source_url", "") if isinstance(knowledge, dict) else "",
                    fetched_at=knowledge.get("fetched_at", "") if isinstance(knowledge, dict) else "",
-                   page_count=len(pages) if isinstance(pages, list) else 0)
+                   page_count=len(pages) if isinstance(pages, list) else 0,
+                   source_current=bool(current))
 
 
 @bp.get('/website-destinations')
@@ -947,7 +951,7 @@ def api_website_knowledge_import():
                         extra={"page_count": len(knowledge["pages"])})
     _invalidate_tenant(tenant)
     return jsonify(source_url=knowledge["source_url"], fetched_at=knowledge["fetched_at"],
-                   page_count=len(knowledge["pages"]))
+                   page_count=len(knowledge["pages"]), source_current=True)
 
 
 @bp.get("/sales-actions")

@@ -251,8 +251,8 @@ class MessageHandlerV7:
                 logger.warning('Invalid website destinations; navigation disabled')
             try:
                 knowledge = storage.read_json(storage.tenant_key, 'website_knowledge.json')
-                if isinstance(knowledge, dict):
-                    self.website_knowledge = knowledge
+                from service.website_knowledge import current_website_knowledge
+                self.website_knowledge = current_website_knowledge(knowledge, self.business_profile.get('website'))
             except (FileNotFoundError, ValueError):
                 pass
             from service.conversion_actions import ActionError, load_actions

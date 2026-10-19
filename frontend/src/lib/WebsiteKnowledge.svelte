@@ -8,7 +8,7 @@
   export let apiPrefix = '';
   export let canEdit = false;
 
-  type Summary = { source_url: string; fetched_at: string; page_count: number };
+  type Summary = { source_url: string; fetched_at: string; page_count: number; source_current: boolean };
   let summary: Summary | null = null;
   let busy = false;
   let status = '';
@@ -88,6 +88,7 @@
   <div><h2 id="knowledge-heading">Business website knowledge</h2>
     <p>{$t('Import up to 20 public pages from your business website. The agent retrieves relevant passages for each question; saved products, FAQs and policies remain authoritative. Private pages and unsupported files are excluded.')}</p>
     {#if summary?.page_count}<p class="source">Current import: {summary.page_count} pages from {summary.source_url}. Imported {new Date(summary.fetched_at).toLocaleString()}.</p>
+    {#if summary.source_current === false}<p class="error" role="status">Your website source has changed or is unavailable. Refresh the website pages to use the current business website. The agent will not use the old import.</p>{/if}
     {:else}<p class="source">No website pages imported yet.</p>{/if}
   </div>
   <div class="controls">

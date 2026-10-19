@@ -337,10 +337,45 @@ def import_website(url: str) -> dict[str, Any]:
     }
 
 
+def current_website_knowledge(knowledge: Any, website: Any) -> dict:
+    """Use an import only for the currently configured source, without fetching."""
+    if not isinstance(knowledge, dict) or not isinstance(knowledge.get('pages'), list):
+        return {}
+    try:
+        configured = _validate_public_https_url(website)
+        imported = _validate_public_https_url(knowledge.get('source_url'))
+    except WebsiteImportError:
+        return {}
+    if configured != imported:
+        return {}
+    host = urllib.parse.urlsplit(configured).hostname
+    pages = []
+    for page in knowledge['pages'][:MAX_PAGES]:
+        if not isinstance(page, dict):
+            continue
+        try:
+            _validate_public_https_url(page.get('url'), expected_host=host)
+        except WebsiteImportError:
+            continue
+        pages.append(page)
+    return {**knowledge, 'pages': pages}
+
+
 def relevant_passages(knowledge: Any, question: str, *, limit: int = 2) -> list[dict[str, str]]:
     """Return the most relevant imported page text for a customer question."""
     if not isinstance(knowledge, dict) or not isinstance(knowledge.get("pages"), list):
         return []
+    # Broad business questions often share no literal word with service names.
+    # Use a bounded overview only for those questions, never as a chat fallback.
+    if re.search(r"\bwhat (?:do|does|can) (?:you|your (?:business|company)) (?:sell|offer|do|provide)\b|"
+                 r"\btell me about your (?:business|company|services|products)\b|"
+                 r"\bwhat (?:services|products) (?:do you|are)\b", question, re.I):
+        pages = [page for page in knowledge['pages'][:MAX_PAGES] if isinstance(page, dict)
+                 and isinstance(page.get('text'), str) and page['text'].strip()]
+        pages.sort(key=lambda page: bool(re.search(r'about|service|product|offering',
+                   str(page.get('title') or ''), re.I)), reverse=True)
+        return [{'url':str(page.get('url') or ''), 'title':str(page.get('title') or ''),
+                 'text':page['text'][:2800]} for page in pages[:max(0, min(limit, 6))]]
     stop_words = {"about", "are", "could", "does", "from", "have", "help", "into", "that", "them", "there",
                   "they", "this", "what", "when", "where", "which", "with", "would", "your", "business",
                   "you", "our", "the", "for", "and", "how", "can", "tell", "please", "me"}

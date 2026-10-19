@@ -42,6 +42,28 @@ payment system and provide a way to verify the customer's ownership. V7 platform
 subscription billing is not authority to refund a client business's customer.
 Do not present an opened form or an unconnected integration as a completed action.
 
+## Each business's website and tools
+
+Save the business website in Business profile, then use Website → Import website
+or Refresh website pages. The import stays within that public HTTPS site and is
+bounded to 20 pages. Relevant passages feed answers alongside the business's saved
+offerings, FAQs and policies. This is a saved import, not a live fetch on every
+customer message; refresh it after changing website content. Structured current
+prices and policies take priority when sources conflict.
+
+Changing or removing the configured source stops the agent using the old website
+import. The owner sees a refresh message. Other-site pages are excluded from
+imported context; there is no cross-business knowledge sharing. Regression tests
+exercise surveys, studio hire and garden maintenance with their own site facts.
+
+Approved website destinations provide buttons for a client's existing checkout,
+booking, support or other workflows. Opening a button does not execute that action.
+The existing Vertex REST API and MCP expose scoped V7 management operations to
+authorized external clients. They are not an outbound connection to arbitrary
+business software, and customer chat does not inherit an owner's administrative
+MCP permissions. Additional executable actions need a real connected system,
+operation-specific permission and verified customer ownership before exposing them.
+
 ## Expanded evaluations
 
 The original seven scenarios/20 turns remain the default regression benchmark.
