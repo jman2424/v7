@@ -129,21 +129,43 @@
     <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>{$t('Previous')}</button><span>{$t('Page {page}',{page:count(page)})}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>{$t('Next')}</button></div>
   </article>
   {/if}
-  <header><div><h2><bdi>{tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly billing in pounds, with a separate one-time setup. VAT-inclusive totals appear below each price and before payment.' : 'Monthly billing in pounds, with a separate one-time setup. No VAT charged; Vertex Seven is not VAT-registered.')}</p></div><div class="controls">{#if canViewCosts && (!data?.internal || isPlatform)}<a href="#ai-usage-credit">{$t('Top up AI credit')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
+  <header><div><h2><bdi>{tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly billing in pounds, with a separate one-time setup. VAT-inclusive totals appear below each price and before payment.' : 'Monthly billing in pounds, with a separate one-time setup. No VAT charged; Vertex Seven is not VAT-registered.')}</p></div><div class="controls">{#if data}<a href="#cancel-subscription">{$t('Cancel subscription')}</a>{/if}{#if canViewCosts && (!data?.internal || isPlatform)}<a href="#ai-usage-credit">{$t('Top up AI credit')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
+    <article class="panel cancellation" id="cancel-subscription" aria-labelledby="cancel-subscription-heading">
+      <div class="cancellation-heading"><span class="cancellation-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></svg></span><div><h2 id="cancel-subscription-heading">{$t('Cancel subscription')}</h2><p>{$t('Manage renewal of your platform subscription.')}</p></div></div>
+      {#if data.internal}
+        <p class="notice">{$t('This is an internal workspace. There is no paid platform subscription to cancel.')}</p>
+      {:else if data.complimentary}
+        <p class="notice">{$t('This business has complimentary access. There is no paid platform subscription to cancel.')}</p>
+      {:else if baseContract?.cancel_at_end}
+        <p class="notice" role="status"><strong>{$t('Cancellation scheduled')}</strong><br/>{baseContract.next_due ? $t('Your platform subscription ends on {date}.',{date:date(baseContract.next_due)}) : $t('Your platform subscription will end at the close of the current billing period.')}</p>
+        <p>{$t('Refresh payments after returning from Stripe to see the latest status.')}</p>
+      {:else if baseContract?.status==='canceled'}
+        <p class="notice" role="status"><strong>{$t('Subscription cancelled')}</strong><br/>{$t('Your platform subscription is already cancelled. Existing invoices remain in Payment history.')}</p>
+      {:else if data.management?.can_cancel}
+        {#if activePlan}<p class="cancellation-plan">{$t('Current plan')}: <strong><bdi>{activePlan.name}</bdi></strong></p>{/if}
+        <p>{$t('Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.')}</p>
+        <p>{$t('Opening the review does not cancel your subscription. Cancellation does not automatically refund previous payments or prepaid AI credit.')}</p>
+        {#if canManageBilling}<button class="cancel-button" disabled={busy||!data.configured} on:click={()=>action('cancel-subscription',{})}>{$t('Review cancellation in Stripe')} <span aria-hidden="true">↗</span></button>
+        {:else}<p class="notice">{$t('Only your business owner can cancel the subscription.')}</p>{/if}
+        {#if !data.configured}<p>{$t('Your platform administrator needs to connect payments.')}</p>{/if}
+      {:else if !baseContract || ['not_started','incomplete_expired'].includes(baseContract.status)}
+        <p class="notice">{$t('There is no active paid platform subscription to cancel.')}</p>
+      {:else}
+        <p class="notice">{$t('Self-service cancellation is not available for the current subscription status. Refresh payments or contact the platform administrator for help.')}</p>
+      {/if}
+    </article>
     {#if canManageBilling}{#key tenant}<Referrals {tenant} {csrf} {apiPrefix} {isPlatform} configured={data.configured} on:changed={refresh}/>{/key}{/if}
     {#if data.complimentary}<p class="notice">{$t('Complimentary Scale access. No subscription payment or setup invoice was created. AI credit is separate.')}</p>{/if}
     {#if isPlatform && data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',enabled:false,reason:'Platform administrator revoked complimentary Scale access'})}>{$t('Revoke complimentary Scale for {tenant}',{tenant})}</button>{/if}
     {#if isPlatform && !data.complimentary}<button disabled={busy} on:click={()=>action('complimentary-plan',{plan_id:'scale',reason:'Platform owner requested complimentary Scale for own workspace'})}>{$t('Grant complimentary Scale to {tenant}',{tenant})}</button>{/if}
     {#if !canManageBilling}<p class="notice">{$t('Read-only access. Your business owner manages payments and subscriptions.')}</p>{/if}
     {#if !data.internal && !data.complimentary}
-      <article class="panel" id="change-plan"><h2>{$t('Change plan or cancel')}</h2>
+      <article class="panel" id="change-plan"><h2>{$t('Change plan')}</h2>
         <p>{$t('Compare plans below. An active plan change opens Stripe for a final review before you confirm.')}</p>
         {#if activePlan}<p>{$t('Stripe shows any prorated charge or credit and asks you to confirm. Your billing date and paid setup are retained.')}</p>{/if}
-        {#if baseContract?.cancel_at_end}<p class="notice" role="status">{$t('Cancellation scheduled for {date}.',{date:date(baseContract.next_due)})}</p>
-        {:else if data.management?.can_cancel}<p>{$t('Cancellation stops renewal at the end of the current billing period. Review and confirm it in Stripe.')}</p><button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('cancel-subscription',{})}>{$t('Cancel subscription')}</button>{/if}
         {#if legacyBilling}<p>{$t('Your plan is linked to its subscription or paid setup. Contact the platform administrator to arrange a plan change.')}</p><p>{$t('Separate WhatsApp subscriptions have their own cancellation controls below.')}</p>{/if}
       </article>
     {/if}
@@ -233,6 +255,15 @@
 <style>
   .billing { display:grid; gap:20px; min-width:0; overflow-wrap:anywhere; color:var(--v7-ink,#172b26); }
   .panel { background:var(--v7-surface,#fff); border:1px solid var(--v7-line,#e1e7e4); border-radius:12px; padding:20px; min-width:0; }
+  .cancellation { scroll-margin-top:24px; border-color:#e8cfca; }
+  .cancellation-heading { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .cancellation-heading h2 { margin-bottom:4px; }
+  .cancellation-heading p { margin:0; }
+  .cancellation-icon { display:grid; place-items:center; width:42px; height:42px; flex:none; border-radius:10px; color:#9b332b; background:#fff2f0; }
+  .cancellation-icon svg { width:24px; height:24px; }
+  .cancellation-plan { color:var(--v7-ink); }
+  .cancel-button { margin-top:8px; border-color:#c58e85; color:#9b332b; }
+  .cancel-button:hover:not(:disabled) { background:#fff2f0; border-color:#9b332b; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:16px; }
   header,.controls { display:flex; flex-wrap:wrap; align-items:end; justify-content:space-between; gap:14px; }
   header>div:first-child { flex:1 1 280px; min-width:0; }
