@@ -32,7 +32,7 @@ def main():
         path = args.output / f'batch-{offset//6:02}.json'
         command = [sys.executable, '-m', 'evals.agent_eval', '--live', '--extended',
             '--env-file', args.env_file, '--model', args.model, '--max-requests','20',
-            '--max-budget-usd', str(min(remaining, Decimal('0.20'))), '--max-seconds','180', '--output',str(path)]
+            '--max-budget-usd', str(min(remaining, Decimal('0.50'))), '--max-seconds','180', '--output',str(path)]
         for scenario in scenarios[offset:offset+6]:
             command += ['--scenario', scenario['id']]
         child = subprocess.run(command, capture_output=True, text=True, timeout=240)
