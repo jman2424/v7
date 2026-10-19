@@ -377,3 +377,14 @@ def test_policy_button_has_no_generic_repetitive_footer(monkeypatch):
         agent=_state('policy', action='open_destination'), navigation=['returns'],
         destinations=[{'id': 'returns', 'label': 'Read return policy', 'url': 'https://shop.example/returns'}])
     assert answer == RETURNS and state['navigation_ids'] == ['returns']
+
+
+def test_unconnected_refund_has_a_server_owned_capability_fact(monkeypatch):
+    from service.grounded_statements import request_facts
+    source = 'capability:transaction_boundary'
+    fact = request_facts([])[source]['answer']
+    answer, state, diagnostics, _ = run(monkeypatch, {'business':{'name':'Test business'}}, question='Can you issue my refund right now?',
+        text='I cannot issue a refund in this chat.', sources=[source], ids=[source+':answer'],
+        agent=_state('cancel'))
+    assert answer == fact and state.get('requested_action') is None
+    assert source in diagnostics['source_ids']

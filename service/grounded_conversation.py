@@ -701,7 +701,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
     from service.agent_knowledge import prioritize_knowledge
     knowledge = prioritize_knowledge(knowledge, question, remembered)
     # Advertised form capabilities must survive the same context cap as facts.
-    knowledge = {**request_facts(allowed_actions), **knowledge}
+    forms = {key:value for key,value in request_facts(allowed_actions).items()
+             if key.startswith('capability:request:')}
+    knowledge = {**forms, **knowledge}
     statements = statement_catalog(knowledge)
     knowledge = bounded_knowledge(knowledge)
     statements = {key: row for key, row in statements.items() if row['source_id'] in knowledge}

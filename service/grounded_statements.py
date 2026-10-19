@@ -77,6 +77,10 @@ def request_facts(allowed_actions, *, native_booking_management=False):
         'answer': (f'You can open the {label} request form. '
                    'Opening the form does not submit a request or confirm a booking, quote or payment.'),
     } for action, label in _FORMS.items() if action in allowed_actions}
+    facts['capability:transaction_boundary'] = {'answer':
+        'Payments, refunds, order changes and external calendar changes cannot be completed in this chat. '
+        'Use the business\'s approved page or contact its team for help. '
+        'Opening a page or request form does not complete a transaction.'}
     if 'consultation' in allowed_actions and native_booking_management:
         facts['capability:native_booking_management'] = {'answer':
             'For an appointment confirmed through a V7 appointment slot, use the private management link '
