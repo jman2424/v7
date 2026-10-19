@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manage your appointment · V7</title><link rel="stylesheet" href="{{ url_for('static', filename='css/booking.css') }}"></head>
+<body data-tenant="{{ tenant }}" data-csrf="{{ session.get('_csrf', '') }}"><main>
+<h1>Manage your appointment</h1>
+<p>This page manages appointments booked directly through this business's V7 assistant. Keep your booking link private.</p>
+<p id="booking-status" role="status">Loading your appointment…</p>
+<button type="button" id="booking-copy" hidden>Copy private booking link</button>
+<button type="button" id="booking-refresh" hidden>Refresh appointment</button>
+<p>Appointment times are shown in your local time. Private management links expire 30 days after booking.</p>
+<form id="booking-form" hidden>
+<label>Choose another available time <select id="booking-slot"><option value="">Choose a time</option></select></label>
+<p><label><input type="checkbox" id="booking-confirm"> I confirm the change I select below.</label></p>
+<button type="submit" name="operation" value="reschedule">Change appointment</button>
+<button type="submit" name="operation" value="cancel">Cancel appointment</button>
+</form></main><script src="{{ url_for('static', filename='js/booking.js') }}" defer></script></body></html>

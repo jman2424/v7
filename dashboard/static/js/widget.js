@@ -405,6 +405,17 @@
       actionForm.hidden = true;
       activeAction = "";
       actionRequestId = "";
+      if (confirmed && typeof data.receipt_token === "string") {
+        const management = new URL(config.actionsEndpoint, window.location.href);
+        management.pathname = management.pathname.replace(/\/actions$/, "/booking");
+        management.search = new URLSearchParams({tenant:config.tenant}).toString();
+        management.hash = new URLSearchParams({receipt:data.receipt_token}).toString();
+        const link = document.createElement("a");
+        link.href = management.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+        link.textContent = "View, change or cancel this appointment";
+        actionStatus.appendChild(document.createTextNode(" "));
+        actionStatus.appendChild(link);
+      }
     } catch (error) {
       const message = error && error.name === "AbortError"
         ? "The connection timed out. Retry without changing the form; the same request reference will be reused if it was received."

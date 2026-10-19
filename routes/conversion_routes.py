@@ -6,8 +6,8 @@ import hmac
 import secrets
 from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, current_app, jsonify, make_response, request
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from flask import Blueprint, abort, current_app, jsonify, make_response, request, render_template
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer, URLSafeSerializer
 
 from routes import get_container
 from service.conversion_actions import (
@@ -81,7 +81,7 @@ def _signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="web-conversation-v1")
 
 
-def _verify_token(value: object, tenant: str) -> None:
+def _verify_token(value: object, tenant: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 2048:
         raise ActionError("conversation_required", 403)
     try:
@@ -95,6 +95,7 @@ def _verify_token(value: object, tenant: str) -> None:
         or not identity["id"]
     ):
         raise ActionError("invalid_conversation", 403)
+    return identity['id']
 
 
 @bp.route("/chat/actions", methods=["OPTIONS"])
@@ -128,12 +129,85 @@ def post_chat_actions():
         return _cors(jsonify(error="tenant_mismatch")), 400
     _origin_allowed(tenant)
     try:
-        _verify_token(data.get("conversation_token"), tenant)
+        conversation_id = _verify_token(data.get("conversation_token"), tenant)
         remote_ip = request.remote_addr or "unknown"
         ip_digest = hmac.new(
             current_app.secret_key.encode("utf-8"), remote_ip.encode("utf-8"), hashlib.sha256
         ).hexdigest()
-        result = submit_action(get_container().storage, tenant, data, ip_digest)
+        result = submit_action(get_container().storage, tenant, data, ip_digest, conversation_id=conversation_id)
+        if data.get('action') == 'consultation' and result.get('status') == 'confirmed':
+            from service.booking_management import receipt_claims
+            result['receipt_token'] = _receipt_signer().dumps(receipt_claims(tenant, result['reference']))
     except ActionError as error:
         return _cors(jsonify(error=error.code)), error.status
     return _cors(jsonify(result))
+
+
+def _receipt_signer():
+    return URLSafeSerializer(current_app.secret_key, salt='native-booking-receipt-v1')
+
+
+@bp.get('/chat/booking')
+def booking_page():
+    tenant = _tenant(request.args.get('tenant'))
+    return render_template('booking.html', tenant=tenant)
+
+
+@bp.route('/chat/booking', methods=['POST', 'OPTIONS'])
+def booking_operation():
+    data = request.get_json(silent=True)
+    if request.method == 'OPTIONS':
+        tenant = _tenant(request.args.get('tenant'))
+        _origin_allowed(tenant)
+        return _cors(make_response('', 204))
+    if not isinstance(data, dict):
+        return _cors(jsonify(error='json_object_required')), 400
+    tenant = _tenant(data.get('tenant'))
+    _origin_allowed(tenant)
+    try:
+        token = data.get('receipt_token')
+        if not isinstance(token, str) or len(token) > 2048:
+            raise ActionError('invalid_receipt', 403)
+        try:
+            receipt = _receipt_signer().loads(token)
+        except (BadSignature, SignatureExpired):
+            raise ActionError('invalid_receipt', 403) from None
+        if not isinstance(receipt, dict) or receipt.get('tenant') != tenant:
+            raise ActionError('invalid_receipt', 403)
+        import time
+        if type(receipt.get('expires')) is not int or receipt['expires'] <= time.time():
+            raise ActionError('invalid_receipt', 403)
+        operation = data.get('operation', 'view')
+        if operation != 'view' and data.get('confirm') is not True:
+            raise ActionError('confirmation_required')
+        if operation != 'view':
+            from service.conversion_actions import _consume_rate_postgres, _consume_rate, _database
+            from service import session_store
+            digest = hmac.new(current_app.secret_key.encode(), (request.remote_addr or 'unknown').encode(), hashlib.sha256).hexdigest()
+            if session_store._using_postgres():
+                _consume_rate_postgres(digest)
+            else:
+                db = _database()
+                try:
+                    _consume_rate(db, digest)
+                finally:
+                    db.close()
+        from service.booking_management import manage_booking
+        result = manage_booking(get_container().storage, tenant, receipt.get('reference'), operation,
+                                slot_id=data.get('slot_id'), expected_slot_id=data.get('expected_slot_id'))
+        if operation != 'view':
+            try:
+                from service.audit import AuditService
+                AuditService().record(user='booking receipt holder', role='customer', ip=request.remote_addr or '',
+                    action='booking.'+operation, target=tenant+'/bookings/'+result['reference'],
+                    after={'status':result['status'], 'slot_id':result['slot_id']})
+            except Exception as error:
+                from service.chat_diagnostics import emit
+                emit('chat_optional_failure', phase='booking_audit', error_type=type(error).__name__)
+        try:
+            slots = public_availability(get_container().storage, tenant)['consultation']['slots']
+        except ActionError:
+            slots = []  # A committed cancellation must not become a false failure.
+        return _cors(jsonify(ok=True, booking=result, slots=slots))
+    except ActionError as error:
+        return _cors(jsonify(error=error.code)), error.status

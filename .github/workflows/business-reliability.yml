@@ -1,0 +1,72 @@
+name: Business reliability
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+permissions:
+  contents: read
+jobs:
+  postgres:
+    name: PostgreSQL isolation (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [runtime, migration]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: v7_disposable_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Enable verified TLS on disposable PostgreSQL
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' \
+            -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+            -keyout "$RUNNER_TEMP/pg.key" -out "$RUNNER_TEMP/pg.crt" 2>/dev/null
+          docker cp "$RUNNER_TEMP/pg.key" "$POSTGRES_CONTAINER:/var/lib/postgresql/server.key"
+          docker cp "$RUNNER_TEMP/pg.crt" "$POSTGRES_CONTAINER:/var/lib/postgresql/server.crt"
+          docker exec -u root "$POSTGRES_CONTAINER" chown postgres:postgres /var/lib/postgresql/server.key /var/lib/postgresql/server.crt
+          docker exec -u root "$POSTGRES_CONTAINER" chmod 600 /var/lib/postgresql/server.key
+          docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "ALTER SYSTEM SET ssl_cert_file = '/var/lib/postgresql/server.crt'"
+          docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "ALTER SYSTEM SET ssl_key_file = '/var/lib/postgresql/server.key'"
+          docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "ALTER SYSTEM SET ssl = 'on'"
+          docker restart "$POSTGRES_CONTAINER"
+          for attempt in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER" pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          echo "V7_TEST_POSTGRES_DSN=postgresql://postgres:disposable-ci-only@localhost:5432/v7_disposable_test?sslmode=verify-full&sslrootcert=$RUNNER_TEMP/pg.crt" >> "$GITHUB_ENV"
+          echo "V7_SUPABASE_CA_FILE=$RUNNER_TEMP/pg.crt" >> "$GITHUB_ENV"
+      - name: Native runtime and booking lifecycle tests
+        if: matrix.suite == 'runtime'
+        run: python -m pytest tests/test_postgres*.py tests/test_referrals_postgres.py tests/test_auth_second_pass.py tests/test_conversation_memory.py tests/test_legacy_analytics_reports.py tests/test_plan_checkout_races.py tests/test_plan_usage.py tests/test_usage_wallet.py tests/test_booking_management.py -q -ra
+      - name: Migration import and RLS tests on separate empty database
+        if: matrix.suite == 'migration'
+        run: python -m pytest tests/test_supabase_preparation.py -q -ra
+  windows:
+    name: Windows filesystem boundaries
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/test_offline_junction_security.py tests/test_snapshot_security.py tests/test_runtime_export.py -q -ra

@@ -73,10 +73,17 @@ def _overview_statement(question, payload, knowledge, statements):
 
 def request_facts(allowed_actions):
     """Capabilities come from this channel's enabled server configuration."""
-    return {f'capability:request:{action}': {
+    facts = {f'capability:request:{action}': {
         'answer': (f'You can open the {label} request form. '
                    'Opening the form does not submit a request or confirm a booking, quote or payment.'),
     } for action, label in _FORMS.items() if action in allowed_actions}
+    if 'consultation' in allowed_actions:
+        facts['capability:native_booking_management'] = {'answer':
+            'For an appointment confirmed through a V7 appointment slot, use the private management link '
+            'in its booking confirmation to view, change or cancel it. A change or cancellation requires '
+            'your explicit confirmation. The link expires after 30 days. This does not manage appointments '
+            'in external calendars, issue refunds or process payments. Contact the business if the link is unavailable.'}
+    return facts
 
 
 def statement_catalog(knowledge):

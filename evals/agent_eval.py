@@ -27,6 +27,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evals.scenarios import BUSINESSES, SCENARIOS
+from evals.extended_scenarios import EXTENDED_SCENARIOS
 
 ROOT = Path(__file__).resolve().parents[1]
 NANO_USD = 1_000_000_000
@@ -38,6 +39,7 @@ class EvalLimit(RuntimeError):
 
 @dataclass(frozen=True)
 class Settings:
+    extended: bool = False
     live: bool = False
     model: str = 'gpt-4.1-mini'
     max_requests: int = 20
@@ -52,7 +54,8 @@ class Settings:
         from service.model_settings import MODELS
         if self.model not in MODELS:
             raise ValueError('unsupported_benchmark_model')
-        if type(self.max_requests) is not int or not 1 <= self.max_requests <= 20:
+        limit = 512 if self.extended and not self.live else 20
+        if type(self.max_requests) is not int or not 1 <= self.max_requests <= limit:
             raise ValueError('max_requests_must_be_1_to_20')
         if type(self.max_output_tokens) is not int or not 256 <= self.max_output_tokens <= 2048:
             raise ValueError('max_output_tokens_must_be_256_to_2048')
@@ -66,7 +69,7 @@ class Settings:
                 raise ValueError
         except (InvalidOperation, TypeError, ValueError):
             raise ValueError('max_budget_usd_must_be_positive_and_at_most_5') from None
-        ids = [scenario['id'] for scenario in SCENARIOS]
+        ids = [scenario['id'] for scenario in (SCENARIOS + EXTENDED_SCENARIOS if self.extended else SCENARIOS)]
         if len(ids) != len(set(ids)) or any(item not in ids for item in self.scenario_ids):
             raise ValueError('invalid_scenario_id')
         if self.env_file and not self.live:
@@ -74,7 +77,7 @@ class Settings:
 
 
 def selected_scenarios(settings):
-    return [copy.deepcopy(row) for row in SCENARIOS
+    return [copy.deepcopy(row) for row in (SCENARIOS + EXTENDED_SCENARIOS if settings.extended else SCENARIOS)
             if not settings.scenario_ids or row['id'] in settings.scenario_ids]
 
 
@@ -123,7 +126,7 @@ def _runtime_hashes():
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
-             'service/usage_pricing.py', 'evals/agent_eval.py', 'evals/scenarios.py')
+             'service/usage_pricing.py', 'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py')
     return {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths}
 
 
@@ -568,6 +571,7 @@ def supervised_live(settings):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', help='Explicitly enable paid provider calls.')
+    parser.add_argument('--extended', action='store_true', help='Include the 180-turn paraphrase and follow-up matrix; paid runs retain the 20-request cap.')
     parser.add_argument('--supervised', action='store_true', help='Exercise child-process supervision offline too.')
     parser.add_argument('--internal-worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--env-file', help='Explicit live dotenv file; only OPENAI_API_KEY is used.')

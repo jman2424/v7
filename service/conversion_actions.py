@@ -286,7 +286,7 @@ def _submit_action_postgres(storage, tenant, *, action, name, contact, details,
     return {"ok": True, "status": status, "reference": reference}
 
 
-def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest: str) -> dict[str, Any]:
+def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest: str, *, conversation_id: str | None = None) -> dict[str, Any]:
     action = payload.get("action")
     if not isinstance(action, str) or action not in _ACTIONS:
         raise ActionError("invalid_action")
@@ -303,8 +303,11 @@ def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest:
     key = payload.get("idempotency_key")
     if key is not None and (not isinstance(key, str) or not _IDEMPOTENCY_KEY.fullmatch(key)):
         raise ActionError("invalid_idempotency_key")
+    content = [action, slot_id, name, contact, details]
+    if conversation_id is not None:
+        content += ['conversation', conversation_id]
     fingerprint = hashlib.sha256(
-        json.dumps([action, slot_id, name, contact, details], ensure_ascii=False).encode("utf-8")
+        json.dumps(content, ensure_ascii=False).encode("utf-8")
     ).hexdigest()
 
     if session_store._using_postgres():

@@ -1,0 +1,15 @@
+:root {color-scheme:light; font-family:system-ui,sans-serif; color:#183c33; background:#f2f6f4}
+body {margin:0; padding:clamp(16px,5vw,64px)}
+main {max-width:680px; margin:auto; padding:clamp(20px,4vw,40px); background:white; border:1px solid #d3dfd9; border-radius:18px}
+h1 {font-size:clamp(1.6rem,4vw,2.2rem); margin-top:0}
+p {line-height:1.6}
+label {display:block; line-height:1.5}
+select,button {font:inherit; padding:12px; min-height:44px; border:1px solid #75968b; border-radius:8px}
+select {display:block; width:100%; margin-top:8px; background:white}
+button {margin:8px 8px 0 0; background:#14634d; color:white; cursor:pointer}
+button[value=cancel] {background:white; color:#8b2424; border-color:#8b2424}
+button:disabled {opacity:.6; cursor:wait}
+input {min-width:20px; min-height:20px; vertical-align:middle}
+:focus-visible {outline:3px solid #b37118; outline-offset:3px}
+[role=status] {padding:16px; background:#edf5f1; border-radius:8px; overflow-wrap:anywhere}
+@media(max-width:480px) {button {width:100%; margin-right:0}}
