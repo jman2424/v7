@@ -332,7 +332,7 @@ class MessageHandlerV7:
                     intent='conversation', plan=None, facts={}, entities={}, items=[])
             if self._is_greeting(user_text):
                 return self._wrap_reply(request_id=request_id, t0=t0,
-                    reply=f"Hello! I'm the {self._assistant_label()}. What would you like to know about {self._business_label()}?",
+                    reply=self._greeting_reply(),
                     intent='greeting', plan=None, facts={}, entities={}, items=[])
             # A handoff is a real saved lead workflow, not a prose-only reply.
             contact = self._handoff_contact(user_text, sess)
@@ -378,20 +378,6 @@ class MessageHandlerV7:
             if offer_answer:
                 return self._wrap_reply(request_id=request_id,t0=t0,reply=offer_answer,
                     intent='faq',plan=None,facts={'source':'current_platform_offer'},entities={},items=[])
-
-            # 0) Greeting only
-            if self._is_greeting(user_text):
-                reply_text = self._greeting_reply()
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent="greeting",
-                    plan=None,
-                    facts={},
-                    entities={},
-                    items=[],
-                )
 
             # 0.5) Smalltalk / meta
             if self._is_smalltalk(user_text):
