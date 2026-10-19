@@ -37,6 +37,16 @@ def test_platform_pricing_cannot_fall_into_retail_compare_or_model(client, monke
         result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
         assert result['facts']['source'] == 'current_platform_plans'
         assert '£99.00/month' in result['reply'] and '£299.00 one-time setup' in result['reply']
+        monkeypatch.setattr(client.application.container, 'settings',
+            replace(client.application.container.settings, BASE_URL='https://example.com'))
+        handler.website_destinations = [{'id': 'owner-pricing', 'label': 'Compare plans',
+            'url': 'https://example.com/#pricing', 'purpose': 'Compare plans', 'enabled': True}]
+        result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
+        assert result['actions'][0]['url'] == 'https://example.com/#pricing'
+        assert result['actions'][0]['label'] == 'Compare plans'
+        handler.website_destinations[0]['enabled'] = False
+        result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
+        assert not result.get('actions')
 
 
 def test_other_businesses_never_receive_platform_referral_rules(client,monkeypatch):

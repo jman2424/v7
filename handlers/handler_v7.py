@@ -367,9 +367,13 @@ class MessageHandlerV7:
             live_offer = public_knowledge(self.tenant_key)
             plan_answer = automatic_plan_answer(user_text, live_offer, sess.get('conversation_history'))
             if plan_answer:
+                from flask import current_app
+                pricing_url = current_app.container.settings.BASE_URL.rstrip('/') + '/#pricing'
                 targets = public_destinations(self.tenant_key, self.website_destinations)
+                targets += [row for row in self.website_destinations
+                            if row.get('enabled') and row.get('url') == pricing_url]
                 actions = [{'type': 'navigate', 'label': row['label'], 'url': row['url']}
-                           for row in targets if row['id'] == 'platform_plans']
+                           for row in targets if row['url'] == pricing_url]
                 return self._wrap_reply(request_id=request_id, t0=t0, reply=plan_answer,
                     intent='faq', plan=None, facts={'source':'current_platform_plans'}, entities={}, items=[], actions=actions)
 
