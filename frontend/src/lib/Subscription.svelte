@@ -139,7 +139,7 @@
         <p class="notice">{$t('This is an internal workspace. There is no paid platform subscription to cancel.')}</p>
       {:else if data.complimentary}
         <p class="notice">{$t('This business has complimentary access. There is no paid platform subscription to cancel.')}</p>
-      {:else if baseContract?.cancel_at_end}
+      {:else if baseContract?.cancel_at_end && baseContract.status!=='canceled'}
         <p class="notice" role="status"><strong>{$t('Cancellation scheduled')}</strong><br/>{baseContract.next_due ? $t('Your platform subscription ends on {date}.',{date:date(baseContract.next_due)}) : $t('Your platform subscription will end at the close of the current billing period.')}</p>
         <p>{$t('Refresh payments after returning from Stripe to see the latest status.')}</p>
       {:else if baseContract?.status==='canceled'}
