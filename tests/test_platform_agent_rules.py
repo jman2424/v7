@@ -18,8 +18,10 @@ def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(clien
         followup = platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge,
             [{'role': 'user', 'content': 'Compare Starter and Business pricing plans'}])
         assert 'Business:' in followup and '5 staff accounts' in followup
-        for question in ['green means good', 'how do I setup V7?', 'cancel my plan', 'how does referral pricing work?']:
+        for question in ['green means good', 'how do I setup V7?', 'How do I setup my Business plan?', 'cancel my plan', 'how does referral pricing work?']:
             assert platform_offer_knowledge.automatic_plan_answer(question, knowledge) is None
+        assert platform_offer_knowledge.automatic_plan_answer('What should staff do to install the widget?', knowledge,
+            [{'role': 'user', 'content': 'Compare Starter and Business pricing plans'}]) is None
         assert platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge) is None
         assert platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', None) is None
 

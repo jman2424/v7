@@ -78,12 +78,12 @@ def automatic_plan_answer(question, knowledge, history=None):
     plans = public_plans()
     names = '|'.join(re.escape(plan['name']) for plan in plans)
     plan_context = rf'\b(?:{names}|plans?|pricing)\b'
-    details = r'\b(?:compar\w*|pric\w*|cost\w*|monthly|setup|staff|locations?|limits?|allow\w*)\b'
+    details = r'\b(?:compar\w*|pric\w*|cost\w*|monthly|fees?|how much|staff|locations?|limits?)\b'
     explicit = bool(re.search(plan_context, question, re.I) and re.search(details, question, re.I))
     explicit = explicit or bool(re.fullmatch(r'\s*(?:show (?:me )?(?:your )?)?(?:plans|pricing)\s*[?.!]?\s*', question, re.I))
     prior = [row['content'] for row in (history or []) if isinstance(row, dict)
              and row.get('role') == 'user' and isinstance(row.get('content'), str)]
-    follow_up = (bool(re.search(r'\b(?:which|what|one|those|they|it)\b', question, re.I))
+    follow_up = (bool(re.search(r'\b(?:which (?:one|plan)|how many (?:staff|locations?))\b', question, re.I))
                  and bool(re.search(r'\b(?:staff|locations?|limits?)\b', question, re.I))
                  and any(re.search(plan_context, text, re.I) and re.search(details, text, re.I)
                          for text in prior[-4:]))
