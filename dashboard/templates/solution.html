@@ -67,7 +67,7 @@
       <h1 id="solution-title">{{ solution.h1 }}</h1>
       <p class="solution-intro">{{ solution.intro }}</p>
       <p class="solution-audience">{{ solution.audience }}</p>
-      <div class="actions"><a class="button button-dark" href="/#contact">Request a demo <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/console/">Open your workspace <span aria-hidden="true">→</span></a><a class="text-link" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a></div>
+      <div class="actions"><a class="button button-dark" href="/#contact">{% if resource_page %}Discuss your setup{% else %}Request a demo{% endif %} <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/console/">Open your workspace <span aria-hidden="true">→</span></a>{% if not resource_page %}<a class="text-link" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a>{% endif %}</div>
     </section>
     {% if pricing_page %}
     <section id="pricing" class="pricing-detail" aria-labelledby="pricing-comparison-title">
@@ -89,6 +89,7 @@
       </aside>
     </div>
     <section class="solution-limits" aria-labelledby="limits-title"><h2 id="limits-title">What to check before launch</h2><p>{{ solution.caution }}</p></section>
+    {% if canonical_url == site_origin ~ '/security' %}<p><a class="text-link" href="/privacy">Read the privacy information →</a> · <a class="text-link" href="/cookies">Read the cookie information →</a></p>{% endif %}
     {% include 'public_buying_links.html' %}
     <section class="solution-related" aria-labelledby="related-title"><div class="solution-related-heading"><div><p class="eyebrow">EXPLORE THE PLATFORM</p><h2 id="related-title">Other ways to use V7 Agents</h2></div><a class="text-link" href="/pricing">View pricing <span aria-hidden="true">→</span></a></div><div class="solution-links">{% for related_slug, related in solutions.items() %}{% if related_slug != slug %}<a href="/solutions/{{ related_slug }}"><span>{{ related.label }}</span><span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div></section>
   </main>
