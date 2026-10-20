@@ -142,6 +142,7 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
     for plan, offer in zip(public_plans(), product["offers"]):
         specification = offer["priceSpecification"]
         assert offer["name"] == "V7 Agents " + plan["name"]
+        assert offer["availability"] == "https://schema.org/OnlineOnly"
         assert specification["@type"] == "UnitPriceSpecification"
         assert Decimal(specification["price"]) == Decimal(plan["monthly_pence"]) / 100
         assert specification["priceCurrency"] == "GBP"
@@ -450,6 +451,29 @@ def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
     assert icons["/static/img/apple-touch-icon.png"]["rel"] == "apple-touch-icon"
     assert icons["/favicon.ico"]["rel"] == "shortcut icon"
     assert any(item["type"] == "image/svg+xml" and item["sizes"] == "any" for item in page.icons)
+    # A supported raster candidate is last; its stable URL has no cache-busting query.
+    assert [item for item in page.icons if item["rel"] == "icon"][-1] == icons["/static/img/favicon-192.png"]
+
+
+def test_home_search_branding_agrees_with_visible_brand_and_public_icon(seo_client):
+    page = HomeStructuredData()
+    page.feed(seo_client.get("/", base_url="https://untrusted.example").text)
+    graph = json.loads(page.scripts[0]["text"])["@graph"]
+    organization = next(item for item in graph if item["@type"] == "Organization")
+    website = next(item for item in graph if item["@type"] == "WebSite")
+    assert website["name"] == organization["name"] == "Vertex Seven"
+    assert website["alternateName"] == ["V7 Agents by Vertex Seven", "vertex-seven.com"]
+    assert website["publisher"]["@id"] == organization["@id"]
+    assert website["url"] == organization["url"] == ORIGIN + "/"
+    logo = organization["logo"]
+    assert logo["@type"] == "ImageObject"
+    assert logo["url"] == logo["contentUrl"] == ORIGIN + "/static/img/favicon-192.png"
+    response = seo_client.get(logo["url"].removeprefix(ORIGIN))
+    assert response.status_code == 200
+    assert struct.unpack(">II", response.data[16:24]) == (logo["width"], logo["height"])
+    assert logo["width"] == logo["height"] >= 112
+    assert logo["caption"] == organization["name"]
+    assert "untrusted.example" not in json.dumps(graph)
 
 
 @pytest.mark.parametrize("filename,size", [

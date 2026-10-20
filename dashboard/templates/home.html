@@ -25,6 +25,7 @@
     {% set tax_description = (" before VAT. Monthly price including " + (subscription_vat_percent | string) + "% VAT £" + ('%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000)) + "; setup including VAT £" + ('%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000)) + ", where VAT applies.") if subscription_vat_percent else ". No VAT charged; Vertex Seven is not VAT-registered." %}
     {% set plan_offers.items = plan_offers.items + [{
       "@type": "Offer", "url": canonical_url + "#pricing", "name": "V7 Agents " + plan.name,
+      "availability": "https://schema.org/OnlineOnly",
       "description": plan.name + " monthly subscription with website and WhatsApp agents. Separate one-time setup £" + ('%.0f' | format(plan.setup_pence / 100)) + tax_description + " Phone numbers and separate WhatsApp provider charges are not included. AI processing credit is purchased separately and shared across website and WhatsApp; paid AI pauses without available credit. No automatic recharge is enabled.",
       "priceSpecification": {"@type": "UnitPriceSpecification", "price": '%.2f' | format(plan.monthly_pence / 100), "priceCurrency": "GBP", "unitCode": "MON", "unitText": "month", "valueAddedTaxIncluded": false},
       "seller": {"@id": site_origin + "/#organization"}
@@ -32,9 +33,9 @@
   {% endfor %}
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
     "@context": "https://schema.org", "@graph": [
-      {"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "description": "Vertex Seven provides V7 Agents, a configurable AI sales assistant platform for business websites.", "logo": site_origin + url_for('static', filename='img/vertex-seven.svg')},
+      {"@type": "Organization", "@id": site_origin + "/#organization", "name": "Vertex Seven", "url": canonical_url, "description": "Vertex Seven provides V7 Agents, a configurable AI sales assistant platform for business websites.", "logo": {"@type": "ImageObject", "url": site_origin + url_for('static', filename='img/favicon-192.png'), "contentUrl": site_origin + url_for('static', filename='img/favicon-192.png'), "width": 192, "height": 192, "caption": "Vertex Seven"}},
       {"@type": "SoftwareApplication", "@id": site_origin + "/#v7-agents", "name": "V7 Agents", "applicationCategory": "BusinessApplication", "operatingSystem": "Web browser", "url": canonical_url, "description": "A configurable AI sales assistant with business knowledge, a branded website chat widget and a management workspace.", "publisher": {"@id": site_origin + "/#organization"}},
-      {"@type": "WebSite", "@id": site_origin + "/#website", "name": "V7 Agents by Vertex Seven", "url": canonical_url, "publisher": {"@id": site_origin + "/#organization"}, "inLanguage": "en"},
+      {"@type": "WebSite", "@id": site_origin + "/#website", "name": "Vertex Seven", "alternateName": ["V7 Agents by Vertex Seven", "vertex-seven.com"], "url": canonical_url, "publisher": {"@id": site_origin + "/#organization"}, "inLanguage": "en"},
       {"@type": "Product", "@id": site_origin + "/#monthly-plan", "name": "V7 Agents monthly subscription plans",
        "description": "Starter, Business and Scale monthly plans for a business-aware website and WhatsApp sales agent. Each plan has a separate one-time setup fee. AI processing credit is purchased separately; no AI credit is included in the subscription and there is no fixed message or conversation cap. " + ("Prices are before VAT, where applicable; totals including VAT are also displayed. " if subscription_vat_percent else "No VAT charged; Vertex Seven is not VAT-registered. ") + "WhatsApp requires a configured provider connection. Phone numbers and separate WhatsApp provider charges are not included.",
        "url": canonical_url + "#pricing", "image": site_origin + url_for('static', filename='img/vertex-seven-banner.png'),
