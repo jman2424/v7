@@ -334,6 +334,10 @@ class MessageHandlerV7:
                 return self._wrap_reply(request_id=request_id, t0=t0,
                     reply=self._greeting_reply(),
                     intent='greeting', plan=None, facts={}, entities={}, items=[])
+            if self._is_smalltalk(user_text):
+                return self._wrap_reply(request_id=request_id, t0=t0,
+                    reply=self._smalltalk_reply(user_text),
+                    intent='smalltalk', plan=None, facts={}, entities={}, items=[])
             # A handoff is a real saved lead workflow, not a prose-only reply.
             contact = self._handoff_contact(user_text, sess)
             if contact and self._has_pending_handoff(sess):
@@ -394,21 +398,6 @@ class MessageHandlerV7:
             if offer_answer:
                 return self._wrap_reply(request_id=request_id,t0=t0,reply=offer_answer,
                     intent='faq',plan=None,facts={'source':'current_platform_offer'},entities={},items=[])
-
-            # 0.5) Smalltalk / meta
-            if self._is_smalltalk(user_text):
-                reply_text = self._smalltalk_reply(user_text)
-                safe_plan = self._simple_plan("smalltalk", "SMALLTALK_REPLY", session_snapshot)
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent="smalltalk",
-                    plan=safe_plan,
-                    facts={},
-                    entities=self._entities_from_plan(safe_plan),
-                    items=[],
-                )
 
             # 0.9) Explicit human handoff and voluntary contact details.
             contact = self._handoff_contact(user_text, session_snapshot)
@@ -871,7 +860,8 @@ class MessageHandlerV7:
         remembered = ([selected_id] if isinstance(selected_id,str) else []) + previous_ids
         # Start with the current question. Old assistant replies used to swamp
         # a new policy question with the previous product/pricing vocabulary.
-        pages = relevant_passages(self.website_knowledge, question, limit=6)
+        pages = self._optional_source('website_retrieval',
+            lambda: relevant_passages(self.website_knowledge, question, limit=6), [])
         follow_up = len(re.findall(r'\w+', question)) <= 10 and bool(re.search(
             r'\b(?:it|its|they|them|their|that|those|one|ones|option|first|second|third|'
             r'eso|esa|ellos|ellas|primero|segundo|tercero|cela|celui|celle|premier|deuxième|troisième|'
@@ -879,7 +869,8 @@ class MessageHandlerV7:
         if follow_up and isinstance(history, list):
             query = question + ' ' + ' '.join(str(row.get('content', ''))[:400]
                 for row in history[-4:] if isinstance(row, dict) and row.get('role') == 'user')
-            for page in relevant_passages(self.website_knowledge, query, limit=6):
+            for page in self._optional_source('website_followup',
+                    lambda: relevant_passages(self.website_knowledge, query, limit=6), []):
                 if len(pages) < 6 and page not in pages:
                     pages.append(page)
         for index, page in enumerate(pages):
@@ -893,32 +884,40 @@ class MessageHandlerV7:
                                                        'answer_complete': isinstance(raw_answer, str)
                                                        and bool(raw_answer.strip()) and len(raw_answer) <= 2000}
         if self.business_core:
-            core = self.business_core.public_context(query=question,
-                selected_ids=[key[len('offering:'):] for key in remembered
-                              if isinstance(key,str) and key.startswith('offering:')])
-            knowledge['business_core'] = {**core, 'offerings':core.get('offerings', [])[:12],
-                'locations':core.get('locations', [])[:8], 'business_rules':core.get('business_rules', [])[:8]}
+            core = self._optional_source('business_core_retrieval', lambda: self.business_core.public_context(
+                query=question, selected_ids=[key[len('offering:'):] for key in remembered
+                              if isinstance(key,str) and key.startswith('offering:')]), {})
+            knowledge['business_core'] = {**core, **{key: core[key][:limit]
+                if isinstance(core.get(key), list) else []
+                for key, limit in (('offerings', 12), ('locations', 8), ('business_rules', 8))}}
             for offering in knowledge['business_core'].get('offerings', []):
-                knowledge['offering:'+offering['id']] = offering
+                if isinstance(offering, dict) and isinstance(offering.get('id'), str):
+                    knowledge['offering:'+offering['id']] = offering
         if self.catalog:
             items = []
             for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
                 if source_id.startswith('product:'):
-                    item = self.catalog.get_item_by_sku(source_id[len('product:'):])
+                    item = self._optional_source('catalog_selection',
+                        lambda: self.catalog.get_item_by_sku(source_id[len('product:'):]), None)
                     if item:
                         items.append(item)
-            items += self.catalog.search(text=question, limit=12)
-            items += self.catalog.list_all_items()[:40]
+            items += self._optional_source('catalog_search', lambda: self.catalog.search(text=question, limit=12), [])
+            items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
             for sku in (session.get('last_items') or [])[:12]:
-                item = self.catalog.get_item_by_sku(sku)
+                item = self._optional_source('catalog_selection', lambda: self.catalog.get_item_by_sku(sku), None)
                 if item:
                     items.append(item)
+            currency = self._optional_source('catalog_currency', self.catalog.currency, '')
             for item in items:
                 if not isinstance(item, dict) or item.get('active') is False or item.get('public') is False:
                     continue
                 sku = str(item.get('sku') or '')[:120]
                 if sku:
-                    knowledge['product:' + sku] = _public_product_facts(item, self.catalog.currency())
+                    facts = _public_product_facts(item, currency)
+                    if not currency:
+                        # A missing currency is not permission to assume GBP.
+                        facts.pop('price', None)
+                    knowledge['product:' + sku] = facts
         if self.faq:
             for index, row in enumerate(self._optional_faq_rows()[:40]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
@@ -928,27 +927,31 @@ class MessageHandlerV7:
                                                'answer_complete': isinstance(raw_answer, str)
                                                and bool(raw_answer.strip()) and len(raw_answer) <= 2000}
         if self.policy:
-            knowledge['delivery'] = {'notes': self.policy.delivery_notes(),
-                                     'notices': self.policy.service_notices()}
-            postcode = self._extract_postcode(question) or session.get('postcode')
-            if postcode:
-                knowledge['delivery']['matching_rule'] = self.policy.delivery_rule_for(postcode)
-                knowledge['delivery']['notices'] = self.policy.service_notices(postcode=postcode)
-                summary = self.policy.delivery_summary(postcode)
-                rule = knowledge['delivery']['matching_rule'] or {}
-                parts = [f'Delivery information for {postcode}: ' +
-                         (summary or 'The available rules do not establish delivery terms for this postcode.')]
-                parts += [str(value).strip() for value in (rule.get('notes'), knowledge['delivery']['notes'])
-                          if isinstance(value, str) and value.strip()]
-                parts += knowledge['delivery']['notices']
-                knowledge['delivery']['statement'] = '\n'.join(parts)
+            def delivery_knowledge():
+                delivery = {'notes': self.policy.delivery_notes(), 'notices': self.policy.service_notices()}
+                postcode = self._extract_postcode(question) or session.get('postcode')
+                if postcode:
+                    delivery['matching_rule'] = self.policy.delivery_rule_for(postcode)
+                    delivery['notices'] = self.policy.service_notices(postcode=postcode)
+                    summary = self.policy.delivery_summary(postcode)
+                    rule = delivery['matching_rule'] or {}
+                    parts = [f'Delivery information for {postcode}: ' +
+                             (summary or 'The available rules do not establish delivery terms for this postcode.')]
+                    parts += [str(value).strip() for value in (rule.get('notes'), delivery['notes'])
+                              if isinstance(value, str) and value.strip()]
+                    parts += delivery['notices']
+                    delivery['statement'] = '\n'.join(parts)
+                return delivery
+            delivery = self._optional_source('delivery_retrieval', delivery_knowledge, {})
+            if delivery:
+                knowledge['delivery'] = delivery
         if self.geo:
-            for index, branch in enumerate(self.geo.branches()[:20]):
+            for index, branch in enumerate(self._optional_source('branch_retrieval', self.geo.branches, [])[:20]):
                 if isinstance(branch, dict) and branch.get('active') is not False:
                     knowledge[f'branch:{index}'] = {key: branch[key] for key in
                         ('name', 'address', 'postcode', 'hours', 'phone', 'url') if key in branch}
         if self.offers:
-            for index, offer in enumerate(self.offers.active()[:12]):
+            for index, offer in enumerate(self._optional_source('offer_retrieval', self.offers.active, [])[:12]):
                 if isinstance(offer, dict):
                     knowledge[f'offer:{index}'] = {key: offer[key] for key in
                         ('title', 'description', 'sku', 'price', 'currency', 'start_date', 'end_date', 'terms') if key in offer}
@@ -988,13 +991,24 @@ class MessageHandlerV7:
             agent_state.pop('requested_action', None)
         return {'reply': text, 'actions': selected[:3], 'agent':agent_state} if text else None
 
-    def _optional_faq_rows(self, question=None):
+    @staticmethod
+    def _optional_source(phase, read, default):
+        """A failing supplemental source cannot discard independent verified facts."""
         try:
-            return self.faq.best_match(question, top_k=5) if question is not None else self.faq.all()
+            value = read()
+            if isinstance(default, list) and isinstance(value, (list, tuple)):
+                return list(value)
+            if default is not None and not isinstance(value, type(default)):
+                raise TypeError('invalid_optional_source')
+            return value
         except Exception as exc:
             from service.chat_diagnostics import emit
-            emit('chat_optional_failure', phase='faq_retrieval', error_type=type(exc).__name__)
-            return []
+            emit('chat_optional_failure', phase=phase, error_type=type(exc).__name__)
+            return default
+
+    def _optional_faq_rows(self, question=None):
+        return self._optional_source('faq_retrieval',
+            lambda: self.faq.best_match(question, top_k=5) if question is not None else self.faq.all(), [])
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:
@@ -1208,18 +1222,14 @@ class MessageHandlerV7:
         t = self._clean_text(text)
         if not t:
             return False
-
         if t in self._GREETINGS:
             return True
-
-        toks = t.split()
-        if len(toks) <= 2:
-            for g in self._GREETINGS:
-                if t.startswith(g + " "):
-                    return True
-
-        gmatch = difflib.get_close_matches(t, list(self._GREETINGS), n=1, cutoff=0.88)
-        return bool(gmatch)
+        # A greeting followed by a business topic ('hi prices', 'hello refund')
+        # is a real question. Only harmless greeting suffixes stay local.
+        if any(t == greeting + ' ' + suffix for greeting in self._GREETINGS
+               for suffix in ('there', 'again', 'everyone', 'team', 'folks', 'bot')):
+            return True
+        return bool(difflib.get_close_matches(t, list(self._GREETINGS), n=1, cutoff=0.88))
 
     def _is_smalltalk(self, text: str) -> bool:
         t = self._clean_text(text)
@@ -1274,36 +1284,8 @@ class MessageHandlerV7:
 
     @staticmethod
     def _action_request_text(user_text: str) -> str:
-        """Keep affirmative request clauses for shortcuts, never change AI input.
-
-        Negating a demo or callback must not open its form before the model can
-        answer. Scope that exclusion to its clause so a separate positive request
-        still works, including when the customer has no website or account yet.
-        """
-        clauses = re.split(
-            r"[,،;.!?\n]+|\b(?:but|however|instead|rather|pero|sino|mais|plutôt|لكن|بل)\b|"
-            r"\band\s+(?=(?:can|could|please|i (?:want|need|would)|book|request|get|send)\b)",
-            str(user_text or '').casefold(),
-        )
-        negative = re.compile(
-            r"\b(?:don['’]?t|do not|cannot|can['’]?t|never|not(?: to)?|no need to)\s+"
-            r"(?:(?:really|actually|please)\s+)?(?:want|need|wish|plan|intend|like|"
-            r"call|contact|book|schedule|arrange|request|get|send|speak|talk|chat)\b|"
-            r"\b(?:no|without)\s+(?:(?:a|an|any|more|another)\s+)?"
-            r"(?:demo|appointment|consultation|meeting|quote|quotation|estimate|callback|call|contact|human|person)\b|"
-            r"\bnot\s+(?:interested|ready|looking)\b|\bno need(?:\s+(?:for|to))?\b|"
-            r"\b(?:no thanks|not now|stop calling|stop contacting)\b|"
-            r"\bno\s+(?:quiero|necesito|deseo|llames|llamen|contactes|contacten|reservar|agendar)\b|"
-            r"\bsin\s+(?:cita|consulta|presupuesto|llamada)\b|"
-            r"\b(?:ne|n['’])(?:\s*[\w'’]+){0,4}\s+pas\b|"
-            r"\b(?:pas de|sans)\s+(?:démo|consultation|rendez-vous|devis|rappel)\b|"
-            r"(?:لا|لن)\s+(?:أريد|اريد|أحتاج|احتاج|تتصل|تتصلوا|تحجز|تطلب|تتواصل)|"
-            r"(?:بدون|دون)\s+(?:موعد|استشارة|اتصال|عرض سعر)", re.I,
-        )
-        informational = re.compile(r"^(?:do i need|what is|how does|tengo que|qué es|qu['’]est-ce|هل يجب)\b")
-        return ' '.join(clause.strip() for clause in clauses
-                        if clause.strip() and not negative.search(clause)
-                        and not informational.match(clause.strip()))
+        from service.customer_intent import affirmative_request_text
+        return affirmative_request_text(user_text)
 
     @classmethod
     def _explicit_human_request(cls, user_text: str) -> bool:
@@ -1738,7 +1720,7 @@ class MessageHandlerV7:
                 except Exception as exc:
                     self._exc(request_id, "V7.faq_delivery_summary_failed", err=str(exc))
 
-        answer = self.faq.render_answer(entry, placeholders).strip()
+        answer = self._optional_source('faq_render', lambda: self.faq.render_answer(entry, placeholders), '').strip()
         if not answer:
             return None
         return {"question": str(entry.get("q") or ""), "answer": answer}

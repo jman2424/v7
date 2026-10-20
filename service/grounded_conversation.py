@@ -770,16 +770,28 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             pause_ai_for_turn()
             finish('invalid_requested_action')
             return None
+        from service.customer_intent import explicit_form_request, form_is_appropriate
+        form_suppressed = bool(requested_action and not form_is_appropriate(question, requested_action))
+        if form_suppressed:
+            requested_action = None
+            from service.chat_diagnostics import emit
+            emit('chat_action_suppressed', outcome='informational_or_declined')
         state = _agent_state(payload, knowledge=knowledge, sources=sources, navigation=navigation,
                              question=question, history=history, context=context, memory_settings=memory_settings)
         state['_response_kind'] = kind
+        if form_suppressed and state['next_action'] == 'open_request_form':
+            state['next_action'] = 'await_customer_question'
         action_intents = {'consultation': 'book', 'quote': 'quote', 'callback': 'handoff'}
         if requested_action and state['intent'] != action_intents[requested_action]:
-            # A technically enabled form is not the customer's chosen task.
-            # Keep the grounded support answer without introducing a sales step.
-            requested_action = None
-            if state['next_action'] == 'open_request_form':
-                state['next_action'] = 'await_customer_question'
+            if explicit_form_request(question, requested_action):
+                # The customer chose this enabled form, but the model supplied
+                # inconsistent task metadata. This still only opens a form.
+                state['intent'] = action_intents[requested_action]
+                state['objective'] = AGENT_INTENTS[state['intent']]
+            else:
+                requested_action = None
+                if state['next_action'] == 'open_request_form':
+                    state['next_action'] = 'await_customer_question'
         if state['next_action'] == 'open_request_form' and not requested_action:
             pause_ai_for_turn()
             finish('missing_requested_action')
