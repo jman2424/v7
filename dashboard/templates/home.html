@@ -43,7 +43,7 @@
     ]} | tojson }}</script>
   <meta name="theme-color" content="#087f5b">
   {% include 'platform_favicons.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261011prices') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261020buying') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
   {% if ga4_measurement_id %}
   <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
@@ -55,7 +55,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header wrap">
     {% include 'platform_brand.html' %}
-    <nav aria-label="Main navigation"><a href="#platform" data-i18n>Platform</a><a href="#solutions">Solutions</a><a href="#how-it-works" data-i18n>How it works</a><a href="#pricing" data-i18n>Pricing</a><a href="#questions" data-i18n>FAQs</a></nav>
+    <nav aria-label="Main navigation"><a href="#platform" data-i18n>Platform</a><a href="#solutions">Solutions</a><a href="#how-it-works" data-i18n>How it works</a><a href="/pricing" data-i18n>Pricing</a><a href="#questions" data-i18n>FAQs</a></nav>
     <div class="header-actions"><label class="site-language"><span data-i18n>Language</span><select data-language-picker aria-label="Language"><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="ar">العربية</option></select></label><a class="button button-small button-dark" href="/console/"><span data-i18n>Sign in</span> <span aria-hidden="true">↗</span></a></div>
   </header>
   <main id="main">
@@ -63,7 +63,7 @@
       <div class="hero-art" aria-hidden="true"><img src="{{ url_for('static', filename='img/vertex-seven-banner.svg', v='20261019svg') }}" width="1672" height="941" alt="Vertex Seven — AI agents for business operations" fetchpriority="high"></div>
       <div class="hero-copy">
         <p class="eyebrow" data-i18n>AI SALES ASSISTANT</p>
-        <h1><span data-i18n>Your business.</span><span class="hero-accent" data-i18n>Better conversations.</span></h1>
+        <h1><span data-i18n>Your AI chatbot.</span><span class="hero-accent" data-i18n>Better conversations.</span></h1>
         <p class="hero-description">An AI chatbot for business, built around your products, FAQs and policies. Help customers find answers, explore their options and reach your team.</p>
         <div class="actions">
           <a class="button button-dark" href="#contact">Request a demo <span aria-hidden="true">↗</span></a>
@@ -113,48 +113,10 @@
     </section>
     <section class="section wrap" id="how-it-works"><div class="section-heading"><div><p class="eyebrow">HOW IT WORKS</p><h2>From your business<br>to your website.</h2></div><p>Set up your knowledge, test the experience and share it with customers.</p></div><ol class="steps"><li><span>01</span><h3>Set up your business</h3><p>Create a business with a verified email when registration is available, or ask the platform administrator for owner access. Add the products and information your customers need.</p></li><li><span>02</span><h3>Test your agent</h3><p>Set your branding and tone. Test questions about products and policies, then refine the information behind the answers.</p></li><li><span>03</span><h3>Publish your widget</h3><p>Embed chat on your website. Review conversations, follow up on leads and keep your knowledge up to date.</p></li></ol></section>
     <section class="section use-cases wrap" id="use-cases"><p class="eyebrow">BUILT AROUND YOUR BUSINESS</p><h2>Different businesses.<br>Familiar questions.</h2><div class="use-grid"><article><span class="use-symbol" aria-hidden="true">▧</span><h3>Retail & online stores</h3><p>“Which product is right for me?”</p><span>Help shoppers explore products and understand delivery options.</span></article><article><span class="use-symbol" aria-hidden="true">⌂</span><h3>Local & multi-branch businesses</h3><p>“Where can I find you?”</p><span>Make branch locations, opening hours and store information easier to find.</span></article><article><span class="use-symbol" aria-hidden="true">↗</span><h3>Businesses with repeat enquiries</h3><p>“How does this work?”</p><span>Use your FAQs to answer common questions and share your contact paths.</span></article></div></section>
+    <div class="wrap">{% include 'public_buying_links.html' %}</div>
     <section class="section wrap" id="pricing" aria-labelledby="pricing-title">
       <div class="section-heading"><div><p class="eyebrow">MONTHLY SUBSCRIPTIONS</p><h2 id="pricing-title">The right plan.<br>Room to grow.</h2></div><p>Website and WhatsApp agents in every plan. {% if subscription_vat_percent %}GBP prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}Final GBP prices are shown. No VAT charged; Vertex Seven is not VAT-registered.{% endif %} Setup is a separate one-time payment.</p></div>
-      <div class="feature-grid pricing-plans">
-        {% for plan in subscription_plans %}
-        <article class="feature{% if plan.id == 'business' %} feature-green{% endif %}">
-          <span class="card-number">{{ plan.audience }}</span><h3 class="plan-name">{{ plan.name }}</h3>
-          <p class="plan-price">£{{ '%.0f' | format(plan.monthly_pence / 100) }} <small>/ month{% if subscription_vat_percent %} before VAT{% endif %}</small></p>
-          <p class="plan-tax"><strong>£{{ '%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000) }} / month</strong> {% if subscription_vat_percent %}including {{ subscription_vat_percent }}% VAT, where applicable{% else %}— no VAT charged{% endif %}</p>
-          <p class="plan-setup">£{{ '%.0f' | format(plan.setup_pence / 100) }} one-time setup{% if subscription_vat_percent %} before VAT{% endif %}</p>
-          <p class="plan-tax"><strong>£{{ '%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000) }} setup</strong> {% if subscription_vat_percent %}including {{ subscription_vat_percent }}% VAT, where applicable{% else %}— no VAT charged{% endif %}</p>
-          <ul class="plan-highlights"><li>No fixed message or conversation cap</li><li>AI processing credit purchased separately · usage depends on model and tokens</li><li>{{ plan.locations }} location{% if plan.locations != 1 %}s{% endif %} / service area{% if plan.locations != 1 %}s{% endif %} · {{ plan.staff }} staff accounts</li></ul>
-          <p class="plan-exclusion">WhatsApp phone numbers are not included. Provider and number rental charges are separate.</p>
-          <a class="button button-dark" href="/console/subscription?plan={{ plan.id }}">Choose {{ plan.name }} <span aria-hidden="true">→</span></a>
-        </article>
-        {% endfor %}
-      </div>
-      {% if referral_offer.enabled %}
-      <aside class="referral-offer" aria-labelledby="referral-offer-title">
-        <div><p class="eyebrow" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off one subscription month for both businesses</span></h3>
-        {% if referral_offer.joining_setup_percent == 100 %}<p data-i18n>The new business gets its first subscription month discounted and pays no setup fee.</p>{% endif %}
-        <p><span data-i18n>You earn your reward after its first successful subscription payment, including</span> {{ referral_offer.percent }}% <span data-i18n>off your unpaid setup fee.</span></p>
-        <p class="referral-terms" data-i18n>New businesses must accept a referral before their first checkout. Discounts do not stack or apply to AI credit. Already-paid setup fees are not refunded.</p></div>
-        <a class="button button-dark" href="/console/account" data-i18n>Get your referral link</a>
-      </aside>
-      {% endif %}
-      <div class="plan-comparison" role="region" aria-label="Compare subscription plans" tabindex="0">
-        <table><caption>Exactly what your business gets</caption><thead><tr><th scope="col">Feature</th>{% for plan in subscription_plans %}<th scope="col">{{ plan.name }}</th>{% endfor %}</tr></thead><tbody>
-          {% for label in ['Website AI agent', 'WhatsApp AI agent'] %}<tr><th scope="row">{{ label }}</th>{% for plan in subscription_plans %}<td>Included</td>{% endfor %}</tr>{% endfor %}
-          <tr><th scope="row">WhatsApp phone number</th>{% for plan in subscription_plans %}<td>Not included</td>{% endfor %}</tr>
-          <tr><th scope="row">Website and WhatsApp message capacity*</th>{% for plan in subscription_plans %}<td>Based on model, tokens and prepaid credit</td>{% endfor %}</tr>
-          <tr><th scope="row">Prepaid AI processing credit**<br><small>Shared across website and WhatsApp</small></th>{% for plan in subscription_plans %}<td>Purchased separately</td>{% endfor %}</tr>
-          {% for label in ['Catalogue / services', 'Offers and promotions'] %}<tr><th scope="row">{{ label }}</th>{% for plan in subscription_plans %}<td>Yes</td>{% endfor %}</tr>{% endfor %}
-          <tr><th scope="row">Business analytics</th>{% for plan in subscription_plans %}<td>{{ plan.analytics }}</td>{% endfor %}</tr>
-          <tr><th scope="row">MCP / ChatGPT connection</th>{% for plan in subscription_plans %}<td>Yes</td>{% endfor %}</tr>
-          <tr><th scope="row">V7 API access</th>{% for plan in subscription_plans %}<td>{{ plan.api_access }}</td>{% endfor %}</tr>
-          <tr><th scope="row">Locations / service areas</th>{% for plan in subscription_plans %}<td>{{ plan.locations }}</td>{% endfor %}</tr>
-          <tr><th scope="row">Staff accounts</th>{% for plan in subscription_plans %}<td>{{ plan.staff }}</td>{% endfor %}</tr>
-          {% for label in ['Conversations and history', 'Error / health monitoring'] %}<tr><th scope="row">{{ label }}</th>{% for plan in subscription_plans %}<td>Yes</td>{% endfor %}</tr>{% endfor %}
-          <tr><th scope="row">Onboarding support</th>{% for plan in subscription_plans %}<td>{{ plan.onboarding }}</td>{% endfor %}</tr>
-        </tbody></table>
-      </div>
-      <div class="pricing-api"><h3>Predictable usage. No automatic extra charges.</h3><p>* A website conversation is a distinct chat session used during the month, rather than each message. ** Message usage is measured by AI processing cost in GBP, with one prepaid balance shared across website and WhatsApp. No AI credit is included in the monthly subscription. It is not a fixed number of website or WhatsApp messages and does not include Meta, Twilio or phone number charges. Message capacity depends on the selected model’s price and the tokens used, including conversation context and reply length. There is no fixed message or conversation cap. Activity counters reset at the start of each calendar month in UTC; purchased credit carries forward.</p><p>Paid AI calls pause if the available prepaid AI credit cannot safely cover a request or its cost is unknown; the agent can still use saved business knowledge. The administrator sees a usage alert. Owners can buy £5, £20 or £50 of AI credit{% if subscription_vat_percent %} before VAT (£6, £24 or £60 including 20% VAT). VAT is not added to the usable balance.{% else %} for the same payment amount. No VAT charged; Vertex Seven is not VAT-registered.{% endif %} Credit pays for AI processing. Top-ups are one-time purchases, with no automatic recharge or overage charge.</p><p>Staff limits cover active staff accounts in addition to the business owner. Location limits cover configured branches and service areas. Analytics and API labels describe plan service levels; tool access still follows account permissions. WhatsApp phone numbers are not included: you provide an eligible number or rent one from a provider. Number rental and WhatsApp provider charges are separate from the V7 plan. AI features need an available, funded model provider.</p></div>
+      {% include 'public_plan_comparison.html' %}
     </section>
     <section class="section wrap faq-layout" id="questions"><div><p class="eyebrow">FREQUENTLY ASKED QUESTIONS</p><h2>What you need<br>to know.</h2><p>How access, setup and integrations work.</p></div><div class="faq-list">
       <details open><summary>What is V7 Agents?</summary><p>V7 Agents is an AI sales assistant platform by Vertex Seven. It combines your business information with conversational assistance to help customers explore products, ask questions and decide what to do next.</p></details>

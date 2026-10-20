@@ -23,8 +23,8 @@
   <meta name="twitter:image" content="{{ site_origin }}{{ url_for('static', filename='img/vertex-seven-banner.png') }}">
   <meta name="twitter:image:alt" content="Vertex Seven, AI agents for business operations">
   {% include 'platform_favicons.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261019svg') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261020buying') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css', v='20261020buying') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
   {% if ga4_measurement_id %}
   <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
@@ -57,7 +57,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header wrap">
     {% include 'platform_brand.html' %}
-    <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a><a href="/faqs">FAQs</a></nav>
+    <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/guides/choosing-a-website-chatbot">Buying guide</a><a href="/pricing">Pricing</a><a href="/faqs">FAQs</a></nav>
     <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
   </header>
   <main id="main" class="wrap">
@@ -69,6 +69,13 @@
       <p class="solution-audience">{{ solution.audience }}</p>
       <div class="actions"><a class="button button-dark" href="/#contact">Request a demo <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/console/">Open your workspace <span aria-hidden="true">→</span></a><a class="text-link" href="/#demo">See a sample conversation <span aria-hidden="true">→</span></a></div>
     </section>
+    {% if pricing_page %}
+    <section id="pricing" class="pricing-detail" aria-labelledby="pricing-comparison-title">
+      <h2 id="pricing-comparison-title">Compare Starter, Business and Scale</h2>
+      <p class="pricing-detail-intro">{% if subscription_vat_percent %}Prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}No VAT charged; Vertex Seven is not VAT-registered.{% endif %} Setup is a separate one-time payment.</p>
+      {% include 'public_plan_comparison.html' %}
+    </section>
+    {% endif %}
     <div class="solution-content">
       <div class="solution-explanation">
         {% for section in solution.sections %}
@@ -82,7 +89,8 @@
       </aside>
     </div>
     <section class="solution-limits" aria-labelledby="limits-title"><h2 id="limits-title">What to check before launch</h2><p>{{ solution.caution }}</p></section>
-    <section class="solution-related" aria-labelledby="related-title"><div class="solution-related-heading"><div><p class="eyebrow">EXPLORE THE PLATFORM</p><h2 id="related-title">Other ways to use V7 Agents</h2></div><a class="text-link" href="/#pricing">View pricing <span aria-hidden="true">→</span></a></div><div class="solution-links">{% for related_slug, related in solutions.items() %}{% if related_slug != slug %}<a href="/solutions/{{ related_slug }}"><span>{{ related.label }}</span><span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div></section>
+    {% include 'public_buying_links.html' %}
+    <section class="solution-related" aria-labelledby="related-title"><div class="solution-related-heading"><div><p class="eyebrow">EXPLORE THE PLATFORM</p><h2 id="related-title">Other ways to use V7 Agents</h2></div><a class="text-link" href="/pricing">View pricing <span aria-hidden="true">→</span></a></div><div class="solution-links">{% for related_slug, related in solutions.items() %}{% if related_slug != slug %}<a href="/solutions/{{ related_slug }}"><span>{{ related.label }}</span><span aria-hidden="true">↗</span></a>{% endif %}{% endfor %}</div></section>
   </main>
   <footer class="solution-footer wrap">
     <div class="solution-footer-top">{% include 'platform_brand.html' %}<p>V7 Agents. Business knowledge, in conversation.</p></div>

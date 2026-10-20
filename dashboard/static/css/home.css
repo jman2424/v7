@@ -315,4 +315,14 @@ body:has(.site-cookie-banner:not([hidden])) #public-site-widget { visibility: hi
 .preferred-source-link:hover { background:var(--tint); }
 .preferred-source-link:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
 
+.buying-resources { padding-block: 44px; }
+.buying-resources h2 { margin: 12px 0 24px; font-size: clamp(26px, 3.5vw, 36px); letter-spacing: -.035em; }
+.buying-resource-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.buying-resource-links a { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 12px; }
+.buying-resource-links a:hover { background: var(--tint); border-color: var(--tint-border); }
+.buying-resource-links strong { color: var(--charcoal); font-size: 16px; }
+.buying-resource-links strong span { color: var(--accent); }
+.buying-resource-links a > span { color: var(--muted); font-size: 14px; }
+@media (max-width: 750px) { .buying-resource-links { grid-template-columns: minmax(0, 1fr); } }
+
 .referral-offer{display:flex;justify-content:space-between;align-items:center;gap:2rem;padding:1.5rem 2rem;margin:1.5rem 0;border:1px solid #cbdad2;border-radius:16px;background:#f1f6f3}.referral-offer h3{font-size:1.8rem;margin:.4rem 0}.referral-offer p{max-width:780px}.referral-offer .referral-terms{font-size:.85rem;color:#52635a}.referral-offer .button{flex-shrink:0}@media(max-width:700px){.referral-offer{align-items:flex-start;flex-direction:column;padding:1.2rem;gap:.8rem}}

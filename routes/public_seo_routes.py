@@ -7,6 +7,8 @@ from app.middleware import NON_INDEXABLE_PREFIXES
 from service.public_site_content import SOLUTIONS
 from service.public_brand_content import ABOUT, SETUP_GUIDE
 from service.public_faq_content import public_faq
+from service.public_buying_content import BUYING_GUIDE, public_pricing
+from service.plan_catalog import public_plans, vat_percent
 
 
 bp = Blueprint("public_seo", __name__)
@@ -53,7 +55,7 @@ def about_page():
 @bp.get("/sitemap.xml")
 def sitemap():
     urlset = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
-    paths = ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS]
+    paths = ["/", "/about", "/faqs", "/guides/getting-started", "/pricing", "/guides/choosing-a-website-chatbot"] + ["/solutions/" + slug for slug in SOLUTIONS]
     for path in paths:
         url = SubElement(urlset, "url")
         SubElement(url, "loc").text = _site_origin() + path
@@ -75,3 +77,20 @@ def faq_page():
     return render_template("solution.html", solution=public_faq(), solutions=SOLUTIONS,
                            slug=None, brand_page=True, faq_page=True, site_origin=site_origin,
                            canonical_url=site_origin + "/faqs")
+
+
+@bp.get("/pricing")
+def pricing_page():
+    site_origin = _site_origin()
+    return render_template("solution.html", solution=public_pricing(), solutions=SOLUTIONS,
+                           slug=None, brand_page=True, pricing_page=True, site_origin=site_origin,
+                           subscription_plans=public_plans(), subscription_vat_percent=vat_percent(),
+                           canonical_url=site_origin + "/pricing")
+
+
+@bp.get("/guides/choosing-a-website-chatbot")
+def buying_guide():
+    site_origin = _site_origin()
+    return render_template("solution.html", solution=BUYING_GUIDE, solutions=SOLUTIONS,
+                           slug=None, brand_page=True, site_origin=site_origin,
+                           canonical_url=site_origin + "/guides/choosing-a-website-chatbot")

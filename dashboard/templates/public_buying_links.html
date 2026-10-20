@@ -1,0 +1,13 @@
+<section class="buying-resources" aria-labelledby="buying-resources-title">
+  <p class="eyebrow">BEFORE YOU CHOOSE</p>
+  <h2 id="buying-resources-title">Make an informed decision.</h2>
+  <div class="buying-resource-links">
+    {% for path, title, detail in [
+      ('/pricing', 'Compare V7 plans and total costs', 'See subscription prices, setup, separate AI credit and WhatsApp costs.'),
+      ('/guides/choosing-a-website-chatbot', 'Use the website chatbot buying checklist', 'Test business knowledge, follow-up questions, permissions and actual outcomes.'),
+      ('/guides/getting-started', 'Prepare your business for launch', 'Gather your knowledge, test customer enquiries and embed your widget.')
+    ] %}
+      {% if canonical_url != site_origin ~ path %}<a href="{{ path }}"><strong>{{ title }} <span aria-hidden="true">→</span></strong><span>{{ detail }}</span></a>{% endif %}
+    {% endfor %}
+  </div>
+</section>

@@ -91,7 +91,7 @@ def seo_client(monkeypatch, request):
     return request.getfixturevalue("app").test_client()
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started", "/pricing", "/guides/choosing-a-website-chatbot", "/solutions/website-chatbot", "/solutions/ai-chatbot-software"])
 def test_public_canonical_uses_configuration_not_request_host(seo_client, path):
     response = seo_client.get(path + "?tenant=EXAMPLE&utm_source=example",
                               base_url="https://untrusted.example")
@@ -241,7 +241,7 @@ def test_product_schema_describes_separate_credit_and_actual_tax_state(seo_clien
     assert ('No VAT charged' in description) is not registered
 
 
-@pytest.mark.parametrize('path', ['/about', '/faqs', '/guides/getting-started'] +
+@pytest.mark.parametrize('path', ['/about', '/faqs', '/guides/getting-started', '/pricing', '/guides/choosing-a-website-chatbot'] +
                          ['/solutions/' + slug for slug in SOLUTIONS])
 def test_public_breadcrumb_schema_matches_visible_trail_and_safe_canonical(seo_client, path):
     page = HomeStructuredData()
@@ -271,7 +271,7 @@ def test_public_buyer_can_enquire_without_signing_in(seo_client, path):
     assert any(link['href'] == '/guides/getting-started' for link in page.links)
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started", "/pricing", "/guides/choosing-a-website-chatbot"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_identify_same_brand_and_product_without_private_contacts(seo_client, path):
     response = seo_client.get(path, base_url="https://untrusted.example")
     page = HomeStructuredData()
@@ -298,12 +298,59 @@ def test_sitemap_lists_only_known_public_pages(seo_client):
     tree = ElementTree.fromstring(response.data)
     locations = [element.text for element in tree.findall("{*}url/{*}loc")]
     assert set(SOLUTIONS) == SOLUTION_SLUGS
-    assert locations == [ORIGIN + "/", ORIGIN + "/about", ORIGIN + "/faqs", ORIGIN + "/guides/getting-started"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
-    assert len(locations) == 12
+    assert locations == [ORIGIN + "/", ORIGIN + "/about", ORIGIN + "/faqs", ORIGIN + "/guides/getting-started", ORIGIN + "/pricing", ORIGIN + "/guides/choosing-a-website-chatbot"] + [ORIGIN + "/solutions/" + slug for slug in SOLUTIONS]
+    assert len(locations) == 14
     assert all("?" not in location for location in locations)
     assert "EXAMPLE" not in response.text
     assert "untrusted.example" not in response.text
     assert "X-Robots-Tag" not in response.headers
+
+
+@pytest.mark.parametrize('registered', [False, True])
+def test_dedicated_pricing_uses_current_catalogue_and_separates_usage(seo_client, monkeypatch, registered):
+    from service.plan_catalog import PLANS, public_plans
+
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'true' if registered else 'false')
+    # A catalogue change must reach both public comparisons, not just checkout.
+    monkeypatch.setitem(PLANS['starter'], 'monthly_pence', 10900)
+    for path in ['/pricing', '/']:
+        response = seo_client.get(path)
+        assert response.status_code == 200
+        page = HomeStructuredData()
+        page.feed(response.text)
+        visible = ' '.join(' '.join(page.visible_text).split())
+        for plan in public_plans():
+            assert f"£{plan['monthly_pence'] // 100} / month" in visible
+            assert f"£{plan['setup_pence'] // 100} one-time setup" in visible
+        if registered:
+            assert '£130.80 / month including 20% VAT' in visible
+        else:
+            assert '£109.00 / month — no VAT charged' in visible
+        assert 'AI processing credit purchased separately' in visible
+        assert 'No fixed message or conversation cap' in visible
+        assert 'WhatsApp phone numbers are not included' in visible
+        if path == '/pricing':
+            assert 'confirm in Stripe' in visible
+            assert 'does not automatically refund' in visible
+            assert 'No AI credit is included' in visible
+
+
+@pytest.mark.parametrize('path', ['/', '/about', '/faqs', '/solutions/website-chatbot'])
+def test_buying_pages_are_discoverable_from_existing_public_pages(seo_client, path):
+    page = PublicAnchors()
+    page.feed(seo_client.get(path).text)
+    for destination in ['/pricing', '/guides/choosing-a-website-chatbot']:
+        assert any(link['href'] == destination and len(link['text'].strip()) > 5 for link in page.links)
+
+
+def test_buying_guide_distinguishes_test_plan_from_results_and_private_actions(seo_client):
+    page = HomeStructuredData()
+    page.feed(seo_client.get('/guides/choosing-a-website-chatbot').text)
+    visible = ' '.join(' '.join(page.visible_text).split())
+    assert 'test plan, not customer results' in visible
+    assert 'a request is not a confirmed booking' in visible
+    assert 'not an independent ranking of providers' in visible
+    assert 'another visitor does not receive the previous visitor' in visible
 
 
 def test_faq_schema_matches_visible_answers_and_current_prices(seo_client, monkeypatch):
@@ -393,7 +440,7 @@ def test_setup_guide_labels_examples_and_avoids_fabricated_customer_evidence(seo
     assert "aggregateRating" not in response.text
 
 
-@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started"] + ["/solutions/" + slug for slug in SOLUTIONS])
+@pytest.mark.parametrize("path", ["/", "/about", "/faqs", "/guides/getting-started", "/pricing", "/guides/choosing-a-website-chatbot"] + ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
     page = HeadLinks()
     page.feed(seo_client.get(path).text)
