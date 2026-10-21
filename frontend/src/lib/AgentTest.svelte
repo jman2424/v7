@@ -210,6 +210,7 @@
       if (!response.ok) {
         if (response.status === 401 || data.error === 'csrf_failed') throw new Error('Your session expired. Reload this page and sign in again.');
         if (['test_conversation_expired', 'invalid_test_conversation'].includes(data.error)) { token = ''; throw new Error('This test conversation expired. Start a new conversation and try again.'); }
+        if (data.error === 'tester_daily_limit') throw new Error('You’ve used today’s 10 free test messages. The allowance resets at 00:00 UTC. Paid accounts are exempt.');
         if (response.status === 429) throw new Error('Too many requests. Wait a moment, then try again.');
         throw new Error('The agent could not complete this test. Try again or start a new conversation.');
       }
@@ -229,7 +230,7 @@
       transcript.scrollTop = transcript.scrollHeight;
     } catch (failure) {
       if (controller === request && !disposed && (!request.signal.aborted || timedOut)) {
-        const safeErrors = ['Your session expired. Reload this page and sign in again.', 'This test conversation expired. Start a new conversation and try again.', 'Too many requests. Wait a moment, then try again.', 'The agent could not complete this test. Try again or start a new conversation.'];
+        const safeErrors = ['Your session expired. Reload this page and sign in again.', 'This test conversation expired. Start a new conversation and try again.', 'You’ve used today’s 10 free test messages. The allowance resets at 00:00 UTC. Paid accounts are exempt.', 'Too many requests. Wait a moment, then try again.', 'The agent could not complete this test. Try again or start a new conversation.'];
         error = timedOut ? 'The test took too long. Try again or start a new conversation.' : failure instanceof Error && safeErrors.includes(failure.message) ? failure.message : 'The test could not complete.';
         draft = text;
       }
@@ -245,6 +246,7 @@
     <div><p class="eyebrow">{$t("Conversation preview")}</p><h2>{$t("Try your agent")}</h2><p>{$t('Check how {tenant} responds using its saved business information.',{tenant})}</p></div>
     <button type="button" on:click={restart}>{$t("New conversation")}</button>
   </header>
+  <p class="hint">{$t('Unpaid accounts can send 10 test messages per day, shared with the Vertex Seven website demo. Resets at 00:00 UTC. Paid accounts are exempt; AI credit and short-term rate limits still apply.')}</p>
   <div class="transcript" bind:this={transcript} role="log" aria-label={$t("Test conversation")} aria-live="polite" aria-busy={busy}>
     {#each messages as message (message.id)}<article class:customer={message.from === 'You'}><strong>{$t(message.from)}</strong><p>{message.text}</p>{#if message.links?.length}<div class="navigation-links">{#each message.links as link}<a href={link.url} target="_blank" rel="noopener noreferrer" aria-label={link.clicked ? link.label + " — Clicked" : link.label} on:click={() => markLinkClicked(message.id, link.url)}>{link.label}{link.clicked ? " · Clicked" : " ↗"}</a>{/each}</div>{/if}{#if message.from === 'Agent'}<button class="reply-audio" type="button" disabled={!canReadAloud || busy} aria-label={$t(speakingMessageId === message.id ? 'Stop reading this reply' : 'Read this reply aloud')} aria-pressed={speakingMessageId === message.id} on:click={() => listenToReply(message)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">{#if speakingMessageId === message.id}<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />{:else}<path d="m12 4-5 4H3v8h4l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>{/if}</svg>{$t(speakingMessageId === message.id ? 'Stop audio' : 'Listen')}</button>{/if}</article>
     {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>{$t("See the conversation from your customer’s side")}</h3><p>{$t("Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.")}</p></div>{/each}

@@ -354,6 +354,10 @@ def api_test_agent():
         container = get_container().for_tenant(tenant)
     except ValueError:
         return jsonify(error="unknown_tenant"), 404
+    from service.tester_limits import enforce
+    limited = enforce(tenant, console=True)
+    if limited is not None:
+        return limited
     try:
         result = container.handler.handle(message.strip(), tenant=tenant, session_id=identity["id"],
                                           channel="test", metadata={"source": "console_test"})

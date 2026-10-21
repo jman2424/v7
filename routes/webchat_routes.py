@@ -658,6 +658,10 @@ def transcribe_api():
         return _cors(jsonify(error="invalid_transcription_token")), 403
     if not isinstance(identity, dict) or identity.get("tenant") != tenant:
         return _cors(jsonify(error="invalid_transcription_token")), 403
+    from service.tester_limits import enforce
+    limited = enforce(tenant, consume=False)
+    if limited is not None:
+        return _cors(limited)
     if not _transcription_limit.allow(f"{tenant}:{request.remote_addr or 'unknown'}"):
         return _cors(jsonify(error="rate_limited")), 429
     # The app's default request cap stays at 1 MB for all other routes.
@@ -718,6 +722,11 @@ def chat_api():
     if not isinstance(message_id, str) or len(message_id) > 128:
         return _cors(jsonify(error="invalid_message_id")), 400
     message_id = session_id + ":" + message_id
+
+    from service.tester_limits import enforce
+    limited = enforce(tenant)
+    if limited is not None:
+        return _cors(limited)
 
     from service.plan_usage import use_resource
     if not use_resource(tenant, "website_conversations", session_id):

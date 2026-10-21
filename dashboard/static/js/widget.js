@@ -481,6 +481,7 @@
     bubble.append(group);
   };
   const chatErrors = {
+    tester_daily_limit: "You’ve used today’s 10 free test messages. The allowance resets at 00:00 UTC. Sign in with a paid account to continue.",
     conversation_expired: "This chat session expired. Send your message again to start a new conversation.",
     website_allowance_paused: "Chat is temporarily unavailable. Please contact the business directly.",
     rate_limited: "Too many messages. Please wait a moment before trying again.",
@@ -530,6 +531,7 @@
         if (data && data.error === "website_allowance_paused") {
           throw new Error("website_allowance_paused");
         }
+        if (data && data.error === "tester_daily_limit") throw new Error("tester_daily_limit");
         if (response.status === 429) throw new Error("rate_limited");
         throw new Error("request_failed");
       }
@@ -688,6 +690,7 @@
             if (!response.ok || !result || typeof result.text !== "string") {
               if (result && result.error === "rate_limited") throw new Error("Please wait before recording another message.");
               if (result && result.error === "no_speech_detected") throw new Error("No speech was detected. Please try again.");
+              if (result && result.error === "tester_daily_limit") throw new Error(chatErrors.tester_daily_limit);
               if (result && result.error === "invalid_transcription_token") throw new Error("Reload the chat to use Dictate again.");
               throw new Error("Voice transcription is unavailable. You can type your message.");
             }
