@@ -3,7 +3,7 @@ from tests.test_tester_limits import _race
 
 def test_native_postgres_concurrent_daily_limit(pg_runtime):
     from app import create_app
-    app = create_app({'TESTING': True, 'SECRET_KEY': 'daily-native-' + pg_runtime['tenant']})
+    app = create_app({'TESTING': True, 'SECRET_KEY': 'Native-daily-limit-test-secret-' + pg_runtime['tenant']})
     _race(app, pg_runtime['tenant'])
 
 
