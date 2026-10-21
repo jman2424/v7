@@ -52,6 +52,7 @@ jobs:
         run: |
           npm ci
           npm run check
+          npm test
           npm run build
         env:
           V7_CONSOLE_BASE_PATH: /console

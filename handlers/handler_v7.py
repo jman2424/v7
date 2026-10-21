@@ -1097,15 +1097,9 @@ class MessageHandlerV7:
         return discovery_question(self.sales_context, self.offering_singular, self.offering_plural)
 
     def _greeting_reply(self) -> str:
-        focus = str(self.sales_context.get("business_focus") or "").strip()
-        proposition = self._primary_value_proposition()
-        if focus:
-            benefit = f" {proposition}" if proposition else ""
-            return f"Hi, I'm the {self._assistant_label()}. I can help with {focus}.{benefit} {self._opening_question()}"
-        description = str(self.sales_context.get("about") or "").strip()
-        if description:
-            return f"Hi, I'm the {self._assistant_label()}. {description} {self._opening_question()}"
-        return f"Hi, I'm the {self._assistant_label()}. I can help with {self._business_scope()}. {self._opening_question()}"
+        # Saved focus is planning context, and may be an instruction rather than
+        # a customer-facing sentence. Introduce the assistant without reciting it.
+        return f"Hi, I'm the {self._assistant_label()}. {self._opening_question()}"
 
     def _discovery_reply(self) -> str:
         value = self._primary_value_proposition()

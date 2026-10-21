@@ -13,6 +13,8 @@ rapidfuzz==3.9.1
 
 # --- Web / HTTP ---
 requests==2.33.0
+# Remove the compromised emSign root chain (PYSEC-2026-4320).
+certifi==2026.10.19
 
 # --- Environment / Utils ---
 python-dotenv==1.2.2

@@ -311,8 +311,8 @@ def test_v7_uses_saved_playbook_focus_and_handoff_message(app):
         channel="web",
     )
 
-    assert "Bespoke kitchen design and installation" in greeting["reply"]
-    assert "Made-to-measure design with one installation team" in greeting["reply"]
+    assert "What would you like to discuss with the team?" in greeting["reply"]
+    assert app.container.handler.h_v7.sales_context["business_focus"] == "Bespoke kitchen design and installation"
     assert greeting["agent"]["next_action"] == "discover_consultation_need"
     assert "Our design team can arrange a consultation." in handoff["reply"]
     assert handoff["reply"] == "Our design team can arrange a consultation."
@@ -361,9 +361,33 @@ def test_v7_uses_tenant_profile_and_catalogue_for_discovery(app):
 
     greeting = app.container.handler.handle("hello", tenant="EXAMPLE", session_id="context-greeting", channel="web")
 
-    assert "Northstar Outdoors helps families choose durable equipment" in greeting["reply"]
-    assert "Camping gear" in greeting["reply"]
+    assert "Northstar Outdoors sales assistant" in greeting["reply"]
+    assert app.container.handler.h_v7.sales_context["about"] == profile["about"]
     assert greeting["agent"]["suggested_replies"] == ["Camping gear", "Hiking packs"]
+
+
+def test_greeting_does_not_recite_operator_goal_or_call_provider(app, monkeypatch):
+    handler = app.container.handler.h_v7
+    handler.sales_context["business_focus"] = (
+        "Help businesses understand the service and explore their customer goals."
+    )
+    handler.sales_context["about"] = "A long company description. " * 12
+    provider_calls = []
+
+    def unexpected_provider(*args, **kwargs):
+        provider_calls.append(True)
+        raise AssertionError("A greeting must not need the language model")
+
+    monkeypatch.setattr(handler.brain, "plan", unexpected_provider)
+    result = app.container.handler.handle("hello", tenant="EXAMPLE", session_id="concise-greeting", channel="web")
+
+    assert result["intent"] == "greeting"
+    assert "sales assistant" in result["reply"]
+    assert "Help businesses" not in result["reply"]
+    assert "long company description" not in result["reply"]
+    assert ".." not in result["reply"]
+    assert len(result["reply"]) < 180
+    assert not provider_calls
 
 
 def test_brain_uses_bounded_business_context_and_local_fallback(monkeypatch):
