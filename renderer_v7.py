@@ -445,6 +445,9 @@ class RendererV7:
         product_name = str(offer_data.get("matched_product_name") or "").strip() if isinstance(offer_data, dict) else ""
 
         if not isinstance(offers, list) or not offers:
+            if isinstance(offer_data, dict) and offer_data.get('offer_kind') == 'signup_discount':
+                scope = f" for {product_name}" if product_name else ''
+                return f"I do not have a current signup discount configured{scope}."
             if product_name:
                 return f"I do not have a current offer recorded for {product_name}."
             return "There are no current offers configured at the moment."
@@ -473,7 +476,8 @@ class RendererV7:
 
         if not lines:
             return "There are no current offers configured at the moment."
-        lead = f"For {product_name}, the current offer is" if product_name else "Current offers"
+        lead = f"For {product_name}, the current offer is" if product_name else (
+            "Signup offers" if offer_data.get('offer_kind') == 'signup_discount' else "Current offers")
         return f"{lead}: " + " | ".join(lines) + "."
 
     # ------------------------------------------------------------------ #

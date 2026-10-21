@@ -179,7 +179,11 @@
     "Choose an available company before connecting a provider.": "Selecciona una empresa disponible antes de conectar un proveedor.",
     "The request could not be completed. Please try again.": "No se pudo completar la solicitud. Inténtalo de nuevo.",
     "Account security details could not be loaded.": "No se pudieron cargar los datos de seguridad de la cuenta.",
-    "Add as Preferred Source": "Añadir como fuente preferida"
+    "Add as Preferred Source": "Añadir como fuente preferida",
+    "Signup discount": "Descuento por registrarse",
+    "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Opcional: activa Oferta activa cuando quieras promocionar este descuento por registrarse.",
+    "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Explica cómo se registran los clientes en tu negocio, quién reúne los requisitos y cómo canjean el descuento. El asistente explica estas condiciones; no crea cuentas, verifica registros ni aplica descuentos en el pago.",
+    "Signup steps and eligibility": "Pasos para registrarse y requisitos"
   },
   "fr": {
     "Language": "Langue",
@@ -361,7 +365,11 @@
     "Choose an available company before connecting a provider.": "Choisissez une entreprise disponible avant d'associer un fournisseur.",
     "The request could not be completed. Please try again.": "La demande n'a pas pu être effectuée. Réessayez.",
     "Account security details could not be loaded.": "Les informations de sécurité du compte n'ont pas pu être chargées.",
-    "Add as Preferred Source": "Ajouter comme source préférée"
+    "Add as Preferred Source": "Ajouter comme source préférée",
+    "Signup discount": "Réduction à l’inscription",
+    "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Facultatif : activez Offre active lorsque vous souhaitez promouvoir cette réduction à l’inscription.",
+    "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Expliquez comment les clients s’inscrivent auprès de votre entreprise, les critères d’éligibilité et comment utiliser la réduction. L’assistant explique ces conditions ; il ne crée pas de comptes, ne vérifie pas les inscriptions et n’applique pas de réductions au paiement.",
+    "Signup steps and eligibility": "Étapes d’inscription et critères d’éligibilité"
   },
   "ar": {
     "Language": "اللغة",
@@ -543,9 +551,17 @@
     "Choose an available company before connecting a provider.": "اختر شركة متاحة قبل ربط مزود.",
     "The request could not be completed. Please try again.": "تعذّر إكمال الطلب. حاول مرة أخرى.",
     "Account security details could not be loaded.": "تعذّر تحميل تفاصيل أمان الحساب.",
-    "Add as Preferred Source": "إضافة كمصدر مفضل"
+    "Add as Preferred Source": "إضافة كمصدر مفضل",
+    "Signup discount": "خصم التسجيل",
+    "Optional: turn on Offer is active when you are ready to promote this signup discount.": "اختياري: فعّل «العرض نشط» عندما تكون مستعدًا للترويج لخصم التسجيل.",
+    "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "وضّح كيفية تسجيل العملاء لدى نشاطك التجاري، وشروط الأهلية وكيفية استخدام الخصم. يشرح المساعد هذه الشروط؛ ولا ينشئ حسابات أو يتحقق من التسجيل أو يطبّق خصومات عند الدفع.",
+    "Signup steps and eligibility": "خطوات التسجيل وشروط الأهلية"
   },
   "en": {
-    "Add as Preferred Source": "Add as Preferred Source"
+    "Add as Preferred Source": "Add as Preferred Source",
+    "Signup discount": "Signup discount",
+    "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Optional: turn on Offer is active when you are ready to promote this signup discount.",
+    "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.",
+    "Signup steps and eligibility": "Signup steps and eligibility"
   }
 }

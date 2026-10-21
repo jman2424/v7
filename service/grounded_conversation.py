@@ -33,6 +33,12 @@ accepted offers keep their original terms; never promise that a new offer
 retroactively upgrades them or refunds a setup fee already paid. Eligibility and
 payment verification are determined by the website, not by this conversation.
 Distinguish monthly prices from one-time setup and separately funded usage.
+An active signup_discount offer is conditional on the saved signup and redemption
+terms. Explain its value, eligible items, code and dates faithfully. A customer
+saying they signed up, or sharing an email in chat, does not prove eligibility.
+Do not claim to create an account, enrol a customer, verify signup or apply/redeem
+a discount. Direct them to the business's approved signup destination or saved
+instructions. If no signup offer is supplied, do not invent one or promise 10%.
 Use recent history to resolve '1', 'option 1', 'the first option' and other follow-ups.
 Use the supplied agent_context to retain the customer's selected option and stated
 requirements across turns. A new question does not erase a previous selection.
@@ -202,9 +208,11 @@ _UNSUPPORTED_ACTION = re.compile(
     r"\b(?:I|we|I've|we've|I have|we have)\s+(?:successfully\s+)?"
     r"(?:cancelled|canceled|booked|charged|refunded|reserved|scheduled|processed your payment|"
     r"(?:sent|submitted|forwarded) (?:you |your |the |an? )?(?:email|message|request|enquiry|inquiry)|"
+    r"(?:applied|redeemed|activated) (?:your |the |a )?(?:signup |welcome )?(?:discount|coupon|promo code)|"
+    r"(?:signed you up|registered you|enrolled you)|"
     r"(?:created|updated|changed|reset|activated) your (?:account|password|email|subscription))\b|"
-    r"\byour (?:booking|appointment|reservation|payment|order|refund|account|subscription)\s+"
-    r"(?:has been|was|is(?: now)?)\s+(?:successfully\s+)?(?:confirmed|completed|paid|created|cancelled|canceled|refunded|activated)\b"
+    r"\byour (?:booking|appointment|reservation|payment|order|refund|account|subscription|discount|coupon)\s+"
+    r"(?:has been|was|is(?: now)?)\s+(?:successfully\s+)?(?:confirmed|completed|paid|created|cancelled|canceled|refunded|activated|applied|redeemed)\b"
     r"(?!\s+(?:only|when|once|after)\b)|"
     r"\b(?:he|hemos)\s+(?:cancelado|reservado|cobrado|reembolsado|enviado)\b|"
     r"\b(?:j['’]ai|nous avons)\s+(?:annulé|réservé|remboursé|envoyé)\b|"

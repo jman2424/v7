@@ -3,6 +3,11 @@ from datetime import datetime, timezone
 
 
 def deal_terms(offer: dict) -> str:
+    if offer.get('deal_type') == 'signup_discount':
+        reward = (f"{offer['discount_value']:g}%" if offer.get('discount_type') == 'percentage'
+                  else f"GBP {offer['discount_value']:.2f}")
+        scope = ' on eligible items' if offer.get('product_skus') else ''
+        return f"Get {reward} off{scope} after signing up, subject to the signup and redemption terms below"
     if offer.get('deal_type') == 'buy_one_get_one':
         return 'Buy 1 eligible item and get 1 of the same item free'
     if offer.get('deal_type') == 'minimum_spend':

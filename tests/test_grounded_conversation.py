@@ -107,6 +107,26 @@ def test_knowledge_excludes_private_catalogue_fields(monkeypatch):
     assert 'Hidden' not in encoded
 
 
+def test_grounded_followups_receive_structured_signup_terms_but_no_private_fields(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    promotion = {'id': 'welcome', 'title': 'Welcome offer', 'description': 'Verified new accounts only.',
+                 'deal_type': 'signup_discount', 'discount_type': 'percentage', 'discount_value': 10,
+                 'code': 'WELCOME10', 'ends_on': '2099-12-31', 'product_skus': ['bottle'],
+                 'internal_notes': 'private-notes', 'api_key': 'private-key'}
+    handler = MessageHandlerV7(SimpleNamespace(offers=SimpleNamespace(active=lambda: [promotion]),
+        rewriter=SimpleNamespace(_client=object(), _model='gpt-4o-mini')))
+    seen = []
+    monkeypatch.setattr(grounded_conversation, 'answer', lambda *args, **kwargs: seen.append(args[3]))
+    handler._grounded_answer('How do I claim it?', {})
+    supplied = seen[0]['offer:0']
+    assert supplied['discount_value'] == 10 and supplied['deal_type'] == 'signup_discount'
+    assert supplied['code'] == 'WELCOME10' and supplied['ends_on'] == '2099-12-31'
+    assert '10%' in supplied['terms'] and 'after signing up' in supplied['terms']
+    assert supplied['product_skus'] == ['bottle']
+    assert 'private-notes' not in json.dumps(seen) and 'private-key' not in json.dumps(seen)
+
+
 def _structured_answer(monkeypatch, payload, *, question='How can you help?', history=None,
                        knowledge=None, context=None, destinations=None):
     seen = []
@@ -237,6 +257,8 @@ def test_context_excludes_unapproved_fields_and_stale_other_tenant_source_ids(mo
     'I have sent your request.', 'Your booking has been confirmed.',
     'I have submitted your enquiry.', 'Your appointment is confirmed.',
     'I have reserved the item.', 'We have activated your subscription.',
+    'I have applied your discount.', 'Your discount has been applied.',
+    "I've signed you up.", 'We have redeemed the welcome coupon.',
     'He cancelado tu suscripción.', "J'ai réservé votre rendez-vous.",
     'تم إلغاء اشتراكك.',
 ])

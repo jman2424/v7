@@ -105,6 +105,26 @@ def test_rest_and_mcp_offer_operations_use_current_offer_store(mcp):
     assert app.container.storage.read_json('ALPHA','offers.json')[0]['active'] is False
 
 
+def test_rest_signup_offer_defaults_off_and_can_be_enabled_with_revision(mcp):
+    app = mcp[0]
+    client = app.test_client()
+    token = issue(client)[0]['access_token']
+    original = data(client, token, 'get_offers')
+    promotion = {'title': 'Signup saving', 'description': 'Verified new customers only.',
+                 'deal_type': 'signup_discount', 'discount_type': 'percentage', 'discount_value': 10}
+    created = client.post('/api/v1/offers', json={'expected_revision': original['revision'], 'offer': promotion},
+                          headers=headers(token))
+    assert created.status_code == 200, created.json
+    item = created.json['item']
+    assert item['active'] is False
+    supplied = data(client, token, 'get_offers')['items'][0]
+    assert supplied['deal_type'] == 'signup_discount' and supplied['discount_value'] == 10
+    updated = client.patch('/api/v1/offers/' + item['id'], json={
+        'expected_revision': created.json['revision'], 'changes': {'active': True}}, headers=headers(token))
+    assert updated.status_code == 200, updated.json
+    assert app.container.storage.read_json('ALPHA', 'offers.json')[0]['active'] is True
+
+
 def test_unpaid_business_cannot_bypass_activation_via_rest(mcp):
     client = mcp[0].test_client()
     token = issue(client)[0]['access_token']

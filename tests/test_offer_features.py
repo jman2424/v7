@@ -85,3 +85,86 @@ def test_web_offer_replies_are_attributed_at_transport_boundary(client):
     stats = client.get('/admin/api/statistics?days=1').json['offers']
     assert stats['items'][0]['replies'] == 1
     assert stats['items'][0]['conversations'] == 1
+
+
+def signup_offer(**values):
+    return offer(id='signup', title='Welcome saving', deal_type='signup_discount',
+                 discount_type='percentage', discount_value=10, product_skus=[], code='WELCOME10',
+                 description='Create an account on our website. New customers only; redeem at checkout after verification.',
+                 **values)
+
+
+@pytest.mark.parametrize('kind,value,expected', [('percentage', 10, '10%'), ('fixed', 5.5, 'GBP 5.50')])
+def test_signup_discount_roundtrips_and_preserves_conditions(client, app, kind, value, expected):
+    as_admin(client)
+    promotion = signup_offer()
+    promotion.update(discount_type=kind, discount_value=value)
+    assert client.put('/admin/api/offers', json=[promotion]).status_code == 200
+    assert client.get('/admin/api/offers').json == [promotion]
+    result = app.container.handler.handle('Any signup discounts?', tenant='EXAMPLE', channel='web', session_id='signup-offer')
+    assert expected in result['reply'] and 'after signing up' in result['reply']
+    assert 'New customers only' in result['reply'] and 'verification' in result['reply']
+    assert 'WELCOME10' in result['reply']
+    assert shown_offers(result) == ['signup']
+
+
+@pytest.mark.parametrize('values', [
+    {'discount_value': 0}, {'discount_value': -1}, {'discount_value': 101},
+    {'discount_value': 10.001}, {'discount_value': True}, {'discount_value': '10'},
+    {'discount_type': 'other'}, {'discount_type': []}, {'discount_value': None},
+    {'discount_type': 'fixed', 'discount_value': 1000000.01},
+])
+def test_invalid_signup_discounts_do_not_change_saved_data(client, values):
+    as_admin(client)
+    original = client.get('/admin/api/offers').json
+    promotion = signup_offer()
+    promotion.update(values)
+    assert client.put('/admin/api/offers', json=[promotion]).status_code == 400
+    assert client.get('/admin/api/offers').json == original
+
+
+@pytest.mark.parametrize('field', ['discount_type', 'discount_value'])
+def test_signup_discount_requires_structured_reward(client, field):
+    as_admin(client)
+    promotion = signup_offer()
+    promotion.pop(field)
+    assert client.put('/admin/api/offers', json=[promotion]).status_code == 400
+
+
+@pytest.mark.parametrize('status', ['disabled', 'archived', 'expired', 'scheduled'])
+def test_signup_discount_is_optional_and_respects_dates(client, app, status):
+    as_admin(client)
+    today = datetime.now(timezone.utc).date()
+    promotion = signup_offer()
+    promotion.update({'disabled': {'active': False}, 'archived': {'archived': True},
+                      'expired': {'ends_on': (today-timedelta(days=1)).isoformat()},
+                      'scheduled': {'starts_on': (today+timedelta(days=1)).isoformat()}}[status])
+    assert client.put('/admin/api/offers', json=[offer(), promotion]).status_code == 200
+    result = app.container.handler.handle('Any signup discounts?', tenant='EXAMPLE', channel='web', session_id='signup-off')
+    assert 'no' in result['reply'].lower() and 'signup discount' in result['reply']
+    assert 'Welcome saving' not in result['reply'] and '10%' not in result['reply']
+    assert 'Two for one' not in result['reply']
+
+
+def test_signup_question_finds_its_offer_after_unrelated_promotions(client, app):
+    as_admin(client)
+    items = [offer(id=f'bogo_{index}', title=f'Other saving {index}') for index in range(4)] + [signup_offer()]
+    assert client.put('/admin/api/offers', json=items).status_code == 200
+    result = app.container.handler.handle('Can I get 10% off for signing up?', tenant='EXAMPLE', channel='web', session_id='signup-find')
+    assert result['intent'] == 'offers'
+    assert 'Welcome saving' in result['reply'] and 'Other saving' not in result['reply']
+
+
+def test_legacy_custom_signup_offer_still_answers_signup_questions(client, app):
+    as_admin(client)
+    assert client.put('/admin/api/offers', json=[offer(deal_type='custom', title='Newsletter welcome',
+        description='Get a welcome code after joining our newsletter.')]).status_code == 200
+    result = app.container.handler.handle('Any newsletter discounts?', tenant='EXAMPLE', channel='web', session_id='signup-legacy')
+    assert 'Newsletter welcome' in result['reply']
+
+
+def test_signup_offer_cannot_be_written_or_read_through_another_tenant(client):
+    with client.session_transaction() as state:
+        set_test_identity(client, state, {'id': 'owner', 'roles': ['business_owner'], 'tenant': 'EXAMPLE'})
+    assert client.put('/admin/api/offers?tenant=OTHER', json=[signup_offer()]).status_code == 403
+    assert client.get('/admin/api/offers?tenant=OTHER').status_code == 403

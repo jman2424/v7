@@ -2247,7 +2247,8 @@
                         "enum": [
                           "custom",
                           "buy_one_get_one",
-                          "minimum_spend"
+                          "minimum_spend",
+                          "signup_discount"
                         ]
                       },
                       "minimum_spend": {
@@ -2405,7 +2406,8 @@
                         "enum": [
                           "custom",
                           "buy_one_get_one",
-                          "minimum_spend"
+                          "minimum_spend",
+                          "signup_discount"
                         ]
                       },
                       "minimum_spend": {

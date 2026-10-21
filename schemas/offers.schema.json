@@ -57,7 +57,8 @@
         "enum": [
           "custom",
           "buy_one_get_one",
-          "minimum_spend"
+          "minimum_spend",
+          "signup_discount"
         ]
       },
       "minimum_spend": {
@@ -126,6 +127,16 @@
               "minimum": 0.01
             }
           }
+        }
+      },
+      {
+        "if": {
+          "required": ["deal_type"],
+          "properties": {"deal_type": {"const": "signup_discount"}}
+        },
+        "then": {
+          "required": ["discount_type", "discount_value"],
+          "properties": {"discount_value": {"minimum": 0.01}}
         }
       },
       {

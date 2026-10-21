@@ -143,7 +143,7 @@
   const previousOffer = (offer: Offer) => offer.archived || Boolean(offer.ends_on && offer.ends_on < offerToday);
   type Offer = {
     archived: boolean;
-    deal_type: 'custom' | 'buy_one_get_one' | 'minimum_spend';
+    deal_type: 'custom' | 'buy_one_get_one' | 'minimum_spend' | 'signup_discount';
     minimum_spend: number;
     discount_type: 'percentage' | 'fixed';
     discount_value: number;
@@ -488,7 +488,7 @@
   function normalizeOffers(value: unknown): Offer[] {
     if (!Array.isArray(value)) return [];
     return value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')).map((item) => ({
-      archived: item.archived === true, deal_type: item.deal_type === 'buy_one_get_one' || item.deal_type === 'minimum_spend' ? item.deal_type : 'custom',
+      archived: item.archived === true, deal_type: item.deal_type === 'buy_one_get_one' || item.deal_type === 'minimum_spend' || item.deal_type === 'signup_discount' ? item.deal_type : 'custom',
       minimum_spend: Number(item.minimum_spend || 0), discount_type: item.discount_type === 'fixed' ? 'fixed' : 'percentage', discount_value: Number(item.discount_value || 0),
       id: String(item.id || ''), title: String(item.title || ''), description: String(item.description || ''), code: String(item.code || ''),
       active: item.active === true, starts_on: String(item.starts_on || ''), ends_on: String(item.ends_on || ''), product_skus: stringList(item.product_skus)
@@ -1319,12 +1319,23 @@
   }
 
   function reuseOffer(offer: Offer) {
-    offers = [...offers, {...offer, id: `offer_${crypto.randomUUID()}`, archived: false, active: true, starts_on: '', ends_on: '', product_skus: [...offer.product_skus]}];
+    offers = [...offers, {...offer, id: `offer_${crypto.randomUUID()}`, archived: false, active: offer.deal_type !== 'signup_discount', starts_on: '', ends_on: '', product_skus: [...offer.product_skus]}];
     offersStatus = 'Copy added to current offers. Review its dates and terms, then save.';
   }
 
   function removeOffer(index: number) {
     offers = offers.map((offer, current) => current === index ? {...offer, archived: true, active: false} : offer);
+  }
+
+  function changeOfferType(offer: Offer, dealType: Offer['deal_type']) {
+    offer.deal_type = dealType;
+    if (dealType === 'signup_discount') offer.active = false;
+  }
+
+  function validSignupDiscount(offer: Offer) {
+    const value = Number(offer.discount_value);
+    return Number.isFinite(value) && value > 0 && value <= (offer.discount_type === 'percentage' ? 100 : 1000000)
+      && Math.abs(value * 100 - Math.round(value * 100)) < 0.000001;
   }
 
   function addDeliveryRule() {
@@ -1414,12 +1425,13 @@
     offersError = false;
     const payload = offers.map((offer) => ({
       archived: offer.archived, deal_type: offer.deal_type,
-      ...(offer.deal_type === 'minimum_spend' ? {minimum_spend: offer.minimum_spend, discount_type: offer.discount_type, discount_value: offer.discount_value} : {}),
+      ...(offer.deal_type === 'minimum_spend' ? {minimum_spend: offer.minimum_spend} : {}),
+      ...(offer.deal_type === 'minimum_spend' || offer.deal_type === 'signup_discount' ? {discount_type: offer.discount_type, discount_value: offer.discount_value} : {}),
       id: (offer.id.trim() || slug(offer.title)), title: offer.title.trim(), description: offer.description.trim(), code: offer.code.trim(), active: Boolean(offer.active),
       starts_on: offer.starts_on, ends_on: offer.ends_on, product_skus: offer.product_skus.map((sku) => sku.trim()).filter(Boolean)
     }));
     const ids = payload.map((offer) => offer.id);
-    if (payload.some((offer) => (offer.deal_type === 'buy_one_get_one' && !offer.product_skus.length) || (offer.deal_type === 'minimum_spend' && (!(Number(offer.minimum_spend) > 0) || !(Number(offer.discount_value) > 0))) || !offer.title || !offer.description || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(offer.id) || (offer.starts_on && offer.ends_on && offer.starts_on > offer.ends_on)) || new Set(ids).size !== ids.length) {
+    if (offers.some((offer) => offer.deal_type === 'signup_discount' && !validSignupDiscount(offer)) || payload.some((offer) => (offer.deal_type === 'buy_one_get_one' && !offer.product_skus.length) || (offer.deal_type === 'minimum_spend' && (!(Number(offer.minimum_spend) > 0) || !(Number(offer.discount_value) > 0))) || !offer.title || !offer.description || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(offer.id) || (offer.starts_on && offer.ends_on && offer.starts_on > offer.ends_on)) || new Set(ids).size !== ids.length) {
       offersStatus = 'Check unique keys, titles, details, dates and required deal values or eligible products.';
       offersError = true;
       return;
@@ -1926,10 +1938,16 @@
             {#if !previousOffer(offer)}
             <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
               <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Archive offer" aria-label={`Archive ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Archive</button></div>
-              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label>Deal type<select bind:value={offer.deal_type}><option value="custom">Custom promotion</option><option value="buy_one_get_one">Buy 1 get 1 free</option><option value="minimum_spend">Minimum-spend deal</option></select></label>
+              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label>Deal type<select bind:value={offer.deal_type} on:change={(event) => changeOfferType(offer, event.currentTarget.value as Offer['deal_type'])}><option value="custom">Custom promotion</option><option value="buy_one_get_one">Buy 1 get 1 free</option><option value="minimum_spend">Minimum-spend deal</option><option value="signup_discount">{$t("Signup discount")}</option></select></label>
                 {#if offer.deal_type === 'buy_one_get_one'}<p class="wide-field">Buy one eligible item and receive one of the same item free. Select the eligible catalogue references below.</p>{/if}
                 {#if offer.deal_type === 'minimum_spend'}<label>Minimum spend (GBP)<input type="number" min="0.01" max="1000000" step="0.01" bind:value={offer.minimum_spend}/></label><label>Reward<select bind:value={offer.discount_type}><option value="percentage">Percentage off</option><option value="fixed">GBP off</option></select></label><label>Discount value<input type="number" min="0.01" max={offer.discount_type === 'percentage' ? 100 : offer.minimum_spend} step="0.01" bind:value={offer.discount_value}/></label><p class="wide-field">The minimum spend and discount apply to the eligible items, or the whole order when no references are selected.</p>{/if}
-                <label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">Customer-facing details<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
+                {#if offer.deal_type === 'signup_discount'}
+                  <label>Reward<select bind:value={offer.discount_type}><option value="percentage">Percentage off</option><option value="fixed">GBP off</option></select></label>
+                  <label>Discount value<input type="number" min="0.01" max={offer.discount_type === 'percentage' ? 100 : 1000000} step="0.01" bind:value={offer.discount_value}/></label>
+                  <p class="wide-field">{$t("Optional: turn on Offer is active when you are ready to promote this signup discount.")}</p>
+                  <p class="wide-field">{$t("Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.")}</p>
+                {/if}
+                <label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">{offer.deal_type === 'signup_discount' ? $t("Signup steps and eligibility") : 'Customer-facing details'}<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
             </section>
             {/if}
           {:else}
@@ -1937,7 +1955,7 @@
           {/each}
         </div>
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>
-          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
+          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
         </div>
         <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>{$t("Save offers")}</button></div>
       </section>

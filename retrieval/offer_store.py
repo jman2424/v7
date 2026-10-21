@@ -45,13 +45,13 @@ class OfferStore:
             ids.add(offer_id)
 
             deal = offer.get("deal_type", "custom")
-            if not isinstance(deal, str) or deal not in {"custom", "buy_one_get_one", "minimum_spend"}:
+            if not isinstance(deal, str) or deal not in {"custom", "buy_one_get_one", "minimum_spend", "signup_discount"}:
                 raise ValueError("invalid_offer_deal_type")
             if deal == "buy_one_get_one" and not offer.get("product_skus"):
                 raise ValueError("Choose eligible catalogue references for the buy-one-get-one deal.")
-            if deal == "minimum_spend":
+            if deal in {"minimum_spend", "signup_discount"}:
                 try:
-                    minimum = Decimal(str(offer.get("minimum_spend")))
+                    minimum = Decimal(str(offer.get("minimum_spend"))) if deal == "minimum_spend" else Decimal('1000000')
                     discount = Decimal(str(offer.get("discount_value")))
                     discount_type = offer.get("discount_type")
                     if not minimum.is_finite() or not discount.is_finite() or not 0 < minimum <= 1000000 or not 0 < discount <= 1000000:
@@ -61,7 +61,10 @@ class OfferStore:
                     if not isinstance(discount_type, str) or discount_type not in {"percentage", "fixed"} or discount > (100 if discount_type == "percentage" else minimum):
                         raise ValueError
                 except (InvalidOperation, ValueError):
-                    raise ValueError("Enter a positive minimum spend and valid discount, with at most two decimal places.") from None
+                    message = ("Enter a positive minimum spend and valid discount, with at most two decimal places."
+                               if deal == "minimum_spend" else
+                               "Enter a positive signup discount, with at most two decimal places and no more than 100 percent.")
+                    raise ValueError(message) from None
             starts_on = cls._parse_date(offer.get("starts_on"), "invalid_offer_start_date")
             ends_on = cls._parse_date(offer.get("ends_on"), "invalid_offer_end_date")
             if starts_on and ends_on and starts_on > ends_on:

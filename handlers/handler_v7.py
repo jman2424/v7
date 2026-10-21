@@ -205,10 +205,12 @@ class MessageHandlerV7:
         "about the business",
     )
     _OFFER_REQUEST = re.compile(
-        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?|bogo|buy\s+(?:1|one)\s+get\s+(?:1|one))\b",
+        r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?|bogo|buy\s+(?:1|one)\s+get\s+(?:1|one)|\d{1,3}(?:\.\d{1,2})?\s*%\s*off)\b",
         re.I,
     )
     _PRICE_REQUEST = re.compile(r"\b(?:price|prices|cost|how much)\b", re.I)
+    _SIGNUP_OFFER_REQUEST = re.compile(
+        r"\b(?:sign(?:ing)?[ -]?up|register(?:ing|ed|ation)?|new (?:customers?|members?|accounts?)|newsletter|welcome)\b", re.I)
     _SELECTION_NUMBER = re.compile(r"^\s*(?:option\s*)?([1-9]|1[0-2])\s*[.)]?\s*$", re.I)
     _SELECTION_ACTIONS = {
         "compare_or_price_selection",
@@ -953,8 +955,15 @@ class MessageHandlerV7:
         if self.offers:
             for index, offer in enumerate(self._optional_source('offer_retrieval', self.offers.active, [])[:12]):
                 if isinstance(offer, dict):
-                    knowledge[f'offer:{index}'] = {key: offer[key] for key in
-                        ('title', 'description', 'sku', 'price', 'currency', 'start_date', 'end_date', 'terms') if key in offer}
+                    public_offer = {key: offer[key] for key in
+                        ('title', 'description', 'sku', 'price', 'currency', 'start_date', 'end_date', 'terms',
+                         'id', 'deal_type', 'discount_type', 'discount_value', 'product_skus', 'code',
+                         'starts_on', 'ends_on') if key in offer}
+                    from service.offer_metrics import deal_terms
+                    terms = deal_terms(offer)
+                    if terms:
+                        public_offer['terms'] = terms
+                    knowledge[f'offer:{index}'] = public_offer
         from service.website_destinations import public_targets
         destinations = public_targets(self.website_destinations, self.website_knowledge,
                                       self.business_profile.get('website', ''))
@@ -1421,6 +1430,12 @@ class MessageHandlerV7:
                 logger.exception("V7 offer lookup failed")
 
         product = self._offer_product_in_text(user_text)
+        signup_requested = bool(self._SIGNUP_OFFER_REQUEST.search(user_text))
+        kind = {'offer_kind': 'signup_discount'} if signup_requested else {}
+        if signup_requested:
+            active = [offer for offer in active if offer.get('deal_type') == 'signup_discount' or (
+                offer.get('deal_type', 'custom') == 'custom' and self._SIGNUP_OFFER_REQUEST.search(
+                    str(offer.get('title', '')) + ' ' + str(offer.get('description', ''))))]
         if product:
             sku = str(product.get("sku") or "").strip()
             active = [
@@ -1429,11 +1444,12 @@ class MessageHandlerV7:
                 if not offer.get("product_skus") or sku in offer.get("product_skus", [])
             ]
             return {
+                **kind,
                 "items": active,
                 "matched_product_name": str(product.get("name") or "").strip(),
                 "matched_product_sku": sku,
             }
-        return {"items": active}
+        return {"items": active, **kind}
 
     def _offer_product_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
         if not self.catalog:

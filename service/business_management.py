@@ -210,7 +210,7 @@ class BusinessManagement:
                 raise BusinessError('invalid_arguments', 'Use active or enabled, not both.')
             changes['active'] = changes.pop('enabled')
         if action == "create_offer":
-            target = {"id": uuid.uuid4().hex, "active": True, **changes}
+            target = {"id": uuid.uuid4().hex, "active": changes.get('deal_type') != 'signup_discount', **changes}
             doc.append(target)
             before = None
         else:
