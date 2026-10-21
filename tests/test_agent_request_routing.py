@@ -18,6 +18,7 @@ def handler(monkeypatch):
     "I don't want a demo, I need to understand the service",
     'Do not call me back',
     "I don't want to speak to a human",
+    "I don't need a human",
     "Please don't contact me",
     'No callback, please',
     'Not now, no consultation',
@@ -69,6 +70,10 @@ def test_explicit_positive_request_still_offers_configured_action(handler, text,
 @pytest.mark.parametrize('text', [
     'I want to speak to a human',
     'Can I talk to a person?',
+    'I need a human to help with my V7 account. Who do I contact?',
+    'I want a person to help',
+    "I'd like a human please",
+    'Get me a human',
     'Quiero hablar con una persona',
     'Je voudrais parler avec une personne',
     'أريد التحدث مع شخص',
@@ -81,6 +86,8 @@ def test_explicit_human_request_is_recognised(handler, text):
     'Do I need to talk to a human?',
     'What is a human agent?',
     'How does a human agent work?',
+    'Do I need a human?',
+    'I need a human resources chatbot',
 ])
 def test_question_about_handoff_is_left_to_the_agent(handler, text):
     assert handler._explicit_human_request(text) is False
@@ -114,6 +121,19 @@ def test_decline_reaches_funded_answer_without_erasing_customer_text(handler, mo
     assert response['intent'] == 'grounded_answer'
     assert response.get('actions', []) == []
     assert seen == [text]
+
+
+def test_need_a_human_uses_saved_handoff_before_provider_or_catalogue(handler, monkeypatch):
+    from unittest.mock import Mock
+    configured = 'For account help, email help@example.test.'
+    handler.sales_playbook['handoff_message'] = configured
+    provider = Mock()
+    monkeypatch.setattr(handler, '_grounded_answer', provider)
+    response = handler.handle('I need a human to help with my account. Who do I contact?',
+                              SimpleNamespace(tenant='EXAMPLE', channel='web'), {})
+    assert response['intent'] == 'human_handoff'
+    assert response['reply'] == configured
+    assert not provider.called
 
 
 def test_negated_handoff_remains_declined_when_provider_is_unavailable(handler, monkeypatch):

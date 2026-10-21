@@ -1296,6 +1296,7 @@ class MessageHandlerV7:
             return False
         return bool(re.search(
             r'\b(?:talk|speak|chat)\s+(?:to|with)\s+(?:a |the |your )?(?:human|person|someone|team|staff)|'
+            r"\b(?:i\s+(?:need|want)|i['’]d\s+like|get me)\s+(?:a\s+)?(?:human|real person|person)\b(?!\s+resources?\b)|"
             r'\b(?:call me back|contact me|human agent|real person)\b|'
             r'\b(?:hablar|chatear|comunicarme)\s+con\s+(?:(?:una?|el|tu)\s+)?(?:persona|alguien|equipo|humano|agente)\b|'
             r'\b(?:parler|discuter)\s+(?:avec|à)\s+(?:(?:un|une|le|la|votre)\s+)?(?:personne|humain|équipe|conseiller)\b|'
