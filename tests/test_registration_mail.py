@@ -72,6 +72,30 @@ def test_configured_sender_uses_authenticated_https_and_requires_accepted_email_
     connection.close.assert_called_once_with()
 
 
+@pytest.mark.parametrize('send', [registration_mail.send_code, registration_mail.send_reset_code,
+                                  registration_mail.send_email_change_code])
+def test_account_mail_uses_dedicated_sender_and_support_reply_address(resend_config, monkeypatch, send):
+    monkeypatch.setenv('SMTP_FROM', 'Accounts <verification@example.test>')
+    monkeypatch.setenv('SMTP_REPLY_TO', 'Support <support@example.test>')
+    _, connection = provider_response(monkeypatch)
+    send('account@example.test', '123456')
+    payload = json.loads(connection.request.call_args.kwargs['body'])
+    assert payload['from'] == 'Accounts <verification@example.test>'
+    assert payload['reply_to'] == 'Support <support@example.test>'
+    assert payload['to'] == ['account@example.test']
+
+
+@pytest.mark.parametrize('reply_to', ['invalid', 'support@example.test\r\nBcc: other@example.test'])
+def test_invalid_reply_address_prevents_delivery(resend_config, monkeypatch, reply_to):
+    monkeypatch.setenv('SMTP_REPLY_TO', reply_to)
+    factory = Mock(side_effect=AssertionError('Network must not be used'))
+    monkeypatch.setattr(registration_mail, 'HTTPSConnection', factory)
+    assert registration_mail.configured() is False
+    with pytest.raises(RuntimeError, match='Email verification is not configured'):
+        registration_mail.send_code('account@example.test', '123456')
+    factory.assert_not_called()
+
+
 @pytest.mark.parametrize('status,body', [
     (403, b'{"message":"private provider error"}'),
     (200, b'not-json'),

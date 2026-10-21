@@ -10,6 +10,7 @@ mail sending is disabled afterward. This does not enable new signup requests.
 Set these as deployment secrets; never commit credentials:
 
 - `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`: required.
+- `SMTP_REPLY_TO`: optional monitored address for replies to account emails. Invalid addresses disable sending rather than inserting an unsafe header. This works with SMTP and Resend's HTTPS API.
 - `SMTP_TLS_MODE`: `starttls` (default) or `ssl` for SMTP providers. Plaintext SMTP is unsupported.
 - `SMTP_PORT`: default 587 for STARTTLS, 465 for TLS with SMTP providers.
 

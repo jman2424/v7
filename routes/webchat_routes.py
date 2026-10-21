@@ -618,7 +618,8 @@ def chat_ui():
                     g.chat_origins.append(origin)
     return render_template(
         "chatbot.html", tenant=tenant, branding=_public_widget_branding(branding),
-        embedded=request.args.get("embed") == "1",
+        embedded=request.args.get("embed") in {"1", "panel"},
+        closable=request.args.get("embed") == "1",
         transcription_enabled=bool(os.getenv("OPENAI_API_KEY", "").strip()),
         transcription_token=_transcription_signer().dumps({"tenant": tenant}),
     )

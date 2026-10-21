@@ -24,6 +24,10 @@ def configured():
         return False
     if address.lower() == 'onboarding@resend.dev':
         return False
+    reply_to = os.getenv('SMTP_REPLY_TO', '').strip()
+    if reply_to and (any(character in reply_to for character in '\r\n')
+                     or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', parseaddr(reply_to)[1])):
+        return False
     if _uses_resend_api():
         return True
     mode = os.getenv('SMTP_TLS_MODE', 'starttls')
@@ -61,6 +65,8 @@ def _send(email, code, *, reset, email_change=False):
     message = EmailMessage()
     message['From'] = os.environ['SMTP_FROM']
     message['To'] = email
+    if os.getenv('SMTP_REPLY_TO', '').strip():
+        message['Reply-To'] = os.environ['SMTP_REPLY_TO'].strip()
     message['Subject'] = 'Reset your V7 password' if reset else 'Verify your V7 account request'
     message.set_content((f'Your V7 password reset code is {code}. It expires in 10 minutes.\n\n'
                         'Enter it only in the V7 password reset page you opened. Do not share it. '
@@ -76,8 +82,11 @@ def _send(email, code, *, reset, email_change=False):
                             'Do not share the code. Your password and authenticator will remain unchanged. '
                             'If you did not request this change, ignore this email.')
     if _uses_resend_api():
-        payload = json.dumps({'from': message['From'], 'to': [email],
-                              'subject': message['Subject'], 'text': message.get_content()}).encode('utf-8')
+        content = {'from': message['From'], 'to': [email],
+                   'subject': message['Subject'], 'text': message.get_content()}
+        if message['Reply-To']:
+            content['reply_to'] = message['Reply-To']
+        payload = json.dumps(content).encode('utf-8')
         _send_resend(payload)
         return
     mode = os.getenv('SMTP_TLS_MODE', 'starttls')

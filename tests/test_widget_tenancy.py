@@ -261,7 +261,7 @@ def test_widget_settings_are_saved_by_an_authorized_owner(client):
     assert body["widget"]["allowed_origins"] == payload["allowed_origins"]
     assert "widget.js?tenant=EXAMPLE" in body["embed"]["snippet"]
     assert body["embed"]["chat_url"] == "http://localhost/chat_ui?tenant=EXAMPLE"
-    assert 'chat_ui?tenant=EXAMPLE&amp;embed=1' in body["embed"]["iframe_snippet"]
+    assert 'chat_ui?tenant=EXAMPLE&amp;embed=panel' in body["embed"]["iframe_snippet"]
     assert 'width="100%"' in body["embed"]["iframe_snippet"]
 
 
@@ -303,10 +303,15 @@ def test_installation_data_cannot_be_read_for_another_company(client, app):
 
 def test_embedded_chat_uses_full_frame_layout(client):
     embedded = client.get("/chat_ui?tenant=EXAMPLE&embed=1")
+    panel = client.get("/chat_ui?tenant=EXAMPLE&embed=panel")
     standalone = client.get("/chat_ui?tenant=EXAMPLE")
-    assert embedded.status_code == standalone.status_code == 200
+    assert embedded.status_code == panel.status_code == standalone.status_code == 200
     assert 'class="widget-page--embedded"' in embedded.text
+    assert 'class="widget-page--embedded"' in panel.text
     assert 'class="widget-page--embedded"' not in standalone.text
+    assert 'id="chat-close"' in embedded.text
+    assert 'id="chat-close"' not in panel.text
+    assert 'id="chat-close"' not in standalone.text
 
 
 def test_platform_operator_can_create_a_clean_starter_tenant(client, app):

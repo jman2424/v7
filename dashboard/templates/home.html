@@ -74,20 +74,14 @@
       </div>
     </section>
     <section class="demo-section wrap" aria-labelledby="demo-title">
-      <div class="demo-copy"><p class="eyebrow" data-i18n>THE CUSTOMER EXPERIENCE</p><h2 id="demo-title">An AI sales assistant<br>with a clear next step.</h2><p data-i18n>Explore a sample product enquiry, delivery question or handoff. Your business supplies the knowledge and tone.</p></div>
+      <div class="demo-copy"><p class="eyebrow">THE CUSTOMER EXPERIENCE</p><h2 id="demo-title">Try the actual<br>V7 assistant.</h2><p>Ask about Vertex Seven, compare plans or explore how V7 could help your business. This is the same customer chat component you can install on your website, using our business knowledge and branding.</p><p>Please do not share passwords, payment details or private customer records.</p></div>
       <div class="hero-visual" id="demo">
-        <div class="demo-heading"><strong data-i18n>See a typical conversation</strong><span data-i18n>Illustrative example</span></div>
-        <section class="conversation" lang="en" dir="ltr" aria-label="Illustrative sales conversation">
-          <header class="conversation-header"><img class="agent-icon" src="{{ url_for('static', filename='img/logo.svg', v='20261019svg') }}" width="38" height="38" alt="V7 Agents"><div><strong>Your store assistant</strong><span>Powered by V7 Agents</span></div></header>
-          <div class="conversation-body" aria-live="polite" aria-atomic="true">
-            <p class="sample-label">FICTIONAL STORE · PRODUCT ENQUIRY</p>
-            <div class="bubble customer" id="sample-question">I need a desk lamp for a small home office.</div>
-            <div class="bubble agent" id="sample-answer">Happy to help. The compact Studio Lamp could be a good fit. Do you prefer warm light for evenings or a brighter light for focused work?</div>
-            <div class="sample-product"><div class="lamp-art" aria-hidden="true"><span class="lamp-shade"></span><span class="lamp-stem"></span><span class="lamp-base"></span></div><div><span class="product-kicker">FROM YOUR CATALOG</span><strong>Studio Lamp</strong><span>Compact design. Adjustable light.</span></div><span aria-hidden="true">↗</span></div>
-          </div>
-          <div class="sample-controls"><p>Explore an example</p><div><button type="button" data-example="product" aria-pressed="true">Product advice</button><button type="button" data-example="delivery" aria-pressed="false">Delivery</button><button type="button" data-example="handoff" aria-pressed="false">Next steps</button></div></div>
-          <footer class="conversation-footer">Sample conversation, not a live AI chat.</footer>
-        </section>
+        <div class="demo-heading"><strong>Vertex Seven assistant</strong><span>Live customer widget</span></div>
+        {% if public_widget_tenant %}
+        <iframe class="live-widget-panel" src="{{ url_for('webchat.chat_ui', tenant=public_widget_tenant, embed='panel') }}" title="Chat with Vertex Seven" width="100%" height="640" loading="lazy" allow="microphone" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+        {% else %}
+        <p class="live-widget-unavailable">The assistant is currently unavailable. <a href="#contact">Contact Vertex Seven</a> and we can help with your enquiry.</p>
+        {% endif %}
       </div>
     </section>
     <section class="section wrap" id="platform">
@@ -136,8 +130,8 @@
     <section class="section wrap" id="contact" aria-labelledby="contact-title">
       <p class="eyebrow">TALK TO VERTEX SEVEN</p><h2 id="contact-title">See how V7 could fit your business.</h2>
       <p>Tell us what your business does, your website address and the customer questions you want to handle. We can discuss your knowledge, branding and follow-up needs before onboarding.</p>
-      <div class="actions"><a class="button button-dark" href="mailto:jamal.khan@vertex-seven.com?subject=V7%20Agents%20demo%20enquiry&amp;body=Business%20name%3A%20%0D%0AWebsite%3A%20%0D%0AWhat%20we%20sell%20or%20provide%3A%20%0D%0ACustomer%20questions%20we%20want%20to%20handle%3A%20%0D%0AChannels%20needed%20%28website%20or%20WhatsApp%29%3A%20%0D%0A">Email a demo enquiry <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/guides/getting-started">Read the setup guide</a></div>
-      <p>No email app configured? Copy <strong>jamal.khan@vertex-seven.com</strong> into your preferred email service. You do not need a V7 account to enquire.</p>
+      <div class="actions"><a class="button button-dark" href="mailto:info@vertex-seven.com?subject=V7%20Agents%20demo%20enquiry&amp;body=Business%20name%3A%20%0D%0AWebsite%3A%20%0D%0AWhat%20we%20sell%20or%20provide%3A%20%0D%0ACustomer%20questions%20we%20want%20to%20handle%3A%20%0D%0AChannels%20needed%20%28website%20or%20WhatsApp%29%3A%20%0D%0A">Email a demo enquiry <span aria-hidden="true">↗</span></a><a class="button button-secondary" href="/guides/getting-started">Read the setup guide</a></div>
+      <p>No email app configured? Copy <strong>info@vertex-seven.com</strong> into your preferred email service. You do not need a V7 account to enquire.</p>
       <p>We will review your business needs and discuss a suitable setup by email. An enquiry does not start a subscription or confirm a booked appointment.</p>
       <p>This opens your email app; send the message there to contact us. Please do not include passwords, payment details or private customer records.</p>
     </section>
@@ -145,6 +139,5 @@
   </main>
   <footer class="site-footer wrap">{% include 'platform_brand.html' %}<p>V7 Agents. Business knowledge, in conversation.</p>{% include 'preferred_source_link.html' %}<div class="footer-links"><a href="/faqs">V7 Agents FAQs</a><a href="/about">About Vertex Seven</a><a href="/guides/getting-started">Setup guide &amp; examples</a><a href="/privacy" data-i18n>Privacy</a><a href="/cookies" data-i18n>Cookies</a><button type="button" data-open-cookie-preferences data-i18n>Cookie preferences</button><a href="#main">Back to top ↑</a></div></footer>
   {% include 'public_cookie_preferences.html' %}
-  {% include 'public_site_widget.html' %}
 </body>
 </html>

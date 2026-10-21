@@ -23,7 +23,7 @@
         </div>
       </div>
       {% if branding and branding.widget and branding.widget.company_logo_url %}<img class="widget__brand-logo" src="{{ branding.widget.company_logo_url }}" alt="Company logo" />{% endif %}
-      {% if embedded %}<button id="chat-close" type="button" class="widget__close" aria-label="Close chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>{% endif %}
+      {% if closable %}<button id="chat-close" type="button" class="widget__close" aria-label="Close chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>{% endif %}
     </header>
 
     <main id="chat-log" class="widget__log" role="log" aria-live="polite">
