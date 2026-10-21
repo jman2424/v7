@@ -201,7 +201,7 @@ def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_c
 
     response = seo_client.get("/about")
     assert response.status_code == 200
-    assert 'No VAT charged; Vertex Seven is not VAT-registered' in response.text
+    assert 'not VAT-registered' not in response.text
     for plan in public_plans():
         assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month" in response.text
         assert f"with £{plan['setup_pence'] // 100} one-time setup" in response.text
@@ -219,7 +219,7 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     monkeypatch.delenv('V7_VAT_REGISTERED',raising=False)
     response=seo_client.get('/')
     assert response.status_code==200
-    assert 'No VAT charged; Vertex Seven is not VAT-registered' in response.text
+    assert 'No VAT is added to these prices.' in response.text
     assert 'including 20% VAT' not in response.text
     assert 'including 0% VAT' not in response.text
     assert '£118.80' not in response.text
@@ -240,7 +240,7 @@ def test_product_schema_describes_separate_credit_and_actual_tax_state(seo_clien
     assert 'no fixed message or conversation cap' in description
     assert 'included usage allowances' not in description
     assert ('before VAT' in description) is registered
-    assert ('No VAT charged' in description) is not registered
+    assert ('No VAT is added' in description) is not registered
 
 
 @pytest.mark.parametrize('path', ['/about', '/faqs', '/guides/getting-started', '/pricing', '/guides/choosing-a-website-chatbot'] +
@@ -412,7 +412,7 @@ def test_faq_schema_matches_visible_answers_and_current_prices(seo_client, monke
         assert question['acceptedAnswer']['text'] == ' '.join(section['paragraphs'])
         assert question['name'] in visible
         assert question['acceptedAnswer']['text'] in visible
-    assert 'No VAT charged' in visible
+    assert 'not VAT-registered' not in visible
     assert 'There is no fixed message allowance.' in visible
     assert 'phone numbers are not supplied' in visible
     assert 'No AI credit is included' in visible

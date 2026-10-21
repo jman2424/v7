@@ -72,7 +72,7 @@
     {% if pricing_page %}
     <section id="pricing" class="pricing-detail" aria-labelledby="pricing-comparison-title">
       <h2 id="pricing-comparison-title">Compare Starter, Business and Scale</h2>
-      <p class="pricing-detail-intro">{% if subscription_vat_percent %}Prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}No VAT charged; Vertex Seven is not VAT-registered.{% endif %} Setup is a separate one-time payment.</p>
+      <p class="pricing-detail-intro">{% if subscription_vat_percent %}Prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}No VAT is added to these prices.{% endif %} Setup is a separate one-time payment.</p>
       {% include 'public_plan_comparison.html' %}
     </section>
     {% endif %}

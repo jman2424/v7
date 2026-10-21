@@ -51,6 +51,23 @@ def test_platform_pricing_cannot_fall_into_retail_compare_or_model(client, monke
         assert not result.get('actions')
 
 
+def test_routine_plan_answers_do_not_volunteer_zero_vat_status(client, monkeypatch):
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'VERTEX')
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
+    with client.application.app_context():
+        knowledge = platform_offer_knowledge.public_knowledge('VERTEX')
+        for question in ['Compare Starter and Business pricing plans', 'How much does the Starter plan cost?']:
+            answer = platform_offer_knowledge.automatic_plan_answer(question, knowledge)
+            assert '£99.00/month' in answer
+            assert 'VAT' not in answer
+        asked = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing including VAT', knowledge)
+        assert 'No VAT is added to the published prices.' in asked
+        assert 'not VAT-registered' not in asked
+        monkeypatch.setenv('V7_VAT_REGISTERED', 'true')
+        registered = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', knowledge)
+        assert 'VAT is charged at 20%' in registered
+
+
 def test_other_businesses_never_receive_platform_referral_rules(client,monkeypatch):
     monkeypatch.setattr(subscriptions,'internal_business',lambda tenant:tenant=='VERTEX')
     assert platform_offer_knowledge.public_knowledge('EXAMPLE') is None

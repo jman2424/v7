@@ -5,7 +5,7 @@ from service.plan_catalog import VAT_PERCENT, vat_percent, public_plans
 
 def _plan_prices() -> str:
     if not vat_percent():
-        return '; '.join(f"{plan['name']} £{plan['monthly_pence'] // 100}/month, with £{plan['setup_pence'] // 100} one-time setup. No VAT charged; Vertex Seven is not VAT-registered"
+        return '; '.join(f"{plan['name']} £{plan['monthly_pence'] // 100}/month, with £{plan['setup_pence'] // 100} one-time setup"
                          for plan in public_plans())
     return "; ".join(
         f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT "
@@ -18,7 +18,7 @@ def _plan_prices() -> str:
 
 def _prepaid_processing() -> str:
     if not vat_percent():
-        return 'AI processing credit is purchased separately: pay £5, £20 or £50 for the same amount of credit. No VAT charged; Vertex Seven is not VAT-registered. No AI credit is included in the monthly subscription.'
+        return 'AI processing credit is purchased separately: pay £5, £20 or £50 for the same amount of credit. No AI credit is included in the monthly subscription.'
     return "AI processing credit is purchased separately: £5, £20 or £50 before VAT (£6, £24 or £60 including 20% VAT, where applicable). No AI credit is included in the monthly subscription."
 
 

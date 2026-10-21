@@ -95,7 +95,9 @@ def automatic_plan_answer(question, knowledge, history=None):
              f"{plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
              for plan in selected]
     from service.plan_catalog import vat_percent
-    tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ' No VAT is charged; Vertex Seven is not VAT-registered.'
+    tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ''
+    if not tax and re.search(r'\b(?:vat|tax|taxes)\b', question, re.I):
+        tax = ' No VAT is added to the published prices.'
     lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
                  'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overages or recharges.' + tax)
     return '\n\n'.join(lines)
