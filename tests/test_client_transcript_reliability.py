@@ -184,3 +184,32 @@ def test_failed_model_answers_both_booking_and_social_parts_without_catalogue(as
                                      'What deposit is needed for a booking?'])
 def test_booking_fallback_cannot_replace_support_or_payment_policy(assistant, question):
     assert assistant._fallback_navigation_information(question, request_id='synthetic') is None
+
+
+def test_requested_social_links_take_priority_over_extra_booking_suggestions():
+    from service.website_destinations import buttonize_reply
+    targets = [{'id': key, 'label': key.title(), 'url': url} for key, url in (
+        ('book', 'https://booking.example.com/'), ('guest', 'https://booking.example.com/guest'),
+        ('manage', 'https://booking.example.com/manage'), ('instagram', 'https://www.instagram.com/example'),
+        ('tiktok', 'https://www.tiktok.com/@example'))]
+    suggestions = [{'type': 'navigate', 'label': row['label'], 'url': row['url']} for row in targets[:3]]
+    text = 'Book at ' + targets[0]['url'] + '. Instagram: ' + targets[3]['url'] + ' TikTok: ' + targets[4]['url']
+    reply, actions = buttonize_reply(text, targets, suggestions)
+    assert 'https://' not in reply
+    assert [row['label'] for row in actions] == ['Book', 'Instagram', 'Tiktok']
+
+
+def test_customer_details_survive_a_large_assistant_reply_and_filter_private_data(app):
+    from service.message_handler import MessageContext
+    handler = app.container.for_tenant('EXAMPLE').handler
+    ctx = MessageContext(tenant='EXAMPLE', session_id='synthetic-details', channel='test', metadata={})
+    handler._remember_turn(ctx, handler._load_session(ctx), 'if i have a bmw x3 whats the costs',
+                           {'reply': 'Long catalogue prose. ' * 300})
+    session = handler._load_session(ctx)
+    assert 'if i have a bmw x3 whats the costs' in session['conversation_customer_statements']
+    handler._remember_turn(ctx, session, 'my email is private@example.test', {'reply': 'Thanks.'})
+    assert all('private@' not in value for value in handler._load_session(ctx)['conversation_customer_statements'])
+    from service.grounded_conversation import agent_context_rows
+    context = agent_context_rows({'customer_statements': session['conversation_customer_statements']}, {})
+    assert context['customer_statements'] == ['if i have a bmw x3 whats the costs']
+    assert handler.memory.get('different-session', 'conversation_customer_statements') is None

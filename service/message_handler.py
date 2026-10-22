@@ -311,6 +311,11 @@ class MessageHandler:
             self.memory.set(ctx.session_id, 'conversation_first_message', user_text[:4000], ttl)
         else:
             self.memory.set(ctx.session_id, 'conversation_first_message', sess['conversation_first_message'], ttl)
+        from service.grounded_conversation import _requirement
+        statements = list(sess.get('conversation_customer_statements') or [])
+        if _requirement(user_text):
+            statements = [row for row in statements if row != user_text] + [user_text]
+        self.memory.set(ctx.session_id, 'conversation_customer_statements', statements[-6:], ttl)
         self.memory.set(ctx.session_id, 'conversation_history', bounded_history(history, config), ttl)
 
     # ---------------------------------------------------------
@@ -435,6 +440,7 @@ class MessageHandler:
             '_memory_settings': self.memory.configuration() if hasattr(self.memory, 'configuration') else None,
             "conversation_history": self.memory.get(ctx.session_id, "conversation_history"),
             "conversation_first_message": self.memory.get(ctx.session_id, "conversation_first_message"),
+            "conversation_customer_statements": self.memory.get(ctx.session_id, "conversation_customer_statements", []),
             "conversation_facts": self.memory.get(ctx.session_id, "conversation_facts", {}),
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),

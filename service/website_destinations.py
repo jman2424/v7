@@ -15,7 +15,20 @@ def buttonize_reply(text, destinations, actions=None):
     unapproved links as text; only configured public targets become UI actions.
     """
     approved = {row['url']: row for row in destinations if row.get('enabled', True)}
-    result = list(actions or [])[:3]
+    pattern = r'\[[^\]\n]*\]\((?P<markdown>https?://[^\s)]+)\)|(?P<bare>https?://[^\s<>\)\]]+)'
+    original = [row for row in (actions or []) if isinstance(row, dict)]
+    # Explicit links in the answer take precedence over extra model suggestions.
+    # Otherwise three booking variants can consume every slot and leave the
+    # customer's requested social destinations as bare URLs.
+    result = [row for row in original if row.get('type') != 'navigate'][:3]
+    for match in re.finditer(pattern, text):
+        url = match.group('markdown') or match.group('bare').rstrip('.,;:!?')
+        target = approved.get(url)
+        if target and len(result) < 3 and not any(row.get('url') == url for row in result):
+            result.append({'type': 'navigate', 'label': target['label'], 'url': url})
+    for row in original:
+        if len(result) < 3 and row.get('type') == 'navigate' and not any(item.get('url') == row.get('url') for item in result):
+            result.append(row)
 
     def replace(match):
         url = match.group('markdown') or match.group('bare').rstrip('.,;:!?')
@@ -29,8 +42,7 @@ def buttonize_reply(text, destinations, actions=None):
         suffix = '' if match.group('markdown') else match.group('bare')[len(url):]
         return target['label'] + suffix
 
-    text = re.sub(r'\[[^\]\n]*\]\((?P<markdown>https?://[^\s)]+)\)|(?P<bare>https?://[^\s<>\)\]]+)',
-                  replace, text)
+    text = re.sub(pattern, replace, text)
     return text, result
 
 

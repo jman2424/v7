@@ -983,6 +983,7 @@ class MessageHandlerV7:
                       allowed_actions=allowed_actions,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
+                                     'customer_statements': session.get('conversation_customer_statements', []),
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
         requested_action = agent_state.get('requested_action')
