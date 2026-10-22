@@ -151,3 +151,36 @@ def test_console_provider_timeout_uses_the_same_budget_as_public_web(monkeypatch
         assert chat_diagnostics.provider_timeout(60) == 20
         clock[0] = 28
         assert chat_diagnostics.provider_timeout(60) == 2
+
+
+def test_approved_navigation_url_need_not_also_appear_in_a_cited_faq(monkeypatch):
+    links = []
+    payload = {'answer': 'Use https://booking.example.com/ to continue.', 'kind': 'answer',
+               'sources': ['business'], 'navigation': ['booking']}
+    from service import grounded_conversation
+    import json
+    monkeypatch.setattr(grounded_conversation, 'tracked_completion', lambda *a, **k:
+        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))]))
+    answer = grounded_conversation.answer(object(), 'test-model', 'Show the website',
+        {'business': {'name': 'Example'}}, [], 'professional', selected_links=links,
+        destinations=[{'id': 'booking', 'label': 'Book', 'url': 'https://booking.example.com/'}])
+    assert answer and 'https://' not in answer
+    assert links == [{'type': 'navigate', 'label': 'Book', 'url': 'https://booking.example.com/'}]
+
+
+def test_failed_model_answers_both_booking_and_social_parts_without_catalogue(assistant, monkeypatch):
+    monkeypatch.setattr(assistant, '_grounded_answer', lambda *a, **k: None)
+    assistant.faq = FAQStore(faq=[{'q': 'How do I book an appointment?',
+        'a': 'Use https://booking.example.com/ to choose an available appointment.'}])
+    assistant.business_profile['social'] = {'Instagram': 'https://www.instagram.com/example'}
+    result = assistant.handle('How can I get a quote or make a booking? also do you have any socials',
+                              SimpleNamespace(channel='test'), {'last_category': 'care'})
+    assert result['intent'] == 'store_info'
+    assert 'booking.example.com' in result['reply'] and 'instagram.com' in result['reply']
+    assert '£400' not in result['reply']
+
+
+@pytest.mark.parametrize('question', ['How do I cancel a booking?', 'Can you refund my booking?',
+                                     'What deposit is needed for a booking?'])
+def test_booking_fallback_cannot_replace_support_or_payment_policy(assistant, question):
+    assert assistant._fallback_navigation_information(question, request_id='synthetic') is None

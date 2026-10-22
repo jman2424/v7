@@ -35,6 +35,11 @@ def readable_reply(text: str) -> str:
             return
         block = '\n'.join(prose)
         prose.clear()
+        # These clients render safe plain text, not Markdown. Do not expose
+        # model emphasis delimiters as literal clutter; keep code spans intact.
+        chunks = re.split(r'(`[^`\n]+`)', block)
+        block = ''.join(chunk if index % 2 else re.sub(r'\*\*([^*\n]+)\*\*', r'\1', chunk)
+                        for index, chunk in enumerate(chunks))
         # Legacy FAQs sometimes store several Small/Medium/Large price bands
         # in a single sentence. Separate the groups without changing a figure,
         # service label, condition, or their shared size-order heading.

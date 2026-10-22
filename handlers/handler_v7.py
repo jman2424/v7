@@ -402,6 +402,11 @@ class MessageHandlerV7:
                     agent=intelligent.get('agent') if isinstance(intelligent, dict) else None,
                 )
 
+            information = self._fallback_navigation_information(user_text, request_id=request_id)
+            if information:
+                return self._wrap_reply(request_id=request_id, t0=t0, reply=information,
+                    intent='store_info', plan=None, facts={}, entities={}, items=[])
+
             from service.platform_offer_knowledge import public_knowledge, automatic_offer_answer
             offer_answer = automatic_offer_answer(user_text, public_knowledge(self.tenant_key))
             if offer_answer:
@@ -1174,6 +1179,29 @@ class MessageHandlerV7:
             response['actions'] = actions
         return response
 
+    def _fallback_navigation_information(self, question, *, request_id):
+        """A failed model must not turn booking/social questions into shopping.
+
+        Reuse independently matched public FAQs/profile links for each requested
+        part. Approved URLs become buttons in the normal finalization step.
+        """
+        if re.search(r'\b(?:cancel\w*|refunds?|complain\w*|deposits?|payments?|reschedul\w*)\b', question, re.I):
+            return None
+        parts = []
+        if re.search(r'\b(?:book(?:ing)?|appointments?)\b', question, re.I):
+            faq = self._find_faq('How do I book an appointment?', {}, request_id=request_id)
+            if faq and re.search(r'\b(?:book(?:ing)?|appointments?)\b', faq['question'], re.I):
+                parts.append(faq['answer'])
+        if re.search(r'\b(?:socials?|instagram|tiktok|facebook|linkedin|youtube)\b', question, re.I):
+            social = self._store_info_answer('social media')
+            if not social:
+                faq = self._find_faq('Where can I follow you on social media?', {}, request_id=request_id)
+                if faq and re.search(r'\b(?:social|instagram|tiktok|facebook|linkedin|youtube)\b', faq['question'], re.I):
+                    social = faq['answer']
+            if social:
+                parts.append(social)
+        return '\n\n'.join(parts) if parts else None
+
     def _looks_out_of_scope(self, text: str) -> bool:
         t = self._clean_text(text)
         if not t:
@@ -1317,10 +1345,11 @@ class MessageHandlerV7:
                 return "The business lists these certifications: " + ", ".join(listed) + "."
         social = self.business_profile.get("social") or {}
         if isinstance(social, dict):
-            requested = [key for key in social if key.lower() in text or "social media" in text]
+            requested = [key for key in social if key.lower() in text or "social media" in text
+                         or re.search(r'\bsocials?\b', text)]
             links = [f"{key}: {social[key]}" for key in requested if isinstance(social[key], str) and social[key].strip()]
             if links:
-                return "You can find the business on " + "; ".join(links) + "."
+                return "You can follow us here:\n\n" + "\n".join(links)
 
         if self.geo and re.search(r"\b(opening hours|open hours|business hours|what time.*(?:open|close))\b", text):
             branches = self.geo.branches()

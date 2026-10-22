@@ -68,6 +68,13 @@ def test_existing_lists_and_fenced_code_are_not_flattened_or_interpreted():
     rewriter._client.chat.completions.create.assert_not_called()
 
 
+def test_plain_text_clients_do_not_show_markdown_emphasis_but_preserve_code():
+    text = '1. **Ceramic coating** — £250\n2. **Paint correction** — £400\n\n`**literal**`\n\n```\n**code**\n```'
+    result = readable_reply(text)
+    assert '1. Ceramic coating — £250' in result and '2. Paint correction — £400' in result
+    assert '`**literal**`' in result and '```\n**code**\n```' in result
+
+
 def test_final_api_reply_and_memory_keep_paragraphs(app, client, monkeypatch):
     handler = app.container.for_tenant('EXAMPLE').handler
     text = 'Options:\n\n1) Starter — £99\n2) Business — £199\n\nAI usage credit is separate.'

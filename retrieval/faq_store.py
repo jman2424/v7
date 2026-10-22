@@ -29,7 +29,7 @@ _QUESTION_WORDS = {
     "have", "how", "i", "if", "in", "is", "it", "me", "my", "of", "on",
     "or", "our", "please", "the", "this", "to", "we", "what", "when", "where",
     "which", "who", "will", "with", "would", "you", "your",
-    "help", "some", "about", "tell", "know", "need", "want", "okay", "ok", "also",
+    "help", "some", "about", "tell", "know", "need", "want", "okay", "ok", "also", "they", "them",
 }
 
 
