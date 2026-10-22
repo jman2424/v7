@@ -56,6 +56,7 @@ def prioritize_knowledge(knowledge, question, remembered):
     applies after ranking; no new data is fetched or permissions expanded here.
     """
     pinned = ['business', 'current_platform_offer', remembered.get('selected_offering_id')]
+    narrow = len(knowledge) > 24
     pinned += remembered.get('offering_ids', [])
     ordered = {key: knowledge[key] for key in pinned if isinstance(key, str) and key in knowledge}
     candidates = [(key, row) for key, row in knowledge.items() if key not in ordered]
@@ -63,7 +64,7 @@ def prioritize_knowledge(knowledge, question, remembered):
                if not key.startswith('website:') and key != 'business_core'
                and (key.startswith('matched_faq:') or relevance(row, question) > 0)]
     related.sort(key=lambda pair: relevance(pair[1], question), reverse=True)
-    for key, row in related:
+    for key, row in related[:16] if narrow else related:
         ordered[key] = row
     # Bounded business rules and details supplement individually cited offerings.
     if 'business_core' in knowledge:
@@ -71,7 +72,15 @@ def prioritize_knowledge(knowledge, question, remembered):
     for key, row in candidates:
         if key.startswith('website:'):
             ordered[key] = row
-    for key, row in candidates:
-        if key not in ordered:
+            if narrow and sum(name.startswith('website:') for name in ordered) >= 3:
+                break
+    # Do not send every unrelated FAQ and catalogue record on every turn.
+    # Context is rebuilt for each question; current matches and remembered
+    # choices have already been prioritised above. A small preview still helps
+    # broad discovery requests that share no literal product-name vocabulary.
+    for key, row in candidates if not narrow or not related else []:
+        if len(ordered) >= 24:
+            break
+        if key not in ordered and not key.startswith('website:'):
             ordered[key] = row
     return ordered

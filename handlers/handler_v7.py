@@ -208,7 +208,7 @@ class MessageHandlerV7:
         r"\b(?:offers?|deals?|discounts?|promotions?|sales?|specials?|bogo|buy\s+(?:1|one)\s+get\s+(?:1|one)|\d{1,3}(?:\.\d{1,2})?\s*%\s*off)\b",
         re.I,
     )
-    _PRICE_REQUEST = re.compile(r"\b(?:price|prices|cost|how much)\b", re.I)
+    _PRICE_REQUEST = re.compile(r"\b(?:prices?|pricing|costs?|how much)\b", re.I)
     _SIGNUP_OFFER_REQUEST = re.compile(
         r"\b(?:sign(?:ing)?[ -]?up|register(?:ing|ed|ation)?|new (?:customers?|members?|accounts?)|newsletter|welcome)\b", re.I)
     _SELECTION_NUMBER = re.compile(r"^\s*(?:option\s*)?([1-9]|1[0-2])\s*[.)]?\s*$", re.I)
@@ -887,14 +887,17 @@ class MessageHandlerV7:
                     knowledge['offering:'+offering['id']] = offering
         if self.catalog:
             items = []
+            catalogue_needed = bool(follow_up or self._exact_catalog_item_in_text(question)
+                                    or self._looks_like_product_query(question))
             for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
                 if source_id.startswith('product:'):
                     item = self._optional_source('catalog_selection',
                         lambda: self.catalog.get_item_by_sku(source_id[len('product:'):]), None)
                     if item:
                         items.append(item)
-            items += self._optional_source('catalog_search', lambda: self.catalog.search(text=question, limit=12), [])
-            items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
+            if catalogue_needed:
+                items += self._optional_source('catalog_search', lambda: self.catalog.search(text=question, limit=12), [])
+                items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
             for sku in (session.get('last_items') or [])[:12]:
                 item = self._optional_source('catalog_selection', lambda: self.catalog.get_item_by_sku(sku), None)
                 if item:
@@ -906,7 +909,7 @@ class MessageHandlerV7:
                 sku = str(item.get('sku') or '')[:120]
                 if sku:
                     facts = _public_product_facts(item, currency)
-                    if not currency:
+                    if not currency or not catalogue_needed:
                         # A missing currency is not permission to assume GBP.
                         facts.pop('price', None)
                     knowledge['product:' + sku] = facts

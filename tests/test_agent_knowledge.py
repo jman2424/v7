@@ -40,6 +40,14 @@ def test_current_policy_beats_unrelated_prior_product_facts():
     assert ranked.index('faq:cancel') < ranked.index('product:gold')
 
 
+def test_narrow_question_does_not_send_the_whole_catalogue_and_faq_collection():
+    knowledge = {'business': {'name': 'Fixture'},
+                 **{f'product:{i}': {'name': f'Unrelated package {i}', 'price': i} for i in range(80)},
+                 'faq:location': {'question': 'Where are you located?', 'answer': 'Mobile service in London.'}}
+    ranked = prioritize_knowledge(knowledge, 'Where are you located?', {})
+    assert 'faq:location' in ranked and len(ranked) <= 24
+
+
 def test_large_native_catalogue_keeps_current_and_remembered_offerings(monkeypatch):
     core = empty_core()
     core['offerings'] = [{'id': f'package-{index}', 'name': f'Package {index}', 'active': True}
