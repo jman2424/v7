@@ -7,7 +7,6 @@
   import PlatformLogo from './PlatformLogo.svelte';
   import Subscription from './Subscription.svelte';
   import Referrals from './Referrals.svelte';
-  import {referralCodeFromSearch} from './referral-link';
   import {subscriptionCreditAlerts} from './subscription-format';
   import Conversations from './Conversations.svelte';
   import AgentTest from './AgentTest.svelte';
@@ -1041,7 +1040,8 @@
   async function openDefaultWorkspace() {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
-    referralSaved = Boolean(referralCodeFromSearch(window.location.search));
+    const referral = params.get('ref') || '';
+    referralSaved = /^V7-[A-Fa-f0-9]{32}$/.test(referral);
     const next = params.get('next');
     let destination = next && mayOpenScreen(next) ? next : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
     if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {

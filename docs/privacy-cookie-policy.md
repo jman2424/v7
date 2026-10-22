@@ -17,6 +17,7 @@ Referral invitations now prefill only from the validated current referral URL. T
 - 91 privacy, permissions, cookie and analytics Python tests passed. A later focused run of the 39 privacy tests passed after removing referral storage.
 - Frontend tests cover valid/invalid referral codes, preserving the referral URL through the workspace redirect, consent withdrawal and existing billing/authentication request boundaries.
 - All 74 frontend tests passed, Svelte reported zero errors and warnings, and the production frontend build passed.
+- Console sign-in, workspace loading, registration loading and owner-console regression suites also passed after keeping referral-link detection self-contained in the console.
 - The public templates and preference panel were visually checked through a local preview before deployment.
 - Public privacy provider links were checked; OpenAI's official privacy URL rejected automated HTTP access with 403 rather than reporting a missing page.
 
