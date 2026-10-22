@@ -90,7 +90,7 @@ body.widget-page--embedded .widget { width: 100%; height: 100dvh; border: 0; bor
   padding: 10px 12px;
   border: 1px solid var(--wborder);
   border-radius: 12px;
-  line-height: 1.45;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   background: var(--wfield);
   color: var(--wfield-text);

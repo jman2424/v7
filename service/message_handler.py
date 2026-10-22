@@ -223,6 +223,8 @@ class MessageHandler:
         guarded = self._guard_input(user_text, sess=sess)
         if guarded is not None:
             guarded = self.sales_agent.guide(guarded, user_text=user_text, session=sess)
+            from service.reply_formatting import readable_reply
+            guarded['reply'] = readable_reply(str(guarded.get('reply') or ''))
             self._remember_turn(ctx, sess, user_text, guarded)
             self._save_session(ctx, sess, guarded)
             emit('chat_routed', route=guarded.get('intent', 'unknown'))
@@ -273,6 +275,8 @@ class MessageHandler:
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
             reply = self.h_v7.finalize_navigation(reply, ctx.channel)
+        from service.reply_formatting import readable_reply
+        reply['reply'] = readable_reply(str(reply.get('reply') or ''))
         self._remember_turn(ctx, sess, user_text, reply)
         self._save_session(ctx, sess, reply)
         try:
@@ -383,6 +387,7 @@ class MessageHandler:
         intent = (reply.get("intent") or "").strip()
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
+
         text = (user_text or "").strip()
         lower = text.lower()
 
@@ -447,6 +452,11 @@ class MessageHandler:
         entities = reply.get("entities") or {}
         facts = reply.get("facts") or {}
         items = facts.get("items") or []
+
+        if isinstance(facts.get('search_meta'), dict):
+            from service.reply_formatting import catalogue_reply_items
+            # Numbered follow-ups may refer only to options the user saw.
+            items = catalogue_reply_items(facts)
 
         if entities.get("postcode"):
             self.memory.set(ctx.session_id, "postcode", entities["postcode"], ttl)

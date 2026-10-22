@@ -78,12 +78,13 @@ def safe_minimal_rewrite(text: str) -> str:
     """
     Compact normalization pass:
     - Trim whitespace
-    - Collapse multiple spaces
+    - Collapse multiple spaces in single-line replies; preserve structured text
     - Capitalize first letter (if present)
     - Keep punctuation/content as-is (no hallucinations)
     """
     t = (text or "").strip()
-    t = re.sub(r"\s+", " ", t)
+    if '\n' not in t:
+        t = re.sub(r"\s+", " ", t)
     if not t:
         return ""
     if not t[0].isupper():

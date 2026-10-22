@@ -281,7 +281,7 @@
   .transcript { height:clamp(320px, 42vh, 540px); overflow-y:auto; padding:28px; background:var(--v7-canvas, #f5f7f7); }
   article { max-width:86%; width:fit-content; margin-bottom:18px; padding:16px 18px; background:var(--v7-surface, #fff); border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; border-end-start-radius:4px; font-size:14px; line-height:1.65; }
   article strong { display:block; margin-bottom:7px; font-size:11px; font-weight:700; color:var(--v7-accent, #087f5b); letter-spacing:.025em; }
-  article p { white-space:pre-wrap; }
+  article p { white-space:pre-wrap; max-width:68ch; overflow-wrap:anywhere; }
   .reply-audio, .microphone { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
   .reply-audio { margin-top:12px; padding:8px 10px; font-size:12px; background:transparent; }
   article.customer { margin-inline-start:auto; background:var(--v7-soft, #edf6f1); border-color:var(--v7-tint-line); border-end-start-radius:12px; border-end-end-radius:4px; }

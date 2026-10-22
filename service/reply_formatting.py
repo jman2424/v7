@@ -1,0 +1,74 @@
+"""Readable plain-text replies without dropping or inventing business facts."""
+from __future__ import annotations
+
+import re
+
+
+def catalogue_reply_limit(meta: dict) -> int:
+    """Keep browsing manageable, including when the customer asks for everything."""
+    ceiling = 5 if meta.get('scope') in {'full_store', 'full_category'} else 3
+    try:
+        return min(ceiling, max(1, int(meta.get('max_items') or ceiling)))
+    except (TypeError, ValueError):
+        return ceiling
+
+
+def catalogue_reply_items(facts: dict) -> list:
+    items = [item for item in (facts.get('items') or []) if isinstance(item, dict)
+             and str(item.get('name') or item.get('_norm_name') or '').strip()]
+    return items[:catalogue_reply_limit(facts.get('search_meta') or {})]
+
+
+def readable_reply(text: str) -> str:
+    """Add paragraph breaks to dense prose; leave lists, code and facts intact.
+
+    This deliberately does not truncate replies: policy exceptions, prices and
+    instructions must survive. New output is still plain text, never HTML.
+    """
+    text = (text or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    blocks = []
+    prose = []
+    fence = None
+
+    def flush():
+        if not prose:
+            return
+        block = '\n'.join(prose)
+        prose.clear()
+        if len(block) <= 320 or '\n' in block or re.match(r'\s*(?:[-*•]|\d+[.)])\s', block):
+            blocks.append(block)
+            return
+        # Split only at sentence-ending punctuation followed by whitespace.
+        # Decimal prices, email addresses and URLs therefore stay unchanged.
+        sentences = re.split(r'(?<=[.!?]) +(?=\S)', block)
+        paragraph = []
+        paragraphs = []
+        for sentence in sentences:
+            paragraph.append(sentence)
+            if len(paragraph) >= 2 or len(' '.join(paragraph)) >= 280:
+                paragraphs.append(' '.join(paragraph))
+                paragraph = []
+        if paragraph:
+            paragraphs.append(' '.join(paragraph))
+        blocks.append('\n\n'.join(paragraphs))
+
+    for line in text.split('\n'):
+        marker = re.match(r'^\s*(`{3,}|~{3,})', line)
+        if fence:
+            blocks.append(line)
+            if marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+                fence = None
+            continue
+        if marker:
+            flush()
+            fence = marker.group(1)
+            blocks.append(line)
+        elif not line.strip():
+            flush()
+            blocks.append('')
+        else:
+            prose.append(line.rstrip())
+    flush()
+    # Existing fenced blocks (including blank lines/indentation) are preserved.
+    # Prose blocks get an empty line between paragraphs, without altering words.
+    return '\n'.join(blocks).strip()

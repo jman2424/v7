@@ -61,6 +61,8 @@ def _env_int(key: str, default: int) -> int:
 
 def _clean(text: str) -> str:
     t = (text or "").replace("\x00", " ").strip()
+    if '\n' in t:
+        return t
     return _WS.sub(" ", t)
 
 
@@ -206,6 +208,12 @@ class Rewriter:
         original = _clean(text)
         if not original:
             return ""
+
+        # A list or multi-paragraph answer is already structured. Rewriting or
+        # sentence clipping would flatten it or discard prices/conditions.
+        if '\n' in original:
+            from service.reply_formatting import readable_reply
+            return readable_reply(original)
 
         # Safe deterministic mode only
         if style == "safe":

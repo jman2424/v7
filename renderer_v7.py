@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from service.sales_playbook import offering_terms
 from service.tenant_sales_context import discovery_question
+from service.reply_formatting import catalogue_reply_items, readable_reply
 
 
 _CURRENCY_SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
@@ -230,7 +231,7 @@ class RendererV7:
         symbol = _CURRENCY_SYMBOLS.get(code)
         return f"{symbol}{value:.2f}" if symbol else f"{code} {value:.2f}"
 
-    def _format_item_line(self, item: Dict[str, Any], currency: str) -> str:
+    def _format_item_line(self, item: Dict[str, Any], currency: str, *, include_unit: bool = True) -> str:
         name = item.get("name") or item.get("_norm_name") or ""
         name = name.strip()
         if not name:
@@ -240,7 +241,7 @@ class RendererV7:
         price = item.get("price")
         bits: List[str] = [name]
 
-        if unit and unit.lower() not in name.lower():
+        if include_unit and unit and unit.lower() not in name.lower():
             bits[-1] = f"{name} ({unit})"
 
         if isinstance(price, (int, float)):
@@ -269,13 +270,6 @@ class RendererV7:
         item_level = bool(search_meta.get("item_level", False))
         primary_cut = search_meta.get("primary_cut")
 
-        try:
-            max_items = int(search_meta.get("max_items", 8))
-        except Exception:
-            max_items = 8
-
-        wants_chunking = bool(search_meta.get("wants_chunking", False))
-
         if not items:
             keywords = ("full", "all", "everything", "entire", "whole")
             pn_lower = (product_name or "").lower()
@@ -299,18 +293,17 @@ class RendererV7:
 
         total_items = len(items)
 
-        if scope == "item_list":
-            limit = min(total_items, max(4, min(max_items, 10)))
-        elif scope in {"full_category", "full_store"}:
-            limit = min(total_items, max(10, min(max_items, 20)))
-        else:
-            limit = min(total_items, max(4, min(max_items, 8)))
-
-        top = items[:limit]
+        top = catalogue_reply_items(facts)
+        limit = len(top)
+        units = {str(item.get('unit') or '').strip() for item in top}
+        common_unit = next(iter(units)) if len(units) == 1 else ''
+        # Repeat short units beside their price; show a shared long condition
+        # once below the list instead of duplicating it on every option.
+        shared_unit = common_unit if len(common_unit) > 30 else ''
 
         lines: List[str] = []
         for idx, item in enumerate(top, start=1):
-            line = self._format_item_line(item, currency)
+            line = self._format_item_line(item, currency, include_unit=not shared_unit)
             if line:
                 lines.append(f"{idx}) {line}")
 
@@ -328,24 +321,15 @@ class RendererV7:
         else:
             intro = "Here are some good options I found:"
 
-        body = " ".join(lines)
-
-        extra_tail = ""
+        body = "\n".join(lines)
+        parts = [intro, body]
+        if shared_unit:
+            parts.append('Pricing: ' + shared_unit.rstrip('.') + '.')
         if total_items > limit:
-            if scope in {"full_category", "full_store"} or wants_chunking:
-                extra_tail = (
-                    f" I’ve shown the first {limit} items to keep things clear. "
-                    f"Tell me a {self.offering_singular} type, category, feature, or a number from the list."
-                )
-            elif item_level:
-                extra_tail = (
-                    f" I’ve shown the main {primary_cut} options. "
-                    "If you want something more specific, tell me the number you like."
-                )
-
-        followup = " Tell me the number you like and I can give you prices or more options."
-        base = f"{intro} {body}{extra_tail}{followup}"
-        return self._append_cta(base)
+            parts.append(f"Showing {limit} matches. Choose a number, or tell me the type you need to narrow the list.")
+        else:
+            parts.append("Which option would you like to explore?")
+        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------ #
     # PRICE                                                              #
@@ -371,7 +355,7 @@ class RendererV7:
 
         if len(lines) != 2:
             return f"I found the {self.offering_plural}, but I could not confirm both prices."
-        return " ".join(lines)
+        return "\n\n".join(lines)
 
     def _availability_label(self, is_available: Optional[bool]) -> str:
         if type(is_available) is not bool:
@@ -404,8 +388,10 @@ class RendererV7:
                 return f"{name} is currently out of stock; I do not have a similar in-stock option recorded right now."
             return f"{name} is currently unavailable; I do not have a similar available option recorded right now."
         if self.offering_singular == "product":
-            return f"{name} is currently out of stock; available alternatives: " + " | ".join(lines) + "."
-        return f"{name} is currently unavailable; available alternatives: " + " | ".join(lines) + "."
+            intro = f"{name} is currently out of stock; available alternatives:"
+        else:
+            intro = f"{name} is currently unavailable; available alternatives:"
+        return intro + "\n\n" + "\n".join(f"• {line}" for line in lines)
 
     def _price_reply(self, plan: Dict[str, Any], facts: Dict[str, Any]) -> str:
         price_block = facts.get("price") or {}
@@ -478,7 +464,7 @@ class RendererV7:
             return "There are no current offers configured at the moment."
         lead = f"For {product_name}, the current offer is" if product_name else (
             "Signup offers" if offer_data.get('offer_kind') == 'signup_discount' else "Current offers")
-        return f"{lead}: " + " | ".join(lines) + "."
+        return f"{lead}:\n\n" + "\n\n".join(f"• {line}." for line in lines)
 
     # ------------------------------------------------------------------ #
     # FAQ / STORE INFO                                                   #
@@ -599,6 +585,8 @@ class RendererV7:
             rewritten = re.sub(r"\bdon['’]t\b", "do not", rewritten, flags=re.IGNORECASE)
 
         if preserve_facts:
-            return rewritten
+            return readable_reply(rewritten)
+        if '\n' in rewritten:
+            return readable_reply(rewritten)
         sentences = [part.strip() for part in _SENTENCE_BREAK_RE.split(rewritten) if part.strip()]
         return " ".join(sentences[: self.max_sentences]).strip()

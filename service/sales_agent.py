@@ -113,7 +113,7 @@ class SalesAgentPolicy:
             and "?" not in text
             and not self._already_requests_next_action(text, agent["next_action"])
         ):
-            text = f"{text.rstrip()} {prompt}".strip()
+            text = f"{text.rstrip()}\n\n{prompt}".strip()
         result["reply"] = text
         return result
 
