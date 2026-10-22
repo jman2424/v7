@@ -8,6 +8,8 @@ The platform notice covers account administration, enquiries and demonstration c
 
 The cookie notice inventories the actual cookies and the chat/checkout session-storage keys. Both policies include direct controls to reopen the existing shared cookie panel. Analytics remains opt-in and restricted to the existing public marketing allowlist. Closing the panel grants no consent, and essential-only or withdrawal preserves account security while removing optional choices. The policy pages do not load Google Analytics.
 
+Business profiles also expose optional TikTok and Linktree fields using the existing validated social-link map. This lets account owners maintain those links alongside Instagram and Facebook without requiring an integration or adding a new credential.
+
 Referral invitations now prefill only from the validated current referral URL. The console no longer reads or writes the optional `v7-referral` session-storage value. Default-workspace redirects retain the URL parameter, and claiming a discount still requires an explicit action through the existing server workflow. Customers can enter a referral code in the claim form if they have navigated away from the invitation URL.
 
 ## Release checks

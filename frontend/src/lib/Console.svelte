@@ -2023,6 +2023,7 @@
             <label>{$t("Website")}<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Website widget → Test conversation. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
             <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
+            <div class="two-fields"><label>TikTok<input bind:value={profile.social.tiktok} type="url" placeholder="https://www.tiktok.com/@yourcompany" /></label><label>Linktree<input bind:value={profile.social.linktree} type="url" placeholder="https://linktr.ee/yourcompany" /></label></div>
             <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">{$t("Save profile")}</button></div>
           </form>
         </section>
