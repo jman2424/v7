@@ -421,6 +421,59 @@ def settle_usage(reservation,cost_nano_usd,metadata=None):
         _save(db,wallet)
 
 
+def unconfirmed_usage(tenant):
+    """Operator review projection; never includes prompts or customer identities."""
+    with _connection(tenant) as db:
+        rows = db.execute(
+            "SELECT ref,status,created_utc,amount_nano_gbp,metadata_json FROM usage_wallet_reservations "
+            "WHERE tenant=? AND (status IN('unknown','overrun') OR (status='pending' AND created_utc<?)) "
+            "ORDER BY created_utc,ref LIMIT 20", (tenant,_pending_cutoff())).fetchall()
+        return [{"reference":row["ref"], "status":"unknown" if row["status"]=='pending' else row["status"],
+                 "created_utc":row["created_utc"], "reserved_pence":row["amount_nano_gbp"]/NANO_PER_PENNY,
+                 "usage":_safe_metadata(json.loads(row["metadata_json"]))} for row in rows]
+
+
+def waive_unconfirmed_usage(tenant,reference,reason,actor):
+    """Explicitly waive a client charge, leaving the provider's cost unknown.
+
+    The platform accepts any eventual provider cost. This releases a reservation,
+    not purchased credit, and does not transfer or refund money.
+    """
+    reference = _text(reference)
+    reason = _text(reason,maximum=500).strip()
+    actor = _text(actor)
+    if not reason:
+        raise ValueError("usage_review_reason_required")
+    with _connection(tenant,write=True) as db:
+        wallet = _locked_wallet(db,tenant)
+        _expire_pending(db,wallet)
+        existing = db.execute("SELECT reason FROM usage_wallet_entries WHERE tenant=? AND idempotency_key=?",
+                              (tenant,"waive:"+reference)).fetchone()
+        if existing:
+            if existing["reason"]!=reason:
+                raise ValueError("usage_review_mismatch")
+            return {"duplicate":True}
+        row = db.execute("SELECT * FROM usage_wallet_reservations WHERE tenant=? AND ref=?",
+                         (tenant,reference)).fetchone()
+        if not row or row["status"]!='unknown' or row["cost_nano_usd"] is not None:
+            raise ValueError("usage_review_not_unconfirmed")
+        before = dict(wallet)
+        details = json.loads(row["metadata_json"])
+        details.update(client_charge_outcome="waived_platform_absorbs_provider_cost",provider_cost_status="unknown")
+        wallet["reserved_nano_gbp"] -= row["amount_nano_gbp"]
+        db.execute("UPDATE usage_wallet_reservations SET status='settled',charged_nano_gbp=0,metadata_json=? "
+                   "WHERE tenant=? AND ref=?",(json.dumps(details,sort_keys=True),tenant,reference))
+        outstanding = db.execute("SELECT 1 FROM usage_wallet_reservations WHERE tenant=? "
+                                 "AND status IN('unknown','overrun') LIMIT 1",(tenant,)).fetchone()
+        if not outstanding:
+            wallet["reconciliation_hold"] = 0
+        _refresh_pause(db,wallet)
+        _entry(db,before,wallet,"usage_waived",0,"waive:"+reference,reservation_ref=reference,
+               reason=reason,actor=actor,metadata=details)
+        _save(db,wallet)
+        return {"duplicate":False}
+
+
 def adjust(tenant,amount_pence,reason,actor,request_id):
     amount = _amount(amount_pence,signed=True)*NANO_PER_PENNY
     reason,actor,request_id = _text(reason,maximum=500),_text(actor,maximum=254),_text(request_id,maximum=100)

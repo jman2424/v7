@@ -23,10 +23,11 @@ function harness() {
     read(path,body,signal){const pending=deferred();requests.push({path,body,signal,pending});return pending.promise;}
   });
   vm.runInContext(`let tenant='FIRST',csrf='test-csrf',apiPrefix='',controller,companyController,companyBusy=false,disposed=false,busy=false,error='',message='',page=1,selectedPack='gbp_5',companies=[],companyPage=1,companyTotal=0,companyHasNext=false,companySearch='',isPlatform=true,canManageBilling=true,canTopUp=true,canViewCosts=true;
-    let pack={id:'gbp_5'},data={configured:true},adjustmentAmount='',adjustmentReason='',adjustmentConfirmed=false,adjustmentRequest='';
+    let pack={id:'gbp_5'},data={configured:true},adjustmentAmount='',adjustmentReason='',adjustmentConfirmed=false,adjustmentRequest='',reviewReference='',reviewReason='',reviewConfirmed=false;
     const checkoutRequests=new Map();
-    ${functions(['errorMessages','safeError','failureText','refresh','topUp','listCompanies','syncCheckoutRequests','checkoutId','adjust'])}
-    globalThis.subject={refresh,topUp,listCompanies,syncCheckoutRequests,checkoutId,errorMessages,
+    ${functions(['errorMessages','safeError','failureText','refresh','topUp','listCompanies','syncCheckoutRequests','checkoutId','adjust','waiveUnconfirmed'])}
+    globalThis.subject={refresh,topUp,listCompanies,syncCheckoutRequests,checkoutId,errorMessages,waiveUnconfirmed,
+      prepareReview(platform=true,confirmed=true){isPlatform=platform;reviewConfirmed=confirmed;reviewReference='reservation-one';reviewReason='Setup timeout';data={usage_reviews:[{reference:'reservation-one',status:'unknown'}]};},
       dispose(){disposed=true;controller?.abort();companyController?.abort();},
       setSearch(value){companySearch=value;},setPermission(value){canManageBilling=value;},
       state(){return {error,busy,data,companies,companyTotal};}};`,context);
@@ -91,4 +92,22 @@ test('credit checkout sends only server-owned pack id and idempotency id with CS
   await context.subject.read('/checkout',{pack_id:'gbp_5',request_id:'test-id'});
   assert.equal(requests[0].url,'/api/billing/usage-credit/checkout?tenant=MY%20COMPANY');assert.equal(requests[0].options.credentials,'same-origin');assert.equal(requests[0].options.headers['X-CSRF-Token'],'test-only-csrf');
   assert.deepEqual(JSON.parse(requests[0].options.body),{pack_id:'gbp_5',request_id:'test-id'});assert.doesNotMatch(requests[0].options.body,/amount|tenant|balance/);
+});
+
+
+test('usage waiver requires operator permission and explicit cost acceptance, and blocks duplicate clicks',async()=>{
+  const {subject,requests}=harness();
+  subject.prepareReview(false,true);await subject.waiveUnconfirmed();assert.equal(requests.length,0);
+  subject.prepareReview(true,false);await subject.waiveUnconfirmed();assert.equal(requests.length,0);
+  subject.prepareReview();const action=subject.waiveUnconfirmed();await subject.waiveUnconfirmed();assert.equal(requests.length,1);
+  assert.equal(requests[0].path,'/waive-unconfirmed');
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body)),{reference:'reservation-one',reason:'Setup timeout',platform_absorbs_provider_cost:true});
+  requests[0].pending.resolve({duplicate:false});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(requests[1].path,'?page=1');requests[1].pending.resolve(report());await action;
+});
+
+test('leaving the company discards late usage-review responses',async()=>{
+  const {subject,requests}=harness();subject.prepareReview();const action=subject.waiveUnconfirmed();subject.dispose();
+  assert.equal(requests[0].signal.aborted,true);requests[0].pending.resolve({duplicate:false});await action;
+  assert.equal(requests.length,1);
 });

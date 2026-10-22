@@ -35,7 +35,7 @@ def _page():
 
 @bp.get('')
 def credit_get():
-    tenant, _ = _tenant()
+    tenant, user = _tenant()
     page = _page()
     requests = usage_payments.checkout_requests(tenant)
     return jsonify(tenant=tenant, configured=usage_payments.payments_ready(), currency='GBP',
@@ -43,7 +43,8 @@ def credit_get():
                    wallet=usage_wallet.report(tenant, offset=(page-1)*20, limit=20), page=page,
                    policy={'mode':'prepaid', 'included_credit_pence':0, 'automatic_recharge':False},
                    internal=subscriptions.internal_business(tenant), checkout_requests=requests,
-                   pending_checkouts=[row for row in requests if row['status'] in {'preparing','pending'}])
+                   pending_checkouts=[row for row in requests if row['status'] in {'preparing','pending'}],
+                   usage_reviews=usage_wallet.unconfirmed_usage(tenant) if is_platform_admin(user) else [])
 
 
 @bp.post('/checkout')
@@ -90,3 +91,22 @@ def adjustment_post():
         from routes.admin_api_routes import _audit
         _audit('billing.usage_adjustment', tenant, after={'amount_pence':data['amount_pence'], 'reason':data['reason']})
     return jsonify(**result, wallet=usage_wallet.report(tenant))
+
+
+@bp.post('/waive-unconfirmed')
+def waive_unconfirmed_post():
+    management_user(platform_only=True)
+    tenant, user = _tenant(owner=True)
+    data = _body()
+    if data.get('platform_absorbs_provider_cost') is not True:
+        return jsonify(error='usage_review_confirmation_required'), 400
+    try:
+        result = usage_wallet.waive_unconfirmed_usage(tenant,data.get('reference'),data.get('reason'),user['email'])
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if not result['duplicate']:
+        from routes.admin_api_routes import _audit
+        _audit('billing.usage_charge_waived',tenant,after={
+            'reference':data['reference'],'reason':data['reason'],'provider_cost_status':'unknown',
+            'client_charge_outcome':'waived_platform_absorbs_provider_cost'})
+    return jsonify(**result,wallet=usage_wallet.report(tenant))

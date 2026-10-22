@@ -396,6 +396,28 @@ def test_permissions_tenant_scope_and_audited_adjustment_idempotency(client, pai
     assert client.get('/billing/usage-credit?page=-1').status_code == 400
 
 
+def test_unconfirmed_review_is_operator_only_tenant_scoped_and_explicit(client,paid_stripe):
+    identity(client,'platform_admin')
+    usage_wallet.adjust('EXAMPLE',500,'Test funding','operator','review-funding')
+    held = usage_wallet.reserve_usage('EXAMPLE',100_000)
+    usage_wallet.settle_usage(held,None)
+    body = {'reference':held.ref,'reason':'Setup timeout review','platform_absorbs_provider_cost':True}
+    assert client.get('/billing/usage-credit').json['usage_reviews'][0]['reference']==held.ref
+    identity(client,'business_owner')
+    assert client.get('/billing/usage-credit').json['usage_reviews']==[]
+    assert client.post('/billing/usage-credit/waive-unconfirmed',json=body).status_code==403
+    identity(client,'platform_admin')
+    assert client.post('/billing/usage-credit/waive-unconfirmed?tenant=OTHER',json=body).status_code in {400,404}
+    assert client.post('/billing/usage-credit/waive-unconfirmed',json={**body,'platform_absorbs_provider_cost':'true'}).status_code==400
+    assert client.post('/billing/usage-credit/waive-unconfirmed',json=body,headers={'X-CSRF-Token':'wrong'}).status_code==403
+    result = client.post('/billing/usage-credit/waive-unconfirmed',json=body)
+    assert result.status_code==200, result.json
+    assert result.json['duplicate'] is False and result.json['wallet']['available_pence']==500
+    assert not result.json['wallet']['paused']
+    assert client.post('/billing/usage-credit/waive-unconfirmed',json=body).json['duplicate'] is True
+    assert client.get('/billing/usage-credit').json['usage_reviews']==[]
+
+
 @pytest.mark.parametrize('body', [{'amount_pence':True,'reason':'Valid reason','request_id':'adjust_123'},
                                  {'amount_pence':1,'reason':'','request_id':'adjust_123'},
                                  {'amount_pence':1,'reason':'Valid reason','request_id':'../evil'}])

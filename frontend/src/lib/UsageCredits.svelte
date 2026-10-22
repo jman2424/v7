@@ -15,7 +15,8 @@
   type Transaction = {id:string;kind:string;created_utc:number|string;amount_pence:number;balance_delta_pence:number;reserved_delta_pence?:number;debt_delta_pence?:number;payment_ref?:string;invoice_id?:string;receipt_url?:string;usage?:ModelUsage|null};
   type Wallet = {balance_pence?:number;available_pence?:number;reserved_pence?:number;debt_pence?:number;spent_pence?:number;unknown_reservations?:number;reconciliation_hold?:boolean;paused:boolean;alerts:{code:string;message:string}[];markup_percent?:number|string|null;exchange_rate?:{rate:number|string;date:string;stale?:boolean}|null;transactions?:Transaction[];total?:number;offset?:number;limit?:number;has_next?:boolean};
   type PendingCheckout = {reference:string;request_id:string;pack_id:string;status:string;expires_at?:number;credit_pence:number;total_pence:number};
-  type UsageReport = {tenant:string;internal?:boolean;configured:boolean;packs:Pack[];vat_percent:number;currency:string;wallet:Wallet;pending_checkouts?:PendingCheckout[];checkout_requests?:PendingCheckout[];policy:{mode:string;included_credit_pence:number;automatic_recharge:boolean}};
+  type UsageReview = {reference:string;status:string;created_utc:string;reserved_pence:number;usage:ModelUsage};
+  type UsageReport = {usage_reviews?:UsageReview[];tenant:string;internal?:boolean;configured:boolean;packs:Pack[];vat_percent:number;currency:string;wallet:Wallet;pending_checkouts?:PendingCheckout[];checkout_requests?:PendingCheckout[];policy:{mode:string;included_credit_pence:number;automatic_recharge:boolean}};
   type Company = {key:string;name:string;wallet:Wallet;internal?:boolean};
   const dispatch=createEventDispatcher<{creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data: UsageReport|null = null;
@@ -38,6 +39,9 @@
   let adjustmentReason = '';
   let adjustmentConfirmed = false;
   let adjustmentRequest = '';
+  let reviewReference = '';
+  let reviewReason = '';
+  let reviewConfirmed = false;
   $: locale = subscriptionLocales[$language];
   $: money = (value:number|undefined) => value==null ? $t('Not available') : new Intl.NumberFormat(locale,{style:'currency',currency:'GBP',minimumFractionDigits:2,maximumFractionDigits:9}).format(value/100);
   $: count = (value:number|undefined) => value==null ? $t('Not recorded') : new Intl.NumberFormat(locale).format(value);
@@ -48,7 +52,7 @@
   $: pack = data?.packs.find(row=>row.id===selectedPack);
   $: transactions = data?.wallet.transactions||[];
   $: alerts = subscriptionCreditAlerts(data?.internal?[]:data?.wallet.alerts||[]);
-  $: kind = (value:string) => $t(({topup:'Credit purchase',credit:'Credit purchase',usage:'AI usage charge',usage_unknown:'Unconfirmed usage',usage_overrun:'Usage adjustment',debit:'AI usage charge',refund:'Refund',refund_restored:'Refund reversed',adjustment:'Administrator adjustment',reversal:'Charge reversal',reservation:'Reservation',reserve:'Reservation',release:'Reservation released'} as Record<string,string>)[value]||'Credit adjustment');
+  $: kind = (value:string) => $t(({topup:'Credit purchase',credit:'Credit purchase',usage:'AI usage charge',usage_unknown:'Unconfirmed usage',usage_waived:'Client charge waived',usage_overrun:'Usage adjustment',debit:'AI usage charge',refund:'Refund',refund_restored:'Refund reversed',adjustment:'Administrator adjustment',reversal:'Charge reversal',reservation:'Reservation',reserve:'Reservation',release:'Reservation released'} as Record<string,string>)[value]||'Credit adjustment');
   $: alertText = (code:string) => $t(code==='low_credit'?'Your available AI credit is low. Top up to keep paid AI responses available.':code==='financial_review_required'||code==='reconciliation_hold'||code==='unknown_cost'?'Paid AI is paused pending a credit or usage review. Contact your platform administrator. Saved business knowledge remains available.':code==='pricing_unavailable'?'Paid AI is paused because model pricing or the exchange rate cannot be verified safely. Contact your platform administrator.':code==='debt'||code==='negative_balance'?'A balance adjustment must be covered before paid AI resumes.':'Paid AI is paused until sufficient usage credit is available. Saved business knowledge remains available.');
 
   function errorMessages():Record<string,string> {
@@ -69,6 +73,10 @@
       usage_request_mismatch:'This purchase request does not match its saved credit pack. Refresh usage credit before continuing.',
       adjustment_request_mismatch:'This adjustment request does not match its saved amount or reason. Refresh the ledger before continuing.',
       usage_checkout_requires_review:'This credit checkout needs review by your platform administrator before you retry.',
+      usage_review_reason_required:'Enter a reason for this usage review.',
+      usage_review_confirmation_required:'Confirm that the platform accepts any eventual provider cost.',
+      usage_review_not_unconfirmed:'This request is no longer eligible. Refresh usage credit before continuing.',
+      usage_review_mismatch:'This request was already reviewed with a different reason. Refresh the ledger.',
       forbidden:'You do not have permission for this billing action.'};
   }
   function safeError(code:string) {
@@ -168,6 +176,19 @@
     } catch(failure) {if(!disposed&&controller===request)error=request.signal.aborted?'The credit adjustment could not be confirmed. Refresh the ledger before trying again.':failureText(failure);}
     finally {clearTimeout(timeout);if(!disposed&&controller===request){controller=undefined;busy=false;}}
   }
+  async function waiveUnconfirmed() {
+    if(busy||disposed||!isPlatform||!reviewConfirmed||!reviewReason.trim()||!data?.usage_reviews?.some(row=>row.reference===reviewReference&&row.status==='unknown'))return;
+    const request=new AbortController();controller=request;busy=true;error='';message='';
+    const timeout=setTimeout(()=>request.abort(),25000);
+    try {
+      await read('/waive-unconfirmed',{reference:reviewReference,reason:reviewReason.trim(),platform_absorbs_provider_cost:true},request.signal);
+      if(disposed||controller!==request||request.signal.aborted)return;
+      reviewReference='';reviewReason='';reviewConfirmed=false;
+      message='Client charge waived and reservation released. Provider cost remains unknown; the platform accepts any eventual provider charge.';
+      await refresh();
+    } catch(failure) {if(!disposed&&controller===request)error=request.signal.aborted?'The usage review could not be confirmed. Refresh the ledger before trying again.':failureText(failure);}
+    finally {clearTimeout(timeout);if(!disposed&&controller===request){controller=undefined;busy=false;}}
+  }
   onMount(()=>{if(canViewCosts)void refresh();if(isPlatform)void listCompanies();});
   onDestroy(()=>{disposed=true;controller?.abort();companyController?.abort();});
 </script>
@@ -194,11 +215,22 @@
       <details><summary>{$t('How AI charges are calculated')}</summary><p>{$t('AI usage charges use the model’s input, cached-input and output rates, recorded usage, the exchange rate and the configured markup. Tokens measure activity; the GBP credit ledger records what was charged.')}</p><p>{$t('Current markup: {percent}%.',{percent:markup(data.wallet.markup_percent)})}</p>{#if data.wallet.exchange_rate}<p>{$t('USD-to-GBP exchange rate: {rate}, dated {date}.',{rate:new Intl.NumberFormat(locale,{maximumFractionDigits:6}).format(Number(data.wallet.exchange_rate.rate)),date:fxDate(data.wallet.exchange_rate.date)})}</p>{#if data.wallet.exchange_rate.stale}<p class="notice">{$t('The exchange rate needs updating. Paid AI will not assume missing pricing is free.')}</p>{/if}{:else}<p>{$t('An exchange rate is not yet available. Paid AI will not assume missing pricing is free.')}</p>{/if}<p>{$t('Phone-number rental and Meta/provider messaging charges are separate from this AI credit balance.')}</p></details>
       <h3>{$t('Usage and credit history')}</h3><p>{$t('Each confirmed charge records its model and pricing version. Input tokens include cached input; cached tokens are shown separately, not added a second time.')}</p>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
-      <div class="scroll" role="region" aria-label={$t('Usage and credit history')} tabindex="0"><table><thead><tr><th>{$t('Date (UTC)')}</th><th>{$t('Entry')}</th><th>{$t('Entry amount')}</th><th>{$t('GBP credit change')}</th><th>{$t('AI usage details')}</th><th>{$t('Receipt')}</th></tr></thead><tbody>{#each transactions as entry}<tr><td>{timestamp(entry.created_utc)}</td><td>{kind(entry.kind)}</td><td><bdi>{money(entry.amount_pence)}</bdi></td><td><bdi>{money(entry.balance_delta_pence)}</bdi>{#if entry.reserved_delta_pence}<small>{$t('{price} reservation change',{price:money(entry.reserved_delta_pence)})}</small>{/if}{#if entry.debt_delta_pence}<small>{$t('{price} debt change',{price:money(entry.debt_delta_pence)})}</small>{/if}</td><td>{#if entry.usage}<bdi>{entry.usage.model||$t('Not recorded')}</bdi><small>{$t('Input: {input} · cached: {cached} · output: {output}',{input:count(entry.usage.input_tokens),cached:count(entry.usage.cached_tokens),output:count(entry.usage.output_tokens)})}</small><small>{$t('Pricing version: {version}',{version:entry.usage.price_version||$t('Not recorded')})}</small><details><summary>{$t('Charge calculation')}</summary><p>{$t('Provider cost: {cost} USD.',{cost:rate(entry.usage.provider_cost_usd)})}</p><p>{$t('Recorded exchange rate: {rate} USD-to-GBP · markup: {percent}%.',{rate:rate(entry.usage.fx_rate),percent:markup(entry.usage.markup_percent)})}</p>{#if entry.usage.fx_date}<p>{$t('Exchange-rate date: {date}.',{date:fxDate(entry.usage.fx_date)})}</p>{/if}{#if entry.usage.rate_snapshot||entry.usage.model_rate}{@const rates=entry.usage.rate_snapshot||entry.usage.model_rate}<p>{$t('Model rates per million tokens (USD): input {input} · cached {cached} · output {output}.',{input:rate(rates?.input==null?undefined:rates.input/1000),cached:rate(rates?.cached==null?undefined:rates.cached/1000),output:rate(rates?.output==null?undefined:rates.output/1000)})}</p>{#if rates?.audio_second!=null}<p>{$t('Audio: {seconds} seconds · provider rate {rate} USD per second.',{seconds:rate(entry.usage.audio_seconds),rate:rate(rates.audio_second/1e9)})}</p>{/if}{/if}</details>{:else}{$t('Not applicable')}{/if}</td><td>{#if entry.receipt_url}<a href={entry.receipt_url} target="_blank" rel="noopener noreferrer">{$t('View receipt')}</a>{:else}{$t('Not available')}{/if}</td></tr>{:else}<tr><td colspan="6">{$t('No usage-credit entries recorded yet.')}</td></tr>{/each}</tbody></table></div>
+      <div class="scroll" role="region" aria-label={$t('Usage and credit history')} tabindex="0"><table><thead><tr><th>{$t('Date (UTC)')}</th><th>{$t('Entry')}</th><th>{$t('Entry amount')}</th><th>{$t('GBP credit change')}</th><th>{$t('AI usage details')}</th><th>{$t('Receipt')}</th></tr></thead><tbody>{#each transactions as entry}<tr><td>{timestamp(entry.created_utc)}</td><td>{kind(entry.kind)}</td><td><bdi>{money(entry.amount_pence)}</bdi></td><td><bdi>{money(entry.balance_delta_pence)}</bdi>{#if entry.reserved_delta_pence}<small>{$t('{price} reservation change',{price:money(entry.reserved_delta_pence)})}</small>{/if}{#if entry.debt_delta_pence}<small>{$t('{price} debt change',{price:money(entry.debt_delta_pence)})}</small>{/if}</td><td>{#if entry.kind==='usage_waived'}<p>{$t('Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.')}</p>{/if}{#if entry.usage}<bdi>{entry.usage.model||$t('Not recorded')}</bdi><small>{$t('Input: {input} · cached: {cached} · output: {output}',{input:count(entry.usage.input_tokens),cached:count(entry.usage.cached_tokens),output:count(entry.usage.output_tokens)})}</small><small>{$t('Pricing version: {version}',{version:entry.usage.price_version||$t('Not recorded')})}</small><details><summary>{$t('Charge calculation')}</summary><p>{$t('Provider cost: {cost} USD.',{cost:rate(entry.usage.provider_cost_usd)})}</p><p>{$t('Recorded exchange rate: {rate} USD-to-GBP · markup: {percent}%.',{rate:rate(entry.usage.fx_rate),percent:markup(entry.usage.markup_percent)})}</p>{#if entry.usage.fx_date}<p>{$t('Exchange-rate date: {date}.',{date:fxDate(entry.usage.fx_date)})}</p>{/if}{#if entry.usage.rate_snapshot||entry.usage.model_rate}{@const rates=entry.usage.rate_snapshot||entry.usage.model_rate}<p>{$t('Model rates per million tokens (USD): input {input} · cached {cached} · output {output}.',{input:rate(rates?.input==null?undefined:rates.input/1000),cached:rate(rates?.cached==null?undefined:rates.cached/1000),output:rate(rates?.output==null?undefined:rates.output/1000)})}</p>{#if rates?.audio_second!=null}<p>{$t('Audio: {seconds} seconds · provider rate {rate} USD per second.',{seconds:rate(entry.usage.audio_seconds),rate:rate(rates.audio_second/1e9)})}</p>{/if}{/if}</details>{:else}{$t('Not applicable')}{/if}</td><td>{#if entry.receipt_url}<a href={entry.receipt_url} target="_blank" rel="noopener noreferrer">{$t('View receipt')}</a>{:else}{$t('Not available')}{/if}</td></tr>{:else}<tr><td colspan="6">{$t('No usage-credit entries recorded yet.')}</td></tr>{/each}</tbody></table></div>
       <div class="controls"><button disabled={page===1||busy} on:click={()=>{page--;refresh();}}>{$t('Previous')}</button><span>{$t('Page {page}',{page:count(page)})}</span><button disabled={!data.wallet.has_next||busy} on:click={()=>{page++;refresh();}}>{$t('Next')}</button></div>
     {:else}<p>{$t('Your account can see AI availability. Detailed usage credit and costs require cost-view permission.')}</p>{/if}
   {/if}
   {#if isPlatform}
+    {#if data?.usage_reviews?.length}
+      <details class="admin" open><summary>{$t('Review unconfirmed AI usage')}</summary>
+        <p>{$t('A timeout can leave provider usage unknown. You may waive the client charge and release its reservation. The platform then accepts any eventual provider charge; the provider cost stays unknown. This does not buy, refund or transfer money. Other billing holds remain in force.')}</p>
+        <form class="controls" on:submit|preventDefault={waiveUnconfirmed}>
+          <label>{$t('Unconfirmed request')}<select bind:value={reviewReference} on:change={()=>{reviewConfirmed=false;}} required><option value="">{$t('Choose a request')}</option>{#each data.usage_reviews as review}<option value={review.reference} disabled={review.status!=='unknown'}>{timestamp(review.created_utc)} · {review.usage.model||$t('Not recorded')} · {review.usage.channel||$t('Not recorded')} · {money(review.reserved_pence)} · {review.status}</option>{/each}</select></label>
+          <label>{$t('Usage review reason')}<input bind:value={reviewReason} maxlength="500" required on:input={()=>{reviewConfirmed=false;}}/></label>
+          <label class="confirmation"><input type="checkbox" bind:checked={reviewConfirmed}/>{$t('I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.',{company:tenant})}</label>
+          <button disabled={busy||!reviewReference||!reviewReason.trim()||!reviewConfirmed}>{$t('Waive client charge and release reservation')}</button>
+        </form>
+      </details>
+    {/if}
     <details class="admin"><summary>{$t('All-company usage credit')}</summary><form class="controls" on:submit|preventDefault={()=>{companyPage=1;listCompanies();}}><label>{$t('Find a company')}<input bind:value={companySearch} placeholder={$t('Company name or key')}/></label><button disabled={companyBusy}>{$t('Search')}</button></form>
       {#if companyBusy}<p role="status">{$t('Loading companies…')}</p>{/if}
       <p>{$t('{count} companies',{count:count(companyTotal)})}</p>

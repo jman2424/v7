@@ -37,6 +37,67 @@ def test_credit_payment_is_idempotent_and_vat_is_not_credit(ledger):
     assert wallet.report("BETA")["balance_pence"]==0
 
 
+def test_operator_waiver_releases_only_reservation_and_keeps_provider_cost_unknown(ledger):
+    credit()
+    held = wallet.reserve_usage("ALPHA",100_000_000,{"model":"gpt-4o-mini","channel":"web","prompt":"private"})
+    wallet.settle_usage(held,None)
+    assert wallet.report("ALPHA")["paused"]
+    reviews = wallet.unconfirmed_usage("ALPHA")
+    assert reviews[0]["reference"]==held.ref and "private" not in str(reviews)
+    assert wallet.unconfirmed_usage("BETA")==[]
+    reason = "Setup request timed out; platform accepts provider cost"
+    assert not wallet.waive_unconfirmed_usage("ALPHA",held.ref,reason,"operator")["duplicate"]
+    assert wallet.waive_unconfirmed_usage("ALPHA",held.ref,reason,"operator")["duplicate"]
+    result = wallet.report("ALPHA")
+    assert result["balance_pence"]==result["available_pence"]==100
+    assert result["reserved_pence"]==result["spent_pence"]==0
+    assert not result["paused"] and not result["reconciliation_hold"]
+    entry = next(row for row in result["transactions"] if row["kind"]=='usage_waived')
+    assert entry["balance_delta_pence"]==0 and entry["reserved_delta_pence"]==-10
+    assert entry["reason"]==reason and entry["usage"]["provider_cost_status"]=='unknown'
+    with wallet._connection("ALPHA") as db:
+        row = db.execute("SELECT * FROM usage_wallet_reservations WHERE ref=?",(held.ref,)).fetchone()
+        assert row["cost_nano_usd"] is None and row["charged_nano_gbp"]==0
+        assert db.execute("SELECT actor FROM usage_wallet_entries WHERE kind='usage_waived'").fetchone()["actor"]=='operator'
+    # Late settlement and duplicate delivery cannot charge a waived client request.
+    wallet.settle_usage(held,10_000_000)
+    assert wallet.report("ALPHA")["balance_pence"]==100
+    with pytest.raises(ValueError,match='usage_review_mismatch'):
+        wallet.waive_unconfirmed_usage("ALPHA",held.ref,"Different reason","operator")
+
+
+@pytest.mark.parametrize("remaining",["unknown","overrun","dispute","debt"])
+def test_waiver_preserves_other_financial_holds(ledger,remaining):
+    credit(pence=200)
+    held = wallet.reserve_usage("ALPHA",100_000_000)
+    other = wallet.reserve_usage("ALPHA",100_000_000)
+    wallet.settle_usage(held,None)
+    wallet.settle_usage(other,None if remaining=='unknown' else 200_000_000 if remaining=='overrun' else 0)
+    if remaining=='dispute':
+        wallet.reconcile_payment("ALPHA","pi_synthetic",0,True,"dispute-event")
+    elif remaining=='debt':
+        with wallet._connection("ALPHA",write=True) as db:
+            db.execute("UPDATE usage_wallets SET debt_nano_gbp=1 WHERE tenant='ALPHA'")
+    wallet.waive_unconfirmed_usage("ALPHA",held.ref,"Setup timeout","operator")
+    assert wallet.report("ALPHA")["paused"]
+    with pytest.raises(wallet.UsagePaused):
+        wallet.reserve_usage("ALPHA",1)
+
+
+def test_waiver_rejects_foreign_active_known_and_invalid_requests(ledger):
+    credit()
+    held = wallet.reserve_usage("ALPHA",100_000_000)
+    for tenant in ("ALPHA","BETA"):
+        with pytest.raises(ValueError,match='usage_review_not_unconfirmed'):
+            wallet.waive_unconfirmed_usage(tenant,held.ref,"Review","operator")
+    wallet.settle_usage(held,200_000_000)
+    with pytest.raises(ValueError,match='usage_review_not_unconfirmed'):
+        wallet.waive_unconfirmed_usage("ALPHA",held.ref,"Known overrun","operator")
+    with pytest.raises(ValueError):
+        wallet.waive_unconfirmed_usage("ALPHA",held.ref,"   ","operator")
+    assert wallet.report("ALPHA")["reserved_pence"]==10
+
+
 def test_parallel_credit_and_payment_identity_cannot_duplicate(ledger):
     with ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda _:credit(),range(16)))
