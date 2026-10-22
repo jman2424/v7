@@ -84,7 +84,8 @@ def privacy_page():
         if not container.storage.tenant_exists(tenant):
             abort(404)
     policy = privacy_settings.status(container.storage, tenant)
-    response = current_app.make_response(render_template("privacy.html", policy=policy, tenant=tenant,
+    template = "platform_privacy.html" if tenant is None and not policy["draft"] else "privacy.html"
+    response = current_app.make_response(render_template(template, policy=policy, tenant=tenant,
         processors=privacy_settings.processors(container, tenant),
         mailto_url="mailto:" + quote(policy["settings"]["contact_email"], safe="@")))
     response.headers["Cache-Control"] = "no-store"

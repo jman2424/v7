@@ -3,7 +3,8 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy information | Vertex Seven</title>
   {% include 'platform_favicons.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261019svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261022') }}">
+  <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -49,5 +50,6 @@
     <section><h2>Cookies and review</h2><p><a href="/cookies">Read the cookie information</a> for sign-in, opt-in trusted-device, language and optional public website analytics choices. The controller should review this notice when the service or processing changes. Business-supplied details do not certify compliance.</p>
       <p class="source">Reference: <a href="https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/the-right-to-be-informed/what-privacy-information-should-we-provide/" rel="noopener noreferrer">ICO guidance on privacy information</a>.</p>
     </section>
-  </main><footer class="policy-footer"><a href="/">Vertex Seven</a><a href="/cookies">Cookie information</a></footer>
+  </main><footer class="policy-footer"><a href="/">Vertex Seven</a><a href="/cookies">Cookie information</a><button type="button" data-open-cookie-preferences>Cookie preferences</button></footer>
+  {% include 'public_cookie_preferences.html' %}
 </body></html>

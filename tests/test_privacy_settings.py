@@ -58,6 +58,46 @@ def test_empty_details_are_a_draft_without_invented_legal_values(privacy_app):
     assert "privacy@example.test" not in response.text
 
 
+def test_completed_platform_policy_is_separate_from_tenant_notices(privacy_app, monkeypatch):
+    monkeypatch.setenv("V7_PRIVACY_CONTROLLER", "Synthetic Sole Trader trading as Platform")
+    monkeypatch.setenv("V7_PRIVACY_CONTACT_EMAIL", "data@example.test")
+    monkeypatch.setenv("V7_PRIVACY_LAWFUL_BASIS", "Contract for accounts; legitimate interests for security; consent for optional analytics.")
+    monkeypatch.setenv("V7_PRIVACY_RETENTION_CRITERIA", "Keep account records while needed for the requested service and outstanding legal obligations.")
+    client = privacy_app.test_client()
+    page = client.get("/privacy")
+    assert page.status_code == 200
+    assert "Privacy policy | Vertex Seven" in page.text
+    assert "Synthetic Sole Trader trading as Platform" in page.text
+    assert 'href="mailto:data@example.test"' in page.text
+    for section in ("International transfers", "AI, memory and voice", "Your rights", "How long information is kept"):
+        assert section.casefold() in page.text.casefold()
+    assert "normally respond within one month" in page.text
+    assert "not the same as deletion" in page.text
+    assert "data-open-cookie-preferences" in page.text
+    assert 'id="site-cookie-banner"' in page.text
+    assert "Draft" not in page.text and "Not provided" not in page.text
+    assert "v7-public-analytics-config" not in page.text
+    assert "googletagmanager.com" not in page.headers["Content-Security-Policy"]
+    tenant = client.get("/privacy?tenant=ALPHA").text
+    assert "Synthetic Sole Trader" not in tenant and "data@example.test" not in tenant
+    assert "Draft" in tenant
+
+
+def test_cookie_policy_lists_session_storage_and_has_direct_preference_controls(privacy_app):
+    response = privacy_app.test_client().get("/cookies")
+    assert response.status_code == 200
+    for key in ("conversation:", "v7-usage-checkout:", "v7_analytics_consent"):
+        assert key in response.text
+    assert "v7-referral" not in response.text
+    assert "up to 24 hours" in response.text
+    assert "does not delete server records" in response.text
+    assert 'id="site-cookie-banner"' in response.text
+    assert 'src="/static/js/ui-i18n.js"' in response.text
+    assert "data-open-cookie-preferences" in response.text
+    assert 'data-consent-analytics checked' not in response.text
+    assert "v7-public-analytics-config" not in response.text
+
+
 def test_platform_environment_details_do_not_replace_tenant_controller(privacy_app, monkeypatch):
     monkeypatch.setenv("V7_PRIVACY_CONTROLLER", "Platform-only Controller")
     monkeypatch.setenv("V7_PRIVACY_CONTACT_EMAIL", "platform@example.test")

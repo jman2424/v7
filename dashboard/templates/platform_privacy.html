@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy | Vertex Seven</title>
+  <meta name="description" content="How Vertex Seven uses account, enquiry, conversation and billing information, and how to exercise your privacy rights.">
+  {% include 'platform_favicons.html' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261022') }}">
+  <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="/console/">Workspace</a></nav></header>
+  <main id="main" class="policy">
+    <p class="eyebrow">YOUR INFORMATION</p><h1>Privacy policy</h1>
+    <p class="source">Last updated: 22 October 2026</p>
+    <p class="intro">This policy explains how Vertex Seven handles personal information on vertex-seven.com and when providing the V7 Agents platform.</p>
+    <section id="controller"><h2>Who is responsible</h2>
+      <p><strong>{{ policy.settings.controller_name }}</strong> is the controller for the Vertex Seven website, our own enquiries and demonstration chat, business-account administration, billing and platform security.</p>
+      <p>For privacy and data protection requests, email <a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>. Please identify the account or business concerned and describe your request. Do not email passwords, full card numbers or authentication codes.</p>
+      <p>When a business uses V7 to serve its own customers, that business normally decides why its customer information is collected and is the controller for those conversations. Vertex Seven processes that information to provide the service under the business's instructions. For a conversation with another business's agent, contact that business first; we can help route a request to it. Its privacy notice applies alongside this explanation of the platform.</p>
+    </section>
+    <section id="information"><h2>What information we use</h2><ul>
+      <li><strong>Accounts and security:</strong> names, email addresses, account identifiers, roles, business details, sign-in and MFA records, linked-account identifiers and security events. Passwords are stored as hashes, not readable passwords.</li>
+      <li><strong>Enquiries and conversations:</strong> messages, assistant replies, information you choose to share, contact and callback details, booking or quote requests, selected offerings and recorded clicks on suggested links. Please avoid sending sensitive personal information that is not needed for your enquiry.</li>
+      <li><strong>Business configuration:</strong> the products, services, policies, website content, contact paths and other information an authorised business user supplies or imports.</li>
+      <li><strong>Payments and usage:</strong> plan and subscription information, billing contact information, payment and invoice references, transaction status, credit balances, and model/token usage and costs. Stripe handles payment details on its payment pages; V7 does not need your full card number.</li>
+      <li><strong>Technical records:</strong> IP addresses, request identifiers, timestamps, browser information, errors and access/audit records used to run and protect the service.</li>
+      <li><strong>Optional analytics:</strong> public marketing-page views and related device/session information when you opt in. Cookie choices and browser storage are explained in the <a href="/cookies">cookie policy</a>.</li>
+    </ul><p>We receive information from you, authorised users of your business account, customer conversations, public business webpages you ask us to import, and payment, messaging or sign-in providers used for your requested service.</p></section>
+    <section id="purposes"><h2>Why we use information and our lawful bases</h2>
+      <p class="owner-text">{{ policy.settings.lawful_basis }}</p>
+      <p>Our legitimate interests include answering business enquiries, maintaining a reliable service, preventing fraud and abuse, investigating faults and protecting accounts. We consider the impact on individuals when relying on those interests. You may object to this processing. Consent for optional analytics or language storage can be withdrawn through <button type="button" data-open-cookie-preferences>Cookie preferences</button> without preventing essential account access.</p>
+      <p>Account and billing information is necessary to provide a requested account, subscription or payment service. If it is not supplied, we may be unable to provide that service. Optional analytics, saved language preferences and voice features are not required to use text chat.</p>
+      <p>Creating an account or contacting us is not consent to unrelated marketing. We do not sell personal information or use advertising cookies on this website.</p>
+    </section>
+    <section id="ai"><h2>AI, memory and voice</h2>
+      <p>When enabled and funded, AI providers receive the message and the relevant conversation context and business information needed to answer it. A business can configure conversation-memory limits; a context window is not the same as deletion of the stored conversation or activity records.</p>
+      <p>AI replies can be wrong. V7 is intended to assist with business enquiries, and you can ask for human assistance. We do not use the assistant to make solely automated decisions with legal or similarly significant effects about you. A suggestion or navigation button is not confirmation that a booking, purchase, refund or account change succeeded.</p>
+      <p>Browser dictation and read-aloud features may use your browser or device's speech service and its provider. If server transcription is used, V7 handles the audio in memory and sends it to the enabled transcription provider; the resulting text can be stored as part of the conversation. V7 does not create an audio archive in that transcription flow. A WhatsApp or other messaging provider may retain the original message under its own policy. Microphone access requires your browser permission.</p>
+    </section>
+    <section id="providers"><h2>Who receives information</h2>
+      <p>Authorised users of the relevant business account can access its customer and activity records according to their permissions. We use service providers for hosting, storage, email, payments and enabled AI or messaging features. The following are identified from this deployment's configuration:</p>
+      <ul>{% for processor in processors %}<li><strong>{{ processor.name }}:</strong> {{ processor.purpose }}</li>{% endfor %}</ul>
+      <p>Information may also be disclosed where legally required, to protect people or the service, or to advisers handling a relevant legal or business matter. Access is limited to what is needed for the relevant purpose.</p>
+      <p>Provider information: <a href="https://render.com/privacy" rel="noopener noreferrer">Render</a>, <a href="https://supabase.com/privacy" rel="noopener noreferrer">Supabase</a>, <a href="https://openai.com/policies/privacy-policy/" rel="noopener noreferrer">OpenAI</a>, <a href="https://resend.com/legal/privacy-policy" rel="noopener noreferrer">Resend</a> and <a href="https://stripe.com/privacy" rel="noopener noreferrer">Stripe</a>. A provider's own notice also applies when you choose to use its separate checkout, sign-in, social or messaging service.</p>
+    </section>
+    <section id="transfers"><h2>Processing locations and international transfers</h2>
+      <p>Our providers operate internationally, so information may be processed outside the UK, including in Europe and the United States. A hosting region does not by itself determine every location used for support or service processing. Restricted transfers require an applicable adequacy decision or appropriate contractual safeguards. Contact the privacy address above for the processing locations and transfer safeguards applicable to your service, or to request information about the relevant safeguards.</p>
+    </section>
+    {% if processors|selectattr('name', 'equalto', 'Google Analytics')|list %}
+    <section id="analytics"><h2>Optional Google Analytics</h2>
+      <p>Google Analytics loads only after explicit analytics opt-in, on the public homepage and solution pages. It does not run on account, sign-in or customer-chat pages. V7's page-view configuration excludes query strings, URL fragments, referrers, form contents, account details and chat content. Google receives technical information needed to handle permitted measurement requests. Advertising storage, advertising personalisation and Google Signals are disabled.</p>
+      <p>Changing your choice stops future measurement and removes this site's Analytics cookies; it does not erase information already received by Google. See <a href="https://policies.google.com/privacy" rel="noopener noreferrer">Google's privacy policy</a> and <a href="https://support.google.com/analytics/answer/7667196" rel="noopener noreferrer">data-retention information</a>. Browser-cookie expiry and Google's retention of received data are separate.</p>
+    </section>
+    {% endif %}
+    <section id="retention"><h2>How long information is kept</h2>
+      {% if policy.settings.retention_days is not none %}<p>Configured platform retention period: {{ policy.settings.retention_days }} days, subject to the record-specific criteria below.</p>{% endif %}
+      <p class="owner-text">{{ policy.settings.retention_criteria }}</p>
+      <p>Customer records processed for another business follow that business's instructions and applicable legal requirements. Clearing model memory, ending a chat or withdrawing cookie consent does not automatically erase server-side conversation, billing, security or backup records. Ask the relevant controller to review a deletion request. Where information must be retained for a legal obligation or dispute, we explain the applicable exception.</p>
+    </section>
+    <section id="rights"><h2>Your rights and how to make a request</h2>
+      <p>Depending on the circumstances, you can ask for access, correction, erasure, restriction or a portable copy of your personal information. You can object to processing based on legitimate interests and withdraw consent for processing that relies on consent. Withdrawal does not affect processing that was lawful before withdrawal.</p>
+      <p>Email the privacy contact above. We may request proportionate information to verify your identity and locate the correct records. We normally respond within one month; if an extension or exception applies, we explain it. Signed-in users can <a href="/auth/privacy/export">download their account identity and preference metadata</a>; this limited download is not a complete export of customer or business records.</p>
+      <p>You can complain to the <a href="https://ico.org.uk/make-a-complaint/" rel="noopener noreferrer">Information Commissioner's Office</a>. You do not have to contact us first, although we welcome the chance to address your concern.</p>
+    </section>
+    <section id="security"><h2>Security and appropriate use</h2><p>V7 uses access controls, tenant separation, MFA, protected account sessions and audit records. No online service can guarantee absolute security. Keep your sign-in details private and report suspected account access to support. The platform is intended for business users and their customer enquiries; do not use it to submit children's information or sensitive records unnecessarily.</p></section>
+    <section id="changes"><h2>Changes and contact</h2><p>We update this policy when our processing changes and show the revision date above. For questions or requests, contact <a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>. You can manage browser choices at any time through <button type="button" data-open-cookie-preferences>Cookie preferences</button>.</p></section>
+  </main><footer class="policy-footer"><a href="/">Vertex Seven</a><a href="/cookies">Cookie policy</a><button type="button" data-open-cookie-preferences>Cookie preferences</button></footer>
+  {% include 'public_cookie_preferences.html' %}
+</body></html>

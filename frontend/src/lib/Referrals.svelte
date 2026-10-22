@@ -1,6 +1,7 @@
 <script lang="ts">
   import {onMount,createEventDispatcher} from 'svelte';
   import {t} from './i18n';
+  import {referralCodeFromSearch} from './referral-link';
   export let tenant:string;
   export let csrf:string;
   export let apiPrefix='';
@@ -28,7 +29,7 @@
     finally{busy=false;}
   }
   onMount(async()=>{
-    try{code=sessionStorage.getItem('v7-referral')||'';}catch{/* Optional convenience only. */}
+    code=referralCodeFromSearch(window.location.search);
     try{data=await read();}catch(err){error=err instanceof Error?err.message:'Could not update referrals. Please refresh and try again.';}
   });
 </script>
