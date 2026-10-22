@@ -213,3 +213,23 @@ def test_customer_details_survive_a_large_assistant_reply_and_filter_private_dat
     context = agent_context_rows({'customer_statements': session['conversation_customer_statements']}, {})
     assert context['customer_statements'] == ['if i have a bmw x3 whats the costs']
     assert handler.memory.get('different-session', 'conversation_customer_statements') is None
+
+
+def test_car_size_followup_is_not_overwritten_by_a_quote_related_faq(monkeypatch):
+    text = 'Your BMW X3 would use the Large band because it is an SUV; this is an estimate for an unlisted model.'
+    answer, _, _, _ = _structured_answer(monkeypatch, {
+        'answer': text, 'kind': 'answer', 'sources': ['faq:consultation'],
+        'statement_ids': ['faq:consultation:answer']}, question='so were would you put my car',
+        knowledge={'faq:consultation': {'question': 'How do you use my car size during a consultation and quote?',
+            'answer': 'Use the model and size band for a starting price. Final quotes require inspection. SUVs use Large.'}})
+    assert answer == text
+
+
+def test_descriptive_question_cannot_bypass_payment_process_protection(monkeypatch):
+    policy = 'The team reviews the vehicle before confirming the quote.'
+    answer, _, _, _ = _structured_answer(monkeypatch, {
+        'answer': 'Pay first and the team will confirm your vehicle quote afterwards.',
+        'kind': 'answer', 'sources': ['faq:consultation'], 'statement_ids': ['faq:consultation:answer']},
+        question='What size is my car?', knowledge={'faq:consultation': {
+            'question': 'How does a consultation work?', 'answer': policy}})
+    assert answer == policy

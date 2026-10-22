@@ -153,8 +153,15 @@ def _descriptive_answer(question, payload, knowledge):
     boundary. Merely citing an overview/size/pricing FAQ must not dump it whole.
     """
     agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
-    if (_PROCESS.search(question) or agent.get('intent') in _INTENTS
+    if (_PROCESS.search(question) or agent.get('intent') in {'policy', 'cancel', 'complaint'}
             or payload.get('requested_action')):
+        return False
+    if re.search(r'\b(?:payments?|paid|pay|deposits?|fees?|stock|availability|shipping|delivery|orders?|'
+                 r'refunds?|returns?|cancel\w*|warrant\w*|guarantee\w*)\b',
+                 str(payload.get('answer') or ''), re.I):
+        # A descriptive question cannot be used to smuggle a new financial or
+        # fulfilment process into generated prose. Those claims still require
+        # the complete protected source unit.
         return False
     descriptive_faq = False
     for key in payload.get('sources', []):
@@ -162,7 +169,7 @@ def _descriptive_answer(question, payload, knowledge):
             return False
         row = knowledge.get(key)
         if key.startswith(('faq:', 'matched_faq:')) and isinstance(row, dict):
-            if (not row.get('question') or _PROCESS.search(row['question'])
+            if (not row.get('question') or _SUPPORT_TOPIC.search(row['question'])
                     or _SUPPORT_TOPIC.search(str(row.get('answer') or ''))
                     or re.search(r'\b(?:fees?|monthly|per month|subscriptions?|credit|setup)\b',
                                  str(row.get('answer') or ''), re.I)):
