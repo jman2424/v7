@@ -465,6 +465,14 @@ def api_accounts_put(account_id: str):
     if not is_platform_operator() and set(existing.get("roles") or []) != {"business_staff"}:
         abort(403, description="owner_can_only_manage_staff")
 
+    if 'restore_owner_access' in data:
+        if not is_platform_operator():
+            abort(403, description='platform_admin_required')
+        if data['restore_owner_access'] is not True or existing.get('roles') != ['business_owner']:
+            return jsonify(error='owner_restore_requires_owner_account'), 400
+        from service.security import OWNER_PERMISSIONS
+        data = {**data, 'permissions': sorted(OWNER_PERMISSIONS)}
+
     try:
         account = accounts.update_account(tenant, account_id, data)
     except ValueError as exc:

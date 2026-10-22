@@ -1212,7 +1212,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
-      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[])] })
+      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], ...(accountRole === 'business_staff' ? {permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[])]} : {}) })
     }, message => { accountStatus = message; accountError = true; });
     if (!result || !isCurrentWorkspace(result.activeLoad)) return;
     const { response, data } = result;
@@ -1233,7 +1233,10 @@
     if (!selectedAccountId) return;
     accountStatus = 'Updating access...';
     accountError = false;
-    const payload: { active: boolean; password?: string; permissions:string[] } = { active: selectedAccountActive, permissions:[...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[])] };
+    const selected = accounts.find(account => account.id === selectedAccountId);
+    if (!selected) return;
+    const payload: { active: boolean; password?: string; permissions?:string[] } = { active: selectedAccountActive };
+    if (selected.roles.includes('business_staff') && !selected.roles.includes('business_owner')) payload.permissions = [...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[])];
     if (selectedAccountPassword) payload.password = selectedAccountPassword;
     const result = await mutateWorkspace(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT',
@@ -1250,6 +1253,26 @@
     }
     accountStatus = `${data.account.email} access updated.`;
     selectedAccountPassword = '';
+    await loadAccounts(result.selectedTenant, result.activeLoad);
+  }
+
+  async function restoreOwnerAccount() {
+    const selected = accounts.find(account => account.id === selectedAccountId);
+    if (!isPlatform || !selected || selected.roles.length !== 1 || selected.roles[0] !== 'business_owner') return;
+    accountStatus = 'Restoring business-owner access...';
+    accountError = false;
+    const result = await mutateWorkspace(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`, {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ restore_owner_access: true })
+    }, message => { accountStatus = message; accountError = true; });
+    if (!result || !isCurrentWorkspace(result.activeLoad)) return;
+    if (!result.response.ok) {
+      accountStatus = result.data.error || 'Could not restore access.';
+      accountError = true;
+      return;
+    }
+    accountStatus = `${selected.email} has standard owner access for ${result.selectedTenant}. They must sign in again.`;
     await loadAccounts(result.selectedTenant, result.activeLoad);
   }
 
@@ -1857,6 +1880,9 @@
               <label class="account-active"><input bind:checked={selectedAccountActive} type="checkbox" /><span>Account active</span></label>
               {#if accounts.find(account=>account.id===selectedAccountId)?.roles.includes('business_staff')}<label class="account-active"><input type="checkbox" bind:checked={selectedViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={selectedViewSubscriptions}/><span>View subscriptions (read only)</span></label>{/if}
               <button class="secondary" type="submit">Update access</button>
+              {#if isPlatform && accounts.find(account=>account.id===selectedAccountId)?.roles.join(',')==='business_owner'}
+                <div class="surface-body"><p>Restore standard owner access grants management of this company's profile, catalogue, conversations, team, integrations and billing. It grants no platform-admin access and signs this login out.</p><button class="secondary" type="button" on:click={restoreOwnerAccount}>Restore standard owner access</button></div>
+              {/if}
             </form>
           {/if}
           <div class="account-list" aria-live="polite">
