@@ -29,10 +29,16 @@ def _definition(text):
     return None
 
 
-def reply(text, history, settings=None, facts=None):
+def reply(text, history, settings=None, facts=None, first_message=None):
     from service.grounded_conversation import history_rows
     history = history_rows(history, settings)
     normalized = text.strip().casefold().rstrip('?! .')
+    if re.fullmatch(r'(?:what was|what(?:\'s| is)|remind me(?: of)?) my (?:first|original) (?:message|mesage|question)', normalized):
+        if isinstance(first_message, str) and (not settings or settings.get('enabled', True)):
+            return 'Your first message was: “' + first_message + '”'
+        return "I don't have the first message saved in this conversation."
+    if normalized in {'ok', 'okay', 'alright', 'all right', 'got it', 'understood'}:
+        return 'Got it. Let me know what else you would like to know.'
     if re.fullmatch(r'(?:thanks(?: a lot| very much)?|thank you(?: very much| so much)?|cheers|'
                     r'much appreciated|gracias|muchas gracias|merci|merci beaucoup|شكرا|شكرًا)', normalized):
         return "You're welcome!"

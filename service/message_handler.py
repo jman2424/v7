@@ -307,6 +307,10 @@ class MessageHandler:
         history.extend([{'role': 'user', 'content': user_text[:4000]},
                         {'role': 'assistant', 'content': str(reply.get('reply') or '')[:4000]}])
         ttl = config['retention_minutes'] * 60 if config else DEFAULT_SESSION_TTL
+        if not sess.get('conversation_first_message'):
+            self.memory.set(ctx.session_id, 'conversation_first_message', user_text[:4000], ttl)
+        else:
+            self.memory.set(ctx.session_id, 'conversation_first_message', sess['conversation_first_message'], ttl)
         self.memory.set(ctx.session_id, 'conversation_history', bounded_history(history, config), ttl)
 
     # ---------------------------------------------------------
@@ -430,6 +434,7 @@ class MessageHandler:
         return {
             '_memory_settings': self.memory.configuration() if hasattr(self.memory, 'configuration') else None,
             "conversation_history": self.memory.get(ctx.session_id, "conversation_history"),
+            "conversation_first_message": self.memory.get(ctx.session_id, "conversation_first_message"),
             "conversation_facts": self.memory.get(ctx.session_id, "conversation_facts", {}),
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),

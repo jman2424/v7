@@ -328,7 +328,8 @@ class MessageHandlerV7:
                     intent='out_of_scope', plan=None, facts={}, entities={}, items=[])
             from service.conversation_turns import reply as conversational_reply
             casual = conversational_reply(user_text, sess.get('conversation_history'), sess.get('_memory_settings'),
-                                          sess.setdefault('conversation_facts', {}))
+                                          sess.setdefault('conversation_facts', {}),
+                                          first_message=sess.get('conversation_first_message'))
             if casual:
                 return self._wrap_reply(request_id=request_id, t0=t0, reply=casual,
                     intent='conversation', plan=None, facts={}, entities={}, items=[])
@@ -382,6 +383,12 @@ class MessageHandlerV7:
                            for row in targets if row['url'] == pricing_url]
                 return self._wrap_reply(request_id=request_id, t0=t0, reply=plan_answer,
                     intent='faq', plan=None, facts={'source':'current_platform_plans'}, entities={}, items=[], actions=actions)
+
+            # A numbered choice is already grounded in the last displayed list.
+            # Resolve it before retrieval/model routing can change its meaning.
+            selected = self._selected_product_from_session(user_text, sess)
+            if self._SELECTION_NUMBER.match(user_text) and selected and selected.get('in_stock') is not False:
+                return self._catalogue_price_reply(selected, session_snapshot, request_id=request_id, t0=t0)
 
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
@@ -505,30 +512,8 @@ class MessageHandlerV7:
             selected_product = self._selected_product_from_session(user_text, sess)
             price_product = selected_product or self._price_product_in_text(user_text)
             if price_product and price_product.get("in_stock") is not False:
-                sku = str(price_product.get("sku") or "").strip()
-                plan = self._simple_plan("price_check", "PRICE_CHECK", session_snapshot)
-                plan["sku"] = sku
-                facts = {
-                    "price": {
-                        "sku": sku,
-                        "name": str(price_product.get("name") or "").strip(),
-                        "price": price_product.get("price"),
-                        "unit": str(price_product.get("unit") or "").strip(),
-                        "in_stock": price_product.get("in_stock"),
-                    },
-                    "currency": self._catalog_currency(),
-                }
-                reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
-                return self._wrap_reply(
-                    request_id=request_id,
-                    t0=t0,
-                    reply=reply_text,
-                    intent="price_check",
-                    plan=plan,
-                    facts=facts,
-                    entities={"sku": sku, "product_name": facts["price"]["name"]},
-                    items=[],
-                )
+                return self._catalogue_price_reply(price_product, session_snapshot, request_id=request_id,
+                                                   t0=t0)
 
             unavailable_product = (
                 price_product if price_product and price_product.get("in_stock") is False
@@ -924,6 +909,13 @@ class MessageHandlerV7:
             for index, row in enumerate(self._optional_faq_rows()[:40]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
+                    if any(key.startswith('matched_faq:') and value.get('question') == str(row.get('q') or '')[:500]
+                           and value.get('answer') == str(raw_answer or '')[:2000]
+                           for key, value in knowledge.items() if isinstance(value, dict)):
+                        # One public FAQ must not have two citation/statement IDs.
+                        # Mirrored IDs caused otherwise valid provider selections
+                        # to fail the cited-statement consistency check.
+                        continue
                     knowledge[f'faq:{index}'] = {'question': str(row.get('q') or '')[:500],
                                                'answer': str(raw_answer or '')[:2000],
                                                'answer_complete': isinstance(raw_answer, str)
@@ -982,7 +974,7 @@ class MessageHandlerV7:
              elapsed_ms=round((time.perf_counter()-retrieval_started)*1000, 2))
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
-                      destinations=destinations, selected_links=selected if channel == 'web' else None,
+                      destinations=destinations, selected_links=selected if channel in {'web', 'test'} else None,
                       allowed_actions=allowed_actions,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
@@ -1169,7 +1161,7 @@ class MessageHandlerV7:
         return unrelated_task(text)
 
     def finalize_navigation(self, response, channel):
-        if channel != 'web':
+        if channel not in {'web', 'test'}:
             return response
         from service.website_destinations import public_targets, buttonize_reply
         from service.platform_offer_knowledge import public_destinations
@@ -1248,15 +1240,21 @@ class MessageHandlerV7:
         if self._is_smalltalk(t):
             return False
 
+        # Search accepts partial tokens (e.g. "are" in "care"). It is a
+        # retrieval tool, not an intent classifier for arbitrary questions.
+        if re.match(r'^(?:who|where|when)\b', t):
+            return False
+        if any(re.search(r'(?<!\w)' + re.escape(w) + r'(?!\w)', t) for w in self._BUY_WORDS):
+            return True
+        from retrieval.faq_store import _meaningful_tokens
+        query = ' '.join(_meaningful_tokens(t))
         if self.catalog:
             try:
-                if self.catalog.search(text=t, limit=1):
+                if query and self.catalog.search(text=query, limit=1):
                     return True
             except Exception:
                 logger.debug("V7 catalog probe failed", exc_info=True)
 
-        if any(w in t for w in self._BUY_WORDS):
-            return True
         if re.search(r"[$£€]", user_text) or re.search(r"\b(under|below|less than)\b", t):
             return True
 
@@ -1505,6 +1503,16 @@ class MessageHandlerV7:
             return None
         return self._exact_catalog_item_in_text(user_text)
 
+    def _catalogue_price_reply(self, item, session, *, request_id, t0):
+        sku = str(item.get('sku') or '').strip()
+        plan = self._simple_plan('price_check', 'PRICE_CHECK', session)
+        plan['sku'] = sku
+        facts = {'price': {key: item.get(key) for key in ('sku', 'name', 'price', 'unit', 'in_stock')},
+                 'currency': self._catalog_currency()}
+        text = self.renderer.render(user_text='', plan=plan, facts=facts, session=session)
+        return self._wrap_reply(request_id=request_id, t0=t0, reply=text, intent='price_check',
+            plan=plan, facts=facts, entities={'sku': sku, 'product_name': item.get('name')}, items=[])
+
     def _selected_generic_offering_ids(self, user_text: str, session: Dict[str, Any]) -> List[str]:
         """Interpret a choice only against the session's prior public results."""
         if session.get('last_items_source') != 'business_core':
@@ -1533,7 +1541,8 @@ class MessageHandlerV7:
         if not self.catalog:
             return None
         agent = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
-        if agent.get("next_action") not in self._SELECTION_ACTIONS:
+        if (agent.get("next_action") not in self._SELECTION_ACTIONS
+                and not agent.get('qualification_pending')):
             return None
 
         last_items = session.get("last_items")

@@ -35,6 +35,14 @@ def readable_reply(text: str) -> str:
             return
         block = '\n'.join(prose)
         prose.clear()
+        # Legacy FAQs sometimes store several Small/Medium/Large price bands
+        # in a single sentence. Separate the groups without changing a figure,
+        # service label, condition, or their shared size-order heading.
+        triplet = r'[£$€]\d[\d,.]*\s*/\s*[£$€]\d[\d,.]*\s*/\s*[£$€]\d[\d,.]*'
+        if '\n' not in block and len(re.findall(triplet, block)) >= 2:
+            block = re.sub(r'\bare +(?=[^£$€\n]{1,100}[£$€])', 'are\n\n', block, count=1)
+            block = re.sub(r', +(?=(?:and +)?[^£$€\n,]{1,70}[£$€])', ',\n\n', block)
+            block = re.sub(r'(?<=[\d.])\. +(?=[A-Z])', '.\n\n', block)
         if len(block) <= 320 or '\n' in block or re.match(r'\s*(?:[-*•]|\d+[.)])\s', block):
             blocks.append(block)
             return

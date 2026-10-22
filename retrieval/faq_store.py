@@ -29,7 +29,7 @@ _QUESTION_WORDS = {
     "have", "how", "i", "if", "in", "is", "it", "me", "my", "of", "on",
     "or", "our", "please", "the", "this", "to", "we", "what", "when", "where",
     "which", "who", "will", "with", "would", "you", "your",
-    "help", "some", "about", "tell", "know", "need", "want",
+    "help", "some", "about", "tell", "know", "need", "want", "okay", "ok", "also",
 }
 
 
@@ -99,6 +99,8 @@ class FAQStore:
             f["_q_norm"] = _norm(f.get("q", ""))
             f["_q_tokens"] = _tokenize(f.get("q", ""))
             f["_tags_norm"] = [ _norm(t) for t in (f.get("tags") or []) ]
+            f['_question_topics'] = _meaningful_tokens(
+                ' '.join([str(f.get('q', '')), ' '.join(str(t) for t in (f.get('tags') or []))]))
             f["_topic_tokens"] = _meaningful_tokens(
                 " ".join(
                     [
@@ -146,20 +148,34 @@ class FAQStore:
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for f in self._faqs:
+            if f.get('active') is False or f.get('public') is False:
+                continue
             if not topic_tokens and _norm(user_question) != f['_q_norm']:
                 continue
             candidate_topics = f.get("_topic_tokens") or []
             # Topic coverage is intentionally based on the customer's terms,
             # not sentence filler. Answers are included so that a tenant can
             # support terms such as a certification that appear in the answer.
-            sim = _jaccard(topic_tokens, candidate_topics)
+            primary = set(f.get('_question_topics') or [])
+            topics = set(topic_tokens)
+            # A question/tag match outranks incidental words in a long answer.
+            # Keep distinctive answer-only terms (e.g. HMC) retrievable, without
+            # making every generic service/price word a high-confidence FAQ.
+            sim = 0.0
             if topic_tokens and candidate_topics:
-                overlap = len(set(topic_tokens) & set(candidate_topics))
-                sim = max(sim, overlap / len(set(topic_tokens)))
+                overlap = len(topics & set(candidate_topics))
+                primary_overlap = len(topics & primary)
+                sim = primary_overlap / len(topics) + 0.2 * _jaccard(topic_tokens, list(primary))
+                answer_score = 0.9 * overlap / len(topics)
+                if len(candidate_topics) > 60:
+                    answer_score = min(answer_score, 0.35)
+                sim = max(sim, answer_score)
             elif not topic_tokens:
                 sim = _jaccard(q_tokens, f["_q_tokens"])
             if tagset and tagset.intersection(f["_tags_norm"]):
                 sim += 0.05
+            if _tokenize(user_question) == f['_q_tokens']:
+                sim += 2.0
             if sim >= min_sim:
                 scored.append((sim, f))
 

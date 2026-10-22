@@ -652,7 +652,8 @@ class SalesAgentPolicy:
         question = "?" in user_text or bool(re.match(r"^(?:what|when|where|why|how|who|can|could|do|does|is|are|will|would)\b", user_text.strip(), re.I))
         other_help = bool(re.match(r"^(?:show|browse|compare|check|tell me|find|explain|help me|list)\b",
                                   user_text.strip(), re.I))
-        if continuing and (acknowledgement or question or other_help or intent in {"faq", "store_info", "check_delivery", "ask_postcode", "check_delivery_needs_postcode", "smalltalk", "greeting"}):
+        numbered_choice = bool(re.fullmatch(r'\s*(?:option\s*)?\d{1,2}\s*[.)]?\s*', user_text, re.I))
+        if continuing and (acknowledgement or question or other_help or numbered_choice or intent in {"faq", "store_info", "check_delivery", "ask_postcode", "check_delivery_needs_postcode", "smalltalk", "greeting"}):
             state.update(qualification_index=self._qualification_index(previous), qualification_pending=True)
             state["next_question"] = ""
             return

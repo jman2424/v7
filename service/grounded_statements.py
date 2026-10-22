@@ -146,6 +146,31 @@ def protected_request(question, payload, statements):
                    for row in statements.values()))
 
 
+def _descriptive_answer(question, payload, knowledge):
+    """Ordinary FAQ facts inform an answer; they do not replace its prose.
+
+    Actual policy/process questions and capabilities retain the extractive
+    boundary. Merely citing an overview/size/pricing FAQ must not dump it whole.
+    """
+    agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
+    if (_PROCESS.search(question) or agent.get('intent') in _INTENTS
+            or payload.get('requested_action')):
+        return False
+    descriptive_faq = False
+    for key in payload.get('sources', []):
+        if key.startswith(('policy:', 'capability:')) or key == 'current_platform_offer':
+            return False
+        row = knowledge.get(key)
+        if key.startswith(('faq:', 'matched_faq:')) and isinstance(row, dict):
+            if (not row.get('question') or _PROCESS.search(row['question'])
+                    or _SUPPORT_TOPIC.search(str(row.get('answer') or ''))
+                    or re.search(r'\b(?:fees?|monthly|per month|subscriptions?|credit|setup)\b',
+                                 str(row.get('answer') or ''), re.I)):
+                return False
+            descriptive_faq = True
+    return descriptive_faq
+
+
 def _option_summary(row, question):
     """Show requested catalogue attributes without inferring variant inventory."""
     options = row.get('options')
@@ -263,6 +288,8 @@ def render_response(question, payload, state, knowledge, statements, navigation,
     cited = payload['sources']
     if any(statements[key]['source_id'] not in cited for key in selected):
         raise ValueError('uncited_statement_selection')
+    if _descriptive_answer(question, payload, knowledge):
+        return None
     overview = _overview_statement(question, payload, knowledge, statements)
     if overview is not None and not requested_action and payload['kind'] != 'refusal':
         return overview
