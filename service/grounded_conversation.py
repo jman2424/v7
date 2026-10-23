@@ -438,6 +438,13 @@ def _customer_quote(value, texts):
     return None
 
 
+def _empty_requirements_update(update):
+    return update is None or (isinstance(update,dict)
+        and not set(update)-{'add','remove','clear','evidence'}
+        and update.get('add',[])==[] and update.get('remove',[])==[]
+        and update.get('clear',False) is False and update.get('evidence') in (None,''))
+
+
 def _requirements_state(raw, question, history, context, memory_settings=None):
     previous = context.get('previous_agent', {})
     old = previous.get('requirements', [])
@@ -447,9 +454,7 @@ def _requirements_state(raw, question, history, context, memory_settings=None):
     customer_text += context.get('customer_statements', [])
     added = []
     update = raw.get('requirements_update')
-    if (isinstance(update, dict) and not set(update) - {'add', 'remove', 'clear', 'evidence'}
-            and update.get('add', []) == [] and update.get('remove', []) == []
-            and update.get('clear', False) is False and update.get('evidence') in (None, '')):
+    if _empty_requirements_update(update):
         # A model's empty optional object is a no-op, not customer authorization
         # and not a reason to discard an otherwise grounded answer.
         update = None
@@ -592,7 +597,28 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
     # before checking citations for visible recommendations; source and claim
     # validation of the actual answer remains mandatory.
     offerings = [] if support_only else list(dict.fromkeys(key for key in rows if key in sources))
-    requirements, retired = _requirements_state(raw, question, history, context, memory_settings)
+    try:
+        requirements, retired = _requirements_state(raw, question, history, context, memory_settings)
+    except ValueError as exc:
+        values=raw.get('requirements',[])
+        retired_keys={row.casefold() for row in context.get('previous_agent',{}).get('retired_requirements',[])}
+        if (str(exc)!='unconfirmed_customer_requirement' or not _empty_requirements_update(raw.get('requirements_update'))
+                or not isinstance(values,list) or not all(_requirement(row) for row in values)
+                or any(row.casefold() in retired_keys or _rejected(question,row) for row in values)):
+            raise
+        # Inferred bands/paraphrases are not customer quotations. Keep only
+        # independently validated excerpts; never save guesses in memory or
+        # erase a prior verified requirement because optional metadata failed.
+        quoted=[]
+        for value in values:
+            try:
+                valid,_=_requirements_state({**raw,'requirements':[value]},question,history,context,memory_settings)
+                quoted.extend(valid)
+            except ValueError:
+                continue
+        requirements,retired=_requirements_state({**raw,'requirements':quoted},question,history,context,memory_settings)
+        from service.chat_diagnostics import emit
+        emit('grounded_metadata_pruned',outcome='unquoted_requirements')
     try:
         selected = _selection_state(raw, question, knowledge, context)
     except ValueError as exc:
@@ -858,19 +884,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                             r'\b(?:choose|select)\b.{0,45}\b(?:service|option|package|coating)\b',text,re.I)):
                     repair_reason = 'selected_offering_restarted'
                 elif supported:
-                    raw_agent = payload.get('agent')
-                    if attempt==0 and isinstance(raw_agent,dict):
-                        try:
-                            _requirements_state(raw_agent,question,history,context,memory_settings)
-                        except ValueError as exc:
-                            values = raw_agent.get('requirements',[])
-                            if (str(exc)=='unconfirmed_customer_requirement'
-                                    and isinstance(values,list) and all(_requirement(row) for row in values)):
-                                repair_reason = 'unquoted_customer_requirements'
-                            else:
-                                raise
-                    if repair_reason is None:
-                        break
+                    break
                 elif attempt==0 and failure.get('reason')=='money':
                     repair_reason = 'uncited_price_claim'
                 else:

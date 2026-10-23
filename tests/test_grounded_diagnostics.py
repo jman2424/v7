@@ -41,10 +41,10 @@ def run_answer(monkeypatch, payload, *, diagnostics=None):
                                         KNOWLEDGE, [], 'professional', diagnostics=diagnostics)
 
 
-def test_paraphrased_vehicle_requirement_gets_one_bounded_correction(monkeypatch):
+def test_inferred_vehicle_band_is_pruned_without_losing_actual_customer_quotes(monkeypatch):
     from tests.test_grounded_conversation import _state
     payload={'answer':'Entry Coating starts at GBP 300 for Large vehicles.', 'kind':'answer',
-             'sources':['faq:price'], 'agent':_state('price',requirements=['Large SUV'])}
+             'sources':['faq:price'], 'agent':_state('price',requirements=['Toyota Yaris Cross SUV','Large SUV'])}
     calls=[]
     def complete(*args,**kwargs):
         calls.append(kwargs)
@@ -58,7 +58,7 @@ def test_paraphrased_vehicle_requirement_gets_one_bounded_correction(monkeypatch
         'I have a Toyota Yaris Cross SUV. What does Entry Coating cost?',
         {'faq:price':{'question':'What does Entry Coating cost?',
                       'answer':'Entry Coating starts at GBP 300 for Large vehicles.'}},[],'professional',agent_state=state)
-    assert result==payload['answer'] and len(calls)==2
+    assert result==payload['answer'] and len(calls)==1
     assert state['requirements']==['Toyota Yaris Cross SUV']
 
 

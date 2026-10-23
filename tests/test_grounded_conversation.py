@@ -257,7 +257,6 @@ def test_direct_answer_retains_previous_verified_customer_constraints(monkeypatc
 @pytest.mark.parametrize('agent', [
     _state('recommend', offerings=['product:other_company']),
     _state('recommend', offerings=['product:basic'], selected='product:other_company'),
-    _state('answer', requirements=['I am a premium subscriber']),
     _state('answer', requirements=['me@example.com']),
     _state('checkout', stage='convert', action='open_destination'),
     _state('answer', action='charge_customer'),
@@ -270,11 +269,13 @@ def test_untrusted_agent_metadata_cannot_introduce_facts_or_executable_actions(m
     assert reply is None and state == {} and links == []
 
 
-def test_requirements_can_only_quote_customers_never_assistant_assumptions(monkeypatch):
+@pytest.mark.parametrize('assumption',['enterprise support','I am a premium subscriber'])
+def test_requirements_can_only_quote_customers_never_assistant_assumptions(monkeypatch,assumption):
     history = [{'role': 'assistant', 'content': 'You probably need enterprise support.'}]
     payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'],
-               'agent': _state('price', requirements=['enterprise support'])}
-    assert _structured_answer(monkeypatch, payload, question='How much?', history=history)[0] is None
+               'agent': _state('price', requirements=[assumption])}
+    answer,state,_,_=_structured_answer(monkeypatch,payload,question='How much?',history=history)
+    assert answer=='Basic is £99.' and state['requirements']==[]
 
 
 def test_context_excludes_unapproved_fields_and_stale_other_tenant_source_ids(monkeypatch):
