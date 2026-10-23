@@ -390,6 +390,15 @@ class MessageHandlerV7:
             if self._SELECTION_NUMBER.match(user_text) and selected and selected.get('in_stock') is not False:
                 return self._catalogue_price_reply(selected, session_snapshot, request_id=request_id, t0=t0)
 
+            # A tenant can explicitly require an exact model before quoting a
+            # make-only description. Do not guess a size or spend a model call
+            # when the required detail is demonstrably absent.
+            from service.vehicle_consultation import missing_model_question
+            clarification = missing_model_question(user_text,self._optional_faq_rows)
+            if clarification:
+                return self._wrap_reply(request_id=request_id,t0=t0,reply=clarification,
+                    intent='vehicle_model_clarify',plan=None,facts={},entities={},items=[])
+
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
             intelligent = self._grounded_answer(user_text, sess, channel=channel)
