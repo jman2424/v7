@@ -34,6 +34,14 @@ _OPTION_DETAILS = re.compile(
 _SUPPORT_TOPIC = re.compile(r'\b(?:returns?|refunds?|cancel\w*|complain\w*|warrant\w*|exchang\w*)\b', re.I)
 
 
+def direct_size_request(question):
+    """A single size classification is not a request for prices or booking terms."""
+    return bool(not _PROCESS.search(question) and not _PRODUCT_DETAILS.search(question) and re.search(
+        r'\b(?:which|what)\s+(?:vehicle\s+)?size\s+band\b|'
+        r'\b(?:where|were)\b.{0,45}\b(?:put|fit)\b.{0,30}\b(?:car|vehicle)\b|'
+        r'\b(?:where|were)\b.{0,30}\b(?:car|vehicle)\b.{0,25}\bfit\b',question,re.I))
+
+
 def _overview_request(text):
     return bool(re.fullmatch(r'what (?:do you (?:sell|offer|provide)|(?:products|services) do you (?:sell|offer|provide))',
                              text.strip().casefold().rstrip('?! .')))

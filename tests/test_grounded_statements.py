@@ -46,6 +46,26 @@ def test_shared_price_conditions_appear_once_and_service_flags_are_not_inventory
     assert 'confirmed appointment' not in answer
 
 
+def test_size_only_answer_does_not_expand_into_whole_pricing_and_booking_faq(monkeypatch):
+    knowledge = {'faq:size':{'question':'Which size band is a Yaris?',
+        'answer':'Toyota Yaris uses Small. BMW 3 Series uses Medium. SUVs use Large.'},
+        'faq:quote':{'question':'How do quotes work?',
+        'answer':'Ultimate Detail starts at GBP 160 for Small. Final quotes follow inspection.'}}
+    payloads = [{'answer':'Your Yaris uses Small. Ultimate Detail starts at GBP 160; book an appointment.',
+                 'kind':'answer','sources':['faq:size','faq:quote']},
+                {'answer':'Your Toyota Yaris uses the Small size band.',
+                 'kind':'answer','sources':['faq:size']}]
+    calls = []
+    def complete(*args,**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payloads[len(calls)-1])))])
+    monkeypatch.setattr(grounded_conversation,'tracked_completion',complete)
+    answer = grounded_conversation.answer(object(),'test-model',
+        'My car is a Toyota Yaris. Which size band does it use?',knowledge,[],'professional')
+    assert answer=='Your Toyota Yaris uses the Small size band.' and len(calls)==2
+    assert '£' not in answer and 'book' not in answer.lower()
+
+
 @pytest.mark.parametrize('invented', [
     'The team confirms stock after your order is placed.', 'Order first; we check availability later.',
     'Inventory is checked once checkout is complete.', 'The team checks stock on receipt of payment.',

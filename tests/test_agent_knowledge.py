@@ -4,8 +4,28 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from service import grounded_conversation
-from service.agent_knowledge import prioritize_knowledge
+from service.agent_knowledge import prioritize_knowledge, displayed_catalogue_ids
 from service.business_core import BusinessCore, empty_core
+
+
+def test_priced_faq_list_binds_only_unique_current_public_currency_and_name_matches():
+    knowledge = {
+        'product:entry-small':{'name':'Entry 2-Year Ceramic Coating Small starting price','price':250,'currency':'GBP'},
+        'product:entry-large':{'name':'Entry 2-Year Ceramic Coating Large starting price','price':300,'currency':'GBP'},
+        'product:premium-large':{'name':'Premium 3-Year Ceramic Coating Large starting price','price':350,'currency':'GBP'},
+        'product:signature-large':{'name':'Signature 5-Year Ceramic Coating Large starting price','price':400,'currency':'GBP'}}
+    text = '• Entry 2-Year Ceramic Coating: £300\n\n• Premium 3-Year Ceramic Coating: £350\n\n• Signature 5-Year Ceramic Coating: £400'
+    assert displayed_catalogue_ids(text,knowledge)==['product:entry-large','product:premium-large','product:signature-large']
+    assert displayed_catalogue_ids(text.replace('£350','$350'),knowledge)==[]
+    assert displayed_catalogue_ids(text.replace('£400','£401'),knowledge)==[]
+    assert displayed_catalogue_ids('```\n'+text+'\n```',knowledge)==[]
+    assert displayed_catalogue_ids('````\n```\n'+text+'\n````',knowledge)==[]
+    assert displayed_catalogue_ids(text,{**knowledge,'product:ambiguous':{
+        'name':'Entry 2-Year Ceramic Coating Medium starting price','price':300,'currency':'GBP'}})==[]
+    assert displayed_catalogue_ids(text,{**knowledge,'product:entry-large':{
+        **knowledge['product:entry-large'],'public':False}})==[]
+    assert displayed_catalogue_ids(text,{**knowledge,'product:entry-large':{
+        **knowledge['product:entry-large'],'currency':None}})==[]
 
 
 def test_new_product_and_policy_facts_survive_large_website_context(monkeypatch):

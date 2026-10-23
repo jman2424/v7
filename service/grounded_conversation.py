@@ -745,7 +745,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         return None
     # Keep authoritative current rules and this customer's selection even when
     # broad website/background context exceeds the provider-context budget.
-    from service.grounded_statements import request_facts, statement_catalog, render_response
+    from service.grounded_statements import request_facts, statement_catalog, render_response, direct_size_request, _PROCESS
     allowed_actions = [kind for kind in ('consultation', 'quote', 'callback')
                        if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
     knowledge = {**knowledge, **request_facts(allowed_actions)}
@@ -761,6 +761,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
     statements = {key: row for key, row in statements.items() if row['source_id'] in knowledge}
     destinations = destinations or []
     context = agent_context_rows(agent_context, knowledge)
+    size_only = direct_size_request(question)
     from service.agent_response_schema import response_format
     try:
         completion = dict(
@@ -811,10 +812,16 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                     finish('invalid_conversation')
                     return None
                 failure = {}
-                if _claims_supported(text,sources,knowledge,customer_quotes,
-                        approved_urls={row['url'] for row in destinations},failure=failure):
+                supported = _claims_supported(text,sources,knowledge,customer_quotes,
+                    approved_urls={row['url'] for row in destinations},failure=failure)
+                from service.grounded_money import extract_money_claims
+                if supported and attempt==0 and size_only and (
+                        extract_money_claims(text) or _PROCESS.search(text)
+                        or re.search(r'\bsmall\b.*\bmedium\b.*\blarge\b',text,re.I|re.S)):
+                    repair_reason = 'unfocused_size_answer'
+                elif supported:
                     break
-                if attempt==0 and failure.get('reason')=='money':
+                elif attempt==0 and failure.get('reason')=='money':
                     repair_reason = 'uncited_price_claim'
                 else:
                     pause_ai_for_turn()

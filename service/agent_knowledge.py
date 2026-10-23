@@ -49,6 +49,52 @@ def rank_public_records(rows, question, selected_ids=()):
     ), reverse=True)
 
 
+def displayed_catalogue_ids(text,knowledge):
+    """Bind a short visible price list to unique, current public records.
+
+    This recovers references when a model cited a combined pricing FAQ. A name
+    prefix alone is insufficient: currency and exact price must also match.
+    Ambiguous/mixed/incomplete lists are left for normal clarification.
+    """
+    from service.grounded_money import extract_money_claims, _structured_price
+    normalize = lambda value:' '.join(re.findall(r'[^\W_]+',value.casefold()))
+    candidates = [(key,row) for key,row in knowledge.items()
+        if key.startswith(('product:','offering:')) and isinstance(row,dict)
+        and row.get('active') is not False and row.get('public') is not False
+        and isinstance(row.get('name'),str) and isinstance(row.get('currency'),str)
+        and row.get('price_type') not in ('quote','quote_only','custom_quote')
+        and row.get('pricing_mode') not in ('quote','quote_only','custom_quote')]
+    found, fence = [], None
+    for line in str(text or '').splitlines()[:100]:
+        marker = re.match(r'^\s*(`{3,}|~{3,})',line)
+        if marker:
+            if not fence:
+                fence = marker[1]
+            elif marker[1][0]==fence[0] and len(marker[1])>=len(fence):
+                fence = None
+            continue
+        if fence:
+            continue
+        option = re.match(r'^(?:([1-9]\d*)[.)]|[•*-])\s+(.+)$',line)
+        if not option:
+            continue
+        if len(found)>=3 or (option[1] and int(option[1])!=len(found)+1):
+            return []
+        body = option[2]
+        label = re.match(r'^(.*?)\s*(?:£|\$|€|GBP\b|USD\b|EUR\b)\s*[+\-−]?\d',body,re.I)
+        prices = extract_money_claims(body)
+        if not label or not prices or len(prices)!=1:
+            return []
+        name = normalize(label[1].strip(' \t:—–-'))
+        matches = [key for key,row in candidates if _structured_price(row) in prices
+            and (normalize(row['name'])==name
+                 or (len(name.split())>=2 and normalize(row['name']).startswith(name+' ')))]
+        if len(matches)!=1 or matches[0] in found:
+            return []
+        found.append(matches[0])
+    return found if len(found)>=2 else []
+
+
 def prioritize_knowledge(knowledge, question, remembered):
     """Keep relevant structured facts ahead of large imported website passages.
 

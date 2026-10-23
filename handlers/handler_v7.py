@@ -995,6 +995,13 @@ class MessageHandlerV7:
                                      'customer_statements': session.get('conversation_customer_statements', []),
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
+        if text and agent_state.get('_validated_grounded') is True:
+            from service.agent_knowledge import displayed_catalogue_ids
+            references = displayed_catalogue_ids(text,knowledge)
+            if references:
+                agent_state.update(offering_ids=references,last_offering_ids=references)
+                agent_state['sources'] = list(dict.fromkeys([*agent_state.get('sources',[]),*references]))
+                emit('catalogue_choices_linked',outcome='exact_public_price_matches',count=len(references))
         requested_action = agent_state.get('requested_action')
         if (agent_state.get('_validated_grounded') is True and requested_action in allowed_actions):
             # Render an existing authenticated request form. This is only a

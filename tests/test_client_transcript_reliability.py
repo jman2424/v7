@@ -59,20 +59,24 @@ def test_grounded_list_selection_uses_displayed_reference_order_not_stale_items(
 
 
 def test_public_api_remembers_numbered_choice_from_grounded_list(app,client,assistant,monkeypatch):
+    from service import grounded_conversation
     wrapper = app.container.for_tenant('EXAMPLE').handler
     handler = wrapper.h_v7
     handler.catalog = assistant.catalog
+    handler.rewriter = SimpleNamespace(_client=object(),_model='test-model')
     references = ['product:SMALL','product:MEDIUM','product:LARGE']
-    monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:{
-        'reply':'1. Enhancement Small: £400\n2. Enhancement Medium: £450\n3. Enhancement Large: £500',
-        'agent':{'_validated_grounded':True,'intent':'recommend','stage':'recommend',
+    def priced_faq_answer(*args,**kwargs):
+        kwargs['agent_state'].update({'_validated_grounded':True,'intent':'recommend','stage':'recommend',
                  'objective':'Choose an option','next_action':'compare_options','next_question':'',
-                 'suggested_replies':[],'offering_ids':references,'last_offering_ids':references,
-                 'selected_offering_id':None,'requirements':[]}})
+                 'suggested_replies':[],'offering_ids':[],'last_offering_ids':[],
+                 'sources':['business'],'selected_offering_id':None,'requirements':[]})
+        return '1. Enhancement Small: £400\n2. Enhancement Medium: £450\n3. Enhancement Large: £500'
+    monkeypatch.setattr(grounded_conversation,'answer',priced_faq_answer)
     first = client.post('/chat_api',json={'tenant':'EXAMPLE','message':'Show me three options'})
     assert first.status_code==200
     assert wrapper.memory.get(first.json['session_id'],'last_items',[])==[]
-    monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:pytest.fail('A displayed choice needs no model'))
+    assert wrapper.memory.get(first.json['session_id'],'sales_agent')['last_offering_ids']==references
+    monkeypatch.setattr(grounded_conversation,'answer',lambda *a,**k:pytest.fail('A displayed choice needs no model'))
     choice = client.post('/chat_api',json={'tenant':'EXAMPLE','message':'3',
         'conversation_token':first.json['conversation_token']})
     assert choice.status_code==200 and '£500.00' in choice.json['reply']
