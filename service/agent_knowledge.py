@@ -49,6 +49,28 @@ def rank_public_records(rows, question, selected_ids=()):
     ), reverse=True)
 
 
+def size_variant_family(name):
+    """Recognise an explicitly size-labelled catalogue family, not a car model."""
+    if not isinstance(name,str):
+        return ''
+    match=re.fullmatch(r'(.+?)\s*(?:[—–-]\s*)?\b(?:Small|Medium|Large)\b\s*'
+                      r'(?:\(starting price\))?\s*',name,re.I)
+    return match[1].strip(' —–-') if match else ''
+
+
+def remembered_size_variants(knowledge,remembered):
+    """Keep current public sibling prices when a follow-up changes size/model."""
+    references=[remembered.get('selected_offering_id'),*remembered.get('offering_ids',[])]
+    families=set()
+    for key in references:
+        row=knowledge.get(key) if isinstance(key,str) else None
+        if isinstance(row,dict) and (family:=size_variant_family(row.get('name'))):
+            families.add((family.casefold(),row.get('currency')))
+    return [key for key,row in knowledge.items() if key.startswith(('product:','offering:'))
+            and isinstance(row,dict) and row.get('public') is not False and row.get('active') is not False
+            and (size_variant_family(row.get('name')).casefold(),row.get('currency')) in families][:9]
+
+
 def displayed_catalogue_ids(text,knowledge):
     """Bind a short visible price list to unique, current public records.
 
@@ -105,6 +127,7 @@ def prioritize_knowledge(knowledge, question, remembered):
     pinned = ['business', 'current_platform_offer', remembered.get('selected_offering_id')]
     narrow = len(knowledge) > 24
     pinned += remembered.get('offering_ids', [])
+    pinned += remembered_size_variants(knowledge,remembered)
     # Many near-identical price variants can outrank the rule needed to choose
     # between them. Keep bounded public sizing/classification guidance alongside
     # a matching catalogue task, even when a new model name has no literal match.

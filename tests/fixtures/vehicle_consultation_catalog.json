@@ -1,0 +1,767 @@
+{
+  "version": 1,
+  "currency": "GBP",
+  "categories": [
+    {
+      "id": "PAINT_CORRECTION",
+      "name": "Paint correction and localised repairs",
+      "items": [
+        {
+          "sku": "PC_ENHANCEMENT_SMALL",
+          "name": "Enhancement Polish — Small (starting price)",
+          "price": 400,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_ENHANCEMENT_MEDIUM",
+          "name": "Enhancement Polish — Medium (starting price)",
+          "price": 450,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_ENHANCEMENT_LARGE",
+          "name": "Enhancement Polish — Large (starting price)",
+          "price": 500,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_TWO_STAGE_SMALL",
+          "name": "Two-Stage Correction — Small (starting price)",
+          "price": 550,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_TWO_STAGE_MEDIUM",
+          "name": "Two-Stage Correction — Medium (starting price)",
+          "price": 650,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_TWO_STAGE_LARGE",
+          "name": "Two-Stage Correction — Large (starting price)",
+          "price": 750,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_THREE_STAGE_SMALL",
+          "name": "Three-Stage Concours — Small (starting price)",
+          "price": 850,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_THREE_STAGE_MEDIUM",
+          "name": "Three-Stage Concours — Medium (starting price)",
+          "price": 950,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "PC_THREE_STAGE_LARGE",
+          "name": "Three-Stage Concours — Large (starting price)",
+          "price": 1050,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "paint correction",
+            "machine polishing",
+            "2-year ceramic included",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CHIP_FIRST",
+          "name": "First stone chip improvement",
+          "price": 30,
+          "unit": "first chip; subject to assessment",
+          "tags": [
+            "stone chips",
+            "scratch improvement",
+            "cosmetic repair"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CHIP_EXTRA",
+          "name": "Additional stone chip improvement",
+          "price": 15,
+          "unit": "additional chip in the same repair",
+          "tags": [
+            "stone chips",
+            "scratch improvement",
+            "cosmetic repair"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "SCRATCH",
+          "name": "Scratch improvement up to 10 cm (from)",
+          "price": 40,
+          "unit": "scratch; starting price, assessment required",
+          "tags": [
+            "stone chips",
+            "scratch improvement",
+            "cosmetic repair"
+          ],
+          "in_stock": true
+        }
+      ]
+    },
+    {
+      "id": "COATINGS",
+      "name": "Ceramic and surface coatings",
+      "items": [
+        {
+          "sku": "CERAMIC_2Y_SMALL",
+          "name": "Entry 2-Year Ceramic Coating — Small (starting price)",
+          "price": 250,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "2-year",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_2Y_MEDIUM",
+          "name": "Entry 2-Year Ceramic Coating — Medium (starting price)",
+          "price": 275,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "2-year",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_2Y_LARGE",
+          "name": "Entry 2-Year Ceramic Coating — Large (starting price)",
+          "price": 300,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "2-year",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_3Y_SMALL",
+          "name": "Premium 3-Year Ceramic Coating — Small (starting price)",
+          "price": 300,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "3-year",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_3Y_MEDIUM",
+          "name": "Premium 3-Year Ceramic Coating — Medium (starting price)",
+          "price": 325,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "3-year",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_3Y_LARGE",
+          "name": "Premium 3-Year Ceramic Coating — Large (starting price)",
+          "price": 350,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "3-year",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_5Y_SMALL",
+          "name": "Signature 5-Year Ceramic Coating — Small (starting price)",
+          "price": 350,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "5-year",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_5Y_MEDIUM",
+          "name": "Signature 5-Year Ceramic Coating — Medium (starting price)",
+          "price": 375,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "5-year",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "CERAMIC_5Y_LARGE",
+          "name": "Signature 5-Year Ceramic Coating — Large (starting price)",
+          "price": 400,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "5-year",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "GLASS_SMALL",
+          "name": "Glass Coating — Small (starting price)",
+          "price": 100,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "window",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "GLASS_MEDIUM",
+          "name": "Glass Coating — Medium (starting price)",
+          "price": 110,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "window",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "GLASS_LARGE",
+          "name": "Glass Coating — Large (starting price)",
+          "price": 120,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "window",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ALLOY_SMALL",
+          "name": "Alloy Coating — Small (starting price)",
+          "price": 100,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "alloy",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ALLOY_MEDIUM",
+          "name": "Alloy Coating — Medium (starting price)",
+          "price": 110,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "alloy",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ALLOY_LARGE",
+          "name": "Alloy Coating — Large (starting price)",
+          "price": 120,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "alloy",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "TYRE_SMALL",
+          "name": "Tyre Coating — Small (starting price)",
+          "price": 45,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "tyre",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "TYRE_MEDIUM",
+          "name": "Tyre Coating — Medium (starting price)",
+          "price": 55,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "tyre",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "TYRE_LARGE",
+          "name": "Tyre Coating — Large (starting price)",
+          "price": 65,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "tyre",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "LEATHER_SMALL",
+          "name": "Leather Coating — Small (starting price)",
+          "price": 100,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "leather",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "LEATHER_MEDIUM",
+          "name": "Leather Coating — Medium (starting price)",
+          "price": 110,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "leather",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "LEATHER_LARGE",
+          "name": "Leather Coating — Large (starting price)",
+          "price": 120,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "leather",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "FABRIC_SMALL",
+          "name": "Fabric Coating — Small (starting price)",
+          "price": 100,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "fabric",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "FABRIC_MEDIUM",
+          "name": "Fabric Coating — Medium (starting price)",
+          "price": 110,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "fabric",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "FABRIC_LARGE",
+          "name": "Fabric Coating — Large (starting price)",
+          "price": 120,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "coating",
+            "protection",
+            "fabric",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        }
+      ]
+    },
+    {
+      "id": "DETAILING",
+      "name": "Detailing and valeting",
+      "items": [
+        {
+          "sku": "MAINTENANCE_SMALL",
+          "name": "Maintenance Valet — Small (starting price)",
+          "price": 70,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "maintenance-valet",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "MAINTENANCE_MEDIUM",
+          "name": "Maintenance Valet — Medium (starting price)",
+          "price": 80,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "maintenance-valet",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "MAINTENANCE_LARGE",
+          "name": "Maintenance Valet — Large (starting price)",
+          "price": 90,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "maintenance-valet",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ULTIMATE_SMALL",
+          "name": "Ultimate Detail — Small (starting price)",
+          "price": 160,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "ultimate-detail",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ULTIMATE_MEDIUM",
+          "name": "Ultimate Detail — Medium (starting price)",
+          "price": 170,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "ultimate-detail",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ULTIMATE_LARGE",
+          "name": "Ultimate Detail — Large (starting price)",
+          "price": 180,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "ultimate-detail",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "RESTORATION_SMALL",
+          "name": "Restoration Detail — Small (starting price)",
+          "price": 200,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "restoration-detail",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "RESTORATION_MEDIUM",
+          "name": "Restoration Detail — Medium (starting price)",
+          "price": 225,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "restoration-detail",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "RESTORATION_LARGE",
+          "name": "Restoration Detail — Large (starting price)",
+          "price": 250,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "restoration-detail",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ENGINE_BAY_SMALL",
+          "name": "Engine Bay Detail — Small (starting price)",
+          "price": 40,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "engine-bay-detail",
+            "small",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ENGINE_BAY_MEDIUM",
+          "name": "Engine Bay Detail — Medium (starting price)",
+          "price": 50,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "engine-bay-detail",
+            "medium",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "ENGINE_BAY_LARGE",
+          "name": "Engine Bay Detail — Large (starting price)",
+          "price": 60,
+          "unit": "vehicle; starting price, final quote on inspection",
+          "tags": [
+            "detailing",
+            "valeting",
+            "engine-bay-detail",
+            "large",
+            "starting_price",
+            "inspection_quote"
+          ],
+          "in_stock": true
+        }
+      ]
+    },
+    {
+      "id": "TRAINING",
+      "name": "One-to-one training",
+      "items": [
+        {
+          "sku": "TRAIN_VALET",
+          "name": "Professional Valeting Training",
+          "price": 295,
+          "unit": "one-day 1-to-1 course",
+          "tags": [
+            "training",
+            "course",
+            "beginner",
+            "valeting"
+          ],
+          "in_stock": true
+        },
+        {
+          "sku": "TRAIN_POLISH",
+          "name": "Machine Polishing & Ceramic Coating Training",
+          "price": 495,
+          "unit": "full-day 1-to-1 course",
+          "tags": [
+            "training",
+            "course",
+            "machine polishing",
+            "ceramic"
+          ],
+          "in_stock": true
+        }
+      ]
+    }
+  ]
+}

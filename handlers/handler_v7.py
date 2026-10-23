@@ -893,6 +893,8 @@ class MessageHandlerV7:
                     knowledge['offering:'+offering['id']] = offering
         if self.catalog:
             items = []
+            from service.agent_knowledge import size_variant_family
+            searched_families = set()
             catalogue_needed = bool(follow_up or self._exact_catalog_item_in_text(question)
                                     or self._looks_like_product_query(question))
             for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
@@ -901,6 +903,11 @@ class MessageHandlerV7:
                         lambda: self.catalog.get_item_by_sku(source_id[len('product:'):]), None)
                     if item:
                         items.append(item)
+                        family = size_variant_family(item.get('name'))
+                        if catalogue_needed and family and family.casefold() not in searched_families:
+                            searched_families.add(family.casefold())
+                            items += self._optional_source('catalog_variants',
+                                lambda: self.catalog.search(text=family,limit=9), [])
             if catalogue_needed:
                 items += self._optional_source('catalog_search', lambda: self.catalog.search(text=question, limit=12), [])
                 items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
@@ -920,7 +927,7 @@ class MessageHandlerV7:
                         facts.pop('price', None)
                     knowledge['product:' + sku] = facts
         if self.faq:
-            for index, row in enumerate(self._optional_faq_rows()[:40]):
+            for index, row in enumerate(self._optional_faq_rows()[:120]):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
                     if any(key.startswith('matched_faq:') and value.get('question') == str(row.get('q') or '')[:500]
