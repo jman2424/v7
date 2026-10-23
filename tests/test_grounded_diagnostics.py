@@ -10,6 +10,25 @@ from service import grounded_conversation
 KNOWLEDGE = {'product:basic': {'name': 'Basic', 'price': 99, 'currency': 'GBP'}}
 
 
+def test_known_uncited_shortlist_does_not_destroy_a_grounded_consultation(monkeypatch):
+    from tests.test_grounded_conversation import _state, _structured_answer
+    knowledge={'product:entry-large':{'name':'Entry Coating Large','price':300,'currency':'GBP'},
+               'faq:size':{'question':'Which size band applies?','answer':'SUVs use Large.'},
+               'faq:price':{'question':'What is the Entry Coating price?',
+                             'answer':'Entry Coating starts at GBP 300 for Large vehicles.'}}
+    payload={'answer':'Your SUV uses Large. Entry Coating starts at GBP 300.',
+             'kind':'answer','sources':['faq:price','faq:size'],'navigation':['booking'],
+             'agent':_state('price',offerings=['product:entry-large'],action='open_destination')}
+    result,state,links,_=_structured_answer(monkeypatch,payload,knowledge=knowledge,
+        question='My SUV needs Entry Coating. What is its starting estimate?',
+        destinations=[{'id':'booking','label':'Book','url':'https://fixture.example/book'}])
+    assert result==payload['answer'] and state['offering_ids']==[]
+    assert state['sources']==['faq:price','faq:size'] and links[0]['url']=='https://fixture.example/book'
+    # A foreign/unknown reference is still rejected rather than pruned.
+    payload['agent']['offering_ids']=['product:another-company']
+    assert _structured_answer(monkeypatch,payload,knowledge=knowledge)[0] is None
+
+
 def run_answer(monkeypatch, payload, *, diagnostics=None):
     def complete(*args, **kwargs):
         if isinstance(payload, Exception):
@@ -166,7 +185,9 @@ def test_visible_recommendations_still_require_cited_offering_sources(monkeypatc
     payload = {'answer': 'The shop can help.', 'kind': 'answer', 'sources': ['business'],
                'agent': _state('recommend', offerings=['product:basic'])}
     knowledge = {**KNOWLEDGE, 'business': {'name': 'Example shop'}}
-    assert _structured_answer(monkeypatch, payload, knowledge=knowledge)[0] is None
+    answer,state,_,_ = _structured_answer(monkeypatch,payload,knowledge=knowledge)
+    assert answer==payload['answer']
+    assert state['offering_ids']==[] and state['last_offering_ids']==[] and state['suggested_replies']==[]
 
 
 @pytest.mark.parametrize('action', ['await_customer_question', 'open_destination', 'open_request_form'])
@@ -250,7 +271,9 @@ def test_remembered_uncited_shortlist_is_not_a_new_recommendation(monkeypatch):
     followup.update(answer='Basic costs £99.', sources=['product:basic'])
     assert _structured_answer(monkeypatch, followup, knowledge=knowledge,
         question="I'll take the first option.", context=context)[1]['selected_offering_id'] == 'product:basic'
-    assert _structured_answer(monkeypatch, payload, knowledge=knowledge)[0] is None
+    answer,pruned,_,_ = _structured_answer(monkeypatch,payload,knowledge=knowledge)
+    assert answer==payload['answer']
+    assert pruned['offering_ids']==['product:pro'] and pruned['last_offering_ids']==['product:pro']
 
 
 @pytest.mark.parametrize('intent', ['discover', 'recommend', 'compare'])

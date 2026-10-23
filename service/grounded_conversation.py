@@ -581,7 +581,13 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
     support_only = intent in {'cancel', 'complaint', 'policy'} or payload.get('kind') == 'refusal'
     remembered = set(context.get('offering_ids', []))
     if not support_only and any(key not in sources and key not in remembered for key in rows):
-        raise ValueError('invalid_agent_offerings')
+        # A valid FAQ-backed price answer can have an uncited catalogue ID in
+        # its optional shortlist metadata. Discard that ID from the visible
+        # shortlist rather than losing the already validated answer. Unknown
+        # IDs still fail above; citations, prices, selection and actions retain
+        # their independent validation below.
+        from service.chat_diagnostics import emit
+        emit('grounded_metadata_pruned',outcome='uncited_offerings')
     # The model may carry a known old shortlist into support metadata. Hide it
     # before checking citations for visible recommendations; source and claim
     # validation of the actual answer remains mandatory.
