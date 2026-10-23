@@ -41,6 +41,27 @@ def run_answer(monkeypatch, payload, *, diagnostics=None):
                                         KNOWLEDGE, [], 'professional', diagnostics=diagnostics)
 
 
+def test_paraphrased_vehicle_requirement_gets_one_bounded_correction(monkeypatch):
+    from tests.test_grounded_conversation import _state
+    payload={'answer':'Entry Coating starts at GBP 300 for Large vehicles.', 'kind':'answer',
+             'sources':['faq:price'], 'agent':_state('price',requirements=['Large SUV'])}
+    calls=[]
+    def complete(*args,**kwargs):
+        calls.append(kwargs)
+        reply=json.loads(json.dumps(payload))
+        if len(calls)==2:
+            reply['agent']['requirements']=['Toyota Yaris Cross SUV']
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(reply)))])
+    monkeypatch.setattr(grounded_conversation,'tracked_completion',complete)
+    state={}
+    result=grounded_conversation.answer(object(),'synthetic-model',
+        'I have a Toyota Yaris Cross SUV. What does Entry Coating cost?',
+        {'faq:price':{'question':'What does Entry Coating cost?',
+                      'answer':'Entry Coating starts at GBP 300 for Large vehicles.'}},[],'professional',agent_state=state)
+    assert result==payload['answer'] and len(calls)==2
+    assert state['requirements']==['Toyota Yaris Cross SUV']
+
+
 def test_validated_answer_records_only_public_source_ids(monkeypatch):
     diagnostics = {}
     text = 'Basic costs £99.'

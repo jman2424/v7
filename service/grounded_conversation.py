@@ -858,7 +858,19 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                             r'\b(?:choose|select)\b.{0,45}\b(?:service|option|package|coating)\b',text,re.I)):
                     repair_reason = 'selected_offering_restarted'
                 elif supported:
-                    break
+                    raw_agent = payload.get('agent')
+                    if attempt==0 and isinstance(raw_agent,dict):
+                        try:
+                            _requirements_state(raw_agent,question,history,context,memory_settings)
+                        except ValueError as exc:
+                            values = raw_agent.get('requirements',[])
+                            if (str(exc)=='unconfirmed_customer_requirement'
+                                    and isinstance(values,list) and all(_requirement(row) for row in values)):
+                                repair_reason = 'unquoted_customer_requirements'
+                            else:
+                                raise
+                    if repair_reason is None:
+                        break
                 elif attempt==0 and failure.get('reason')=='money':
                     repair_reason = 'uncited_price_claim'
                 else:
@@ -881,6 +893,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'recalling customer-provided details without introducing business claims. '
                 'When continue_selected_offering is true, name the already selected offering and explain '
                 'its supported next step with approved navigation. Do not restart selection or list alternatives. '
+                'Copy agent.requirements only as exact contiguous customer quotations, not paraphrases or '
+                'inferred vehicle bands. Use [] when unsure. Set requirements_update to null unless '
+                'the current customer turn provides explicit evidence for a supported update. '
                 'Never invent facts.'}
             completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
         navigation = payload.get('navigation', [])
