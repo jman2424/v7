@@ -867,6 +867,17 @@ class MessageHandlerV7:
             r'\b(?:it|its|my|they|them|their|that|those|one|ones|option|first|second|third|'
             r'eso|esa|ellos|ellas|primero|segundo|tercero|cela|celui|celle|premier|deuxième|troisième|'
             r'هذا|ذلك|تلك|الأول|الثاني|الثالث)\b|^\s*[1-3١-٣]\s*[.)]?\s*$', question, re.I))
+        last_assistant = next((str(row.get('content', '')) for row in reversed(history)
+            if isinstance(row, dict) and row.get('role') == 'assistant'), '') if isinstance(history, list) else ''
+        clarification_reply = (len(re.findall(r'\w+', question)) <= 10
+            and '?' not in question and '؟' not in question
+            and (previous.get('next_action') in {'ask_clarification', 'ask_qualification_question'}
+                 or '?' in last_assistant or '؟' in last_assistant)
+            and not re.search(r'\b(?:cancel\w*|refund\w*|complain\w*|privacy|policy|policies|'
+                              r'account|login|password|opening|hours)\b', question, re.I))
+        # A bare answer to our own clarification (for example a car model)
+        # still needs the customer's preceding service request for retrieval.
+        follow_up = follow_up or clarification_reply
         faq_question = question
         if follow_up and isinstance(history, list):
             customer_context = [str(row.get('content', ''))[:400]
@@ -892,7 +903,7 @@ class MessageHandlerV7:
                                                        and bool(raw_answer.strip()) and len(raw_answer) <= 2000}
         if self.business_core:
             core = self._optional_source('business_core_retrieval', lambda: self.business_core.public_context(
-                query=question, selected_ids=[key[len('offering:'):] for key in remembered
+                query=faq_question, selected_ids=[key[len('offering:'):] for key in remembered
                               if isinstance(key,str) and key.startswith('offering:')]), {})
             knowledge['business_core'] = {**core, **{key: core[key][:limit]
                 if isinstance(core.get(key), list) else []
@@ -918,7 +929,7 @@ class MessageHandlerV7:
                             items += self._optional_source('catalog_variants',
                                 lambda: self.catalog.search(text=family,limit=9), [])
             if catalogue_needed:
-                items += self._optional_source('catalog_search', lambda: self.catalog.search(text=question, limit=12), [])
+                items += self._optional_source('catalog_search', lambda: self.catalog.search(text=faq_question, limit=12), [])
                 items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
             for sku in (session.get('last_items') or [])[:12]:
                 item = self._optional_source('catalog_selection', lambda: self.catalog.get_item_by_sku(sku), None)
@@ -1006,6 +1017,7 @@ class MessageHandlerV7:
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected if channel in {'web', 'test'} else None,
                       allowed_actions=allowed_actions,
+                      retrieval_question=faq_question,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
                                      'customer_statements': session.get('conversation_customer_statements', []),

@@ -770,7 +770,8 @@ def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_url
 
 
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
-           agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None, memory_settings=None):
+           agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None, memory_settings=None,
+           retrieval_question=None):
     started = time.perf_counter()
     provider_completed = False
     rendering_mode = 'generated'
@@ -817,7 +818,10 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
     knowledge = {**knowledge, **request_facts(allowed_actions)}
     remembered = agent_context_rows(agent_context, knowledge)
     from service.agent_knowledge import prioritize_knowledge
-    knowledge = prioritize_knowledge(knowledge, question, remembered)
+    # Ranking must use the same customer-only context as source retrieval.
+    # The actual question and all answer/selection validation remain unchanged.
+    ranking_question = retrieval_question[:6000] if isinstance(retrieval_question, str) else question
+    knowledge = prioritize_knowledge(knowledge, ranking_question, remembered)
     # Advertised form capabilities must survive the same context cap as facts.
     forms = {key:value for key,value in request_facts(allowed_actions).items()
              if key.startswith('capability:request:')}

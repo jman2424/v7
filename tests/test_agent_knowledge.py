@@ -140,6 +140,51 @@ def test_my_car_followup_retrieves_faqs_using_retained_customer_details(monkeypa
     assert any(key.startswith('matched_faq:') and 'Large' in row['answer'] for key,row in seen[0].items())
 
 
+def test_bare_model_after_clarification_keeps_service_prices_in_actual_provider_context(monkeypatch):
+    from pathlib import Path
+    from handlers.handler_v7 import MessageHandlerV7
+    from retrieval.catalog_store import CatalogStore
+    from retrieval.faq_store import FAQStore
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    catalogue = json.loads((Path(__file__).parent/'fixtures/vehicle_consultation_catalog.json').read_text(encoding='utf-8'))
+    items = [item for category in catalogue['categories'] for item in category['items']]
+    # The required service must be found by search, beyond the preview boundary.
+    items.sort(key=lambda item:item['sku'].startswith('GLASS_'))
+    assert next(i for i,item in enumerate(items) if item['sku']=='GLASS_LARGE') >= 40
+    catalogue['categories'] = [{'id':'care', 'name':'Vehicle care', 'items':items}]
+    handler = MessageHandlerV7(SimpleNamespace(catalog=CatalogStore(catalog=catalogue),
+        faq=FAQStore(faq=[{'q':'Which vehicle size bands apply?', 'a':'SUV body types provisionally use Large.'}]),
+        rewriter=SimpleNamespace(_client=object(),_model='synthetic-model')))
+    seen = []
+    def completion(*args, **kwargs):
+        seen.append(json.loads(kwargs['messages'][1]['content']))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps({
+            'kind':'clarification','answer':'What is the main concern?', 'sources':['business']})))])
+    monkeypatch.setattr(grounded_conversation, 'tracked_completion', completion)
+    handler._grounded_answer('MINI Countryman SUV', {'conversation_history':[
+        {'role':'user','content':'I drive a MINI and want glass coating. Which size band and price?'},
+        {'role':'assistant','content':'Which MINI model do you have?'}]})
+    assert seen and seen[0]['question']=='MINI Countryman SUV'
+    knowledge = seen[0]['knowledge']
+    assert knowledge['product:GLASS_LARGE']['price']==120
+    assert knowledge['product:GLASS_LARGE']['currency']=='GBP'
+    assert all('product:GLASS_'+band in knowledge for band in ('SMALL','MEDIUM','LARGE'))
+    assert any('SUV body types' in row.get('answer','') for row in knowledge.values() if isinstance(row,dict))
+
+
+def test_support_interruption_after_clarification_does_not_revive_prior_service_query(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    handler=MessageHandlerV7(SimpleNamespace(rewriter=SimpleNamespace(_client=object(),_model='synthetic-model')))
+    seen=[]
+    monkeypatch.setattr(grounded_conversation, 'answer', lambda *args,**kwargs:seen.append(kwargs['retrieval_question']))
+    handler._grounded_answer('refund policy', {'conversation_history':[
+        {'role':'user','content':'I want Glass Coating pricing'},
+        {'role':'assistant','content':'Which model do you have?'}],
+        'sales_agent':{'next_action':'ask_clarification'}})
+    assert seen==['refund policy']
+
+
 def test_large_native_catalogue_keeps_current_and_remembered_offerings(monkeypatch):
     core = empty_core()
     core['offerings'] = [{'id': f'package-{index}', 'name': f'Package {index}', 'active': True}
