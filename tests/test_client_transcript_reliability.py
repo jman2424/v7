@@ -41,7 +41,9 @@ def test_numbered_choice_survives_pending_qualification(assistant, monkeypatch):
         'qualification_questions': ["What is your car's make and model?"]}})
     guided = policy.guide(result, user_text='3', session=session)
     assert not guided['agent'].get('qualification_answers')
-    assert guided['agent']['qualification_pending']
+    assert not guided['agent']['qualification_pending']
+    assert guided['agent']['qualification_paused']
+    assert "What is your car's make and model?" not in guided['reply']
 
 
 def test_grounded_list_selection_uses_displayed_reference_order_not_stale_items(assistant,monkeypatch):

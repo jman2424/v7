@@ -285,3 +285,33 @@ def mfa_confirm():
             return jsonify(ok=False, error='invalid_credentials'), 401
         trusted_devices.set_cookie(response, token, expires)
     return response
+
+
+@bp.post('/mfa/add-device')
+def mfa_add_device():
+    from service.security import management_user
+    from service.account_mfa import additional_device_setup
+    user = management_user()
+    data = request.get_json(silent=True)
+    if (not isinstance(data,dict) or set(data)-{'current_password','code','csrf_token'}
+            or not isinstance(data.get('current_password'),str) or not 1<=len(data['current_password'])<=256
+            or not isinstance(data.get('code'),str) or len(data['code'])!=6 or not data['code'].isascii()
+            or not data['code'].isdigit()):
+        return jsonify(error='invalid_credentials'),400
+    limiter = current_app.extensions['auth_login_limiter']
+    subject = limiter.identity_key(user)
+    try:
+        attempt = limiter.begin(subject)
+    except LoginThrottled as exc:
+        return jsonify(error='try_again_later',retry_after=exc.retry_after),429
+    try:
+        result = additional_device_setup(user,data['current_password'],data['code'])
+    except ValueError:
+        limiter.fail(subject,attempt)
+        return jsonify(error='verification_failed'),401
+    limiter.release(subject,attempt)
+    current_app.logger.info('SECURITY authenticator_enrollment_viewed')
+    response = jsonify(ok=True,**result)
+    response.headers['Cache-Control'] = 'no-store, private'
+    response.headers['Pragma'] = 'no-cache'
+    return response

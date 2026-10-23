@@ -19,6 +19,16 @@ def catalogue_reply_items(facts: dict) -> list:
     return items[:catalogue_reply_limit(facts.get('search_meta') or {})]
 
 
+def consultation_estimate(text: str) -> str:
+    """Label indicative prices explicitly; fixed prices and code stay unchanged."""
+    if (re.search(r'(?:[£$€]\s*\d|\b(?:GBP|USD|EUR)\s*\d)',text,re.I)
+            and re.search(r'\bstarting prices?\b|\bfinal quote on inspection\b',text,re.I)
+            and not re.search(r'\bestimat\w*\b',text,re.I)):
+        if '```' not in text and '~~~' not in text:
+            text += '\n\nThis is an estimate, not a final quote.'
+    return text
+
+
 def readable_reply(text: str) -> str:
     """Add paragraph breaks to dense prose; leave lists, code and facts intact.
 

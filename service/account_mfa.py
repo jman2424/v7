@@ -96,6 +96,35 @@ def _digest(token):
     return hashlib.sha256(str(token).encode()).hexdigest()
 
 
+def additional_device_setup(identity, password, code):
+    """Reveal this account's existing enrollment only after fresh two-factor proof.
+
+    No replacement, reset, cross-account selector or new login session is created.
+    Both devices share the existing TOTP seed and replay protection.
+    """
+    from service.security import authenticate_user, _revision
+    user = authenticate_user(current_app.container,email=identity['email'],password=password,
+                             tenant=identity.get('tenant') or '')
+    if (not user or account_key(user)!=account_key(identity)
+            or not hmac.compare_digest(user.get('_credential_revision',''),_revision(identity) or '')):
+        raise ValueError('invalid_credentials')
+    secret = user.get('totp_secret')
+    if not secret:
+        raise ValueError('invalid_credentials')
+    with _database() as db:
+        _tables(db)
+        if not session_store._using_postgres():
+            db.execute('BEGIN IMMEDIATE')
+        _consume_code(db,account_key(identity),secret,code)
+    # A concurrent password/access change must not publish an old enrollment.
+    if not hmac.compare_digest(user['_credential_revision'],_revision(identity) or ''):
+        raise ValueError('invalid_credentials')
+    secret = secret.strip().upper().rstrip('=')
+    uri = pyotp.TOTP(secret).provisioning_uri(name=identity['email'],issuer_name='V7 Sales Agent')
+    svg = qrcode.make(uri,image_factory=qrcode.image.svg.SvgPathImage).to_string()
+    return {'setup_key':secret,'qr_image':'data:image/svg+xml;base64,'+base64.b64encode(svg).decode()}
+
+
 def cancel_pending(*, transaction=None):
     """Revoke the server challenge before clearing its browser cookie."""
     token = session.get('mfa_challenge')

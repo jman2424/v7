@@ -1073,7 +1073,8 @@ class MessageHandlerV7:
             if action_type == "consultation":
                 return action_type, (
                     "Use the form below to choose an available consultation time, or send a request for the team to review. "
-                    "A booking is confirmed only after the form succeeds."
+                    "A booking is confirmed only after the form succeeds. "
+                    "Any price or assessment discussed is an estimate, not a final quote."
                 )
             if action_type == "quote":
                 return action_type, "Use the form below to describe what you need and request a quote from the team."

@@ -149,6 +149,13 @@ class SalesAgentPolicy:
                 # This is a verified displayed choice, not a purchase or a
                 # qualification answer. Retain it for the next conversation turn.
                 state['selected_offering_id'] = chosen
+                # A choice is not an answer to a qualification question. Finish
+                # the requested selection without restarting the interview;
+                # the next contextual turn can use already supplied details.
+                if playbook['qualification_questions']:
+                    state.update(stage='assist',next_action='await_customer_question',next_question='',
+                                 suggested_replies=[],qualification_paused=True,qualification_pending=False)
+                    return state
         abandoned = self._clear_abandoned_choices(state, user_text)
         # Qualification must use reconciled evidence/flags, not the stale
         # completion marker from before a requirement was retired.

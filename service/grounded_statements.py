@@ -382,6 +382,8 @@ def render_response(question, payload, state, knowledge, statements, navigation,
         if text not in lines:
             lines.append(text)
         sources.append(source)
+        if requested_action=='consultation':
+            lines.append('Any price or assessment discussed is an estimate, not a final quote.')
     if not lines:
         lines.append('I cannot perform transactions or provide private information.' if payload['kind'] == 'refusal'
                      else 'That detail is not established in the available business policy. Please ask the team to confirm.')

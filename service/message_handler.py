@@ -275,8 +275,8 @@ class MessageHandler:
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
             reply = self.h_v7.finalize_navigation(reply, ctx.channel)
-        from service.reply_formatting import readable_reply
-        reply['reply'] = readable_reply(str(reply.get('reply') or ''))
+        from service.reply_formatting import readable_reply, consultation_estimate
+        reply['reply'] = readable_reply(consultation_estimate(str(reply.get('reply') or '')))
         self._remember_turn(ctx, sess, user_text, reply)
         self._save_session(ctx, sess, reply)
         try:
