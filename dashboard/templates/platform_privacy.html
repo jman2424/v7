@@ -12,10 +12,11 @@
   <header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="/console/">Workspace</a></nav></header>
   <main id="main" class="policy">
     <p class="eyebrow">YOUR INFORMATION</p><h1>Privacy policy</h1>
-    <p class="source">Last updated: 22 October 2026</p>
+    <p class="source">Last updated: 23 October 2026</p>
     <p class="intro">This policy explains how Vertex Seven handles personal information on vertex-seven.com and when providing the V7 Agents platform.</p>
     <section id="controller"><h2>Who is responsible</h2>
       <p><strong>{{ policy.settings.controller_name }}</strong> is the controller for the Vertex Seven website, our own enquiries and demonstration chat, business-account administration, billing and platform security.</p>
+      {% if business_address %}<p>Business address: {{ business_address }}</p>{% endif %}
       <p>For privacy and data protection requests, email <a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>. Please identify the account or business concerned and describe your request. Do not email passwords, full card numbers or authentication codes.</p>
       <p>When a business uses V7 to serve its own customers, that business normally decides why its customer information is collected and is the controller for those conversations. Vertex Seven processes that information to provide the service under the business's instructions. For a conversation with another business's agent, contact that business first; we can help route a request to it. Its privacy notice applies alongside this explanation of the platform.</p>
     </section>

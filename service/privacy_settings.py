@@ -48,6 +48,14 @@ def platform_settings() -> dict:
             "lawful_basis": os.getenv("V7_PRIVACY_LAWFUL_BASIS", "")}
 
 
+def public_business_address() -> str:
+    """Operator-authorised public address, separate from tenant privacy data."""
+    value = os.getenv("V7_PUBLIC_BUSINESS_ADDRESS", "").strip()
+    if len(value) > 500 or any(unicodedata.category(char) in {"Cc", "Cf", "Cs"} for char in value):
+        return ""
+    return value
+
+
 def status(storage=None, tenant: str | None = None) -> dict:
     state = "saved"
     if tenant is None:

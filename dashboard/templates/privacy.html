@@ -15,6 +15,7 @@
     {% if tenant %}<p class="intro">This page contains the privacy details supplied for this business's V7 experience.</p>{% else %}<p class="intro">This page describes the Vertex Seven platform. Each business using a V7 agent has its own responsibilities and privacy information.</p>{% endif %}
     <section><h2>Who is responsible and how to contact them</h2>
       <dl><dt>Controller</dt><dd>{{ policy.settings.controller_name or 'Not provided — needs confirmation.' }}</dd>
+      {% if not tenant and business_address %}<dt>Business address</dt><dd>{{ business_address }}</dd>{% endif %}
       <dt>Privacy contact</dt><dd>{% if policy.settings.contact_email %}<a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>{% else %}Not provided — needs confirmation.{% endif %}</dd></dl>
       <p>The named controller decides how and why personal information is used. The platform operator must clarify its responsibilities and processing arrangements with each business.</p>
     </section>

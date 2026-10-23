@@ -19,7 +19,7 @@ def privacy_app(platform, monkeypatch):
     if bp.name not in app.blueprints:
         app.register_blueprint(bp)
     for name in ("V7_PRIVACY_CONTROLLER", "V7_PRIVACY_CONTACT_EMAIL", "V7_PRIVACY_RETENTION_DAYS",
-                 "V7_PRIVACY_RETENTION_CRITERIA", "V7_PRIVACY_LAWFUL_BASIS", "RENDER",
+                 "V7_PRIVACY_RETENTION_CRITERIA", "V7_PRIVACY_LAWFUL_BASIS", "V7_PUBLIC_BUSINESS_ADDRESS", "RENDER",
                  "V7_GOOGLE_CLIENT_ID", "V7_GOOGLE_CLIENT_SECRET", "V7_MICROSOFT_CLIENT_ID",
                  "V7_MICROSOFT_CLIENT_SECRET"):
         monkeypatch.delenv(name, raising=False)
@@ -63,11 +63,14 @@ def test_completed_platform_policy_is_separate_from_tenant_notices(privacy_app, 
     monkeypatch.setenv("V7_PRIVACY_CONTACT_EMAIL", "data@example.test")
     monkeypatch.setenv("V7_PRIVACY_LAWFUL_BASIS", "Contract for accounts; legitimate interests for security; consent for optional analytics.")
     monkeypatch.setenv("V7_PRIVACY_RETENTION_CRITERIA", "Keep account records while needed for the requested service and outstanding legal obligations.")
+    monkeypatch.setenv("V7_PUBLIC_BUSINESS_ADDRESS", "1 Example Street, Exampletown, AB1 2CD <Suite A>")
     client = privacy_app.test_client()
     page = client.get("/privacy")
     assert page.status_code == 200
     assert "Privacy policy | Vertex Seven" in page.text
     assert "Synthetic Sole Trader trading as Platform" in page.text
+    assert "Business address: 1 Example Street, Exampletown, AB1 2CD &lt;Suite A&gt;" in page.text
+    assert "<Suite A>" not in page.text
     assert 'href="mailto:data@example.test"' in page.text
     for section in ("International transfers", "AI, memory and voice", "Your rights", "How long information is kept"):
         assert section.casefold() in page.text.casefold()
@@ -80,6 +83,7 @@ def test_completed_platform_policy_is_separate_from_tenant_notices(privacy_app, 
     assert "googletagmanager.com" not in page.headers["Content-Security-Policy"]
     tenant = client.get("/privacy?tenant=ALPHA").text
     assert "Synthetic Sole Trader" not in tenant and "data@example.test" not in tenant
+    assert "1 Example Street" not in tenant
     assert "Draft" in tenant
 
 
