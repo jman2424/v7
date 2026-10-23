@@ -105,6 +105,17 @@ def prioritize_knowledge(knowledge, question, remembered):
     pinned = ['business', 'current_platform_offer', remembered.get('selected_offering_id')]
     narrow = len(knowledge) > 24
     pinned += remembered.get('offering_ids', [])
+    # Many near-identical price variants can outrank the rule needed to choose
+    # between them. Keep bounded public sizing/classification guidance alongside
+    # a matching catalogue task, even when a new model name has no literal match.
+    catalogue_task = any(key.startswith(('product:','offering:')) and relevance(row,question)>0
+                         for key,row in knowledge.items())
+    if catalogue_task:
+        guides = [key for key,row in knowledge.items() if key.startswith(('faq:','matched_faq:'))
+            and isinstance(row,dict) and re.search(
+                r'\b(?:classif\w*|sizing|size (?:bands?|guide|categor\w*))\b',
+                str(row.get('question',''))+' '+str(row.get('answer',''))[:160],re.I)]
+        pinned += guides[:2]
     ordered = {key: knowledge[key] for key in pinned if isinstance(key, str) and key in knowledge}
     candidates = [(key, row) for key, row in knowledge.items() if key not in ordered]
     related = [(key, row) for key, row in candidates

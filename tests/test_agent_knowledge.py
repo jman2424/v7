@@ -76,6 +76,17 @@ def test_costs_and_pricing_share_retrieval_vocabulary_without_weakening_claim_ch
                  'faq:size':{'question':'How are SUVs sized?','answer':'A BMW X3 uses Large.'}}
     ranked = prioritize_knowledge(knowledge,'if i have a bmw x3 whats the costs',{})
     assert 'faq:price' in ranked and 'faq:size' in ranked
+
+
+def test_variant_price_matches_cannot_crowd_out_public_classification_guide():
+    knowledge={'business':{'name':'Fixture'},**{f'product:{i}':{
+        'name':f'Ceramic coating variant {i}','price':i,'currency':'GBP'} for i in range(40)},
+        'faq:guide':{'question':'How do we classify models?',
+                     'answer':'Our size bands use the body type. SUVs use Large.'},
+        'faq:background':{'question':'Where did we start?','answer':'A family business.'}}
+    ranked=prioritize_knowledge(knowledge,'I have an unlisted SUV. Show ceramic coating prices.',{})
+    assert 'faq:guide' in ranked and list(ranked).index('faq:guide')<3
+    assert len(ranked)<=24 and 'faq:background' not in ranked
     assert len(ranked) <= 24
 
 
