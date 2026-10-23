@@ -44,6 +44,42 @@ def test_numbered_choice_survives_pending_qualification(assistant, monkeypatch):
     assert guided['agent']['qualification_pending']
 
 
+def test_grounded_list_selection_uses_displayed_reference_order_not_stale_items(assistant,monkeypatch):
+    monkeypatch.setattr(assistant,'_grounded_answer',lambda *a,**k:pytest.fail('A displayed numeric choice needs no model'))
+    session = {'last_items':['SMALL','LARGE','MEDIUM'],'last_items_source':'business_core',
+               'sales_agent':{'last_offering_ids':['product:SMALL','product:MEDIUM','product:LARGE'],
+                              'next_action':'await_customer_question'}}
+    result = assistant.handle('3',SimpleNamespace(channel='test'),session)
+    assert result['intent']=='price_check' and result['facts']['price']['sku']=='LARGE'
+    assert '£500.00' in result['reply']
+    session['sales_agent']['last_offering_ids']=['offering:native','product:LARGE']
+    assert assistant._selected_product_from_session('1',session) is None
+    assert assistant._selected_product_from_session('2',session)['sku']=='LARGE'
+    assert assistant._selected_product_from_session('3',session) is None
+
+
+def test_public_api_remembers_numbered_choice_from_grounded_list(app,client,assistant,monkeypatch):
+    wrapper = app.container.for_tenant('EXAMPLE').handler
+    handler = wrapper.h_v7
+    handler.catalog = assistant.catalog
+    references = ['product:SMALL','product:MEDIUM','product:LARGE']
+    monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:{
+        'reply':'1. Enhancement Small: £400\n2. Enhancement Medium: £450\n3. Enhancement Large: £500',
+        'agent':{'_validated_grounded':True,'intent':'recommend','stage':'recommend',
+                 'objective':'Choose an option','next_action':'compare_options','next_question':'',
+                 'suggested_replies':[],'offering_ids':references,'last_offering_ids':references,
+                 'selected_offering_id':None,'requirements':[]}})
+    first = client.post('/chat_api',json={'tenant':'EXAMPLE','message':'Show me three options'})
+    assert first.status_code==200
+    assert wrapper.memory.get(first.json['session_id'],'last_items',[])==[]
+    monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:pytest.fail('A displayed choice needs no model'))
+    choice = client.post('/chat_api',json={'tenant':'EXAMPLE','message':'3',
+        'conversation_token':first.json['conversation_token']})
+    assert choice.status_code==200 and '£500.00' in choice.json['reply']
+    remembered = wrapper.memory.get(choice.json['session_id'],'sales_agent')
+    assert remembered['selected_offering_id']=='product:LARGE'
+
+
 def test_empty_conversation_recall_asks_for_missing_detail_without_business_retrieval(app,client,monkeypatch):
     handler = app.container.for_tenant('EXAMPLE').handler.h_v7
     monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:pytest.fail('Empty recall needs no model call'))

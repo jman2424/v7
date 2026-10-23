@@ -1577,11 +1577,25 @@ class MessageHandlerV7:
 
     def _selected_product_from_session(self, user_text: str, session: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Resolve a click or numbered choice only within the current session's last results."""
-        if session.get('last_items_source') == 'business_core':
-            return None
         if not self.catalog:
             return None
         agent = session.get("sales_agent") if isinstance(session.get("sales_agent"), dict) else {}
+        number = self._SELECTION_NUMBER.match(user_text or '')
+        references = agent.get('last_offering_ids')
+        if number and isinstance(references,list) and references:
+            index = int(number.group(1))-1
+            if not 0<=index<len(references):
+                return None
+            key = references[index]
+            # Keep mixed-list ordinals intact; never collapse native offerings
+            # into product positions or fall back to an older catalogue list.
+            if not isinstance(key,str) or not key.startswith('product:'):
+                return None
+            item = self.catalog.get_item_by_sku(key[len('product:'):])
+            return (item if isinstance(item,dict) and item.get('active') is not False
+                    and item.get('public') is not False else None)
+        if session.get('last_items_source') == 'business_core':
+            return None
         if (agent.get("next_action") not in self._SELECTION_ACTIONS
                 and not agent.get('qualification_pending')):
             return None

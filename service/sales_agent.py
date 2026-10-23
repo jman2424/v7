@@ -137,6 +137,18 @@ class SalesAgentPolicy:
 
         state = self._default_state(playbook, singular, plural)
         self._retain_task_memory(state, previous)
+        number = re.fullmatch(r'\s*(\d{1,2})\s*[.)]?\s*',user_text or '')
+        if intent=='price_check' and number and isinstance(entities.get('sku'),str):
+            references = previous.get('last_offering_ids')
+            if not isinstance(references,list) or not references:
+                legacy = session.get('last_items')
+                references = ['product:'+str(sku) for sku in legacy[:12]] if isinstance(legacy,list) else []
+            index = int(number.group(1))-1
+            chosen = 'product:'+entities['sku']
+            if 0<=index<len(references) and references[index]==chosen:
+                # This is a verified displayed choice, not a purchase or a
+                # qualification answer. Retain it for the next conversation turn.
+                state['selected_offering_id'] = chosen
         abandoned = self._clear_abandoned_choices(state, user_text)
         # Qualification must use reconciled evidence/flags, not the stale
         # completion marker from before a requirement was retired.
