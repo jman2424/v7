@@ -915,7 +915,7 @@ class MessageHandlerV7:
                 sku = str(item.get('sku') or '')[:120]
                 if sku:
                     facts = _public_product_facts(item, currency)
-                    if not currency or not catalogue_needed:
+                    if not currency or (not catalogue_needed and selected_id != 'product:'+sku):
                         # A missing currency is not permission to assume GBP.
                         facts.pop('price', None)
                     knowledge['product:' + sku] = facts

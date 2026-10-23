@@ -74,14 +74,16 @@ def test_unrelated_artifacts_remain_out_of_scope(text):
     assert unrelated_task(text) is True
 
 
-@pytest.mark.parametrize('question', ['what does green stand for?', 'what did green mean again?',
-                                     'remind me what green means', 'what did I tell you about green?'])
-def test_natural_recall_uses_current_customer_definition(question):
+@pytest.mark.parametrize('question,missing', [
+    ('what does green stand for?',None),('what did green mean again?',None),
+    ('remind me what green means',None),
+    ('what did I tell you about green?',"I don't have that detail available in this conversation. Could you tell me again?")])
+def test_natural_recall_uses_current_customer_definition(question,missing):
     facts = {}
     assert reply('green = good', [], facts=facts)
     assert reply(question, [], facts=facts) == 'You said green = good.'
-    assert reply(question, [], facts={}) is None
-    assert reply(question, [], {'enabled': False}, facts=facts) is None
+    assert reply(question, [], facts={}) == missing
+    assert reply(question, [], {'enabled': False}, facts=facts) == missing
 
 
 @pytest.mark.parametrize('question', ['How much will a bespoke website cost?',
