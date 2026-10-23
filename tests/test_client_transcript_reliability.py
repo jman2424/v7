@@ -64,6 +64,19 @@ def test_exact_faq_ranks_above_answer_word_overlap():
     assert store.best_match('3', min_sim=0.45) == []
 
 
+def test_fallback_search_does_not_match_sentence_filler_against_product_names(assistant):
+    assistant.catalog = CatalogStore(catalog={'version':1,'currency':'GBP','categories':[{
+        'id':'surface','name':'Ceramic and surface coatings','items':[
+            {'sku':f'{kind}_{size}','name':f'{name} {size} starting price','price':price}
+            for kind,name,price in [('LEATHER','Leather Coating',100),('CERAMIC','Entry 2-Year Ceramic Coating',250)]
+            for size in ('Small','Medium','Large')]}]})
+    question = 'What are the Small, Medium and Large starting prices for standalone ceramic coating?'
+    result = assistant.handle(question,SimpleNamespace(channel='test'),{})
+    assert result['facts']['items'][0]['sku'].startswith('CERAMIC_')
+    plan = assistant._heuristic_plan(question,'synthetic')
+    assert not {'the','what','are','and','for'} & set(plan['meta']['search_tags'])
+
+
 def test_long_answer_incidental_word_is_not_a_direct_faq_match():
     store = FAQStore(faq=[{'q': 'How does assessment work?', 'a':
         ' '.join(f'background{i}' for i in range(100)) + ' A BMW owner may book.', 'tags': []}])

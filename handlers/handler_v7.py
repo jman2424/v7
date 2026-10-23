@@ -2013,6 +2013,11 @@ class MessageHandlerV7:
 
         core = "" if browse_all else (self._strip_modifier_words(t) or t)
         core = self._normalize_text(core)
+        # Fuzzy catalog matching must not score sentence filler such as "the"
+        # against "leather" and outrank the explicitly requested service.
+        from retrieval.faq_store import _QUESTION_WORDS
+        core = ' '.join(token for token in core.split()
+                        if token not in _QUESTION_WORDS | self._SEARCH_STOP_WORDS)
 
         tags = self._token_tags(core)
         for x in mods.get("tags") or []:
