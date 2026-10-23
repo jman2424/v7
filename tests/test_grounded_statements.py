@@ -66,6 +66,38 @@ def test_size_only_answer_does_not_expand_into_whole_pricing_and_booking_faq(mon
     assert '£' not in answer and 'book' not in answer.lower()
 
 
+@pytest.mark.parametrize('question,expected_calls',[
+    ('I have a BMW X3. How do I get started with that coating?',2),
+    ('Compare the other coating options before I get started.',1),
+    ('What are the prices before I get started?',1),
+])
+def test_selected_service_next_step_does_not_restart_catalogue(monkeypatch,question,expected_calls):
+    knowledge = {'product:entry':{'name':'Entry Coating','price':300,'currency':'GBP'},
+        'product:signature':{'name':'Signature Coating','price':400,'currency':'GBP'},
+        'faq:booking':{'question':'How do I get started?','answer':'Use the booking page to get started.'}}
+    payloads = [
+        {'answer':'Choose a coating service: Entry Coating GBP 300 or Signature Coating GBP 400.',
+         'kind':'answer','sources':['product:entry','product:signature']},
+        {'answer':'For your selected Signature Coating, use the booking page to get started.',
+         'kind':'answer','sources':['product:signature','faq:booking'], 'navigation':['booking'],
+         'agent':_state('book',selected='product:signature',action='open_destination')}]
+    calls=[]
+    def complete(*args,**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content=json.dumps(payloads[len(calls)-1])))])
+    monkeypatch.setattr(grounded_conversation,'tracked_completion',complete)
+    state={}
+    result=grounded_conversation.answer(object(),'test-model',question,knowledge,[],'professional',
+        agent_context={'selected_offering_id':'product:signature'},agent_state=state,
+        destinations=[{'id':'booking','label':'Book','url':'https://example.com/book'}])
+    assert result and len(calls)==expected_calls
+    if expected_calls==2:
+        assert 'Entry Coating' not in result and 'Signature Coating' in result
+        assert state['selected_offering_id']=='product:signature'
+        assert state['navigation_ids']==['booking']
+
+
 @pytest.mark.parametrize('invented', [
     'The team confirms stock after your order is placed.', 'Order first; we check availability later.',
     'Inventory is checked once checkout is complete.', 'The team checks stock on receipt of payment.',

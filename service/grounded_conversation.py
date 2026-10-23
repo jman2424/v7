@@ -106,7 +106,12 @@ use simple numbered lines or • bullets, with a blank line between options.
 Avoid nested lists. If a customer gives a vehicle/model but no service has been
 chosen, briefly identify its provisional size band and ask which service they
 want; do not dump prices across several service families. Reuse a previously
-chosen service instead of asking again. For a model not explicitly listed in
+chosen service instead of asking again.
+When continue_selected_offering is true, the customer is asking how to proceed
+with agent_context.selected_offering_id. Name that service and give its supported
+next step and relevant navigation, rather than listing the alternatives again.
+The flag authorizes no transaction and does not confirm a booking or payment.
+For a model not explicitly listed in
 the saved examples, state that its band is an estimate based on its body type.
 For a follow-up asking where their car fits or which size band it uses, reuse
 the known make/model and answer the band directly. Do not replace this with
@@ -762,6 +767,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
     destinations = destinations or []
     context = agent_context_rows(agent_context, knowledge)
     size_only = direct_size_request(question)
+    selected_next_step = bool(context.get('selected_offering_id') and re.search(
+        r'\b(?:get started|next steps?|how (?:do|can) I (?:book|proceed)|book (?:it|that|this))\b',question,re.I)
+        and not re.search(r'\b(?:compar\w*|options?|alternatives?|prices?|pricing|costs?|how much|instead)\b',question,re.I))
     from service.agent_response_schema import response_format
     try:
         completion = dict(
@@ -776,6 +784,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "approved_request_actions": allowed_actions,
                           "approved_statements": statements,
                           "agent_context": context,
+                          "continue_selected_offering": selected_next_step,
                       }, ensure_ascii=False)}],
         )
         customer_quotes = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
@@ -819,6 +828,10 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                         extract_money_claims(text) or _PROCESS.search(text)
                         or re.search(r'\bsmall\b.*\bmedium\b.*\blarge\b',text,re.I|re.S)):
                     repair_reason = 'unfocused_size_answer'
+                elif supported and attempt==0 and selected_next_step and (
+                        len(extract_money_claims(text) or ())>1 or re.search(
+                            r'\b(?:choose|select)\b.{0,45}\b(?:service|option|package|coating)\b',text,re.I)):
+                    repair_reason = 'selected_offering_restarted'
                 elif supported:
                     break
                 elif attempt==0 and failure.get('reason')=='money':
@@ -840,7 +853,10 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'not an unrelated catalogue or another request for a known model. '
                 'For required prices use exact current business facts and cite their supplied source IDs. '
                 'Cite business rules too. Use kind=conversation with no sources only for small talk or '
-                'recalling customer-provided details without introducing business claims. Never invent facts.'}
+                'recalling customer-provided details without introducing business claims. '
+                'When continue_selected_offering is true, name the already selected offering and explain '
+                'its supported next step with approved navigation. Do not restart selection or list alternatives. '
+                'Never invent facts.'}
             completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
         navigation = payload.get('navigation', [])
         approved = {row['id']: row for row in destinations}
