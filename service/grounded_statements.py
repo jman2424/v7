@@ -229,7 +229,7 @@ def _promotion_unit(key, statements, knowledge):
         bool(_OFFER.search(topic)) or not _SUPPORT_TOPIC.search(topic))
 
 
-def _offering_summary(row, *, product=False, budget=None, question=''):
+def _offering_summary(row, *, product=False, budget=None, question='', shared_unit=None, service_business=False):
     name = row.get('name')
     if not isinstance(name, str) or not name.strip() or len(name) > 180:
         return ''
@@ -238,7 +238,8 @@ def _offering_summary(row, *, product=False, budget=None, question=''):
     price, currency = row.get('price'), row.get('currency')
     line = name.strip()
     unit = row.get('unit')
-    if isinstance(unit, str) and 0 < len(unit.strip()) <= 80 and unit.casefold() not in line.casefold():
+    if (isinstance(unit, str) and 0 < len(unit.strip()) <= 80 and unit != shared_unit
+            and unit.casefold() not in line.casefold()):
         line += ' (' + unit.strip() + ')'
     if quote_only:
         line += ': Price requires a quote'
@@ -263,6 +264,9 @@ def _offering_summary(row, *, product=False, budget=None, question=''):
     line += _option_summary(row, question)
     if row.get('type') == 'subscription':
         line += '. Billing interval and renewal terms need confirmation from the team'
+    if row.get('type') == 'service' or (service_business and row.get('type') != 'product'):
+        # A service catalogue flag is not evidence of appointment availability.
+        return line.rstrip('. ') + '.'
     if not (product or row.get('type') == 'product'
             or any(key in row for key in ('in_stock', 'stock_quantity', 'stock_status'))):
         return line.rstrip('. ') + '.'
@@ -335,15 +339,24 @@ def render_response(question, payload, state, knowledge, statements, navigation,
         if not support:
             state['offering_ids'] = ordered
         state['last_offering_ids'] = list(reference)
+        rows = [knowledge[key] for key in ordered if key in cited and isinstance(knowledge.get(key),dict)]
+        units = [row.get('unit') for row in rows]
+        shared_unit = (units[0] if len(units)>1 and isinstance(units[0],str)
+                       and 0<len(units[0].strip())<=80 and all(unit==units[0] for unit in units) else None)
+        business = knowledge.get('business',{})
+        service_business = isinstance(business,dict) and business.get('offering_type')=='services'
         for key in ordered:
             if key not in cited or key not in knowledge:
                 continue
             row = knowledge[key]
             text = _offering_summary(row, product=key.startswith('product:'), budget=budget,
-                                     question=question) if isinstance(row, dict) else ''
+                                     question=question,shared_unit=shared_unit,
+                                     service_business=service_business) if isinstance(row, dict) else ''
             if text:
                 offering_lines.append((f'{reference.index(key) + 1}. ' if len(ordered) > 1 else '') + text)
                 offering_sources.append(key)
+        if shared_unit and offering_lines:
+            offering_lines.append('Pricing: '+shared_unit.strip().rstrip('. ')+'.')
     for key in selected:
         row = statements[key]
         if row['text'] not in lines:

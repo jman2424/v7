@@ -40,6 +40,9 @@ def readable_reply(text: str) -> str:
         chunks = re.split(r'(`[^`\n]+`)', block)
         block = ''.join(chunk if index % 2 else re.sub(r'\*\*([^*\n]+)\*\*', r'\1', chunk)
                         for index, chunk in enumerate(chunks))
+        # Whitespace is enforced here as well as requested from the model, so
+        # narrow widgets do not run consecutive multi-line choices together.
+        block = re.sub(r'(?<=\S)\n(?=(?:[-*•]|\d+[.)])\s)', '\n\n', block)
         # Legacy FAQs sometimes store several Small/Medium/Large price bands
         # in a single sentence. Separate the groups without changing a figure,
         # service label, condition, or their shared size-order heading.

@@ -757,8 +757,8 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
     context = agent_context_rows(agent_context, knowledge)
     from service.agent_response_schema import response_format
     try:
-        result = tracked_completion(
-            client, purpose="conversation_answer", model=model, temperature=0.2,
+        completion = dict(
+            purpose="conversation_answer", model=model, temperature=0.2,
             timeout=30, response_format=response_format(knowledge, destinations, allowed_actions,
                 intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS, statements=statements),
             messages=[{"role": "system", "content": INSTRUCTIONS},
@@ -771,8 +771,26 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "agent_context": context,
                       }, ensure_ascii=False)}],
         )
+        result = tracked_completion(client, **completion)
         provider_completed = True
         payload = json.loads(result.choices[0].message.content or "{}")
+        if isinstance(payload,dict) and payload.get('kind')=='answer' and payload.get('sources')==[]:
+            # Some models label a conversational recall as a business answer,
+            # or omit citations for a business rule. One accounted correction
+            # is preferable to discarding it into an unrelated catalogue path.
+            # Provider errors/timeouts never enter this repair; the same shared
+            # turn budget and all downstream validation remain in force.
+            from service.chat_diagnostics import emit
+            emit('grounded_contract_repair',outcome='answer_missing_sources',attempt=1)
+            correction = {'role':'system','content':INSTRUCTIONS +
+                '\nYour previous response was rejected because kind=answer had no sources. '
+                'Return a corrected response. Cite the supplied source IDs for business facts, including '
+                'size rules and prices. Use kind=conversation with no sources only for small talk or '
+                'recalling customer-provided details, without introducing business claims. '
+                'Answer the current question directly; do not invent missing facts or ask for a detail already given.'}
+            completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
+            result = tracked_completion(client,**completion)
+            payload = json.loads(result.choices[0].message.content or '{}')
         text, sources, kind = payload.get("answer"), payload.get("sources"), payload.get("kind")
         if (not isinstance(text, str) or not text.strip() or len(text) > 4000
                 or kind not in {'answer', 'greeting', 'clarification', 'refusal', 'conversation'}

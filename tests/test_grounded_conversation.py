@@ -60,7 +60,29 @@ def test_empty_credit_skips_provider_and_suppresses_more_calls_this_turn(ledger)
 ])
 def test_unsafe_claims_are_rejected_after_accounting(ledger, text, sources):
     assert ask(client_for(text, sources)) is None
-    assert api_usage.summary('EXAMPLE', 30)['totals']['calls'] == 1
+    assert api_usage.summary('EXAMPLE', 30)['totals']['calls'] == (1 if sources else 2)
+
+
+def test_missing_business_citations_receive_one_accounted_repair(ledger):
+    client = client_for('Basic is £99.',[])
+    first = client.chat.completions.create.return_value
+    corrected = client_for('Basic is £99.',['product:basic']).chat.completions.create.return_value
+    client.chat.completions.create.side_effect = [first,corrected]
+    assert ask(client)=='Basic is £99.'
+    assert client.chat.completions.create.call_count==2
+    assert 'previous response was rejected' in client.chat.completions.create.call_args.kwargs['messages'][0]['content']
+    assert 'previous response was rejected' not in client.chat.completions.create.call_args_list[0].kwargs['messages'][0]['content']
+    assert api_usage.summary('EXAMPLE',30)['totals']['calls']==2
+    assert usage_wallet.report('EXAMPLE')['unknown_reservations']==0
+    assert usage_wallet.report('EXAMPLE')['spent_pence']>0
+
+
+def test_repaired_answer_cannot_bypass_price_validation(ledger):
+    client = client_for('Basic is £99.',[])
+    client.chat.completions.create.side_effect = [client.chat.completions.create.return_value,
+        client_for('Basic is £500.',['product:basic']).chat.completions.create.return_value]
+    assert ask(client) is None
+    assert client.chat.completions.create.call_count==2
 
 
 def test_follow_up_includes_bounded_recent_conversation(ledger):
@@ -77,6 +99,7 @@ def test_provider_failure_returns_fallback_without_exposing_error(ledger):
     client = client_for('', [])
     client.chat.completions.create.side_effect = RuntimeError('private provider failure')
     assert ask(client) is None
+    client.chat.completions.create.assert_called_once()
 
 
 def test_handler_prefers_grounded_answer_over_delivery_and_catalogue(monkeypatch):

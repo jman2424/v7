@@ -32,6 +32,20 @@ def run(monkeypatch, knowledge, *, text='The team checks stock after checkout.',
     return answer, state, diagnostics, calls
 
 
+@pytest.mark.parametrize('offering_type',['services','products'])
+def test_shared_price_conditions_appear_once_and_service_flags_are_not_inventory(monkeypatch,offering_type):
+    unit = 'vehicle; starting price, final quote on inspection'
+    knowledge = {'business':{'offering_type':offering_type},
+                 'product:a':{'name':'Service A','price':300,'currency':'GBP','unit':unit,'in_stock':True},
+                 'product:b':{'name':'Service B','price':400,'currency':'GBP','unit':unit,'in_stock':True}}
+    answer,_,diagnostics,_ = run(monkeypatch,knowledge,question='Can I get a quote?',
+        text='The team confirms the final quote.',sources=['product:a','product:b'],intent='quote')
+    assert diagnostics['accepted']
+    assert answer.count(unit)==1 and '£300.00' in answer and '£400.00' in answer
+    assert ('Recorded product availability: in stock' in answer)==(offering_type=='products')
+    assert 'confirmed appointment' not in answer
+
+
 @pytest.mark.parametrize('invented', [
     'The team confirms stock after your order is placed.', 'Order first; we check availability later.',
     'Inventory is checked once checkout is complete.', 'The team checks stock on receipt of payment.',

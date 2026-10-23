@@ -1,5 +1,6 @@
 """Credits require exact canonical Stripe payments, never a redirect or payload."""
 from copy import deepcopy
+from datetime import date
 import json
 import time
 
@@ -396,7 +397,9 @@ def test_permissions_tenant_scope_and_audited_adjustment_idempotency(client, pai
     assert client.get('/billing/usage-credit?page=-1').status_code == 400
 
 
-def test_unconfirmed_review_is_operator_only_tenant_scoped_and_explicit(client,paid_stripe):
+def test_unconfirmed_review_is_operator_only_tenant_scoped_and_explicit(client,paid_stripe,monkeypatch):
+    monkeypatch.setattr(usage_wallet.usage_currency,'gbp_rate',lambda:{
+        'rate':1,'date':date.today().isoformat(),'stale':False,'source':'synthetic'})
     identity(client,'platform_admin')
     usage_wallet.adjust('EXAMPLE',500,'Test funding','operator','review-funding')
     held = usage_wallet.reserve_usage('EXAMPLE',100_000)

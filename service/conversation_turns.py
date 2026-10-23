@@ -76,4 +76,7 @@ def reply(text, history, settings=None, facts=None, first_message=None):
                 return f"You said {remembered[0]} = {remembered[1]}."
         if '=' in text or normalized.startswith('what did i say'):
             return f"What does {key} refer to? I don't have a meaning for it in this conversation."
+    if not history and not first_message and re.search(
+            r'\b(?:did i tell you|have i told you|did i mention|have i mentioned)\b', normalized):
+        return "I don't have that detail available in this conversation. Could you tell me again?"
     return None

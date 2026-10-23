@@ -44,6 +44,22 @@ def test_numbered_choice_survives_pending_qualification(assistant, monkeypatch):
     assert guided['agent']['qualification_pending']
 
 
+def test_empty_conversation_recall_asks_for_missing_detail_without_business_retrieval(app,client,monkeypatch):
+    handler = app.container.for_tenant('EXAMPLE').handler.h_v7
+    monkeypatch.setattr(handler,'_grounded_answer',lambda *a,**k:pytest.fail('Empty recall needs no model call'))
+    result = client.post('/chat_api',json={
+        'tenant':'EXAMPLE','message':'What car did I tell you I have earlier in this conversation?'})
+    assert result.status_code==200
+    assert result.json['reply']=="I don't have that detail available in this conversation. Could you tell me again?"
+
+
+def test_available_conversation_details_are_left_for_normal_contextual_answering():
+    from service.conversation_turns import reply
+    question = 'What car did I tell you I have earlier in this conversation?'
+    assert reply(question,[{'role':'user','content':'I have a BMW X3.'}]) is None
+    assert reply(question,[],first_message='I have a BMW X3.') is None
+
+
 @pytest.mark.parametrize('text', [
     'who is your owner are they trained', 'where can i find you guys', 'what',
 ])

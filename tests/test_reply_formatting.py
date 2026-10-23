@@ -60,11 +60,14 @@ def test_prose_breaks_preserve_every_word_decimal_url_and_condition():
 def test_existing_lists_and_fenced_code_are_not_flattened_or_interpreted():
     text = ('Your options:\n\n1) Small — £100.25\n2) Large — £200.50\n\n'
             '```python\nif ready:\n    print("<script>alert(1)</script>")\n\n    finish()\n```')
-    assert readable_reply(text) == text
+    expected = text.replace('£100.25\n2)', '£100.25\n\n2)')
+    assert readable_reply(text) == expected
+    assert readable_reply(expected) == expected
+    assert readable_reply(text).split() == text.split()
     assert safe_minimal_rewrite(text) == text
     rewriter = Rewriter(max_chars=50)
     rewriter._client = Mock()
-    assert rewriter.rewrite(text) == text
+    assert rewriter.rewrite(text) == expected
     rewriter._client.chat.completions.create.assert_not_called()
 
 
@@ -82,7 +85,7 @@ def test_final_api_reply_and_memory_keep_paragraphs(app, client, monkeypatch):
         'reply': text, 'intent': 'system_clarify'})
     response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'SYNTHETIC formatting check'})
     assert response.status_code == 200
-    assert text in response.json['reply']
+    assert readable_reply(text) in response.json['reply']
     history = handler.memory.get(response.json['session_id'], 'conversation_history')
     assert history[-1]['content'] == response.json['reply']
 
