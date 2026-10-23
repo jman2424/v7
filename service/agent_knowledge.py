@@ -14,7 +14,8 @@ _STOP_WORDS = frozenset({
 
 
 def _terms(value):
-    return {word for word in re.findall(r'[^\W_]+', str(value or '').casefold())
+    return {'price' if word in {'price','prices','pricing','cost','costs'} else word
+            for word in re.findall(r'[^\W_]+', str(value or '').casefold())
             if len(word) > 2 and word not in _STOP_WORDS}
 
 

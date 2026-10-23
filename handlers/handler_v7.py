@@ -855,12 +855,18 @@ class MessageHandlerV7:
         pages = self._optional_source('website_retrieval',
             lambda: relevant_passages(self.website_knowledge, question, limit=6), [])
         follow_up = len(re.findall(r'\w+', question)) <= 10 and bool(re.search(
-            r'\b(?:it|its|they|them|their|that|those|one|ones|option|first|second|third|'
+            r'\b(?:it|its|my|they|them|their|that|those|one|ones|option|first|second|third|'
             r'eso|esa|ellos|ellas|primero|segundo|tercero|cela|celui|celle|premier|deuxième|troisième|'
             r'هذا|ذلك|تلك|الأول|الثاني|الثالث)\b|^\s*[1-3١-٣]\s*[.)]?\s*$', question, re.I))
+        faq_question = question
         if follow_up and isinstance(history, list):
-            query = question + ' ' + ' '.join(str(row.get('content', ''))[:400]
-                for row in history[-4:] if isinstance(row, dict) and row.get('role') == 'user')
+            customer_context = [str(row.get('content', ''))[:400]
+                for row in history[-4:] if isinstance(row, dict) and row.get('role') == 'user']
+            statements = session.get('conversation_customer_statements', [])
+            if isinstance(statements,list):
+                customer_context += [row[:180] for row in statements[-2:] if isinstance(row,str)]
+            query = question + ' ' + ' '.join(dict.fromkeys(customer_context))
+            faq_question = query
             for page in self._optional_source('website_followup',
                     lambda: relevant_passages(self.website_knowledge, query, limit=6), []):
                 if len(pages) < 6 and page not in pages:
@@ -868,7 +874,7 @@ class MessageHandlerV7:
         for index, page in enumerate(pages):
             knowledge[f'website:{index}'] = page
         if self.faq:
-            for index, row in enumerate(self._optional_faq_rows(question)):
+            for index, row in enumerate(self._optional_faq_rows(faq_question)):
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
                     knowledge[f'matched_faq:{index}'] = {'question': str(row.get('q') or '')[:500],
@@ -1276,6 +1282,8 @@ class MessageHandlerV7:
         # retrieval tool, not an intent classifier for arbitrary questions.
         if re.match(r'^(?:who|where|when)\b', t):
             return False
+        if self._PRICE_REQUEST.search(t):
+            return True
         if any(re.search(r'(?<!\w)' + re.escape(w) + r'(?!\w)', t) for w in self._BUY_WORDS):
             return True
         from retrieval.faq_store import _meaningful_tokens

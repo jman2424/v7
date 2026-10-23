@@ -48,6 +48,56 @@ def test_narrow_question_does_not_send_the_whole_catalogue_and_faq_collection():
     assert 'faq:location' in ranked and len(ranked) <= 24
 
 
+def test_costs_and_pricing_share_retrieval_vocabulary_without_weakening_claim_checks():
+    knowledge = {'business':{'name':'Fixture'},
+                 **{f'faq:{i}':{'question':f'Background {i}','answer':'Unrelated information.'} for i in range(40)},
+                 'faq:price':{'question':'What are the ceramic coating prices?',
+                              'answer':'Small GBP 250, Medium GBP 275, Large GBP 300.'},
+                 'faq:size':{'question':'How are SUVs sized?','answer':'A BMW X3 uses Large.'}}
+    ranked = prioritize_knowledge(knowledge,'if i have a bmw x3 whats the costs',{})
+    assert 'faq:price' in ranked and 'faq:size' in ranked
+    assert len(ranked) <= 24
+
+
+def test_costs_question_keeps_catalogue_prices_in_the_grounded_request(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    from retrieval.catalog_store import CatalogStore
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    handler = MessageHandlerV7(SimpleNamespace(
+        rewriter=SimpleNamespace(_client=object(),_model='test-model'),
+        catalog=CatalogStore(catalog={'version':1,'currency':'GBP','categories':[{
+            'id':'care','name':'Vehicle care','items':[
+                {'sku':'LARGE','name':'Ceramic coating Large starting price','price':300}]}]})))
+    seen = []
+    monkeypatch.setattr(grounded_conversation,'answer',lambda *args,**kwargs:seen.append(args[3]))
+    handler._grounded_answer('if i have a bmw x3 whats the costs',{})
+    assert seen[0]['product:LARGE']['price']==300
+
+
+def test_my_car_followup_retrieves_faqs_using_retained_customer_details(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    from retrieval.faq_store import FAQStore
+    monkeypatch.delenv('OPENAI_API_KEY',raising=False)
+    handler = MessageHandlerV7(SimpleNamespace(
+        rewriter=SimpleNamespace(_client=object(),_model='test-model'),
+        faq=FAQStore(faq=[{'q':'How are SUVs sized?',
+                           'a':'A BMW X3 provisionally uses Large.'}])))
+    queries = []
+    original = handler._optional_faq_rows
+    def faq_rows(question=None):
+        queries.append(question)
+        return original(question)
+    monkeypatch.setattr(handler,'_optional_faq_rows',faq_rows)
+    seen = []
+    monkeypatch.setattr(grounded_conversation,'answer',lambda *args,**kwargs:seen.append(args[3]))
+    handler._grounded_answer('so were would you put my car',{
+        'conversation_history':[{'role':'assistant','content':'Unrelated assistant vocabulary must not drive retrieval.'}],
+        'conversation_customer_statements':['if i have a bmw x3 whats the costs']})
+    assert 'bmw x3' in queries[0]
+    assert 'Unrelated assistant' not in queries[0]
+    assert any(key.startswith('matched_faq:') and 'Large' in row['answer'] for key,row in seen[0].items())
+
+
 def test_large_native_catalogue_keeps_current_and_remembered_offerings(monkeypatch):
     core = empty_core()
     core['offerings'] = [{'id': f'package-{index}', 'name': f'Package {index}', 'active': True}

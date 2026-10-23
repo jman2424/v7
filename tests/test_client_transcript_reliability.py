@@ -54,6 +54,11 @@ def test_information_questions_do_not_use_catalogue_partial_matches(assistant, t
     assert '£400' not in result['reply']
 
 
+@pytest.mark.parametrize('text',['if i have a bmw x3 whats the costs','What is the pricing?','What are the prices?'])
+def test_plural_price_questions_receive_current_catalogue_knowledge(assistant,text):
+    assert assistant._looks_like_product_query(text)
+
+
 def test_exact_faq_ranks_above_answer_word_overlap():
     store = FAQStore(faq=[
         {'q': 'What services do you offer?', 'a': 'Services, booking, prices and social media.', 'tags': ['services']},
