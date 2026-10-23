@@ -44,7 +44,7 @@
     ]} | tojson }}</script>
   <meta name="theme-color" content="#087f5b">
   {% include 'platform_favicons.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261020buying') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261023pricing') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
   {% if ga4_measurement_id %}
   <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
@@ -110,7 +110,7 @@
     <section class="section use-cases wrap" id="use-cases"><p class="eyebrow">BUILT AROUND YOUR BUSINESS</p><h2>Different businesses.<br>Familiar questions.</h2><div class="use-grid"><article><span class="use-symbol" aria-hidden="true">▧</span><h3>Retail & online stores</h3><p>“Which product is right for me?”</p><span>Help shoppers explore products and understand delivery options.</span></article><article><span class="use-symbol" aria-hidden="true">⌂</span><h3>Local & multi-branch businesses</h3><p>“Where can I find you?”</p><span>Make branch locations, opening hours and store information easier to find.</span></article><article><span class="use-symbol" aria-hidden="true">↗</span><h3>Businesses with repeat enquiries</h3><p>“How does this work?”</p><span>Use your FAQs to answer common questions and share your contact paths.</span></article></div></section>
     <div class="wrap">{% include 'public_buying_links.html' %}</div>
     <section class="section wrap" id="pricing" aria-labelledby="pricing-title">
-      <div class="section-heading"><div><p class="eyebrow">MONTHLY SUBSCRIPTIONS</p><h2 id="pricing-title">The right plan.<br>Room to grow.</h2></div><p>Website and WhatsApp agents in every plan. {% if subscription_vat_percent %}GBP prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}Final GBP prices are shown. No VAT is added to these prices.{% endif %} Setup is a separate one-time payment.</p></div>
+      <div class="section-heading"><div><p class="eyebrow">MONTHLY SUBSCRIPTIONS</p><h2 id="pricing-title">The right plan.<br>Room to grow.</h2></div><p>Website and WhatsApp agents in every plan. {% if subscription_vat_percent %}GBP prices before VAT and totals including {{ subscription_vat_percent }}% VAT are shown together.{% else %}Final GBP prices are shown.{% endif %} Setup is a separate one-time payment.</p></div>
       {% include 'public_plan_comparison.html' %}
     </section>
     <section class="section wrap faq-layout" id="questions"><div><p class="eyebrow">FREQUENTLY ASKED QUESTIONS</p><h2>What you need<br>to know.</h2><p>How access, setup and integrations work.</p></div><div class="faq-list">

@@ -163,6 +163,7 @@ h3 { font-size: 20px; line-height: 1.35; letter-spacing: -.02em; }
 .plan-highlights { display: grid; gap: 10px; padding: 0; margin: 24px 0 0; list-style: none; font-size: 13px; color: var(--charcoal); }
 .plan-highlights li::before { content: '✓'; color: var(--accent); margin-right: 8px; }
 #pricing .pricing-plans .feature a { margin-top: 28px; }
+.pricing-note { margin-top: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .plan-comparison { max-width: 100%; overflow-x: auto; margin-top: 34px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .plan-comparison table { width: 100%; min-width: 560px; border-collapse: collapse; text-align: left; font-size: 13px; }
 .plan-comparison caption { text-align: left; padding: 22px 24px; font-size: 18px; font-weight: 600; color: var(--charcoal); }

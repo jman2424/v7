@@ -223,8 +223,13 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     assert 'including 20% VAT' not in response.text
     assert 'including 0% VAT' not in response.text
     assert '£118.80' not in response.text
-    assert '£99.00 / month' in response.text
-    assert '£149.00 setup' in response.text
+    page=HomeStructuredData()
+    page.feed(response.text)
+    visible=' '.join(' '.join(page.visible_text).split())
+    assert '£99 / month' in visible
+    assert '£149 one-time setup' in visible
+    assert visible.count('VAT')==1
+    assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
 
 
 @pytest.mark.parametrize('registered', [True, False])
@@ -327,7 +332,10 @@ def test_dedicated_pricing_uses_current_catalogue_and_separates_usage(seo_client
         if registered:
             assert '£130.80 / month including 20% VAT' in visible
         else:
-            assert '£109.00 / month — no VAT charged' in visible
+            assert '£109 / month' in visible
+            assert visible.count('VAT') == 1
+            assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
+            assert 'before VAT' not in visible
         assert 'AI processing credit purchased separately' in visible
         assert 'No fixed message or conversation cap' in visible
         assert 'WhatsApp phone numbers are not included' in visible
