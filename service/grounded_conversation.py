@@ -108,6 +108,9 @@ chosen, briefly identify its provisional size band and ask which service they
 want; do not dump prices across several service families. Reuse a previously
 chosen service instead of asking again. For a model not explicitly listed in
 the saved examples, state that its band is an estimate based on its body type.
+For a follow-up asking where their car fits or which size band it uses, reuse
+the known make/model and answer the band directly. Do not replace this with
+another service-selection question or a price list unless prices were requested.
 Match the customer's language and the supplied tone. Keep the answer concise but
 complete. Answer the question first, usually in 1–3 short paragraphs. Put a blank
 line between paragraphs. For choices or comparisons show 2–3 relevant options,
@@ -417,6 +420,7 @@ def _requirements_state(raw, question, history, context, memory_settings=None):
     retired = previous.get('retired_requirements', [])
     requirements = raw.get('requirements', [])
     customer_text = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
+    customer_text += context.get('customer_statements', [])
     added = []
     update = raw.get('requirements_update')
     if (isinstance(update, dict) and not set(update) - {'add', 'remove', 'clear', 'evidence'}
@@ -646,7 +650,7 @@ def bounded_knowledge(knowledge):
     return result
 
 
-def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_urls=None):
+def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_urls=None, failure=None):
     from service.grounded_money import monetary_claims_supported
 
     evidence = json.dumps([knowledge[key] for key in sources], ensure_ascii=False)
@@ -681,6 +685,8 @@ def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_url
     elif _UNSUPPORTED_ACTION.search(text):
         rejection = 'completed_action'
     if rejection:
+        if isinstance(failure,dict):
+            failure['reason'] = rejection
         emit('grounded_claim_rejected', outcome=rejection)
         return False
     if approved_urls is not None:
@@ -771,54 +777,64 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "agent_context": context,
                       }, ensure_ascii=False)}],
         )
-        result = tracked_completion(client, **completion)
-        provider_completed = True
-        payload = json.loads(result.choices[0].message.content or "{}")
-        if isinstance(payload,dict) and payload.get('kind')=='answer' and payload.get('sources')==[]:
-            # Some models label a conversational recall as a business answer,
-            # or omit citations for a business rule. One accounted correction
-            # is preferable to discarding it into an unrelated catalogue path.
-            # Provider errors/timeouts never enter this repair; the same shared
-            # turn budget and all downstream validation remain in force.
-            from service.chat_diagnostics import emit
-            emit('grounded_contract_repair',outcome='answer_missing_sources',attempt=1)
-            correction = {'role':'system','content':INSTRUCTIONS +
-                '\nYour previous response was rejected because kind=answer had no sources. '
-                'Return a corrected response. Cite the supplied source IDs for business facts, including '
-                'size rules and prices. Use kind=conversation with no sources only for small talk or '
-                'recalling customer-provided details, without introducing business claims. '
-                'Answer the current question directly; do not invent missing facts or ask for a detail already given.'}
-            completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
-            result = tracked_completion(client,**completion)
-            payload = json.loads(result.choices[0].message.content or '{}')
-        text, sources, kind = payload.get("answer"), payload.get("sources"), payload.get("kind")
-        if (not isinstance(text, str) or not text.strip() or len(text) > 4000
-                or kind not in {'answer', 'greeting', 'clarification', 'refusal', 'conversation'}
-                or (kind == 'answer' and not sources)
-                or not isinstance(sources, list) or len(sources) > 12
-                or any(not isinstance(key, str) or key not in knowledge for key in sources)):
-            pause_ai_for_turn()
-            logger.warning('Grounded conversation rejected (output_contract)')
-            finish('output_contract')
-            return None
-        if kind == 'conversation' and (sources or payload.get('statement_ids')
-                or payload.get('navigation') or payload.get('requested_action')):
-            pause_ai_for_turn()
-            finish('invalid_conversation')
-            return None
-        from service.grounded_statements import protected_request
-        if kind == 'conversation' and protected_request(question, payload, statements):
-            pause_ai_for_turn()
-            finish('invalid_conversation')
-            return None
         customer_quotes = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
         customer_quotes += context.get('previous_agent', {}).get('requirements', [])
-        if not _claims_supported(text, sources, knowledge, customer_quotes,
-                                 approved_urls={row['url'] for row in destinations}):
-            pause_ai_for_turn()
-            logger.warning('Grounded conversation rejected (unsupported_claim)')
-            finish('unsupported_claim')
-            return None
+        for attempt in range(2):
+            result = tracked_completion(client, **completion)
+            provider_completed = True
+            payload = json.loads(result.choices[0].message.content or "{}")
+            if not isinstance(payload,dict):
+                pause_ai_for_turn()
+                finish('output_contract')
+                return None
+            text, sources, kind = payload.get('answer'), payload.get('sources'), payload.get('kind')
+            invalid_contract = (not isinstance(text,str) or not text.strip() or len(text)>4000
+                or kind not in {'answer','greeting','clarification','refusal','conversation'}
+                or (kind=='answer' and not sources)
+                or not isinstance(sources,list) or len(sources)>12
+                or any(not isinstance(key,str) or key not in knowledge for key in sources))
+            repair_reason = None
+            if invalid_contract:
+                if attempt==0 and kind=='answer' and sources==[]:
+                    repair_reason = 'answer_missing_sources'
+                else:
+                    pause_ai_for_turn()
+                    logger.warning('Grounded conversation rejected (output_contract)')
+                    finish('output_contract')
+                    return None
+            else:
+                from service.grounded_statements import protected_request
+                if kind=='conversation' and (sources or payload.get('statement_ids')
+                        or payload.get('navigation') or payload.get('requested_action')
+                        or protected_request(question,payload,statements)):
+                    pause_ai_for_turn()
+                    finish('invalid_conversation')
+                    return None
+                failure = {}
+                if _claims_supported(text,sources,knowledge,customer_quotes,
+                        approved_urls={row['url'] for row in destinations},failure=failure):
+                    break
+                if attempt==0 and failure.get('reason')=='money':
+                    repair_reason = 'uncited_price_claim'
+                else:
+                    pause_ai_for_turn()
+                    logger.warning('Grounded conversation rejected (unsupported_claim)')
+                    finish('unsupported_claim')
+                    return None
+            # At most one accounted correction, within the shared turn budget.
+            # Provider errors/timeouts, unsafe URLs and completed-action claims
+            # are not retried. The corrected response passes every guard again.
+            from service.chat_diagnostics import emit
+            emit('grounded_contract_repair',outcome=repair_reason,attempt=1)
+            correction = {'role':'system','content':INSTRUCTIONS +
+                '\nYour previous response failed validation ('+repair_reason+'). Return a corrected response. '
+                'Answer the current question directly. Do not include any price or money amount unless '
+                'the current question asks for pricing. A size/classification follow-up needs the band first, '
+                'not an unrelated catalogue or another request for a known model. '
+                'For required prices use exact current business facts and cite their supplied source IDs. '
+                'Cite business rules too. Use kind=conversation with no sources only for small talk or '
+                'recalling customer-provided details without introducing business claims. Never invent facts.'}
+            completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
         navigation = payload.get('navigation', [])
         approved = {row['id']: row for row in destinations}
         if not isinstance(navigation, list) or len(navigation) > 3 or any(

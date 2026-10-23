@@ -60,6 +60,19 @@ def test_available_conversation_details_are_left_for_normal_contextual_answering
     assert reply(question,[],first_message='I have a BMW X3.') is None
 
 
+def test_retained_customer_quotes_validate_requirements_after_short_history_expires():
+    from service.grounded_conversation import _requirements_state
+    raw = {'requirements':['BMW X3']}
+    assert _requirements_state(raw,'Which size band is my car?',[],{
+        'customer_statements':['if i have a BMW X3 whats the costs']})[0]==['BMW X3']
+    with pytest.raises(ValueError,match='unconfirmed_customer_requirement'):
+        _requirements_state(raw,'Which size band is my car?',[],{})
+    # Retained quotes cannot authorize a new update on a later customer turn.
+    with pytest.raises(ValueError,match='unconfirmed_requirements_update'):
+        _requirements_state({'requirements_update':{'add':['BMW X3'],'evidence':'BMW X3'}},
+            'Which size band is my car?',[],{'customer_statements':['I have a BMW X3']})
+
+
 @pytest.mark.parametrize('text', [
     'who is your owner are they trained', 'where can i find you guys', 'what',
 ])

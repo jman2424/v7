@@ -60,7 +60,7 @@ def test_empty_credit_skips_provider_and_suppresses_more_calls_this_turn(ledger)
 ])
 def test_unsafe_claims_are_rejected_after_accounting(ledger, text, sources):
     assert ask(client_for(text, sources)) is None
-    assert api_usage.summary('EXAMPLE', 30)['totals']['calls'] == (1 if sources else 2)
+    assert api_usage.summary('EXAMPLE', 30)['totals']['calls'] == (2 if not sources or text.startswith('Basic costs') else 1)
 
 
 def test_missing_business_citations_receive_one_accounted_repair(ledger):
@@ -70,8 +70,8 @@ def test_missing_business_citations_receive_one_accounted_repair(ledger):
     client.chat.completions.create.side_effect = [first,corrected]
     assert ask(client)=='Basic is £99.'
     assert client.chat.completions.create.call_count==2
-    assert 'previous response was rejected' in client.chat.completions.create.call_args.kwargs['messages'][0]['content']
-    assert 'previous response was rejected' not in client.chat.completions.create.call_args_list[0].kwargs['messages'][0]['content']
+    assert 'previous response failed validation' in client.chat.completions.create.call_args.kwargs['messages'][0]['content']
+    assert 'previous response failed validation' not in client.chat.completions.create.call_args_list[0].kwargs['messages'][0]['content']
     assert api_usage.summary('EXAMPLE',30)['totals']['calls']==2
     assert usage_wallet.report('EXAMPLE')['unknown_reservations']==0
     assert usage_wallet.report('EXAMPLE')['spent_pence']>0
@@ -83,6 +83,19 @@ def test_repaired_answer_cannot_bypass_price_validation(ledger):
         client_for('Basic is £500.',['product:basic']).chat.completions.create.return_value]
     assert ask(client) is None
     assert client.chat.completions.create.call_count==2
+
+
+def test_uncited_price_on_size_followup_gets_one_guarded_correction(ledger,monkeypatch):
+    monkeypatch.setattr(grounded_conversation,'bounded_knowledge',lambda value:value)
+    knowledge = {'faq:size':{'question':'How are SUVs sized?','answer':'SUVs use Large.'}}
+    client = client_for('Your SUV is Large, costing £300.',['faq:size'])
+    client.chat.completions.create.side_effect = [client.chat.completions.create.return_value,
+        client_for('Your SUV uses the Large band.',['faq:size']).chat.completions.create.return_value]
+    with api_usage.usage_context('EXAMPLE','test','v7'):
+        reply = grounded_conversation.answer(client,'gpt-4o-mini','Which size band is my SUV?',knowledge,[],'professional')
+    assert reply=='Your SUV uses the Large band.'
+    assert client.chat.completions.create.call_count==2
+    assert 'Do not include any price' in client.chat.completions.create.call_args.kwargs['messages'][0]['content']
 
 
 def test_follow_up_includes_bounded_recent_conversation(ledger):
