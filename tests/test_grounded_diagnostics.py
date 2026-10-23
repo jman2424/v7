@@ -62,6 +62,20 @@ def test_inferred_vehicle_band_is_pruned_without_losing_actual_customer_quotes(m
     assert state['requirements']==['Toyota Yaris Cross SUV']
 
 
+def test_invented_selection_evidence_never_becomes_a_confirmed_choice(monkeypatch):
+    from tests.test_grounded_conversation import _state, _structured_answer
+    knowledge={**KNOWLEDGE,'product:pro':{'name':'Pro','price':199,'currency':'GBP'}}
+    payload={'answer':'Pro costs GBP 199.','kind':'answer','sources':['product:pro'],
+             'agent':{**_state('price',offerings=['product:pro'],selected='product:pro'),
+                      'selection_update':'select','selection_evidence':'not in the customer message'}}
+    result,state,_,_=_structured_answer(monkeypatch,payload,question='Tell me more about Pro',knowledge=knowledge)
+    assert result==payload['answer'] and state['selected_offering_id'] is None
+    # Evidence pruning does not authorize a different choice or a foreign ID.
+    assert _structured_answer(monkeypatch,payload,question='I choose Basic',knowledge=knowledge)[0] is None
+    payload['agent']['selected_offering_id']='product:another-company'
+    assert _structured_answer(monkeypatch,payload,knowledge=knowledge)[0] is None
+
+
 def test_validated_answer_records_only_public_source_ids(monkeypatch):
     diagnostics = {}
     text = 'Basic costs £99.'

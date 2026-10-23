@@ -87,6 +87,17 @@ def test_variant_price_matches_cannot_crowd_out_public_classification_guide():
     ranked=prioritize_knowledge(knowledge,'I have an unlisted SUV. Show ceramic coating prices.',{})
     assert 'faq:guide' in ranked and list(ranked).index('faq:guide')<3
     assert len(ranked)<=24 and 'faq:background' not in ranked
+
+
+def test_specific_ambiguous_brand_guide_beats_generic_size_guides():
+    knowledge={'business':{'name':'Fixture'},
+        **{f'product:{i}':{'name':f'Glass Coating variant {i}','price':i,'currency':'GBP'} for i in range(40)},
+        'faq:first':{'question':'How are size bands used?','answer':'An assessment is provisional.'},
+        'faq:second':{'question':'Which size bands apply?','answer':'Hatchbacks and SUVs can differ.'},
+        'faq:brand':{'question':'Can you classify a car from the brand alone, such as MINI?',
+                     'answer':'MINI alone does not determine a size band or price. Give the exact model.'}}
+    ranked=prioritize_knowledge(knowledge,'I drive a MINI and want glass coating. Which size band and price?',{})
+    assert 'faq:brand' in list(ranked)[:3]
     assert len(ranked) <= 24
 
 

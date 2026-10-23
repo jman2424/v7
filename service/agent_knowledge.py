@@ -138,7 +138,10 @@ def prioritize_knowledge(knowledge, question, remembered):
             and isinstance(row,dict) and re.search(
                 r'\b(?:classif\w*|sizing|size (?:bands?|guide|categor\w*))\b',
                 str(row.get('question',''))+' '+str(row.get('answer',''))[:160],re.I)]
-        pinned += guides[:2]
+        guides.sort(key=lambda key:relevance(knowledge[key],question),reverse=True)
+        # Keep the specific clarification plus the core band examples; one
+        # generic guide must not displace either side of that decision.
+        pinned += guides[:3]
     ordered = {key: knowledge[key] for key in pinned if isinstance(key, str) and key in knowledge}
     candidates = [(key, row) for key, row in knowledge.items() if key not in ordered]
     related = [(key, row) for key, row in candidates

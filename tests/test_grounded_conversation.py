@@ -615,7 +615,7 @@ def test_optional_selection_downgrade_does_not_allow_an_explicitly_rejected_new_
 
 
 @pytest.mark.parametrize('change', ['unknown_selection', 'incorrect_selection', 'private_requirement',
-                                   'invalid_selection_evidence', 'invented_amount', 'unknown_navigation',
+                                   'invented_amount', 'unknown_navigation',
                                    'completed_payment'])
 def test_selection_metadata_downgrade_does_not_weaken_other_validation(monkeypatch, change):
     knowledge = {**KNOWLEDGE, 'product:pro': {'name': 'Pro', 'price': 199, 'currency': 'GBP'}}

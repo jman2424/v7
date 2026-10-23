@@ -619,8 +619,18 @@ def _agent_state(payload, *, knowledge, sources, navigation, question, history, 
         requirements,retired=_requirements_state({**raw,'requirements':quoted},question,history,context,memory_settings)
         from service.chat_diagnostics import emit
         emit('grounded_metadata_pruned',outcome='unquoted_requirements')
+    selection_input=raw
+    evidence=raw.get('selection_evidence')
+    if (evidence is not None and _requirement(evidence) and evidence.strip() not in question
+            and raw.get('selection_update')!='clear'):
+        # An invented quotation cannot authorize a choice. Remove only that
+        # optional evidence, then run every selection guard against the actual
+        # customer turn. Unknown IDs and contradictory choices still fail.
+        selection_input={**raw,'selection_evidence':None}
+        from service.chat_diagnostics import emit
+        emit('grounded_metadata_pruned',outcome='unquoted_selection_evidence')
     try:
-        selected = _selection_state(raw, question, knowledge, context)
+        selected = _selection_state(selection_input, question, knowledge, context)
     except ValueError as exc:
         if str(exc) != 'unconfirmed_agent_selection':
             raise
