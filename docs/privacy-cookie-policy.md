@@ -21,8 +21,12 @@ Referral invitations now prefill only from the validated current referral URL. T
 - The public templates and preference panel were visually checked through a local preview before deployment.
 - Public privacy provider links were checked; OpenAI's official privacy URL rejected automated HTTP access with 403 rather than reporting a missing page.
 
-## Outstanding business disclosure
+## Public business address and chat disclosure
 
-The operator supplied a controller identity and privacy email but no geographic business address. No address has been invented or published. An online business's geographic-address disclosure is a separate outstanding requirement; publishing a privacy policy is not certification that every business-disclosure or data-protection obligation has been completed.
+The operator-authorised geographic business address is configured through `V7_PUBLIC_BUSINESS_ADDRESS` and displayed only on the platform privacy page. It does not populate tenant notices, marketing pages or widget branding. Publishing these details does not certify every business-disclosure or data-protection obligation.
+
+Customer chat has a short, persistent explanation beside the composer: Vertex Seven provides the AI chat and conversations are saved for the business to review. The V7 privacy link opens the published platform notice in a separate tab. A separate Business privacy link appears only when the current tenant has completed its validated notice fields; a draft or unavailable notice does not remove the platform link or prevent chat from loading. No invented controller identity, retention period or lawful basis is supplied by this feature.
+
+This disclosure concerns chat processing. It does not claim that V7 completes a booking when a business uses navigation links to its own separate booking website. Optional native request and booking features remain subject to the business's configured capabilities.
 
 References: [ICO privacy information](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/the-right-to-be-informed/what-privacy-information-should-we-provide/), [ICO storage/access guidance](https://ico.org.uk/for-organisations/direct-marketing-and-privacy-and-electronic-communications/guidance-on-the-use-of-storage-and-access-technologies/), [Electronic Commerce Regulations, regulation 6](https://www.legislation.gov.uk/uksi/2002/2013/regulation/6).

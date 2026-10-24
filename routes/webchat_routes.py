@@ -11,7 +11,7 @@ import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
-from flask import Blueprint, Response, abort, current_app, g, jsonify, make_response, render_template, request
+from flask import Blueprint, Response, abort, current_app, g, jsonify, make_response, render_template, request, url_for
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from connectors.web_widget import parse_inbound, send_reply
@@ -616,8 +616,19 @@ def chat_ui():
                 parsed = urlsplit(origin)
                 if parsed.scheme in {"http", "https"} and parsed.netloc and not parsed.path and not parsed.username:
                     g.chat_origins.append(origin)
+    business_privacy_url = None
+    try:
+        from service import privacy_settings
+        if not privacy_settings.status(c.storage, tenant)["draft"]:
+            business_privacy_url = url_for("privacy_pages.privacy_page", tenant=tenant)
+    except Exception as exc:
+        # An optional business notice must not prevent access to the chat or
+        # the platform's always-available explanation of its own processing.
+        from service.chat_diagnostics import emit
+        emit("chat_optional_failure", phase="privacy_notice", error_type=type(exc).__name__)
     return render_template(
         "chatbot.html", tenant=tenant, branding=_public_widget_branding(branding),
+        business_privacy_url=business_privacy_url,
         embedded=request.args.get("embed") in {"1", "panel"},
         closable=request.args.get("embed") == "1",
         transcription_enabled=bool(os.getenv("OPENAI_API_KEY", "").strip()),

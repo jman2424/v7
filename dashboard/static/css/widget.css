@@ -152,6 +152,9 @@ body.widget-page--embedded .widget { width: 100%; height: 100dvh; border: 0; bor
 }
 
 .widget__composer { padding: 12px; border-top: 1px solid var(--wborder); background: var(--wpanel); color: var(--wpanel-text); }
+.widget__privacy { margin: 8px 0 0; font-size: .75rem; line-height: 1.5; color: var(--wpanel-muted); overflow-wrap: anywhere; }
+.widget__privacy a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.widget__privacy a:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 #chat-form { display: flex; gap: 8px; }
 #chat-input {
   flex: 1;

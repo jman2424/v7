@@ -102,6 +102,36 @@ def test_cookie_policy_lists_session_storage_and_has_direct_preference_controls(
     assert "v7-public-analytics-config" not in response.text
 
 
+def test_chat_links_platform_privacy_and_only_its_own_completed_business_notice(privacy_app):
+    from routes import get_container
+    client = privacy_app.test_client()
+    draft = client.get("/chat_ui?tenant=ALPHA")
+    assert draft.status_code == 200
+    assert "Chats are saved for this business to review." in draft.text
+    assert 'aria-describedby="chat-privacy"' in draft.text
+    assert 'href="/privacy" target="_blank" rel="noopener noreferrer">V7 privacy' in draft.text
+    assert "Business privacy</a>" not in draft.text
+    with privacy_app.app_context():
+        get_container().storage._write_json("ALPHA", privacy_settings.FILENAME, valid_settings())
+    alpha = client.get("/chat_ui?tenant=ALPHA").text
+    beta = client.get("/chat_ui?tenant=BETA").text
+    assert 'href="/privacy?tenant=ALPHA" target="_blank" rel="noopener noreferrer">Business privacy' in alpha
+    assert "Business privacy</a>" not in beta
+    assert '/privacy?tenant=ALPHA' not in beta
+    assert 'href="/privacy"' in beta
+
+
+def test_unavailable_business_notice_does_not_break_chat_privacy_link(privacy_app, monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Synthetic privacy store failure")
+    monkeypatch.setattr(privacy_settings, "status", unavailable)
+    response = privacy_app.test_client().get("/chat_ui?tenant=ALPHA")
+    assert response.status_code == 200
+    assert 'id="chat-input"' in response.text and '>V7 privacy</a>' in response.text
+    assert "Business privacy</a>" not in response.text
+    assert "Synthetic privacy store failure" not in response.text
+
+
 def test_platform_environment_details_do_not_replace_tenant_controller(privacy_app, monkeypatch):
     monkeypatch.setenv("V7_PRIVACY_CONTROLLER", "Platform-only Controller")
     monkeypatch.setenv("V7_PRIVACY_CONTACT_EMAIL", "platform@example.test")
