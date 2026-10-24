@@ -52,4 +52,5 @@ bcrypt==4.2.0
 
 # --- Packaging tooling security (production and CI installers) ---
 # PYSEC-2026-3447: keep preinstalled tooling from bypassing sdist exclusions.
-setuptools==83.0.0
+# GHSA-xmj3-9gf7-h52w: reject Windows namespace-package path escapes.
+setuptools==84.1.0
