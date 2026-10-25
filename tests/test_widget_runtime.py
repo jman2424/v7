@@ -81,6 +81,8 @@ const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actio
   parentOrigins:['https://business.example'],
   transcriptionEnabled:scenario.startsWith('server-'),transcriptionEndpoint:'/chat/transcribe',transcriptionToken:'synthetic-only'};
 const window={__WIDGET__:config,isSecureContext:true,
+  // Hidden iframes can suspend animation callbacks until made visible.
+  requestAnimationFrame(){return 1;},
   speechSynthesis:{cancel(){cancels++;},speak(utterance){utterances.push(utterance);}},
   SpeechSynthesisUtterance:class {constructor(text){this.text=text;}},
   parent:{postMessage(data,origin){assert.equal(origin,'https://business.example');

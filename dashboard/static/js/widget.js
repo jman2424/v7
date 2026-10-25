@@ -778,6 +778,7 @@
     try { loadId = new URL(window.location.href).searchParams.get("v7_load") || ""; } catch {}
     window.parent.postMessage({type: "V7_WIDGET_READY", loadId}, parentOrigin);
   };
-  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(announceReady);
-  else announceReady();
+  // The parent keeps us hidden while loading; browsers may pause animation
+  // callbacks in hidden frames, so readiness must not wait for a paint.
+  announceReady();
 })();
