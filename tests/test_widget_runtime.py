@@ -77,6 +77,7 @@ const requests=[];
 let storedToken=scenario==='chat-expired'?'stale-conversation':'';
 let closeNotifications=0,readyNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
+  deferActions:scenario==='preloaded-actions',
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
   transcriptionEnabled:scenario.startsWith('server-'),transcriptionEndpoint:'/chat/transcribe',transcriptionToken:'synthetic-only'};
@@ -135,7 +136,14 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
   assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
-  if(scenario==='palette') {
+  if(scenario==='preloaded-actions') {
+    assert.equal(requests.length,0,'Preloading must not request actions or call the model');
+    const show=(source=window.parent,origin='https://business.example')=>window.listeners.message({source,origin,data:{type:'V7_WIDGET_SHOW'}});
+    show({},'https://business.example');show(window.parent,'https://unapproved.example');await flush();
+    assert.equal(requests.length,0,'Foreign messages cannot start action discovery');
+    show();await flush();assert.equal(requests.length,1);assert.equal(new URL(requests[0].url).pathname,'/chat/actions');
+    show();await flush();assert.equal(requests.length,1,'Reopening does not repeat action discovery');
+  } else if(scenario==='palette') {
     const s=body.style.values;
     for(const [surface,text] of [['--wbg','--wtext'],['--wpanel','--wpanel-text'],['--wfield','--wfield-text'],['--wme','--wme-text'],['--waccent','--waccent-text']]) {
       assert.ok(contrast(s[surface],s[text])>=4.5,`${surface} needs readable text`);
@@ -326,7 +334,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
 
 
 @pytest.mark.parametrize("scenario", [
-    "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
+    "preloaded-actions", "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",

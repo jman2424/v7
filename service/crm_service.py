@@ -30,6 +30,13 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _conversation_entries(messages):
+    return [{"ts": _now_iso(), "from": message.get("from") or "user",
+             "text": message.get("text") or "",
+             "meta": {k: v for k, v in message.items() if k not in {"from", "text"}}}
+            for message in (messages or [])]
+
+
 def _default_snapshot_path() -> str:
     configured = (os.getenv("CRM_SNAPSHOT_PATH") or "").strip()
     if configured:
@@ -150,6 +157,7 @@ class CRMService:
         tags: Optional[List[str]] = None,
         email: Optional[str] = None,
         status: str = "open",
+        messages: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Find or create a lead. Prefer (tenant, phone); else (tenant, session_id).
@@ -157,7 +165,7 @@ class CRMService:
         if _using_postgres():
             return self._pg_upsert_lead(
                 tenant, name=name, phone=phone, session_id=session_id,
-                tags=tags, email=email, status=status,
+                tags=tags, email=email, status=status, messages=messages,
             )
         index_phone = self._phone_key(tenant, phone) if phone else None
         index_session = self._session_key(tenant, session_id)
@@ -202,6 +210,9 @@ class CRMService:
                 self._phone_index[index_phone] = lead_id
             self._session_index[index_session] = lead_id
 
+        # Persist the accepted customer/assistant pair with the lead in one
+        # write, rather than three database transactions per customer turn.
+        lead.conversations.extend(_conversation_entries(messages))
         # snapshot occasionally (cheap write-through)
         self._maybe_snapshot()
         return self._to_dict(lead)
@@ -333,7 +344,7 @@ class CRMService:
             "conversations": list(l.conversations),
         }
 
-    def _pg_upsert_lead(self, tenant, *, name, phone, session_id, tags, email, status):
+    def _pg_upsert_lead(self, tenant, *, name, phone, session_id, tags, email, status, messages=None):
         tenant_key = _pg_tenant(tenant)
         # Serialize lead matching for a tenant across workers. Without this,
         # simultaneous first messages could create duplicate CRM records.
@@ -372,6 +383,7 @@ class CRMService:
                 if tags:
                     lead["tags"] = sorted(set([*(lead.get("tags") or []), *tags]))
                 lead["updated_at"] = _now_iso()
+            lead["conversations"] = [*(lead.get("conversations") or []), *_conversation_entries(messages)]
             _pg_save(con, tenant_key, lead)
         return lead
 

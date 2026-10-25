@@ -150,6 +150,7 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   var ready = false;
   var loadId = 0;
   var loadingTimer = null;
+  var preloadTimer = null;
   var frameId = 'v7-widget-' + Math.random().toString(36).slice(2);
 
   root.id = rootId;
@@ -238,7 +239,21 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   frame.referrerPolicy = 'strict-origin-when-cross-origin';
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-popups allow-popups-to-escape-sandbox');
   frame.setAttribute('allow', 'microphone');
-  var frameUrl = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
+  var frameUrl = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1&preload=1';
+  function prepareFrame() {{
+    clearTimeout(preloadTimer);
+    if (frame.hasAttribute('src')) return;
+    frame.loading = 'eager';
+    frame.src = frameUrl + '&v7_load=' + (++loadId);
+  }}
+  function preloadFrame() {{
+    if (document.hidden || current.dataset.preload === 'false'
+        || (window.navigator && window.navigator.connection && window.navigator.connection.saveData)) return;
+    prepareFrame();
+  }}
+  launcher.addEventListener('pointerenter', preloadFrame);
+  launcher.addEventListener('focus', preloadFrame);
+  launcher.addEventListener('touchstart', preloadFrame, {{passive:true}});
   var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px',studio:'12px',soft:'24px',bold:'10px'}};
   frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:' + config.background + ';overflow:hidden;';
   frame.style.visibility = 'hidden';
@@ -309,11 +324,12 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     if (open) {{ closeChat(); return; }}
     sizeFrame();
     // Hidden lazy frames can remain on about:blank after becoming visible.
-    // An explicit open starts navigation without loading every visitor's chat.
+    // Opening before background preparation starts navigation immediately.
     frame.loading = 'eager';
     if (!ready) showLoading();
-    if (!frame.hasAttribute('src')) frame.src = frameUrl + '&v7_load=' + (++loadId);
+    prepareFrame();
     frame.style.display = 'block';
+    if (ready && frame.contentWindow) frame.contentWindow.postMessage({{type:'V7_WIDGET_SHOW'}}, host);
     launcher.setAttribute('aria-expanded', 'true');
   }});
   function closeChat() {{
@@ -336,12 +352,16 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
       loadingPane.style.display = 'none';
       loadingPane.setAttribute('aria-busy', 'false');
       retryButton.hidden = true;
+      if (frame.style.display !== 'none') frame.contentWindow.postMessage({{type:'V7_WIDGET_SHOW'}}, host);
     }} else if (event.data.type === 'V7_WIDGET_CLOSE') closeChat();
   }});
   root.appendChild(frame);
   root.appendChild(launcher);
   root.appendChild(loadingPane);
   (mount || document.body).appendChild(root);
+  // Warm only the interface, never a model call or business action. Give the
+  // host page a head start, and leave background/data-saving visitors alone.
+  preloadTimer = setTimeout(preloadFrame, 1200);
 }})();
 """
 
@@ -689,6 +709,7 @@ def chat_ui():
         business_privacy_url=business_privacy_url,
         embedded=request.args.get("embed") in {"1", "panel"},
         closable=request.args.get("embed") == "1",
+        defer_actions=request.args.get("preload") == "1" and request.args.get("embed") == "1",
         transcription_enabled=bool(os.getenv("OPENAI_API_KEY", "").strip()),
         transcription_token=_transcription_signer().dumps({"tenant": tenant}),
     )

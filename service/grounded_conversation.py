@@ -850,7 +850,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "approved_statements": statements,
                           "agent_context": context,
                           "continue_selected_offering": selected_next_step,
-                      }, ensure_ascii=False)}],
+                      }, ensure_ascii=False, separators=(',', ':'))}],
         )
         customer_quotes = [question] + [row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']
         customer_quotes += context.get('previous_agent', {}).get('requirements', [])

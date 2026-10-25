@@ -547,7 +547,7 @@ class MessageHandler:
         if ctx.channel == "test":
             return
         entities = reply.get("entities") or {}
-        lead = self.crm.upsert_lead(
+        self.crm.upsert_lead(
             ctx.tenant,
             name=entities.get("name"),
             phone=entities.get("phone"),
@@ -555,12 +555,10 @@ class MessageHandler:
             channel=ctx.channel,
             session_id=ctx.session_id,
             tags=[reply.get("intent")] if reply.get("intent") else None,
+            messages=[{"from": "user", "text": user_text},
+                      {"from": "assistant", "text": reply.get("reply")}],
         )
-        lead_id = lead.get("id") or lead.get("_id") or "unknown"
         analytics_lead_id = self._analytics_lead_id(ctx)
-
-        self.crm.append_conversation(ctx.tenant, lead_id, {"from": "user", "text": user_text})
-        self.crm.append_conversation(ctx.tenant, lead_id, {"from": "assistant", "text": reply.get("reply")})
 
         try:
             if hasattr(self.analytics, "upsert_lead"):

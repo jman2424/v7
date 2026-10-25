@@ -7,7 +7,7 @@ import pytest
 from routes.webchat_routes import _embed_javascript
 
 
-@pytest.mark.parametrize('scenario', ['ready', 'retry', 'close-pending'])
+@pytest.mark.parametrize('scenario', ['ready', 'retry', 'close-pending', 'preload', 'data-saver', 'background', 'opt-out'])
 def test_embed_never_reveals_an_unready_frame(scenario):
     node = shutil.which('node')
     if not node:
@@ -34,8 +34,11 @@ const document={body,documentElement:{clientWidth:375},
   getElementById(){return null;},createElement:type=>new Element(type)};
 const window={innerHeight:800,location:{href:'https://business.example/'},listeners:{},
   addEventListener(name,callback){this.listeners[name]=callback;}};
+if(scenario==='data-saver')window.navigator={connection:{saveData:true}};
+if(scenario==='background')document.hidden=true;
+if(scenario==='opt-out')document.currentScript.dataset.preload='false';
 vm.runInNewContext(fs.readFileSync(0,'utf8'),{document,window,URL,
-  setTimeout(callback,ms){assert.equal(ms,20000);timers.set(++nextTimer,callback);return nextTimer;},
+  setTimeout(callback,ms){assert.ok([1200,20000].includes(ms));timers.set(++nextTimer,callback);return nextTimer;},
   clearTimeout:id=>timers.delete(id)});
 const root=body.children[0],[frame,launcher,loader]=root.children;
 const text=loader.children[1],retry=loader.children[2];
@@ -43,7 +46,20 @@ const click=()=>launcher.listeners.click();
 const ready=(id=new URL(frame.src).searchParams.get('v7_load'),origin='https://widget.example',source=frame.contentWindow)=>
   window.listeners.message({origin,source,data:{type:'V7_WIDGET_READY',loadId:id}});
 assert.equal(frame.src,undefined,'A closed widget makes no iframe request');
-assert.equal(timers.size,0);
+assert.equal(timers.size,1);
+if(['preload','data-saver','background','opt-out'].includes(scenario)) {
+  const [id,callback]=[...timers.entries()][0];timers.delete(id);callback();
+  if(scenario==='preload') {
+    assert.ok(frame.src.includes('preload=1'));assert.equal(frame.style.display,'none');
+    const warmed=frame.src;ready();assert.equal(loader.style.display,'none');
+    click();assert.equal(frame.src,warmed);assert.equal(frame.style.visibility,'visible');
+    assert.equal(timers.size,0,'A ready preloaded UI opens without a loading timer');
+    launcher.listeners.pointerenter();assert.equal(frame.src,warmed);
+  } else {
+    assert.equal(frame.src,undefined,'Data saver, background and opt-out do not preload');
+    click();assert.ok(frame.src,'Explicit opening still works');
+  }
+} else {
 click();
 const original=frame.src;
 assert.equal(frame.style.display,'block');assert.equal(frame.style.visibility,'hidden');
@@ -67,6 +83,7 @@ if(scenario==='ready') {
   click();assert.equal(frame.style.display,'none');assert.equal(loader.style.display,'none');assert.equal(timers.size,0);
   ready();assert.equal(frame.style.display,'none','Readiness cannot reopen a closed widget');
   click();assert.equal(frame.src,original);assert.equal(frame.style.visibility,'visible');assert.equal(timers.size,0);
+}
 }
 """
     result = subprocess.run(

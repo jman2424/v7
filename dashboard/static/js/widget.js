@@ -430,7 +430,13 @@
   });
   actionCancel.addEventListener("click", closeAction);
   actionRetry.addEventListener("click", loadActions);
-  loadActions();
+  let actionsStarted = false;
+  const startActions = () => {
+    if (actionsStarted) return;
+    actionsStarted = true;
+    loadActions();
+  };
+  if (!config.deferActions) startActions();
 
   const addSuggestedActions = (bubble, suggestions) => {
     if (!Array.isArray(suggestions)) return;
@@ -761,10 +767,12 @@
     }
   });
   window.addEventListener("message", event => {
-    if (!closeChat || window.parent === window || event.source !== window.parent || !event.data || event.data.type !== "V7_WIDGET_HIDE") return;
+    if (!closeChat || window.parent === window || event.source !== window.parent || !event.data
+        || !["V7_WIDGET_HIDE", "V7_WIDGET_SHOW"].includes(event.data.type)) return;
     const approvedOrigins = Array.isArray(config.parentOrigins) ? config.parentOrigins : [];
     if (event.origin !== window.location.origin && !approvedOrigins.includes(event.origin)) return;
-    releaseVoice();
+    if (event.data.type === "V7_WIDGET_SHOW") startActions();
+    else releaseVoice();
   });
   window.addEventListener("pagehide", releaseVoice);
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseVoice(); });

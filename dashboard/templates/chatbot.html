@@ -79,9 +79,10 @@
         bubble: {{ (branding.widget.bubble_color if branding and branding.widget else '')|tojson }}
       },
       channel: "web",
-      sessionId: ""
+      sessionId: "",
+      deferActions: {{ defer_actions|default(false)|tojson }}
     };
   </script>
-<script src="{{ url_for('static', filename='js/widget.js', v='20261025ready2') }}"></script>
+<script src="{{ url_for('static', filename='js/widget.js', v='20261025fast') }}"></script>
 </body>
 </html>

@@ -47,11 +47,12 @@ def test_native_crm_persists_and_cannot_cross_tenants(pg_runtime):
     tenant, other = pg_runtime['tenant'], pg_runtime['other']
     crm = CRMService()
     lead = crm.upsert_lead(tenant, name='Test lead', phone='01234567890',
-                           session_id='test-chat', channel='web')
+                           session_id='test-chat', channel='web', messages=[
+                               {'from':'user','text':'Question'}, {'from':'assistant','text':'Answer'}])
     crm.append_conversation(tenant, lead['id'], {'text':'Test message'})
     reopened = CRMService()
     assert reopened.get_lead(tenant, lead['id'])['name'] == 'Test lead'
-    assert len(reopened.get_lead(tenant, lead['id'])['conversations']) == 1
+    assert [row['text'] for row in reopened.get_lead(tenant, lead['id'])['conversations']] == ['Question', 'Answer', 'Test message']
     assert reopened.get_lead(other, lead['id']) is None
     assert reopened.update_status(other, lead['id'], 'Won') is False
     assert reopened.list_leads(tenant=other) == []
