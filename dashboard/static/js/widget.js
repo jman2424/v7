@@ -96,10 +96,20 @@
   let activeAction = "";
   let actionRequestId = "";
   let availableActions = {};
+  let storage;
+  try { storage = sessionStorage; } catch {}
+  const chatSession = window.V7ChatSession?.(storage, config.tenant);
+  let transcript = [], restoring = false, pendingText = '';
+  const bubbleRows = new WeakMap(), restoredRequests = [];
+  const saveTranscript = () => {
+    if (!restoring) chatSession?.write(token, {messages:transcript,draft:input.value,pending:pendingText});
+  };
   try { token = sessionStorage.getItem(key) || ""; } catch {}
   const remember = value => {
     token = typeof value === "string" ? value : "";
     try { sessionStorage.setItem(key, token); } catch {}
+    if (!token) { transcript = []; chatSession?.clear(); }
+    else saveTranscript();
   };
 
   // Tenant theme values are data: accept only colours and a plain font stack.
@@ -239,6 +249,10 @@
     content.textContent = text;
     bubble.append(content);
     row.append(bubble); log.append(row); log.scrollTop = log.scrollHeight;
+    const saved = {text,from,actions:[]};
+    transcript.push(saved); transcript = transcript.slice(-40);
+    bubbleRows.set(bubble, saved);
+    saveTranscript();
     return bubble;
   };
   const setActionStatus = (message, isError = false) => {
@@ -302,6 +316,10 @@
       // reply times out, a manual retry can still use this same conversation.
       if (!token && !busy) remember(actionToken);
       renderActionButtons();
+      while (restoredRequests.length) {
+        const [bubble, suggestions] = restoredRequests.shift();
+        addSuggestedActions(bubble, suggestions);
+      }
       if (activeAction === "consultation") refreshSlots(actionSlot.value);
       setActionStatus("");
     } catch {
@@ -440,6 +458,8 @@
 
   const addSuggestedActions = (bubble, suggestions) => {
     if (!Array.isArray(suggestions)) return;
+    const saved = bubbleRows.get(bubble);
+    if (saved) { saved.actions = [...saved.actions, ...suggestions].slice(0,3); saveTranscript(); }
     const names = [...new Set(suggestions.map(item => typeof item === "string" ? item : item && (item.action || item.type)))]
       .filter(action => Object.prototype.hasOwnProperty.call(actionLabels, action) && actionEnabled(action));
     const links = suggestions.filter(item => item && item.type === 'navigate' && typeof item.url === 'string' && typeof item.label === 'string').slice(0, 3);
@@ -460,10 +480,19 @@
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         link.className = 'widget__navigation';
-        let clicked = false, tracked = false, pending = false;
+        let clicked = restoring && item.clicked === true, tracked = false, pending = false;
+        if (clicked) {
+          link.textContent += ' · Clicked';
+          link.setAttribute('aria-label', item.label.slice(0,80) + ' — Clicked');
+          link.classList.toggle('widget__navigation--clicked', true);
+        }
         link.addEventListener('click', () => {
           if (!clicked) {
             clicked = true;
+            if (saved) {
+              saved.actions = saved.actions.map(action => action && action.type === 'navigate' && action.url === item.url
+                ? {...action,clicked:true} : action);
+            }
             link.textContent = item.label.slice(0, 80) + ' · Clicked';
             link.setAttribute('aria-label', item.label.slice(0, 80) + ' — Clicked');
             link.classList.toggle('widget__navigation--clicked', true);
@@ -498,6 +527,7 @@
     const text = input.value.trim();
     if (busy || !text) return;
     busy = true; send.disabled = true; dictation.disabled = true;
+    pendingText = text;
     chatStatus.textContent = "Getting a reply…";
     cancelAudio();
     const replySpeechGeneration = speechGeneration;
@@ -543,6 +573,7 @@
       }
       if (!data || typeof data.reply !== "string" || !data.reply.trim()) throw new Error("request_failed");
       remember(data.conversation_token);
+      pendingText = '';
       const bubble = add(data.reply, "bot");
       addSuggestedActions(bubble, data.actions);
       const playback = addPlayback(bubble, data.reply);
@@ -557,6 +588,7 @@
       if (!input.value) input.value = text;
     } finally {
       clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing;
+      pendingText = ''; saveTranscript();
       chatStatus.textContent = "";
       if (!document.hidden && replySpeechGeneration === speechGeneration && [input, send, dictation, document.body].includes(document.activeElement)) input.focus();
     }
@@ -774,8 +806,37 @@
     if (event.data.type === "V7_WIDGET_SHOW") startActions();
     else releaseVoice();
   });
-  window.addEventListener("pagehide", releaseVoice);
+  input.addEventListener('input', saveTranscript);
+  window.addEventListener("pagehide", () => { saveTranscript(); releaseVoice(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseVoice(); });
+  const restoreTranscript = () => {
+    const savedChat = chatSession?.read(token);
+    if (!savedChat) return;
+    restoring = true;
+    transcript = []; restoredRequests.length = 0;
+    if (savedChat.messages.length) log.replaceChildren();
+    for (const message of savedChat.messages) {
+      const bubble = add(message.text, message.from);
+      const links = message.actions.filter(item => item && item.type === 'navigate');
+      addSuggestedActions(bubble, links);
+      const requests = message.actions.filter(item => typeof item === 'string');
+      if (requests.length) {
+        if (Object.keys(availableActions).length) addSuggestedActions(bubble, requests);
+        else restoredRequests.push([bubble, requests]);
+      }
+      if (message.from === 'bot') addPlayback(bubble, message.text);
+    }
+    input.value = savedChat.draft || savedChat.pending;
+    if (savedChat.pending) chatStatus.textContent = 'Your previous reply was interrupted. You can send the message again.';
+    restoring = false;
+  };
+  restoreTranscript();
+  window.addEventListener('pageshow', event => {
+    if (event.persisted && !busy) {
+      try { token = sessionStorage.getItem(key) || ''; } catch {}
+      restoreTranscript();
+    }
+  });
   // Reveal the iframe only after its theme, controls and event handlers exist.
   // This fixed readiness signal carries no customer or account information.
   const announceReady = () => {

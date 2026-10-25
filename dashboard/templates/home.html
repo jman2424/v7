@@ -46,6 +46,7 @@
   {% include 'platform_favicons.html' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261023pricing') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/home-i18n.js', v='20261025') }}"></script>
   {% if ga4_measurement_id %}
   <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
   <script defer src="{{ url_for('static', filename='js/public-analytics.js') }}"></script>

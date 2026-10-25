@@ -74,10 +74,13 @@ class AudioContext {
 const timers=new Map();let timerId=0;
 const pending=[];
 const requests=[];
-let storedToken=scenario==='chat-expired'?'stale-conversation':'';
+let storedToken=scenario==='chat-expired'?'stale-conversation':scenario==='restore-chat'?'synthetic-only':'';
+const browserState=new Map();
+if(scenario==='restore-chat')browserState.set('transcript:EXAMPLE',JSON.stringify({version:1,token:storedToken,expires:Date.now()+3600000,
+  messages:[{from:'me',text:'My car is a Polo'},{from:'bot',text:'Small car. This is an estimate.',actions:[{type:'navigate',label:'Services',url:'https://shop.example/services',click_token:'signed',clicked:true}]}],draft:'What about polishing?',pending:''}));
 let closeNotifications=0,readyNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
-  deferActions:scenario==='preloaded-actions',
+  deferActions:['preloaded-actions','restore-chat'].includes(scenario),
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
   transcriptionEnabled:scenario.startsWith('server-'),transcriptionEndpoint:'/chat/transcribe',transcriptionToken:'synthetic-only'};
@@ -96,7 +99,7 @@ if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechS
 const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
     ? new Promise(resolve=>mediaPending.push(resolve)) : mediaStream()}},
-  MediaRecorder:Recorder,sessionStorage:{getItem(){return storedToken;},setItem(key,value){storedToken=value;}},
+  MediaRecorder:Recorder,sessionStorage:{getItem(key){return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem:key=>browserState.delete(key)},
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
@@ -126,6 +129,7 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
   }});
 // The browser resolves relative action URLs against the current widget origin.
 window.location={origin:'https://widget.example',href:'https://widget.example/chat_ui?v7_load=1'};
+vm.runInContext(fs.readFileSync('dashboard/static/js/widget-session.js','utf8'),context);
 vm.runInContext(fs.readFileSync('dashboard/static/js/widget.js','utf8'),context);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255);
@@ -136,7 +140,23 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
   assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
-  if(scenario==='preloaded-actions') {
+  if(scenario==='restore-chat') {
+    assert.equal(requests.length,0,'Restoration does not send another request');
+    assert.equal(get('chat-log').children.length,2);assert.equal(get('chat-input').value,'What about polishing?');
+    const bubble=get('chat-log').children[1].children[0];
+    assert.equal(bubble.children[0].textContent,'Small car. This is an estimate.');
+    assert.equal(bubble.children[1].children[0].textContent,'Services · Clicked');
+    await get('chat-form').fire('submit');
+    assert.equal(JSON.parse(requests[0].options.body).conversation_token,'synthetic-only','Follow-up keeps the server conversation');
+    assert.equal(get('chat-log').children.length,4);
+    const current=JSON.parse(browserState.get('transcript:EXAMPLE'));
+    current.messages.push({from:'bot',text:'A newer answer from another page',actions:[]});
+    browserState.set('transcript:EXAMPLE',JSON.stringify(current));
+    window.listeners.pageshow({persisted:true});
+    assert.equal(get('chat-log').children.length,5,'Back/forward restoration refreshes the cached page');
+    assert.equal(get('chat-log').children[4].children[0].children[0].textContent,'A newer answer from another page');
+    assert.equal(requests.length,1,'Back/forward restoration never resends the message');
+  } else if(scenario==='preloaded-actions') {
     assert.equal(requests.length,0,'Preloading must not request actions or call the model');
     const show=(source=window.parent,origin='https://business.example')=>window.listeners.message({source,origin,data:{type:'V7_WIDGET_SHOW'}});
     show({},'https://business.example');show(window.parent,'https://unapproved.example');await flush();
@@ -334,7 +354,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
 
 
 @pytest.mark.parametrize("scenario", [
-    "preloaded-actions", "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
+    "restore-chat", "preloaded-actions", "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",

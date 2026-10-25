@@ -318,10 +318,14 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     var bounds = root.getBoundingClientRect();
     placeWidget(bounds.left, bounds.top);
   }});
-  launcher.addEventListener('click', function () {{
-    if (suppressClick) {{ suppressClick = false; return; }}
-    var open = frame.style.display !== 'none';
-    if (open) {{ closeChat(); return; }}
+  var openKey = 'v7-widget-open:' + host + ':' + config.tenant;
+  function rememberOpen(open) {{
+    try {{
+      if (open) sessionStorage.setItem(openKey, JSON.stringify({{open:true,expires:Date.now()+86400000}}));
+      else sessionStorage.removeItem(openKey);
+    }} catch (_) {{}}
+  }}
+  function openChat() {{
     sizeFrame();
     // Hidden lazy frames can remain on about:blank after becoming visible.
     // Opening before background preparation starts navigation immediately.
@@ -331,14 +335,21 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     frame.style.display = 'block';
     if (ready && frame.contentWindow) frame.contentWindow.postMessage({{type:'V7_WIDGET_SHOW'}}, host);
     launcher.setAttribute('aria-expanded', 'true');
+    rememberOpen(true);
+  }}
+  launcher.addEventListener('click', function () {{
+    if (suppressClick) {{ suppressClick = false; return; }}
+    if (frame.style.display !== 'none') closeChat();
+    else openChat();
   }});
-  function closeChat() {{
+  function closeChat(focus) {{
     if (frame.contentWindow) frame.contentWindow.postMessage({{type: 'V7_WIDGET_HIDE'}}, host);
     clearTimeout(loadingTimer);
     frame.style.display = 'none';
     loadingPane.style.display = 'none';
     launcher.setAttribute('aria-expanded', 'false');
-    launcher.focus();
+    rememberOpen(false);
+    if (focus !== false) launcher.focus();
   }}
   root.addEventListener('keydown', function (event) {{
     if (event.key === 'Escape') closeChat();
@@ -362,6 +373,16 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   // Warm only the interface, never a model call or business action. Give the
   // host page a head start, and leave background/data-saving visitors alone.
   preloadTimer = setTimeout(preloadFrame, 1200);
+  function restoreOpenState() {{
+    try {{
+      var savedOpen = JSON.parse(sessionStorage.getItem(openKey) || 'null');
+      if (savedOpen && savedOpen.open === true && savedOpen.expires > Date.now()
+          && savedOpen.expires <= Date.now()+86400000) openChat();
+      else if (frame.style.display !== 'none') closeChat(false);
+    }} catch (_) {{}}
+  }}
+  restoreOpenState();
+  window.addEventListener('pageshow', function (event) {{ if (event.persisted) restoreOpenState(); }});
 }})();
 """
 
