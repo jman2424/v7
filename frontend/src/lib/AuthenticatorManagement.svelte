@@ -60,7 +60,7 @@
   {:else}
     <form on:submit|preventDefault={reveal}>
       <label>{$t('Current password')}<input type="password" autocomplete="current-password" bind:value={password} required maxlength="256" disabled={busy}/></label>
-      <label>{$t('Code from your current authenticator')}<input type="text" inputmode="numeric" autocomplete="one-time-code" bind:value={code} required pattern="[0-9]{6}" maxlength="6" disabled={busy}/></label>
+      <label>{$t('Code from your current authenticator')}<input type="text" inputmode="numeric" autocomplete="one-time-code" bind:value={code} required pattern={'[0-9]{6}'} maxlength="6" disabled={busy}/></label>
       <div class="actions"><button type="submit" disabled={busy}>{$t(busy ? 'Please wait…' : 'Verify and show setup')}</button>
         <button type="button" class="secondary" on:click={close}>{$t('Cancel')}</button></div>
     </form>

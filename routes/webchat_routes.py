@@ -144,6 +144,12 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   var root = document.createElement('div');
   var launcher = document.createElement('button');
   var frame = document.createElement('iframe');
+  var loadingPane = document.createElement('div');
+  var loadingText = document.createElement('p');
+  var retryButton = document.createElement('button');
+  var ready = false;
+  var loadId = 0;
+  var loadingTimer = null;
   var frameId = 'v7-widget-' + Math.random().toString(36).slice(2);
 
   root.id = rootId;
@@ -235,6 +241,43 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
   var frameUrl = host + '/chat_ui?tenant=' + encodeURIComponent(config.tenant) + '&embed=1';
   var frameRadius = {{midnight:'16px',daylight:'12px',minimal:'3px',editorial:'2px',neon:'16px',warm:'24px',glass:'18px',studio:'12px',soft:'24px',bold:'10px'}};
   frame.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;height:min(620px,calc(100vh - 104px));border:0;border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);background:' + config.background + ';overflow:hidden;';
+  frame.style.visibility = 'hidden';
+  loadingPane.style.cssText = 'display:none;position:absolute;right:0;bottom:56px;height:min(620px,calc(100vh - 104px));border-radius:' + (frameRadius[config.style] || '16px') + ';box-shadow:0 16px 42px rgba(15,23,42,.28);box-sizing:border-box;padding:24px;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center;background:' + config.launcherBackground + ';color:' + config.launcherText + ';';
+  loadingPane.setAttribute('role', 'status');
+  loadingPane.setAttribute('aria-live', 'polite');
+  var loadingTitle = document.createElement('strong');
+  loadingTitle.textContent = config.title;
+  loadingText.textContent = 'Loading chat…';
+  loadingText.style.margin = '0';
+  retryButton.type = 'button';
+  retryButton.textContent = 'Try again';
+  retryButton.hidden = true;
+  retryButton.style.cssText = 'font:inherit;padding:10px 16px;border:1px solid currentColor;border-radius:8px;background:transparent;color:inherit;cursor:pointer;';
+  loadingPane.appendChild(loadingTitle);
+  loadingPane.appendChild(loadingText);
+  loadingPane.appendChild(retryButton);
+  function loadingFailed() {{
+    if (ready || frame.style.display === 'none') return;
+    clearTimeout(loadingTimer);
+    loadingPane.setAttribute('aria-busy', 'false');
+    loadingText.textContent = 'Chat is taking longer to open. Please try again.';
+    retryButton.hidden = false;
+  }}
+  function showLoading() {{
+    frame.style.visibility = 'hidden';
+    loadingPane.style.display = 'flex';
+    loadingPane.setAttribute('aria-busy', 'true');
+    loadingText.textContent = 'Loading chat…';
+    retryButton.hidden = true;
+    clearTimeout(loadingTimer);
+    loadingTimer = setTimeout(loadingFailed, 20000);
+  }}
+  retryButton.addEventListener('click', function () {{
+    if (frame.style.display === 'none') return;
+    showLoading();
+    frame.src = frameUrl + '&v7_load=' + (++loadId);
+  }});
+  frame.addEventListener('error', loadingFailed);
   function sizeFrame() {{
     // clientWidth excludes the scrollbar; leave the root's 20px gutter on both sides.
     frame.style.width = Math.max(0, Math.min(380, document.documentElement.clientWidth - 40)) + 'px';
@@ -250,6 +293,9 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
       frame.style.top = useAbove ? 'auto' : (bounds.height + 12) + 'px';
       frame.style.height = Math.max(0, Math.min(620, useAbove ? above : below)) + 'px';
     }}
+    ['width', 'height', 'left', 'right', 'top', 'bottom'].forEach(function (key) {{
+      if (frame.style[key] !== undefined) loadingPane.style[key] = frame.style[key];
+    }});
   }}
   sizeFrame();
   window.addEventListener('resize', function () {{
@@ -265,13 +311,16 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     // Hidden lazy frames can remain on about:blank after becoming visible.
     // An explicit open starts navigation without loading every visitor's chat.
     frame.loading = 'eager';
-    if (!frame.hasAttribute('src')) frame.src = frameUrl;
+    if (!ready) showLoading();
+    if (!frame.hasAttribute('src')) frame.src = frameUrl + '&v7_load=' + (++loadId);
     frame.style.display = 'block';
     launcher.setAttribute('aria-expanded', 'true');
   }});
   function closeChat() {{
     if (frame.contentWindow) frame.contentWindow.postMessage({{type: 'V7_WIDGET_HIDE'}}, host);
+    clearTimeout(loadingTimer);
     frame.style.display = 'none';
+    loadingPane.style.display = 'none';
     launcher.setAttribute('aria-expanded', 'false');
     launcher.focus();
   }}
@@ -279,10 +328,19 @@ def _embed_javascript(tenant: str, branding: Dict[str, Any]) -> str:
     if (event.key === 'Escape') closeChat();
   }});
   window.addEventListener('message', function (event) {{
-    if (event.origin === host && event.source === frame.contentWindow && event.data && event.data.type === 'V7_WIDGET_CLOSE') closeChat();
+    if (event.origin !== host || event.source !== frame.contentWindow || !event.data) return;
+    if (event.data.type === 'V7_WIDGET_READY' && frame.hasAttribute('src') && event.data.loadId === String(loadId)) {{
+      ready = true;
+      clearTimeout(loadingTimer);
+      frame.style.visibility = 'visible';
+      loadingPane.style.display = 'none';
+      loadingPane.setAttribute('aria-busy', 'false');
+      retryButton.hidden = true;
+    }} else if (event.data.type === 'V7_WIDGET_CLOSE') closeChat();
   }});
   root.appendChild(frame);
   root.appendChild(launcher);
+  root.appendChild(loadingPane);
   (mount || document.body).appendChild(root);
 }})();
 """

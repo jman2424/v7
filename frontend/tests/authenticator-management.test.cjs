@@ -4,10 +4,30 @@ const path=require('node:path');
 const vm=require('node:vm');
 const test=require('node:test');
 const ts=require('../node_modules/typescript');
+const {compile}=require('../node_modules/svelte/compiler');
 const source=fs.readFileSync(path.join(__dirname,'../src/lib/AuthenticatorManagement.svelte'),'utf8');
 const script=source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1];
 const tree=ts.createSourceFile('AuthenticatorManagement.ts',script,ts.ScriptTarget.Latest,true);
 const functions=ts.transpileModule(tree.statements.filter(ts.isFunctionDeclaration).map(n=>n.getText(tree)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+
+test('compiled second-phone form accepts six digits, including leading zeroes',()=>{
+  const compiled=compile(source,{filename:'AuthenticatorManagement.svelte',generate:'client'}).js.code;
+  const output=ts.createSourceFile('compiled.js',compiled,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+  const patterns=new Set();
+  function visit(node) {
+    if(ts.isStringLiteralLike(node)) {
+      for(const match of node.text.matchAll(/<input\b[^>]*\bpattern="([^"]+)"/g)) patterns.add(match[1]);
+    }
+    if(ts.isCallExpression(node) && node.arguments.length>=3 && ts.isStringLiteral(node.arguments[1])
+      && node.arguments[1].text==='pattern' && ts.isStringLiteral(node.arguments[2])) patterns.add(node.arguments[2].text);
+    ts.forEachChild(node,visit);
+  }
+  visit(output);
+  assert.equal(patterns.size,1,'Read the actual pattern emitted for the code input');
+  const valid=new RegExp('^(?:'+[...patterns][0]+')$','v');
+  for(const code of ['123456','000001','906172']) assert.ok(valid.test(code),`Accept ${code}`);
+  for(const code of ['16','12345','1234567','12a456','12 456']) assert.equal(valid.test(code),false,`Reject ${code}`);
+});
 function harness(fetcher) {
   const calls=[],timers=[];
   const context=vm.createContext({AbortController,setTimeout(fn,ms){timers.push({fn,ms});return 1;},clearTimeout(){},

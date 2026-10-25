@@ -39,7 +39,7 @@ const document={currentScript:{src:'https://widget.example/embed.js',dataset:{}}
   documentElement:{clientWidth:800},getElementById(){return null;},createElement(){return new Element();}};
 const window={innerHeight:800,location:{href:'https://business.example/'},listeners:{},
   addEventListener(k,fn){(this.listeners[k] ||= []).push(fn);}};
-vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{document,window,URL,Math});
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),{document,window,URL,Math,setTimeout(){return 1;},clearTimeout(){}});
 const root=body.children[0],frame=root.children[0],launcher=root.children[1];
 // This DOM mock does not parse CSS declarations assigned through cssText.
 frame.style.display='none';

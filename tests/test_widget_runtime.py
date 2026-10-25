@@ -75,7 +75,7 @@ const timers=new Map();let timerId=0;
 const pending=[];
 const requests=[];
 let storedToken=scenario==='chat-expired'?'stale-conversation':'';
-let closeNotifications=0;
+let closeNotifications=0,readyNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
@@ -83,7 +83,9 @@ const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actio
 const window={__WIDGET__:config,isSecureContext:true,
   speechSynthesis:{cancel(){cancels++;},speak(utterance){utterances.push(utterance);}},
   SpeechSynthesisUtterance:class {constructor(text){this.text=text;}},
-  parent:{postMessage(data,origin){assert.equal(data.type,'V7_WIDGET_CLOSE');assert.equal(origin,'https://business.example');closeNotifications++;}},
+  parent:{postMessage(data,origin){assert.equal(origin,'https://business.example');
+    if(data.type==='V7_WIDGET_READY'){assert.equal(data.loadId,'1');readyNotifications++;return;}
+    assert.equal(data.type,'V7_WIDGET_CLOSE');closeNotifications++;}},
   listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
 if(scenario.startsWith('server-')) {window.MediaRecorder=Recorder;window.AudioContext=AudioContext;}
@@ -120,7 +122,7 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
     return {ok:true,json:async()=>({reply:'Our opening hours are 9am to 5pm.',conversation_token:'synthetic-only'})};
   }});
 // The browser resolves relative action URLs against the current widget origin.
-window.location={origin:'https://widget.example'};
+window.location={origin:'https://widget.example',href:'https://widget.example/chat_ui?v7_load=1'};
 vm.runInContext(fs.readFileSync('dashboard/static/js/widget.js','utf8'),context);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255);
@@ -128,6 +130,7 @@ const lum=hex=>rgb(hex).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((
 const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
 (async()=>{
   await flush();
+  assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
   if(scenario==='palette') {
@@ -365,9 +368,9 @@ class Element {
 const window={innerWidth:viewportWidth,location:{href:'https://business.example/'},listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
 const document={documentElement:{clientWidth:contentWidth},currentScript:{src:'https://widget.example/widget.js?tenant=EXAMPLE',dataset:{}},
   getElementById(){return null;},body:new Element('body'),createElement(type){
-    const element=new Element(type);if(type==='div'&&!root)root=element;if(type==='button')launcher=element;if(type==='iframe')frame=element;return element;
+    const element=new Element(type);if(type==='div'&&!root)root=element;if(type==='button'&&!launcher)launcher=element;if(type==='iframe')frame=element;return element;
   }};
-vm.runInNewContext(fs.readFileSync(0,'utf8'),{document,window,URL,console});
+vm.runInNewContext(fs.readFileSync(0,'utf8'),{document,window,URL,console,setTimeout(){return 1;},clearTimeout(){}});
 assert.equal(frame.style.width,Math.min(380,contentWidth-40)+'px','Frame width uses the space available without the scrollbar');
 assert.ok(contentWidth-20-parseFloat(frame.style.width)>=20,'The frame keeps both 20px viewport gutters');
 launcher.listeners.click();assert.equal(frame.style.display,'block');

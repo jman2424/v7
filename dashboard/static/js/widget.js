@@ -768,4 +768,16 @@
   });
   window.addEventListener("pagehide", releaseVoice);
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseVoice(); });
+  // Reveal the iframe only after its theme, controls and event handlers exist.
+  // This fixed readiness signal carries no customer or account information.
+  const announceReady = () => {
+    if (window.parent === window) return;
+    let parentOrigin = "*";
+    let loadId = "";
+    try { if (document.referrer) parentOrigin = new URL(document.referrer).origin; } catch {}
+    try { loadId = new URL(window.location.href).searchParams.get("v7_load") || ""; } catch {}
+    window.parent.postMessage({type: "V7_WIDGET_READY", loadId}, parentOrigin);
+  };
+  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(announceReady);
+  else announceReady();
 })();
