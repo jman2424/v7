@@ -345,6 +345,12 @@ def pg():
 
 def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypatch):
     psycopg = pytest.importorskip('psycopg')
+    with closing(sqlite3.connect(mixed_source / 'logs/analytics.db')) as source_db, source_db:
+        source_db.execute('ALTER TABLE events ADD COLUMN message_id TEXT')
+        source_db.execute('INSERT INTO events(id,ts_utc,tenant,channel,session_id,event_type,meta_json,message_id) '
+            'VALUES(8,?,?,?,?,?,?,?)', ('2026-09-16T00:00:00Z', 'ALPHA', 'web', 'queue-recovery',
+                'pipeline_pending', json.dumps({'version': 1, 'events': [
+                    {'event_type': 'pipeline_turn', 'meta': {'ok': True}}]}), 'telemetry:' + '0' * 32))
     bundle = prepare(mixed_source)
     def failed_verification(conn, imported):
         raise ValueError('Injected verification failure after inserts')
@@ -359,8 +365,9 @@ def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypat
     assert pg.execute("SELECT payload FROM v7_private.document_versions WHERE filename='_snapshot.json'").fetchone()[0] == {
         'tenant': 'Alpha', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/Alpha',
     }
-    assert pg.execute('SELECT id FROM v7_private.events').fetchone()[0] == 7
-    assert pg.execute("SELECT nextval('v7_private.events_id_seq')").fetchone()[0] == 8
+    assert pg.execute('SELECT id FROM v7_private.events ORDER BY id').fetchall() == [(7,), (8,)]
+    assert pg.execute("SELECT nextval('v7_private.events_id_seq')").fetchone()[0] == 9
+    assert pg.execute('SELECT tenant FROM v7_private.telemetry_pending_tenants').fetchall() == [('Alpha',)]
     with pytest.raises(ValueError, match='must be empty'):
         import_bundle(pg,bundle)
     verify(pg,bundle)

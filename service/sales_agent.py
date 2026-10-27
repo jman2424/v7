@@ -137,6 +137,15 @@ class SalesAgentPolicy:
 
         state = self._default_state(playbook, singular, plural)
         self._retain_task_memory(state, previous)
+        # These forms were selected by the handler from current enabled
+        # business actions. Do not append an unrelated discovery interview.
+        form = intent.removesuffix('_request') if intent.endswith('_request') else None
+        if form in {'consultation', 'quote', 'callback'} and any(
+                isinstance(row, dict) and row.get('type') == form for row in (response.get('actions') or [])):
+            state.update(stage='convert', intent='quote' if form == 'quote' else 'book' if form == 'consultation' else 'handoff',
+                         next_action='open_request_form', requested_action=form, next_question='',
+                         suggested_replies=[], navigation_ids=[])
+            return state
         number = re.fullmatch(r'\s*(\d{1,2})\s*[.)]?\s*',user_text or '')
         if intent=='price_check' and number and isinstance(entities.get('sku'),str):
             references = previous.get('last_offering_ids')

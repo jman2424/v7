@@ -287,6 +287,55 @@ class MessageHandlerV7:
     # PUBLIC
     # ------------------------------------------------------------------
 
+    def request_copy(self):
+        """Refresh public facts without mutating another request's runtime."""
+        import copy
+        storage = getattr(self.catalog, 'storage', None)
+        if storage is None:
+            return self
+        local = copy.copy(self)
+        from retrieval.catalog_store import CatalogStore
+        from retrieval.faq_store import FAQStore
+        from retrieval.policy_store import PolicyStore
+        from retrieval.geo_store import GeoStore
+        from retrieval.offer_store import OfferStore
+        if isinstance(self.catalog, CatalogStore):
+            local.catalog = self._optional_source('catalog_snapshot', self.catalog.snapshot, None)
+        local.faq = self._optional_source('faq_snapshot', lambda: FAQStore(storage), None)
+        local.policy = self._optional_source('policy_snapshot', lambda: PolicyStore(storage), None)
+        local.geo = self._optional_source('geo_snapshot', lambda: GeoStore(storage), None)
+        local.offers = self._optional_source('offer_snapshot', lambda: OfferStore(storage), None)
+        def optional_document(filename):
+            try:
+                return storage.read_json(self.tenant_key, filename)
+            except FileNotFoundError:
+                return {}
+        def profile():
+            value = optional_document('store_info.json')
+            if not isinstance(value, dict):
+                raise ValueError('invalid_business_profile')
+            return value
+        local.business_profile = self._optional_source('profile_snapshot', profile, {})
+        local.business_name = str(local.business_profile.get('name') or '').strip()
+        local.sales_context = build_tenant_sales_context(local.business_profile, self.sales_playbook,
+                                                        local._catalog_categories())
+        local.renderer = copy.copy(self.renderer)
+        local.renderer.business_name = local.business_name
+        local.renderer.business_context = local.sales_context
+        from service.website_knowledge import current_website_knowledge
+        raw = self._optional_source('website_snapshot',
+            lambda: optional_document('website_knowledge.json'), {})
+        local.website_knowledge = current_website_knowledge(raw, local.business_profile.get('website'))
+        from service.website_destinations import load
+        local.website_destinations = self._optional_source('destination_snapshot',
+            lambda: load(storage, self.tenant_key), [])
+        # Action enablement is deliberately not cached. Its loader validates
+        # current configuration; malformed/revoked actions fail closed.
+        from service.conversion_actions import load_actions
+        local.sales_actions = self._optional_source('action_snapshot',
+            lambda: load_actions(storage, self.tenant_key), {})
+        return local
+
     def handle(self, user_text: str, ctx: Any, sess: Dict[str, Any]) -> Dict[str, Any]:
         t0 = time.perf_counter()
         user_text = (user_text or "").strip()
@@ -854,6 +903,9 @@ class MessageHandlerV7:
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+        from service.conversation_memory import relevant_customer_facts
+        older_facts = relevant_customer_facts(session.get('conversation_customer_facts'), question, history,
+                                              previous.get('retired_requirements') or [])
         previous_ids = (previous['last_offering_ids'] if 'last_offering_ids' in previous
                         else previous.get('offering_ids', []))
         previous_ids = previous_ids[:3] if isinstance(previous_ids,list) else []
@@ -935,8 +987,12 @@ class MessageHandlerV7:
                             items += self._optional_source('catalog_variants',
                                 lambda: catalog.search(text=family,limit=9), [])
             if catalogue_needed:
-                items += self._optional_source('catalog_search', lambda: catalog.search(text=faq_question, limit=12), [])
-                items += self._optional_source('catalog_preview', catalog.list_all_items, [])[:40]
+                matching = self._optional_source('catalog_search', lambda: catalog.search(text=faq_question, limit=12), [])
+                items += matching
+                broad = bool(re.search(r'\b(?:all|every|catalogue|catalog|everything|range|selection|browse|sell|offer)\b',
+                                       question, re.I))
+                if broad or not matching:
+                    items += self._optional_source('catalog_preview', catalog.list_all_items, [])[:40]
             for sku in (session.get('last_items') or [])[:12]:
                 item = self._optional_source('catalog_selection', lambda: catalog.get_item_by_sku(sku), None)
                 if item:
@@ -953,7 +1009,20 @@ class MessageHandlerV7:
                         facts.pop('price', None)
                     knowledge['product:' + sku] = facts
         if self.faq:
-            for index, row in enumerate(self._optional_faq_rows()[:120]):
+            rows = self._optional_faq_rows()[:120]
+            from service.agent_knowledge import relevance
+            matched = [row for row in rows if isinstance(row, dict) and relevance(
+                {'question': row.get('q'), 'answer': row.get('a'), 'tags': row.get('tags')}, faq_question) > 0]
+            # No lexical evidence calls for the broader fallback. On focused
+            # turns keep matching FAQs plus pricing/inspection conditions for
+            # catalogue questions, preserving complete statement text.
+            if matched:
+                price_rules = [row for row in rows if isinstance(row, dict) and re.search(
+                    r'\b(?:pricing|prices?|estimates?|quotes?|inspection|deposits?|fees?|minimum)\b',
+                    str(row.get('q') or '')+' '+' '.join(row.get('tags') or []), re.I)] if catalog and catalogue_needed else []
+            for index, row in enumerate(rows):
+                if matched and row not in matched and row not in price_rules:
+                    continue
                 if isinstance(row, dict) and row.get('active') is not False and row.get('public') is not False:
                     raw_answer = row.get('a')
                     if any(key.startswith('matched_faq:') and value.get('question') == str(row.get('q') or '')[:500]
@@ -1026,7 +1095,8 @@ class MessageHandlerV7:
                       retrieval_question=faq_question,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
-                                     'customer_statements': session.get('conversation_customer_statements', []),
+                                     'customer_statements': [*older_facts,
+                                         *session.get('conversation_customer_statements', [])[-4:]],
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
         if text and agent_state.get('_validated_grounded') is True:

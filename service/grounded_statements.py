@@ -160,6 +160,34 @@ def prompt_statements(knowledge, statements):
                       and source[name].strip() == text), None)
         result[identifier] = ({key: value for key, value in statement.items() if key != 'text'}
                               | {'text_from_knowledge': field} if field else dict(statement))
+        if not field and isinstance(source, dict) and isinstance(text, str):
+            for rule in source.get('business_rules', []):
+                if not isinstance(rule, dict) or not isinstance(rule.get('description'), str):
+                    continue
+                suffix = ' The details require review by the team.' if rule.get('requires_manual_review') is True else ''
+                if (identifier == 'business_core:rule:' + str(rule.get('id'))
+                        and text == rule['description'].strip() + suffix):
+                    result[identifier] = {'source_id': statement['source_id'],
+                        'text_from_rule': rule['id'], 'review_note': suffix.strip()}
+                    break
+    return result
+
+
+def prompt_knowledge(knowledge):
+    """Send an identical offering once; retain every nonduplicated core fact."""
+    result = dict(knowledge)
+    core = knowledge.get('business_core')
+    if not isinstance(core, dict) or not isinstance(core.get('offerings'), list):
+        return result
+    references, remaining = [], []
+    for row in core['offerings']:
+        identifier = 'offering:' + str(row.get('id')) if isinstance(row, dict) else ''
+        if identifier in knowledge and knowledge[identifier] == row:
+            references.append(identifier)
+        else:
+            remaining.append(row)
+    if references:
+        result['business_core'] = {**core, 'offerings': remaining, 'offering_source_ids': references}
     return result
 
 

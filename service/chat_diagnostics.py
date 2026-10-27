@@ -24,15 +24,23 @@ def emit(event, **fields):
                 and re.fullmatch(r'[A-Za-z0-9_.:-]{1,80}', value)
                 and not value.startswith(('sk-', 'sk_', 'whsec_', 'Bearer'))):
             safe[key] = value
+    for key in ('cache_hits', 'cache_misses', 'request_cache_hits', 'prompt_bytes'):
+        value = fields.get(key)
+        if type(value) is int and 0 <= value <= 100_000_000:
+            safe[key] = value
     logger.info('%s', json.dumps(safe, separators=(',', ':')))
+    from service.performance_metrics import observe
+    tenant = current.get('tenant') or (g.get('chat_tenant') if has_request_context() else None)
+    observe(tenant, event, safe)
 
 
 @contextmanager
-def turn_scope(channel, request_id, session_id):
+def turn_scope(channel, request_id, session_id, tenant=None):
     started = time.monotonic()
     current = {'request_id': request_id if isinstance(request_id, str) and re.fullmatch(r'[a-f0-9]{24}', request_id) else '-',
                'session_hash': hashlib.sha256(str(session_id).encode()).hexdigest()[:16],
-               'deadline': started + 30 if channel in {'web', 'test'} else None, 'provider_calls': 0}
+               'deadline': started + 30 if channel in {'web', 'test'} else None, 'provider_calls': 0,
+               'tenant': tenant}
     token = _turn.set(current)
     try:
         yield

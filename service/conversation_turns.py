@@ -21,7 +21,8 @@ def _definition(text):
     from service.grounded_conversation import _requirement
     if '?' in text or re.match(r'\s*(?:does|what|how|why|when|where|can|could)\b', text, re.I):
         return None
-    match = re.fullmatch(r'\s*([\w][\w -]{0,39}?)\s*(?:=|means)\s*([^\n=]{1,80}?)\s*[.!]?\s*', text, re.I)
+    definition = re.sub(r'^\s*(?:in|for) this (?:test )?(?:conversation|chat)\s*,?\s*', '', text, flags=re.I)
+    match = re.fullmatch(r'\s*([\w][\w -]{0,39}?)\s*(?:=|means)\s*([^\n=]{1,80}?)\s*[.!]?\s*', definition, re.I)
     if match and _requirement(text) and not re.search(
             r'\b(?:ignore|instructions?|system|developer|execute|forget|override|credentials?|secrets?|tokens?|keys?)\b|'
             r'\b(?:sk|rk|pk)_(?:live|test)_|\bwhsec_', text, re.I):

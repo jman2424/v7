@@ -529,6 +529,10 @@
     event.preventDefault();
     const text = input.value.trim();
     if (busy || !text) return;
+    const now = () => window.performance?.now?.() ?? Date.now();
+    const startedAt = now();
+    let firstVisibleAt = null, progressRow = null;
+    const painted = () => { if (firstVisibleAt === null) (window.requestAnimationFrame || (fn => fn()))(() => { firstVisibleAt ??= now(); }); };
     busy = true; send.disabled = true; dictation.disabled = true;
     pendingText = text;
     chatStatus.textContent = "Getting a reply…";
@@ -550,7 +554,9 @@
     let reference = "";
     try {
       const response = await fetch(config.endpoint, {
-        method: "POST", headers: {"Content-Type": "application/json"},
+        method: "POST", headers: {"Content-Type": "application/json",
+          ...(config.streaming === true && typeof ReadableStream === 'function' && typeof TextDecoder === 'function'
+            ? {Accept:'text/event-stream'} : {})},
         signal: controller.signal,
         body: JSON.stringify({tenant: config.tenant, message: text,
           conversation_token: token || undefined, message_id: newRequestId()})
@@ -558,9 +564,48 @@
       const requestId = response.headers?.get?.('X-Request-ID') || '';
       if (/^[a-f0-9]{24}$/.test(requestId)) reference = requestId;
       const contentType = response.headers?.get?.('Content-Type') || '';
-      if (contentType && !contentType.includes('application/json')) throw new Error('service_unavailable');
       let data;
-      try { data = await response.json(); }
+      try {
+        if (response.ok && contentType.includes('text/event-stream') && response.body?.getReader) {
+          const reader = response.body.getReader(), decoder = new TextDecoder();
+          let buffer = '', completed = false, shown = '', bytes = 0;
+          try {
+            while (true) {
+              const chunk = await reader.read();
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > 512000) throw new Error('request_failed');
+              buffer += decoder.decode(chunk.value,{stream:true});
+              let boundary;
+              while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                const event = buffer.slice(0,boundary); buffer = buffer.slice(boundary+2);
+                const kind = event.split('\n').find(line=>line.startsWith('event: '))?.slice(7);
+                const raw = event.split('\n').find(line=>line.startsWith('data: '))?.slice(6);
+                if (!raw || completed) throw new Error('request_failed');
+                const value = JSON.parse(raw);
+                if (kind === 'reply_chunk' && typeof value.text === 'string') {
+                  shown += value.text;
+                  if (!progressRow) {
+                    progressRow = document.createElement('div');progressRow.className='msg';
+                    const bubble=document.createElement('div');bubble.className='msg__bubble';
+                    progressRow.append(bubble);log.append(progressRow);
+                  }
+                  progressRow.children[0].textContent=shown;log.scrollTop=log.scrollHeight;painted();
+                } else if (kind === 'complete' && typeof value.reply === 'string' && value.reply === shown) {
+                  data = value; completed = true;
+                } else throw new Error('request_failed');
+              }
+            }
+            if (!completed || buffer.trim()) throw new Error('request_failed');
+          } finally {
+            if (!completed) { try { await reader.cancel?.(); } catch {} }
+            reader.releaseLock();
+          }
+        } else {
+          if (contentType && !contentType.includes('application/json')) throw new Error('service_unavailable');
+          data = await response.json();
+        }
+      }
       catch { throw new Error(response.status >= 500 ? 'service_unavailable' : 'request_failed'); }
       if (!response.ok) {
         if (data && data.error === "conversation_expired") {
@@ -577,11 +622,21 @@
       if (!data || typeof data.reply !== "string" || !data.reply.trim()) throw new Error("request_failed");
       remember(data.conversation_token);
       pendingText = '';
+      if (progressRow) { progressRow.remove();progressRow=null; }
       const bubble = add(data.reply, "bot");
+      painted();
       addSuggestedActions(bubble, data.actions);
       const playback = addPlayback(bubble, data.reply);
       if (aloud.checked && playback && replySpeechGeneration === speechGeneration && !document.hidden) speak(data.reply, playback);
+      if (config.performanceEndpoint) (window.requestAnimationFrame || (fn => fn()))(() => {
+        const finishedAt = now();
+        fetch(config.performanceEndpoint,{method:'POST',credentials:'same-origin',keepalive:true,
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant:config.tenant,
+            conversation_token:data.conversation_token,first_visible_ms:(firstVisibleAt ?? finishedAt)-startedAt,
+            total_ms:finishedAt-startedAt})}).catch(()=>{});
+      });
     } catch (error) {
+      if (progressRow) progressRow.remove();
       const message = error && error.name === "AbortError"
         ? "The reply took too long. Please try again."
         : error instanceof Error && Object.prototype.hasOwnProperty.call(chatErrors, error.message)

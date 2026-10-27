@@ -313,6 +313,7 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     from service.chat_diagnostics import provider_timeout, provider_started, emit
     import time
     kwargs['timeout'] = provider_timeout(kwargs['timeout'])
+    credit_started = time.monotonic()
     internal = subscriptions.internal_business(context[0])
     try:
         pricing = snapshot()
@@ -334,6 +335,8 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     except (usage_wallet.UsagePaused, ValueError):
         emit('provider_skipped', outcome='ai_credit_paused')
         raise AllowancePaused("ai_credit_paused") from None
+    emit("chat_phase", phase="credit_reservation", outcome="completed",
+         elapsed_ms=round((time.monotonic()-credit_started)*1000, 2))
     provider_start = time.monotonic()
     try:
         try:
@@ -355,6 +358,8 @@ def tracked_completion(client, *, purpose: str, **kwargs):
         emit('provider_failed', purpose=purpose, error_type=type(exc).__name__)
         raise
     finally:
+        settlement_started = time.monotonic()
+        settlement_outcome = 'completed'
         details = completion_usage(response, kwargs["model"], purpose, status, pricing=pricing)
         emit('provider_finished', purpose=purpose, model=kwargs['model'], outcome=status,
              elapsed_ms=round((time.monotonic()-provider_start)*1000, 2),
@@ -365,12 +370,16 @@ def tracked_completion(client, *, purpose: str, **kwargs):
             _record(response, kwargs["model"], purpose, status, pricing=pricing)
         except Exception as exc:
             # Accounting failure must not discard a paid reply or reveal its contents.
+            settlement_outcome = 'failed'
             logger.error("API usage recording failed (%s)", type(exc).__name__)
         try:
             usage_wallet.settle_usage(reservation, details["cost_nano_usd"], details)
         except Exception as exc:
             # An unsettled reservation stays held. Never discard a paid reply.
+            settlement_outcome = 'failed'
             logger.error("Prepaid usage settlement failed (%s)", type(exc).__name__)
+        emit("chat_phase", phase="credit_settlement", outcome=settlement_outcome,
+             elapsed_ms=round((time.monotonic()-settlement_started)*1000, 2))
 
 
 def summary(tenant: str | None, days: int) -> dict:

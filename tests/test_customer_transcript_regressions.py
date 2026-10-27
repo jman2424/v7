@@ -123,7 +123,7 @@ def test_webchat_transcript_keeps_memory_through_rejections(app, client, monkeyp
 
 def test_webchat_final_render_provides_signed_clickable_destination(app, client, monkeypatch):
     handler = app.container.for_tenant('EXAMPLE').handler.h_v7
-    handler.website_destinations = TARGETS
+    app.container.storage.write_json('EXAMPLE', 'website_destinations.json', TARGETS, snapshot=False)
     monkeypatch.setattr(handler, '_grounded_answer', lambda *args, **kwargs: {
         'reply': 'Read https://example.com/setup for instructions.', 'actions': []})
     response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'How can I set up?'}).json

@@ -69,6 +69,8 @@
       transcriptionToken: {{ transcription_token|tojson }},
       actionsEndpoint: {{ url_for('conversion.get_chat_actions')|tojson }},
       navigationClickEndpoint: {{ url_for('webchat.navigation_click')|tojson }},
+      performanceEndpoint: {{ url_for('webchat.chat_performance')|tojson }},
+      streaming: true,
       parentOrigins: {{ g.chat_origins|default([])|tojson }},
       theme: {{ (branding.theme if branding and branding.theme else {})|tojson }},
       accentColor: {{ (branding.widget.accent_color if branding and branding.widget else '#3EEA8C')|tojson }},
@@ -84,6 +86,6 @@
     };
   </script>
 <script src="{{ url_for('static', filename='js/widget-session.js', v='20261026tabs') }}"></script>
-<script src="{{ url_for('static', filename='js/widget.js', v='20261026tabs') }}"></script>
+<script src="{{ url_for('static', filename='js/widget.js', v='20261027perf') }}"></script>
 </body>
 </html>

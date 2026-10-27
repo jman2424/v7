@@ -29,7 +29,7 @@ bp = Blueprint("webchat", __name__)
 @bp.before_request
 def _chat_request_started():
     if request.endpoint == 'webchat.chat_api':
-        g.chat_started = time.monotonic()
+        g.chat_started = g.get('request_started', time.monotonic())
 
 
 @bp.after_request
@@ -799,6 +799,8 @@ def transcribe_api():
 
 @bp.route("/chat_api", methods=["POST"])
 def chat_api():
+    from service.chat_diagnostics import emit, phase
+    authentication_started = time.monotonic()
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="json_object_required"), 400
@@ -807,6 +809,7 @@ def chat_api():
         return jsonify(error="invalid_tenant"), 400
     c = _tenant_container(tenant)
     tenant = c.settings.BUSINESS_KEY
+    g.chat_tenant = tenant
     _check_origin(c)
     text = data.get("message", data.get("text", ""))
     if not isinstance(text, str) or not text.strip() or len(text) > 4000:
@@ -833,43 +836,47 @@ def chat_api():
     if not isinstance(message_id, str) or len(message_id) > 128:
         return _cors(jsonify(error="invalid_message_id")), 400
     message_id = session_id + ":" + message_id
+    emit("chat_phase", phase="authentication", outcome="completed",
+         elapsed_ms=round((time.monotonic()-authentication_started)*1000, 2))
 
-    from service.tester_limits import enforce
-    limited = enforce(tenant)
-    if limited is not None:
-        return _cors(limited)
+    with phase('request_limits'):
+        from service.tester_limits import enforce
+        limited = enforce(tenant)
+        if limited is not None:
+            return _cors(limited)
 
-    from service.plan_usage import use_resource
-    if not use_resource(tenant, "website_conversations", session_id):
-        return _cors(jsonify(error="website_allowance_paused",
-                            reply="Chat is temporarily unavailable. Please contact the business directly.")), 429
+        from service.plan_usage import use_resource
+        if not use_resource(tenant, "website_conversations", session_id):
+            return _cors(jsonify(error="website_allowance_paused",
+                                reply="Chat is temporarily unavailable. Please contact the business directly.")), 429
 
     lead_id = _lead_id_from_session(session_id)
 
-    # Lead table helpers (non-fatal; included in HTTP duration measurements).
-    try:
-        upsert_lead(tenant=tenant, lead_id=lead_id)
-        set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
-    except Exception as exc:
-        from service.chat_diagnostics import emit
-        emit('chat_optional_failure', phase='lead_audit', error_type=type(exc).__name__)
+    with phase('transport_inbound'):
+        # Lead table helpers (non-fatal; included in HTTP duration measurements).
+        try:
+            upsert_lead(tenant=tenant, lead_id=lead_id)
+            set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='lead_audit', error_type=type(exc).__name__)
 
-    # ✅ KPI inbound row (dedup if retried)
-    _safe_log_message(
-        tenant=tenant,
-        channel=channel,
-        direction="inbound",
-        session_id=session_id,
-        intent="unknown",
-        text=text,
-        lead_id=lead_id,
-        store=None,
-        fallback=False,
-        error=False,  # legacy marker only
-        error_code="",
-        error_type="",
-        message_id=message_id,
-    )
+        # ✅ KPI inbound row (dedup if retried)
+        _safe_log_message(
+            tenant=tenant,
+            channel=channel,
+            direction="inbound",
+            session_id=session_id,
+            intent="unknown",
+            text=text,
+            lead_id=lead_id,
+            store=None,
+            fallback=False,
+            error=False,  # legacy marker only
+            error_code="",
+            error_type="",
+            message_id=message_id,
+        )
 
     handler = _get_handler(c)
 
@@ -919,44 +926,87 @@ def chat_api():
         len(reply),
     )
 
-    # outbound id derived from inbound id (dedupe retries)
-    out_message_id = f"{message_id}:reply" if message_id else ""
+    with phase('transport_outbound'):
+        # outbound id derived from inbound id (dedupe retries)
+        out_message_id = f"{message_id}:reply" if message_id else ""
 
-    # ✅ KPI outbound row (dedup if retried)
-    from service.product_metrics import matched_products
-    from service.offer_metrics import shown_offers
-    _safe_log_message(
-        tenant=tenant,
-        channel=channel,
-        direction="outbound",
-        session_id=session_id,
-        intent=intent,
-        text=reply,
-        lead_id=lead_id,
-        store=store,
-        fallback=is_fallback,
-        error=False,  # KPI errors stored as separate rows
-        error_code="",
-        error_type="",
-        message_id=out_message_id,
-        products=matched_products(result),
-        offers=shown_offers(result),
-    )
-
-    # ✅ error row (separate event_type='error' in analytics_db)
-    if is_error:
-        _safe_log_error(
+        # ✅ KPI outbound row (dedup if retried)
+        from service.product_metrics import matched_products
+        from service.offer_metrics import shown_offers
+        _safe_log_message(
             tenant=tenant,
             channel=channel,
+            direction="outbound",
             session_id=session_id,
+            intent=intent,
+            text=reply,
             lead_id=lead_id,
-            error_code=error_code,
-            error_type=error_type,
-            meta={"where": "webchat_routes.chat_api"},
-            message_id=f"{message_id}:error" if message_id else "",
+            store=store,
+            fallback=is_fallback,
+            error=False,  # KPI errors stored as separate rows
+            error_code="",
+            error_type="",
+            message_id=out_message_id,
+            products=matched_products(result),
+            offers=shown_offers(result),
         )
 
-    return _cors(jsonify(reply=reply, conversation_token=token, session_id=session_id,
-                         error=error_code or None, agent=_public_agent_payload(result),
-                         actions=_public_action_payload(result, tenant=tenant, session_id=session_id,
-                                                        message_id=out_message_id))), 503 if is_error else 200
+        # ✅ error row (separate event_type='error' in analytics_db)
+        if is_error:
+            _safe_log_error(
+                tenant=tenant,
+                channel=channel,
+                session_id=session_id,
+                lead_id=lead_id,
+                error_code=error_code,
+                error_type=error_type,
+                meta={"where": "webchat_routes.chat_api"},
+                message_id=f"{message_id}:error" if message_id else "",
+            )
+
+    payload = dict(reply=reply, conversation_token=token, session_id=session_id,
+                   error=error_code or None, agent=_public_agent_payload(result),
+                   actions=_public_action_payload(result, tenant=tenant, session_id=session_id,
+                                                  message_id=out_message_id))
+    if not is_error and request.accept_mimetypes.best == 'text/event-stream':
+        from service.validated_stream import events
+        response = Response(events(payload), mimetype='text/event-stream',
+                            headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+        return _cors(response)
+    return _cors(jsonify(payload)), 503 if is_error else 200
+
+
+_timing_limit = RateLimiter(capacity=60, refill_per_sec=1)
+
+
+@bp.post('/chat/performance')
+def chat_performance():
+    """Only numeric browser paint timings bound to an issued conversation."""
+    import math
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) - {'tenant', 'conversation_token', 'first_visible_ms', 'total_ms'}:
+        return jsonify(error='invalid_timing'), 400
+    tenant = data.get('tenant')
+    if not isinstance(tenant, str):
+        return jsonify(error='invalid_tenant'), 400
+    c = _tenant_container(tenant)
+    tenant = c.settings.BUSINESS_KEY
+    _check_origin(c)
+    token = data.get('conversation_token')
+    if not isinstance(token, str) or len(token) > 2048:
+        return _cors(jsonify(error='invalid_conversation')), 403
+    try:
+        identity = _signer().loads(token, max_age=86400)
+    except (BadSignature, SignatureExpired):
+        return _cors(jsonify(error='invalid_conversation')), 403
+    if not isinstance(identity, dict) or identity.get('tenant') != tenant:
+        return _cors(jsonify(error='invalid_conversation')), 403
+    values = {key: data.get(key) for key in ('first_visible_ms', 'total_ms')}
+    if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 120000
+           for value in values.values()):
+        return _cors(jsonify(error='invalid_timing')), 400
+    if _timing_limit.allow('browser-timings'):
+        from service.performance_metrics import record
+        record(tenant, 'browser_first_visible_ms', values['first_visible_ms'])
+        record(tenant, 'browser_total_ms', values['total_ms'])
+    return _cors(make_response('', 204))

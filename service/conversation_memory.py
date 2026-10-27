@@ -52,6 +52,30 @@ def bounded_history(rows, settings=None):
     return list(reversed(result))
 
 
+def relevant_customer_facts(rows, question, recent=(), retired=()):
+    """Select bounded older customer quotations, never inferred business facts."""
+    from service.grounded_conversation import _requirement
+    from service.agent_knowledge import _terms
+    if not isinstance(rows, list):
+        return []
+    recent = recent if isinstance(recent, (list, tuple)) else ()
+    retired = retired if isinstance(retired, (list, tuple)) else ()
+    words = _terms(question)
+    excluded = {str(row).casefold() for row in retired}
+    existing = '\n'.join(str(row.get('content', '')) for row in recent if isinstance(row, dict))
+    ranked = [(len(words & _terms(row)), index, row) for index, row in enumerate(rows[-32:])
+              if _requirement(row) and row.casefold() not in excluded and row not in existing]
+    selected, size = [], 0
+    for score, index, row in sorted(ranked, reverse=True):
+        if not score or len(selected) == 2:
+            break
+        cost = len(row.encode('utf-8'))
+        if size + cost <= 512:
+            selected.append((index, row))
+            size += cost
+    return [row for _, row in sorted(selected)]
+
+
 def status(storage, tenant, raw=None):
     from service import model_settings, usage_pricing
     raw = model_settings.document(storage, tenant) if raw is None else raw

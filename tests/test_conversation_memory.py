@@ -177,3 +177,24 @@ def test_native_conversation_memory_is_shared_and_force_rls_scoped(pg_runtime):
     assert memory.ConversationMemory(Storage(other), other).get('same', 'last_sku') is None
     with session_store.postgres_connection(other) as db:
         assert db.execute('SELECT count(*) FROM v7_private.conversation_memory WHERE tenant=%s', (tenant,)).fetchone()[0] == 0
+
+
+def test_older_customer_facts_are_relevant_bounded_and_exclude_private_or_retired_quotes():
+    rows = ['My car is a Polo.', 'My previous car was a Golf.', 'I need ceramic coating.',
+            'My car contact is customer@example.com', 'My car password is secret', 'Unrelated preference.']
+    selected = memory.relevant_customer_facts(rows, 'What car did I tell you about?',
+        recent=[{'role': 'user', 'content': 'I need ceramic coating.'}], retired=['My previous car was a Golf.'])
+    assert selected == ['My car is a Polo.']
+    bounded = memory.relevant_customer_facts(['Car ' + str(i) + ' ' + 'é' * 150 for i in range(32)], 'Car?')
+    assert len(bounded) <= 2 and sum(len(row.encode('utf-8')) for row in bounded) <= 512
+    assert memory.relevant_customer_facts(rows, 'Unmatched topic') == []
+
+
+def test_older_facts_follow_tenant_scope_and_memory_disable(shared):
+    alpha = memory.ConversationMemory(shared, 'ALPHA')
+    alpha.set('same', 'conversation_customer_facts', ['My car is a Polo.'])
+    assert alpha.get('same', 'conversation_customer_facts') == ['My car is a Polo.']
+    assert memory.ConversationMemory(shared, 'BETA').get('same', 'conversation_customer_facts') is None
+    from unittest.mock import patch
+    with patch.object(memory, 'profile', return_value=({**memory.DEFAULTS, 'enabled': False}, 'disabled')):
+        assert alpha.get('same', 'conversation_customer_facts') is None

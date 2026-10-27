@@ -32,7 +32,14 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Install trusted audio decoder used in production
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        if: matrix.suite == 'runtime'
+        timeout-minutes: 5
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
       - name: Enable verified TLS on disposable PostgreSQL
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
@@ -57,7 +64,7 @@ jobs:
           echo "V7_SUPABASE_CA_FILE=$RUNNER_TEMP/pg.crt" >> "$GITHUB_ENV"
       - name: Native runtime and booking lifecycle tests
         if: matrix.suite == 'runtime'
-        run: python -m pytest tests/test_postgres*.py tests/test_referrals_postgres.py tests/test_auth_second_pass.py tests/test_conversation_memory.py tests/test_legacy_analytics_reports.py tests/test_plan_checkout_races.py tests/test_plan_usage.py tests/test_usage_wallet.py tests/test_booking_management.py tests/test_audio_decoder.py -q -ra
+        run: python -m pytest tests/test_postgres*.py tests/test_referrals_postgres.py tests/test_auth_second_pass.py tests/test_conversation_memory.py tests/test_legacy_analytics_reports.py tests/test_plan_checkout_races.py tests/test_plan_usage.py tests/test_usage_wallet.py tests/test_booking_management.py tests/test_audio_decoder.py tests/test_business_read_cache.py tests/test_performance_pipeline.py -q -ra
       - name: Migration import and RLS tests on separate empty database
         if: matrix.suite == 'migration'
         run: python -m pytest tests/test_supabase_preparation.py -q -ra

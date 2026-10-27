@@ -111,7 +111,13 @@ class CatalogStore:
         The snapshot has no shared expiry/cache and is never reused next turn.
         It avoids fetching the same tenant document for every search/SKU/price.
         """
-        return self if self._static else CatalogStore(catalog=self._load())
+        if self._static:
+            return self
+        snapshot = CatalogStore(catalog=self._load())
+        # Keep the tenant binding for business integrations; _static prevents
+        # read refreshes and the snapshot never becomes a shared writer.
+        snapshot.storage = self.storage
+        return snapshot
 
     def _refresh(self) -> None:
         if self._static:

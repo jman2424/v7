@@ -422,6 +422,13 @@ def import_bundle(conn, bundle):
             for row in rows:
                 values = [Jsonb(row[column]) if column == 'payload' else row[column] for column in columns]
                 conn.execute(query, values)
+        # Queue ownership is derived metadata, not a new source of authority.
+        # Imported pending telemetry must be recoverable before new traffic.
+        # Older reviewed schemas without the optional queue table still import.
+        if conn.execute("SELECT to_regclass('v7_private.telemetry_pending_tenants')").fetchone()[0]:
+            conn.execute("INSERT INTO v7_private.telemetry_pending_tenants(tenant) "
+                         "SELECT DISTINCT tenant FROM v7_private.events WHERE event_type='pipeline_pending' "
+                         "ON CONFLICT DO NOTHING")
         verify(conn, bundle)
         for table in ['events','leads','api_usage','inventory_history','audit_records']:
             # Fixed allowlist; qualified regclass never comes from user data.
