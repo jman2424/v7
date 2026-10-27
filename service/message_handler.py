@@ -264,7 +264,8 @@ class MessageHandler:
 
         dispatch_mode = mode if mode in {"v5", "v6"} else "v7"
         factory = getattr(self.h_v7, 'request_copy', None)
-        v7 = factory() if dispatch_mode == 'v7' and callable(factory) else self.h_v7
+        with phase('retrieval_runtime'):
+            v7 = factory() if dispatch_mode == 'v7' and callable(factory) else self.h_v7
         with phase('dispatch'), usage_context(ctx.tenant, ctx.channel, dispatch_mode):
             if dispatch_mode == "v5":
                 reply = self.h_v5.handle(user_text, ctx, sess)

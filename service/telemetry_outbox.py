@@ -65,7 +65,9 @@ def collect(tenant, channel, session_id):
             # and synchronous fallback cannot create duplicate original events.
             job_id = 'telemetry:' + uuid.uuid4().hex
             try:
-                enqueue(tenant, channel, session_id, current['rows'], job_id=job_id)
+                from service.chat_diagnostics import phase
+                with phase('telemetry_enqueue'):
+                    enqueue(tenant, channel, session_id, current['rows'], job_id=job_id)
             except Exception as exc:
                 failure('telemetry_enqueue', exc)
                 for index, row in enumerate(current['rows']):

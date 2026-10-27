@@ -78,25 +78,27 @@ class PostgresBusinessDocuments:
     @contextmanager
     def _transaction(self) -> Iterator[Any]:
         with postgres_connection(self.tenant_key) as connection:
-            tables = connection.execute(
+            probes = []
+            from contextlib import nullcontext
+            # All metadata probes are independent. Validate every result
+            # before yielding a connection that can read business documents.
+            with connection.pipeline() if hasattr(connection, 'pipeline') else nullcontext():
+                tables_query = connection.execute(
                 "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
                 "c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) "
                 "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
                 "WHERE n.nspname = 'v7_private' "
                 "AND c.relname IN ('tenants', 'business_documents', 'document_versions')"
-            ).fetchall()
-            if (len(tables) != 3 or
-                    any(not row[1] or not row[2] or row[3] for row in tables)):
-                raise TenantDocumentStorageError("Restricted V7 business tables required")
-            probes = []
-            from contextlib import nullcontext
-            with connection.pipeline() if hasattr(connection, 'pipeline') else nullcontext():
+                )
                 for table in ('tenants', 'business_documents', 'document_versions'):
                     probes.append(connection.execute(
                 "SELECT has_table_privilege(current_user, %s, 'TRUNCATE')",
                 (f"v7_private.{table}",),
                     ))
-            if any(probe.fetchone()[0] for probe in probes):
+            tables = tables_query.fetchall()
+            if (len(tables) != 3 or
+                    any(not row[1] or not row[2] or row[3] for row in tables)
+                    or any(probe.fetchone()[0] for probe in probes)):
                 raise TenantDocumentStorageError("Restricted V7 business tables required")
             yield connection
 

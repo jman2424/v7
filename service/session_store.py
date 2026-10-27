@@ -81,9 +81,11 @@ def postgres_connection(authorized_tenant=None, *, repeatable_read=False):
                 raise RuntimeError("PostgreSQL security role or tables are not restricted")
             # Keep unqualified legacy table names in the private schema. Never
             # search public schemas or a caller-controlled path.
-            db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
             if authorized_tenant is not None:
-                db.execute("SELECT set_config('v7.tenant', %s, true)", (authorized_tenant,))
+                db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true), "
+                           "set_config('v7.tenant', %s, true)", (authorized_tenant,))
+            else:
+                db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
             yield db
     except psycopg.Error:
         # Driver errors can contain connection details or sensitive row values.
