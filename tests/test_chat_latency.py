@@ -165,3 +165,13 @@ def test_broken_catalogue_cannot_abort_fresh_independent_knowledge_or_serve_stal
     monkeypatch.setattr(CatalogStore, 'snapshot', original)
     storage.write_json('EXAMPLE', 'catalog.json', {'version': 1, 'currency': 'GBP', 'categories': []})
     assert handler.request_copy().catalog is not None
+
+
+def test_invalid_profile_does_not_abort_independent_facts_and_next_turn_sees_repair(app):
+    storage = app.container.storage
+    handler = app.container.handler.h_v7
+    storage.write_json('EXAMPLE', 'store_info.json', [])
+    local = handler.request_copy()
+    assert local.business_profile == {} and local.faq is not None and local.catalog is not None
+    storage.write_json('EXAMPLE', 'store_info.json', {'name': 'Current repaired business'})
+    assert handler.request_copy().business_name == 'Current repaired business'

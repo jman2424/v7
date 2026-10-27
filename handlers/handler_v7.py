@@ -305,8 +305,17 @@ class MessageHandlerV7:
         local.policy = self._optional_source('policy_snapshot', lambda: PolicyStore(storage), None)
         local.geo = self._optional_source('geo_snapshot', lambda: GeoStore(storage), None)
         local.offers = self._optional_source('offer_snapshot', lambda: OfferStore(storage), None)
-        local.business_profile = self._optional_source('profile_snapshot',
-            lambda: storage.read_json(self.tenant_key, 'store_info.json'), {})
+        def optional_document(filename):
+            try:
+                return storage.read_json(self.tenant_key, filename)
+            except FileNotFoundError:
+                return {}
+        def profile():
+            value = optional_document('store_info.json')
+            if not isinstance(value, dict):
+                raise ValueError('invalid_business_profile')
+            return value
+        local.business_profile = self._optional_source('profile_snapshot', profile, {})
         local.business_name = str(local.business_profile.get('name') or '').strip()
         local.sales_context = build_tenant_sales_context(local.business_profile, self.sales_playbook,
                                                         local._catalog_categories())
@@ -315,7 +324,7 @@ class MessageHandlerV7:
         local.renderer.business_context = local.sales_context
         from service.website_knowledge import current_website_knowledge
         raw = self._optional_source('website_snapshot',
-            lambda: storage.read_json(self.tenant_key, 'website_knowledge.json'), {})
+            lambda: optional_document('website_knowledge.json'), {})
         local.website_knowledge = current_website_knowledge(raw, local.business_profile.get('website'))
         from service.website_destinations import load
         local.website_destinations = self._optional_source('destination_snapshot',
