@@ -49,6 +49,18 @@ it never caches/replays answers or replaces tenant validation. No extended
 provider retention or new API parameter is enabled. See the
 [official OpenAI prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
 
+During validation, the advisory database added the console build dependency
+`deepmerge` 4.3.1 under
+[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4).
+The Svelte plugin alone now resolves the compatible fixed
+`@stackline/deepmerge` 1.1.0 through an explicit npm alias override and integrity
+lock. No audit exception, older vulnerable release or framework downgrade is
+used. Its actual CJS/ESM entrypoints were reviewed, registry signatures and
+available attestations verified, and build-config/prototype-poisoning tests
+exercise the dependency resolved by the plugin. This is build tooling; it does
+not receive customer chat data. Console tests, type check, build and the normal
+full-severity dependency audit remain required.
+
 `V7_ASYNC_TELEMETRY=true` batches only `pipeline_in`, `pipeline_out` and
 `pipeline_turn` into one durable commit, then fans them out on a bounded worker
 inside the existing web service. It defaults on under Render. Apply migration

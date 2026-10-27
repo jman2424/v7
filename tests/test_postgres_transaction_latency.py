@@ -11,6 +11,8 @@ from service.analytics_service import AnalyticsService
 def test_native_combined_lead_write_uses_one_transaction_and_keeps_tenants(pg_runtime, monkeypatch):
     tenant, other = pg_runtime['tenant'], pg_runtime['other']
     analytics_db.upsert_lead(tenant=tenant, lead_id='shared-id', name='Synthetic customer', phone='test-only')
+    # Startup validation is not a chat write; measure the per-turn operation.
+    analytics = AnalyticsService(SimpleNamespace())
     opened = []
     original = session_store.postgres_connection
 
@@ -22,8 +24,7 @@ def test_native_combined_lead_write_uses_one_transaction_and_keeps_tenants(pg_ru
 
     with monkeypatch.context() as context:
         context.setattr(session_store, 'postgres_connection', counted)
-        AnalyticsService(SimpleNamespace()).upsert_lead_session(
-            tenant=tenant, lead_id='shared-id', session_id='new')
+        analytics.upsert_lead_session(tenant=tenant, lead_id='shared-id', session_id='new')
     assert opened == [tenant]
     analytics_db.upsert_lead_session(tenant=other, lead_id='shared-id', session_id='other', name='Other')
     with original(tenant) as db:
