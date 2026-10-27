@@ -130,7 +130,10 @@ def test_optional_source_failure_keeps_other_public_knowledge(handler, monkeypat
         return 'Here is the available business information.'
     monkeypatch.setattr(grounded_conversation, 'answer', answer)
     with caplog.at_level('INFO', logger='Chat.Diagnostics'):
-        result = handler._grounded_answer('Tell me about Basic', {}, channel='web')
+        # Broad discovery uses the preview fallback; a focused match now
+        # deliberately avoids that unnecessary read altogether.
+        question = 'Tell me about Basic and browse all services' if failed_source == 'catalog_preview' else 'Tell me about Basic'
+        result = handler._grounded_answer(question, {}, channel='web')
     assert result['reply'] and seen[0]['product:basic']['name'] == 'Basic'
     assert 'chat_optional_failure' in caplog.text
     assert 'PRIVATE' not in caplog.text and 'sk-proj-' not in caplog.text
@@ -138,6 +141,23 @@ def test_optional_source_failure_keeps_other_public_knowledge(handler, monkeypat
         assert 'delivery' not in seen[0]
     if failed_source == 'currency':
         assert 'price' not in seen[0]['product:basic']
+
+
+def test_focused_match_does_not_fetch_entire_catalogue(handler, monkeypatch):
+    handler.rewriter = SimpleNamespace(_client=object(), _model='test-model')
+    product = {'sku': 'basic', 'name': 'Basic', 'price': 20}
+    def unnecessary():
+        pytest.fail('A focused match must not fetch the catalogue preview')
+    handler.catalog = SimpleNamespace(search=lambda **kwargs: [product], list_all_items=unnecessary,
+        get_item_by_sku=lambda sku: product, currency=lambda: 'GBP')
+    # Isolate the retrieval fallback from the separate local exact-name
+    # resolver, which may inspect the already-loaded catalogue index.
+    monkeypatch.setattr(handler, '_exact_catalog_item_in_text', lambda *args, **kwargs: product)
+    seen = []
+    monkeypatch.setattr(grounded_conversation, 'answer', lambda *args, **kwargs:
+        seen.append(args[3]) or 'Basic is available in the published catalogue.')
+    assert handler._grounded_answer('Tell me about Basic', {}, channel='web')['reply']
+    assert seen[0]['product:basic']['price'] == 20
 
 
 def test_missing_faq_rows_and_render_failure_do_not_crash_chat(handler, caplog):

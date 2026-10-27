@@ -597,7 +597,10 @@
               }
             }
             if (!completed || buffer.trim()) throw new Error('request_failed');
-          } finally { reader.releaseLock(); }
+          } finally {
+            if (!completed) { try { await reader.cancel?.(); } catch {} }
+            reader.releaseLock();
+          }
         } else {
           if (contentType && !contentType.includes('application/json')) throw new Error('service_unavailable');
           data = await response.json();

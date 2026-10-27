@@ -213,6 +213,8 @@ def run_suite(settings, emit=None, client=None):
         report['status'] = ('stopped' if recorder.stop_reason else 'passed' if
                             report['scenarios_passed'] == report['scenarios_planned'] else 'failed')
         report['accounting'] = agent_eval.accounting_result(directory, recorder)
+        if not report['accounting']['consistent']:
+            report.update(status='error', stop_reason='accounting_mismatch')
         publish()
         try:
             from service import telemetry_outbox
