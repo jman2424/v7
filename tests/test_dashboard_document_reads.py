@@ -50,6 +50,13 @@ def test_postgres_batch_uses_one_checked_scope_and_preserves_null(monkeypatch):
 def test_postgres_batch_keeps_forced_rls_validation(monkeypatch):
     class Database:
         def execute(self, sql, params=()):
+            # Independent metadata probes can now share a pipeline. They do
+            # not read business data; every document query must still fail
+            # this assertion when forced RLS is absent.
+            if sql.startswith("SELECT has_table_privilege"):
+                assert params[0] in {"v7_private.tenants", "v7_private.business_documents",
+                                     "v7_private.document_versions"}
+                return SimpleNamespace(fetchone=lambda: (False,))
             assert sql.startswith("SELECT c.relname")
             return SimpleNamespace(fetchall=lambda: [
                 ("tenants", True, True, False),
