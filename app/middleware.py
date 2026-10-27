@@ -71,6 +71,7 @@ def install_request_boundaries(app, settings):
 def install_request_id(app):
     @app.before_request
     def request_id():
+        g.request_started = time.monotonic()
         g.request_id = secrets.token_hex(12)
         g.csp_nonce = secrets.token_urlsafe(24)
 
@@ -201,7 +202,7 @@ def install_csrf(app, settings):
     @app.before_request
     def csrf():
         # Webhooks and chat have separate authentication.
-        if request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/chat/navigation-click", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
+        if request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/chat/navigation-click", "/chat/performance", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
             return
         if "_csrf" not in session:
             session["_csrf"] = secrets.token_urlsafe(32)
@@ -218,7 +219,7 @@ def install_csrf(app, settings):
 def install_timing_metrics(app, container):
     @app.before_request
     def start_timer():
-        g.started = time.monotonic()
+        g.started = g.get('request_started', time.monotonic())
 
     @app.after_request
     def elapsed(response):

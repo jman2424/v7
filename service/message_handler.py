@@ -177,8 +177,13 @@ class MessageHandler:
     def handle(self, user_text: str, *, tenant: str, session_id: str, channel: str = 'web',
                metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         from service.chat_diagnostics import turn_scope
+        from service.business_read_cache import snapshot
+        from service.telemetry_outbox import collect
         turn = getattr(self.memory, 'turn', None)
-        with turn_scope(channel, (metadata or {}).get('request_id', ''), session_id), \
+        storage = getattr(self.memory, 'storage', None)
+        with turn_scope(channel, (metadata or {}).get('request_id', ''), session_id, tenant), \
+                collect(tenant, channel, session_id), \
+                snapshot(storage, tenant) if storage is not None else nullcontext(), \
                 turn(session_id) if turn else nullcontext():
             return self._handle_turn(user_text, tenant=tenant, session_id=session_id,
                                      channel=channel, metadata=metadata)
@@ -258,13 +263,15 @@ class MessageHandler:
         )
 
         dispatch_mode = mode if mode in {"v5", "v6"} else "v7"
+        factory = getattr(self.h_v7, 'request_copy', None)
+        v7 = factory() if dispatch_mode == 'v7' and callable(factory) else self.h_v7
         with phase('dispatch'), usage_context(ctx.tenant, ctx.channel, dispatch_mode):
             if dispatch_mode == "v5":
                 reply = self.h_v5.handle(user_text, ctx, sess)
             elif dispatch_mode == "v6":
                 reply = self.h_v6.handle(user_text, ctx, sess)
             else:
-                reply = self.h_v7.handle(user_text, ctx, sess)
+                reply = v7.handle(user_text, ctx, sess)
 
         logger.info(
             "DISPATCH_RESULT tenant=%s mode=%s rid=%s intent=%s keys=%s",
@@ -274,7 +281,7 @@ class MessageHandler:
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
-            reply = self.h_v7.finalize_navigation(reply, ctx.channel)
+            reply = v7.finalize_navigation(reply, ctx.channel)
         from service.reply_formatting import readable_reply, consultation_estimate
         reply['reply'] = readable_reply(consultation_estimate(str(reply.get('reply') or '')))
         self._remember_turn(ctx, sess, user_text, reply)
@@ -316,6 +323,14 @@ class MessageHandler:
         if _requirement(user_text):
             statements = [row for row in statements if row != user_text] + [user_text]
         self.memory.set(ctx.session_id, 'conversation_customer_statements', statements[-6:], ttl)
+        facts = list(sess.get('conversation_customer_facts') or [])
+        retired = (reply.get('agent') or {}).get('retired_requirements') or []
+        candidates = [user_text] if _requirement(user_text) else re.split(r'(?<=[.!?])\s+|\n+', user_text)
+        for quotation in candidates:
+            if _requirement(quotation):
+                facts = [row for row in facts if row != quotation] + [quotation]
+        self.memory.set(ctx.session_id, 'conversation_customer_facts',
+                        [row for row in facts if row not in retired][-32:], ttl)
         self.memory.set(ctx.session_id, 'conversation_history', bounded_history(history, config), ttl)
 
     # ---------------------------------------------------------
@@ -441,6 +456,7 @@ class MessageHandler:
             "conversation_history": self.memory.get(ctx.session_id, "conversation_history"),
             "conversation_first_message": self.memory.get(ctx.session_id, "conversation_first_message"),
             "conversation_customer_statements": self.memory.get(ctx.session_id, "conversation_customer_statements", []),
+            "conversation_customer_facts": self.memory.get(ctx.session_id, "conversation_customer_facts", []),
             "conversation_facts": self.memory.get(ctx.session_id, "conversation_facts", {}),
             "postcode": self.memory.get(ctx.session_id, "postcode"),
             "nearest_branch_id": self.memory.get(ctx.session_id, "nearest_branch_id"),
@@ -599,6 +615,9 @@ class MessageHandler:
             return
 
         try:
+            from service.telemetry_outbox import defer
+            if defer(event_type, meta):
+                return
             fn = getattr(self.analytics, "log_event", None)
             if not callable(fn):
                 return

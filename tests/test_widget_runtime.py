@@ -27,7 +27,8 @@ class Element {
   async fire(name,event={preventDefault(){}}){for(const callback of this.listeners[name] || []) await callback(event);}
   setAttribute(name,value){this.attributes[name]=value;}
   getAttribute(name){return this.attributes[name];}
-  append(child){this.children.push(child);}
+  append(child){this.children.push(child);child.parentNode=this;}
+  remove(){if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(row=>row!==this);}
   replaceChildren(){this.children=[];}
   get childElementCount(){return this.children.length;}
   focus(){document.activeElement=this;this.focusCalls=(this.focusCalls || 0)+1;}
@@ -80,6 +81,7 @@ if(scenario==='restore-chat')browserState.set('transcript:EXAMPLE',JSON.stringif
   messages:[{from:'me',text:'My car is a Polo'},{from:'bot',text:'Small car. This is an estimate.',actions:[{type:'navigate',label:'Services',url:'https://shop.example/services',click_token:'signed',clicked:true}]}],draft:'What about polishing?',pending:''}));
 let closeNotifications=0,readyNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
+  streaming:scenario.startsWith('stream-'),
   deferActions:['preloaded-actions','restore-chat'].includes(scenario),
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
@@ -101,13 +103,24 @@ if(scenario.startsWith('cross-tab'))window.BroadcastChannel=class {
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
 if(scenario.startsWith('server-')) {window.MediaRecorder=Recorder;window.AudioContext=AudioContext;}
 if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechSynthesisUtterance;}
-const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,
+const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,ReadableStream,TextDecoder,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
     ? new Promise(resolve=>mediaPending.push(resolve)) : mediaStream()}},
   MediaRecorder:Recorder,sessionStorage:{getItem(key){if(scenario==='cross-tab-blocked')throw Error('blocked');return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(scenario==='cross-tab-blocked')throw Error('full');if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem:key=>browserState.delete(key)},
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
+    if(String(url)==='/chat_api' && scenario.startsWith('stream-')) {
+      assert.equal(options.headers.Accept,'text/event-stream');
+      const reply='Verified £25 estimate. <script>not HTML</script>';
+      const chunks=['event: reply_chunk\ndata: '+JSON.stringify({text:reply})+'\n\n'];
+      if(scenario!=='stream-truncated') chunks.push('event: complete\ndata: '+JSON.stringify({reply:scenario==='stream-mismatch'?'Incorrect final':reply,
+        conversation_token:'stream-token',actions:[]})+'\n\n');
+      const encoded=new TextEncoder().encode(chunks.join(''));let offset=0;
+      return {ok:true,headers:{get:name=>name==='Content-Type'?'text/event-stream':null},body:{getReader:()=>({
+        async read(){if(offset>=encoded.length)return {done:true};const end=Math.min(encoded.length,offset+7);
+          const value=encoded.slice(offset,end);offset=end;return {done:false,value};},releaseLock(){}})}};
+    }
     if(String(url).includes('/chat/actions')) {
       if(scenario==='actions-unavailable-chat') throw Error('PRIVATE_ACTION_FAILURE');
       return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
@@ -146,7 +159,19 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
   assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
-  if(scenario.startsWith('cross-tab')) {
+  if(scenario.startsWith('stream-')) {
+    get('chat-input').value='A question';await get('chat-form').fire('submit');
+    assert.equal(requests.filter(row=>row.url==='/chat_api').length,1,'Streaming failures never resend a paid question');
+    const rows=get('chat-log').children;
+    assert.equal(rows.length,2,'Provisional content must be removed on completion or error');
+    const final=rows[1].children[0].children[0].textContent;
+    if(scenario==='stream-success') {
+      assert.equal(final,'Verified £25 estimate. <script>not HTML</script>');assert.equal(storedToken,'stream-token');
+    } else {
+      assert.match(final,/could not be completed/);assert.equal(get('chat-input').value,'A question');
+      assert.ok(!JSON.stringify(browserState.get('transcript:EXAMPLE')).includes('Verified'));
+    }
+  } else if(scenario.startsWith('cross-tab')) {
     const before=requests.length;
     get('chat-input').value='Keep my private draft';
     const value=JSON.stringify({version:1,token:'shared-conversation',expires:Date.now()+3600000,
@@ -385,6 +410,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
 
 
 @pytest.mark.parametrize("scenario", [
+    "stream-success", "stream-truncated", "stream-mismatch",
     "restore-chat", "preloaded-actions", "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",

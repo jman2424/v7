@@ -4,6 +4,7 @@ gunicorn==22.0.0
 
 # --- Durable PostgreSQL storage ---
 psycopg[binary]==3.3.5
+psycopg-pool==3.3.3
 
 # --- AI / OpenAI SDK ---
 openai==1.93.0

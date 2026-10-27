@@ -279,6 +279,10 @@ class Storage:
         """
         Read a tenant JSON file. Raises FileNotFoundError if missing.
         """
+        from service.business_read_cache import request_value
+        found, payload = request_value(self, tenant or self.tenant_key, filename)
+        if found:
+            return payload
         if self._using_postgres():
             return self._postgres_repository(tenant).read_document(filename)
         path = self.file_path(tenant, filename)
@@ -288,6 +292,15 @@ class Storage:
         """Read selected documents together, omitting only missing files."""
         if len(filenames) > 32:
             raise ValueError("too_many_documents")
+        from service.business_read_cache import _active, PUBLIC_DOCUMENTS
+        if _active.get() and all(name in PUBLIC_DOCUMENTS for name in filenames):
+            documents = {}
+            for name in filenames:
+                try:
+                    documents[name] = self.read_json(tenant, name)
+                except FileNotFoundError:
+                    continue
+            return documents
         if self._using_postgres():
             return self._postgres_repository(tenant).read_documents(filenames)
         # Validate every name before reading any document. Malformed JSON and
@@ -358,6 +371,8 @@ class Storage:
     def _write_json(self, tenant, filename, data, *, schema=None, snapshot=True):
         """Internal writer; callers hold write_lock across read/check/write."""
         tkey = tenant or self.tenant_key
+        from service.business_read_cache import invalidate
+        invalidate(self, tkey, filename)
         # Both backends must reject non-JSON numbers or recursive structures
         # before creating snapshots, changing a revision, or writing any data.
         try:

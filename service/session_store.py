@@ -7,7 +7,7 @@ import re
 import secrets
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 _TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
@@ -43,35 +43,36 @@ def postgres_connection(authorized_tenant=None, *, repeatable_read=False):
     try:
         # Never accept a weaker TLS mode from the DSN. The login must inherit
         # only the restricted backend role and must not own the private tables.
-        with psycopg.connect(
-            dsn,
-            sslmode="verify-full",
-            sslrootcert=os.getenv("V7_SUPABASE_CA_FILE") or "system",
-            connect_timeout=15,
-            autocommit=False,
-        ) as db:
+        from service.postgres_pool import connection as pooled_connection
+        with pooled_connection(dsn, os.getenv("V7_SUPABASE_CA_FILE") or "system") as db:
             if repeatable_read:
                 db.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
-            role = db.execute(
+            # Independent, read-only security probes share a network flush.
+            # No tenant/business SQL runs until every result is validated.
+            with db.pipeline() if hasattr(db, 'pipeline') else nullcontext():
+                role_query = db.execute(
                 "SELECT current_user=session_user, "
                 "rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, "
                 "pg_has_role(current_user, 'v7_backend', 'USAGE'), "
                 "has_schema_privilege(current_user, 'v7_private', 'CREATE'), "
                 "has_database_privilege(current_user, current_database(), 'CREATE') "
                 "FROM pg_roles WHERE rolname=current_user"
-            ).fetchone()
-            memberships = db.execute(
+                )
+                memberships_query = db.execute(
                 "SELECT r.rolname FROM pg_auth_members m "
                 "JOIN pg_roles r ON r.oid=m.roleid "
                 "WHERE m.member=(SELECT oid FROM pg_roles WHERE rolname=current_user)"
-            ).fetchall()
-            tables = db.execute(
+                )
+                tables_query = db.execute(
                 "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
                 "c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) "
                 "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
                 "WHERE n.nspname='v7_private' "
                 "AND c.relname IN ('management_sessions', 'login_attempts')"
-            ).fetchall()
+                )
+            role = role_query.fetchone()
+            memberships = memberships_query.fetchall()
+            tables = tables_query.fetchall()
             if (role is None or not role[0] or any(role[1:5])
                     or not role[5] or role[6] or role[7]
                     or {row[0] for row in memberships} != {"v7_backend"}

@@ -30,6 +30,13 @@ logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
 
 
+@bp.get('/performance')
+def api_performance():
+    require_permission('analytics.read')
+    from service.performance_metrics import snapshot
+    return jsonify(snapshot(_tenant()))
+
+
 @bp.before_request
 def _require_admin_session() -> None:
     if not session.get("user"):
