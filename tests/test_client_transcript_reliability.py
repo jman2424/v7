@@ -179,6 +179,9 @@ def test_tester_endpoint_returns_real_navigation_but_does_not_submit_actions(app
     handler = app.container.for_tenant('EXAMPLE').handler.h_v7
     handler.website_destinations = [{
         'id': 'booking', 'label': 'Book a service', 'url': 'https://booking.example.com/', 'enabled': True}]
+    # The real endpoint refreshes approved destinations from persisted tenant
+    # data; an unsaved in-memory value is no longer navigation authority.
+    app.container.storage.write_json('EXAMPLE', 'website_destinations.json', handler.website_destinations)
     monkeypatch.setattr(handler, '_grounded_answer', lambda *a, **k: {
         'reply': 'Use https://booking.example.com/.', 'actions': []})
     response = client.post('/admin/api/test-agent?tenant=EXAMPLE', json={'message': 'How do I book?'})
