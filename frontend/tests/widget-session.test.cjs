@@ -11,7 +11,9 @@ test('same tenant and token restore messages, buttons, clicked state and draft a
 });
 test('expired, corrupt, oversized and unsafe stored state fails closed without executing content',()=>{
  const {window,data,storage}=setup();let now=1000;const state=window.V7ChatSession(storage,'ALPHA',()=>now);
- state.write('token',{messages:[{from:'bot',text:'<script>test</script>',actions:[{type:'navigate',url:'javascript:alert(1)',label:'Unsafe'},{type:'navigate',url:'https://user:password@example.test/',label:'Credentials'}]}]});
+ const credentialUrl=new URL('https://example.test/');
+ credentialUrl.username='fixture-user';credentialUrl.password='fixture-password';
+ state.write('token',{messages:[{from:'bot',text:'<script>test</script>',actions:[{type:'navigate',url:'javascript:alert(1)',label:'Unsafe'},{type:'navigate',url:credentialUrl.href,label:'Credentials'}]}]});
  assert.equal(state.read('token').messages[0].actions.length,0);
  now+=86400001;assert.equal(state.read('token'),null);
  for(const raw of ['{invalid','x'.repeat(96001),JSON.stringify({version:1,token:'token',expires:now+86400001,messages:[]})]){data.set('transcript:ALPHA',raw);assert.equal(state.read('token'),null);}
