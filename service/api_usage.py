@@ -356,7 +356,7 @@ def tracked_completion(client, *, purpose: str, **kwargs):
         raise
     finally:
         details = completion_usage(response, kwargs["model"], purpose, status, pricing=pricing)
-        emit('provider_finished', purpose=purpose, outcome=status,
+        emit('provider_finished', purpose=purpose, model=kwargs['model'], outcome=status,
              elapsed_ms=round((time.monotonic()-provider_start)*1000, 2),
              input_tokens=details.get('input_tokens'), output_tokens=details.get('output_tokens'),
              cached_tokens=details.get('cached_tokens'))

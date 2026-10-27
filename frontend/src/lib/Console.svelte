@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   import { goto } from '$app/navigation';
   import SectionSearch from './SectionSearch.svelte';
   import PlatformOverview from './PlatformOverview.svelte';

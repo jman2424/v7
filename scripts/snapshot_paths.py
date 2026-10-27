@@ -13,6 +13,11 @@ _DEVICES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
             *(f"LPT{i}" for i in range(1, 10))}
 
 
+def contains_account_authority(relative: str) -> bool:
+    """Business-only snapshots cannot restore or remove management identities."""
+    return any(part.casefold() == 'owner_accounts.json' for part in relative.split('/'))
+
+
 def validate_tenant(tenant: str) -> str:
     if not isinstance(tenant, str) or not _TENANT.fullmatch(tenant) or tenant.lower() == "versions":
         raise ValueError("Invalid snapshot tenant")

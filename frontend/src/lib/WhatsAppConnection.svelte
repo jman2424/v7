@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   import { t, language } from './i18n';
   import { subscriptionLocales } from './subscription-format';
   export let tenant: string;

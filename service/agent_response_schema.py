@@ -13,12 +13,12 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         result = {'type': 'array', 'items': {'type': 'string', 'minLength': 1, 'maxLength': 180}, 'maxItems': limit}
         if choices is not None:
             if choices:
-                result['items']['enum'] = list(choices)
+                result['items']['enum'] = sorted(choices)
             else:
                 result['maxItems'] = 0
         return result
 
-    offerings = [key for key in knowledge if key.startswith(('product:', 'offering:'))]
+    offerings = sorted(key for key in knowledge if key.startswith(('product:', 'offering:')))
     update = object_({
         'add': strings(6), 'remove': strings(6), 'clear': {'type': 'boolean'},
         'evidence': {'type': 'string', 'minLength': 1, 'maxLength': 180},
@@ -42,18 +42,19 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
                                 'description': 'Null unless adding, replacing or clearing a stated requirement.'},
     })
     for field, description in {
-        'intent': 'Classify the current request. Returns/policies use policy; a callback uses handoff even after a booking question.',
+        'intent': 'Classify the current request. Cancellation uses cancel or policy; returns/policies use policy; a callback uses handoff even after a booking question.',
         'offering_ids': 'Only offerings discussed and cited in this answer. The previous shortlist is already in agent_context; do not repeat uncited old IDs.',
         'selected_offering_id': 'Only an explicit positive customer choice or a previous verified choice. A recommendation or stated need is not a choice.',
         'requirements': 'Copy exact contiguous customer excerpts or exact previous requirements, including connecting words. Never paraphrase; an empty array is valid.',
     }.items():
         state['properties'][field]['description'] = description
     sources = strings(12, choices=list(knowledge))
-    sources.update(minItems=0, description='Cite business facts used in the answer, including form/capability facts. '
+    sources.update(minItems=0, description='Choose evidence before writing the answer. Include the product:/offering: ID of every offering discussed, '
+                   'and the source_id of every selected statement, as well as form/capability facts used. '
+                   'Business identity and general policies do not support a product price or description. '
                    'For kind conversation use []; no business facts or policy claims are allowed. '
                    'For a greeting, cite the available business identity as context.')
     schema = object_({
-        'answer': {'type': 'string', 'maxLength': 4000},
         'kind': {'type': 'string', 'enum': ['answer', 'greeting', 'clarification', 'refusal', 'conversation']},
         'sources': sources,
         'statement_ids': strings(3, choices=list(statements)),
@@ -61,6 +62,10 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         'requested_action': {'type': ['string', 'null'], 'enum': [None, *allowed_actions],
                              'description': 'Null for informational pricing/process questions. Select an enabled form when the customer asks for it; callback requires agent.intent handoff.'},
         'agent': state,
+        # Structured output follows property order. Choose evidence/state first
+        # so prose is conditioned on those choices, rather than citing it later.
+        'answer': {'type': 'string', 'maxLength': 4000,
+                   'description': 'Brief customer-facing answer supported by the sources already selected. Use blank lines between options; navigation buttons supply links.'},
     })
     schema['properties']['statement_ids']['description'] = (
         'Select complete published policy/process statement IDs from approved_statements and cite '

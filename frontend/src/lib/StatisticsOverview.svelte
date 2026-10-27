@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   import type { Stats } from './statisticsTypes';
 
   export let data: Stats;

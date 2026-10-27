@@ -24,10 +24,10 @@ from typing import Dict, List
 
 try:
     from scripts.backup_utils import atomic_write, files_under
-    from scripts.snapshot_paths import configured_business_root, reject_links, target_path, tenant_base, validate_tenant
+    from scripts.snapshot_paths import configured_business_root, contains_account_authority, reject_links, target_path, tenant_base, validate_tenant
 except ModuleNotFoundError:
     from backup_utils import atomic_write, files_under
-    from snapshot_paths import configured_business_root, reject_links, target_path, tenant_base, validate_tenant
+    from snapshot_paths import configured_business_root, contains_account_authority, reject_links, target_path, tenant_base, validate_tenant
 
 ROOT = Path(__file__).resolve().parents[1]
 BUSINESS_DIR = Path(os.environ.get("BUSINESS_DATA_ROOT") or configured_business_root(ROOT)).expanduser()
@@ -98,6 +98,8 @@ def snapshot_map(snapshot_path: Path, tenant: str) -> Dict[str, bytes]:
                     raise ValueError("Snapshot contains another tenant or an unexpected root")
                 rel = m.name[len("business/"):].rstrip("/") if m.isdir() else m.name[len("business/"):]
                 target_path(base, rel, tenant)
+                if contains_account_authority(rel):
+                    raise ValueError('Business snapshots cannot restore account authority')
                 if m.isdir():
                     continue
                 if not m.isfile():
@@ -125,6 +127,8 @@ def current_map(tenant: str) -> Dict[str, bytes]:
         if p.is_file():
             rel = p.relative_to(base.parent).as_posix()
             target_path(base, rel, tenant)
+            if contains_account_authority(rel):
+                continue
             out[rel] = p.read_bytes()
     return out
 
@@ -148,6 +152,8 @@ def apply_changes(tenant: str, snap: Dict[str, bytes], report: DiffReport, audit
     base = tenant_base(BUSINESS_DIR, tenant)
     if not snap:
         raise ValueError("Cannot restore an empty snapshot")
+    if any(contains_account_authority(rel) for rel in set(snap) | set(report.added + report.changed + report.removed)):
+        raise ValueError('Business snapshots cannot alter account authority')
     # Validate the entire archive and every destination before creating/writing
     # any directory or replacing/deleting any current tenant file.
     targets = {rel: target_path(base, rel, tenant) for rel in set(snap) | set(report.added + report.changed + report.removed)}

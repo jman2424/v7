@@ -21,11 +21,11 @@ from typing import List
 
 try:
     from scripts.backup_utils import checked_path, files_under
-    from scripts.snapshot_paths import configured_business_root, reject_links, target_path, tenant_base
+    from scripts.snapshot_paths import configured_business_root, contains_account_authority, reject_links, target_path, tenant_base
     from scripts.prepare_supabase import _protect_directory
 except ModuleNotFoundError:
     from backup_utils import checked_path, files_under
-    from snapshot_paths import configured_business_root, reject_links, target_path, tenant_base
+    from snapshot_paths import configured_business_root, contains_account_authority, reject_links, target_path, tenant_base
     from prepare_supabase import _protect_directory
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +39,10 @@ def gather_files(tenant: str) -> List[Path]:
     for path in files_under(base):
         reject_links(path)
         if path.is_file():
-            target_path(base, path.relative_to(base.parent).as_posix(), tenant)
+            relative = path.relative_to(base.parent).as_posix()
+            target_path(base, relative, tenant)
+            if contains_account_authority(relative):
+                continue
             files.append(path)
     return files
 
@@ -57,7 +60,7 @@ def make_snapshot(tenant: str, out_dir: Path, date_str: str) -> Path:
     day_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     out_path = day_dir / f"{tenant}.tar.gz"
     reject_links(out_path)
-    # Snapshot archives contain account hashes and may contain MFA/API secrets.
+    # Business snapshots exclude accounts but may contain integration secrets.
     # Build inside a new private directory, then publish the completed inode
     # without replacing an existing archive or inheriting a shared folder ACL.
     with tempfile.TemporaryDirectory(prefix=".v7-snapshot-", dir=day_dir) as temporary:

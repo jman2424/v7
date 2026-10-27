@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from './i18n';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   export let apiPrefix = '';
   type Company = {tenant:string;name:string;mode:string;status:string;knowledge_files:number;knowledge_files_expected:number;issues:string[];analytics_available:boolean;kpis:{inbound:number;outbound:number;sessions:number;errors:number}|null;errors:{error_code?:string;error_type?:string;count:number}[]};
   type Report = {company_count:number;page:number;page_size:number;has_next:boolean;generated_at:string;companies:Company[]};

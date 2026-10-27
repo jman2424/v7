@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   import WhatsAppConnection from './WhatsAppConnection.svelte';
   export let tenant: string;
   export let csrf: string;

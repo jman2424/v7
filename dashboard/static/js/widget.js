@@ -99,13 +99,16 @@
   let storage;
   try { storage = sessionStorage; } catch {}
   const chatSession = window.V7ChatSession?.(storage, config.tenant);
-  let transcript = [], restoring = false, pendingText = '';
+  let chatTabs;
+  let transcript = [], restoring = false, pendingText = '', queuedRows = [];
   const bubbleRows = new WeakMap(), restoredRequests = [];
   const saveTranscript = () => {
     if (!restoring) chatSession?.write(token, {messages:transcript,draft:input.value,pending:pendingText});
+    if (!restoring && !busy) chatTabs?.publish();
   };
   try { token = sessionStorage.getItem(key) || ""; } catch {}
   const remember = value => {
+    if (value !== token) queuedRows = [];
     token = typeof value === "string" ? value : "";
     try { sessionStorage.setItem(key, token); } catch {}
     if (!token) { transcript = []; chatSession?.clear(); }
@@ -240,7 +243,7 @@
     }
     return String(Date.now()) + String(Math.random());
   };
-  const add = (text, from) => {
+  const add = (text, from, restored) => {
     const row = document.createElement("div");
     row.className = from === "me" ? "msg msg--me" : from === "activity" ? "msg msg--activity" : "msg";
     const bubble = document.createElement("div");
@@ -249,7 +252,7 @@
     content.textContent = text;
     bubble.append(content);
     row.append(bubble); log.append(row); log.scrollTop = log.scrollHeight;
-    const saved = {text,from,actions:[]};
+    const saved = {id:restored?.id || newRequestId(),at:restored?.at ?? Date.now(),text,from,actions:[]};
     transcript.push(saved); transcript = transcript.slice(-40);
     bubbleRows.set(bubble, saved);
     saveTranscript();
@@ -588,7 +591,14 @@
       if (!input.value) input.value = text;
     } finally {
       clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing;
-      pendingText = ''; saveTranscript();
+      pendingText = '';
+      if (queuedRows.length && token) {
+        transcript = window.V7MergeChatRows(transcript, queuedRows);
+        queuedRows = [];
+        const merged = chatSession?.write(token, {messages:transcript,draft:input.value,pending:''});
+        restoreTranscript(merged, true);
+      }
+      saveTranscript();
       chatStatus.textContent = "";
       if (!document.hidden && replySpeechGeneration === speechGeneration && [input, send, dictation, document.body].includes(document.activeElement)) input.focus();
     }
@@ -809,14 +819,14 @@
   input.addEventListener('input', saveTranscript);
   window.addEventListener("pagehide", () => { saveTranscript(); releaseVoice(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) releaseVoice(); });
-  const restoreTranscript = () => {
-    const savedChat = chatSession?.read(token);
+  const restoreTranscript = (shared, keepDraft = false) => {
+    const savedChat = chatSession?.read(token, shared);
     if (!savedChat) return;
     restoring = true;
     transcript = []; restoredRequests.length = 0;
     if (savedChat.messages.length) log.replaceChildren();
     for (const message of savedChat.messages) {
-      const bubble = add(message.text, message.from);
+      const bubble = add(message.text, message.from, message);
       const links = message.actions.filter(item => item && item.type === 'navigate');
       addSuggestedActions(bubble, links);
       const requests = message.actions.filter(item => typeof item === 'string');
@@ -826,11 +836,33 @@
       }
       if (message.from === 'bot') addPlayback(bubble, message.text);
     }
-    input.value = savedChat.draft || savedChat.pending;
+    if (!keepDraft) input.value = savedChat.draft || savedChat.pending;
     if (savedChat.pending) chatStatus.textContent = 'Your previous reply was interrupted. You can send the message again.';
     restoring = false;
   };
   restoreTranscript();
+  let site = window.location.origin;
+  try { if (document.referrer) site = new URL(document.referrer).origin; } catch {}
+  chatTabs = window.V7ChatTabs?.(config.tenant + ':' + site, () => {
+    // Never transfer an unfinished request or a private draft to another tab.
+    if (busy || !token || !transcript.length) return '';
+    const encoded = chatSession?.write(token, {messages:transcript,draft:input.value,pending:pendingText});
+    if (!encoded) return '';
+    const saved = JSON.parse(encoded);
+    return JSON.stringify({version:1,token,expires:saved.expires,messages:saved.messages,draft:'',pending:''});
+  }, (sharedToken, raw) => {
+    if (token !== sharedToken && (busy || transcript.length)) return;
+    const saved = chatSession?.read(sharedToken, raw);
+    if (!saved) return;
+    if (busy) { queuedRows = window.V7MergeChatRows(queuedRows, saved.messages); return; }
+    token = sharedToken;
+    try { storage?.setItem(key, token); } catch {}
+    transcript = window.V7MergeChatRows(transcript, saved.messages);
+    // Merge by stable message identity: a delayed peer cannot remove a reply.
+    // Saving directly avoids a broadcast loop; drafts remain tab-local.
+    const merged = chatSession?.write(token, {messages:transcript,draft:input.value,pending:''});
+    restoreTranscript(merged, true);
+  });
   window.addEventListener('pageshow', event => {
     if (event.persisted && !busy) {
       try { token = sessionStorage.getItem(key) || ''; } catch {}

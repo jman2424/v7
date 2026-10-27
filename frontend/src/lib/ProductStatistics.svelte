@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from './i18n';
-  import {base} from '$app/paths';
+  import { base } from './consoleBase';
   import {createEventDispatcher,onDestroy} from 'svelte';
   import TrendChart from './TrendChart.svelte';
   import type {Commerce,Product} from './statisticsTypes';

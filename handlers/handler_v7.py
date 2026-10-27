@@ -912,30 +912,36 @@ class MessageHandlerV7:
                 if isinstance(offering, dict) and isinstance(offering.get('id'), str):
                     knowledge['offering:'+offering['id']] = offering
         if self.catalog:
+            from retrieval.catalog_store import CatalogStore
+            catalog = (self._optional_source('catalog_snapshot', self.catalog.snapshot, None)
+                       if isinstance(self.catalog, CatalogStore) else self.catalog)
+        else:
+            catalog = None
+        if catalog:
             items = []
             from service.agent_knowledge import size_variant_family
             searched_families = set()
-            catalogue_needed = bool(follow_up or self._exact_catalog_item_in_text(question)
-                                    or self._looks_like_product_query(question))
+            catalogue_needed = bool(follow_up or self._exact_catalog_item_in_text(question, catalog=catalog)
+                                    or self._looks_like_product_query(question, catalog=catalog))
             for source_id in dict.fromkeys(value for value in remembered if isinstance(value,str)):
                 if source_id.startswith('product:'):
                     item = self._optional_source('catalog_selection',
-                        lambda: self.catalog.get_item_by_sku(source_id[len('product:'):]), None)
+                        lambda: catalog.get_item_by_sku(source_id[len('product:'):]), None)
                     if item:
                         items.append(item)
                         family = size_variant_family(item.get('name'))
                         if catalogue_needed and family and family.casefold() not in searched_families:
                             searched_families.add(family.casefold())
                             items += self._optional_source('catalog_variants',
-                                lambda: self.catalog.search(text=family,limit=9), [])
+                                lambda: catalog.search(text=family,limit=9), [])
             if catalogue_needed:
-                items += self._optional_source('catalog_search', lambda: self.catalog.search(text=faq_question, limit=12), [])
-                items += self._optional_source('catalog_preview', self.catalog.list_all_items, [])[:40]
+                items += self._optional_source('catalog_search', lambda: catalog.search(text=faq_question, limit=12), [])
+                items += self._optional_source('catalog_preview', catalog.list_all_items, [])[:40]
             for sku in (session.get('last_items') or [])[:12]:
-                item = self._optional_source('catalog_selection', lambda: self.catalog.get_item_by_sku(sku), None)
+                item = self._optional_source('catalog_selection', lambda: catalog.get_item_by_sku(sku), None)
                 if item:
                     items.append(item)
-            currency = self._optional_source('catalog_currency', self.catalog.currency, '')
+            currency = self._optional_source('catalog_currency', catalog.currency, '')
             for item in items:
                 if not isinstance(item, dict) or item.get('active') is False or item.get('public') is False:
                     continue
@@ -1306,7 +1312,8 @@ class MessageHandlerV7:
             return False
         return t in self._SMALLTALK
 
-    def _looks_like_product_query(self, user_text: str) -> bool:
+    def _looks_like_product_query(self, user_text: str, *, catalog=None) -> bool:
+        catalog = self.catalog if catalog is None else catalog
         t = self._normalize_text(user_text)
         if not t:
             return False
@@ -1324,9 +1331,9 @@ class MessageHandlerV7:
             return True
         from retrieval.faq_store import _meaningful_tokens
         query = ' '.join(_meaningful_tokens(t))
-        if self.catalog:
+        if catalog:
             try:
-                if query and self.catalog.search(text=query, limit=1):
+                if query and catalog.search(text=query, limit=1):
                     return True
             except Exception:
                 logger.debug("V7 catalog probe failed", exc_info=True)
@@ -1546,9 +1553,10 @@ class MessageHandlerV7:
                 matches.append((len(name), item))
         return max(matches, key=lambda pair: pair[0])[1] if matches else None
 
-    def _exact_catalog_item_in_text(self, user_text: str) -> Optional[Dict[str, Any]]:
+    def _exact_catalog_item_in_text(self, user_text: str, *, catalog=None) -> Optional[Dict[str, Any]]:
         """Match an explicitly named catalog product or SKU without fuzzy guessing."""
-        if not self.catalog:
+        catalog = self.catalog if catalog is None else catalog
+        if not catalog:
             return None
 
         text = self._normalize_text(user_text)
@@ -1556,7 +1564,7 @@ class MessageHandlerV7:
             return None
 
         try:
-            candidates = self.catalog.list_all_items()
+            candidates = catalog.list_all_items()
         except Exception:
             return None
 

@@ -52,9 +52,8 @@ def _invoice_price(line):
 
 def locked_subscription(db, tenant, subscription_id, data):
     schema(db)
-    if not db.execute('SELECT 1 FROM billing_plan_changes WHERE tenant=? AND subscription=? LIMIT 1',
-                      (tenant, subscription_id)).fetchone():
-        return data
+    # Serialize every status refresh, including accounts without plan changes.
+    # A canonical response obtained before the lock can already be stale.
     if subscriptions.session_store._using_postgres():
         db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform' FOR UPDATE", (tenant,)).fetchone()
     else:

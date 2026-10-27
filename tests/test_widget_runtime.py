@@ -93,13 +93,18 @@ const window={__WIDGET__:config,isSecureContext:true,
     if(data.type==='V7_WIDGET_READY'){assert.equal(data.loadId,'1');readyNotifications++;return;}
     assert.equal(data.type,'V7_WIDGET_CLOSE');closeNotifications++;}},
   listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
+let tabChannel;
+if(scenario.startsWith('cross-tab'))window.BroadcastChannel=class {
+  constructor(name){assert.equal(name,'v7-chat:EXAMPLE:https://business.example');tabChannel=this;}
+  postMessage(data){assert.ok(['state','request'].includes(data.type));}
+};
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
 if(scenario.startsWith('server-')) {window.MediaRecorder=Recorder;window.AudioContext=AudioContext;}
 if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechSynthesisUtterance;}
 const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
     ? new Promise(resolve=>mediaPending.push(resolve)) : mediaStream()}},
-  MediaRecorder:Recorder,sessionStorage:{getItem(key){return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem:key=>browserState.delete(key)},
+  MediaRecorder:Recorder,sessionStorage:{getItem(key){if(scenario==='cross-tab-blocked')throw Error('blocked');return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(scenario==='cross-tab-blocked')throw Error('full');if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem:key=>browserState.delete(key)},
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
@@ -118,6 +123,7 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
     if(String(url).includes('/chat/transcribe')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('late-playback')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('pending-chat')) return new Promise(resolve=>pending.push(resolve));
+    if(scenario==='cross-tab-concurrent') return new Promise(resolve=>pending.push(resolve));
     if(scenario==='chat-paused') return {ok:false,status:429,json:async()=>({error:'website_allowance_paused'})};
     if(scenario==='chat-rate-limit') return {ok:false,status:429,json:async()=>({error:'rate_limited'})};
     if(scenario==='chat-expired') return {ok:false,status:403,json:async()=>({error:'conversation_expired'})};
@@ -140,7 +146,32 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
   assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
-  if(scenario==='restore-chat') {
+  if(scenario.startsWith('cross-tab')) {
+    const before=requests.length;
+    get('chat-input').value='Keep my private draft';
+    const value=JSON.stringify({version:1,token:'shared-conversation',expires:Date.now()+3600000,
+      messages:[{from:'me',text:'My car is a Polo'},{from:'bot',text:'Small car. This is an estimate.',actions:[]}],draft:'',pending:''});
+    tabChannel.onmessage({data:{type:'state',value}});
+    assert.equal(get('chat-log').children.length,2);assert.equal(get('chat-input').value,'Keep my private draft');
+    assert.equal(requests.length,before,'Receiving another tab never resends a message');
+    const sending=get('chat-form').fire('submit');
+    if(scenario==='cross-tab-concurrent') {
+      const remote=JSON.parse(value);remote.messages.push({id:'other-reply',at:Date.now()+1,from:'bot',text:'Another completed exchange',actions:[]});
+      tabChannel.onmessage({data:{type:'state',value:JSON.stringify(remote)}});
+      pending.shift()({ok:true,json:async()=>({reply:'My completed exchange',conversation_token:'shared-conversation'})});
+    }
+    await sending;
+    const followup=requests.find(item=>item.url==='/chat_api');
+    assert.equal(JSON.parse(followup.options.body).conversation_token,'shared-conversation');
+    assert.equal(utterances.length,0,'Cross-tab restoration never plays audio');
+    if(scenario==='cross-tab-concurrent') {
+      const texts=()=>get('chat-log').children.map(row=>row.children[0].children[0].textContent);
+      assert.ok(texts().includes('My completed exchange'));assert.ok(texts().includes('Another completed exchange'));
+      tabChannel.onmessage({data:{type:'state',value}});
+      assert.ok(texts().includes('My completed exchange'),'An older snapshot cannot remove a completed reply');
+      assert.ok(texts().includes('Another completed exchange'));
+    }
+  } else if(scenario==='restore-chat') {
     assert.equal(requests.length,0,'Restoration does not send another request');
     assert.equal(get('chat-log').children.length,2);assert.equal(get('chat-input').value,'What about polishing?');
     const bubble=get('chat-log').children[1].children[0];
@@ -358,7 +389,7 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
     "server-permission-race", "server-stop-race",
     "launcher-close-native", "server-launcher-close", "late-playback-launcher",
-    "pending-chat-draft", "pending-chat-focus", "chat-paused", "chat-rate-limit",
+    "pending-chat-draft", "pending-chat-focus", "chat-paused", "chat-rate-limit", "cross-tab", "cross-tab-concurrent", "cross-tab-blocked",
     "chat-expired", "chat-malformed", "chat-cold-start", "chat-provider-reference", "chat-first-timeout", "actions-unavailable-chat", "escape-close",
     "server-audio-wav", "server-audio-too-long", "server-audio-invalid",
     "server-audio-decode-timeout", "server-audio-decode-cancel",

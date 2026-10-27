@@ -105,6 +105,14 @@ class CatalogStore:
 
     # --------------- AUTO REFRESH -----------------
 
+    def snapshot(self) -> "CatalogStore":
+        """One fresh catalogue for the related reads that build one answer.
+
+        The snapshot has no shared expiry/cache and is never reused next turn.
+        It avoids fetching the same tenant document for every search/SKU/price.
+        """
+        return self if self._static else CatalogStore(catalog=self._load())
+
     def _refresh(self) -> None:
         if self._static:
             return

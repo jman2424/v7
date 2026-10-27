@@ -141,6 +141,43 @@ def test_backup_and_restore_roundtrip_preserves_docs_and_other_tenant(business, 
     assert restore.snapshot_map(snapshot, "EXAMPLE") == snap
 
 
+def test_business_snapshot_never_rolls_back_account_authority(business, tmp_path):
+    account = business / 'EXAMPLE/owner_accounts.json'
+    account.write_bytes(b'{"active":true,"credential_version":"old-synthetic"}')
+    snapshot = backup.make_snapshot('EXAMPLE', tmp_path / 'backups', '2026-10-25')
+    account.write_bytes(b'{"active":false,"credential_version":"new-synthetic"}')
+    snap = restore.snapshot_map(snapshot, 'EXAMPLE')
+    assert 'EXAMPLE/owner_accounts.json' not in snap
+    current = restore.current_map('EXAMPLE')
+    assert 'EXAMPLE/owner_accounts.json' not in current
+    class Audit:
+        def record(self, **kwargs):
+            pass
+    restore.apply_changes('EXAMPLE', snap, restore.compute_diff(current, snap), Audit())
+    assert b'new-synthetic' in account.read_bytes()
+
+
+def test_legacy_snapshot_with_accounts_fails_before_restore(business, tmp_path):
+    path = archive(tmp_path, [
+        ('business/EXAMPLE/catalog.json', b'{}', tarfile.REGTYPE),
+        ('business/EXAMPLE/owner_accounts.json', b'[]', tarfile.REGTYPE),
+    ])
+    with pytest.raises(ValueError, match='account authority'):
+        restore.snapshot_map(path, 'EXAMPLE')
+
+
+@pytest.mark.parametrize('operation', ['write', 'delete'])
+def test_restore_apply_rejects_direct_account_mutation(business, operation):
+    rel = 'EXAMPLE/owner_accounts.json'
+    snap = {'EXAMPLE/catalog.json': b'{}'}
+    report = restore.DiffReport([], [rel] if operation == 'delete' else [], [])
+    if operation == 'write':
+        snap[rel] = b'[]'
+        report.added.append(rel)
+    with pytest.raises(ValueError, match='account authority'):
+        restore.apply_changes('EXAMPLE', snap, report, None)
+
+
 def test_failed_backup_does_not_publish_partial_archive(business, tmp_path, monkeypatch):
     def fail_add(*args, **kwargs):
         raise OSError("Synthetic backup read failure")

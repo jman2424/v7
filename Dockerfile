@@ -1,5 +1,5 @@
 # --- Build the owner console ---
-FROM node:20-alpine AS owner-console-build
+FROM node:22-alpine AS owner-console-build
 
 WORKDIR /console
 

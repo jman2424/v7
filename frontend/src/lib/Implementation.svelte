@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   export let tenant: string;
   export let apiPrefix = '';
   type Setup = { widget: { allowed_origins: string[] }; embed: { snippet: string; iframe_snippet: string; chat_url: string } };

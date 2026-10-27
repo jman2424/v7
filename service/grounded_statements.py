@@ -144,6 +144,25 @@ def statement_catalog(knowledge):
     return result
 
 
+def prompt_statements(knowledge, statements):
+    """Reference exact duplicated wording without changing trusted statements.
+
+    Only the provider payload uses these references. Rendering and claim checks
+    keep the complete original knowledge and statement text on the server.
+    """
+    result = {}
+    for identifier, statement in statements.items():
+        source = knowledge.get(statement.get('source_id'))
+        text = statement.get('text')
+        field = next((name for name in ('answer', 'statement')
+                      if isinstance(source, dict) and isinstance(source.get(name), str)
+                      and isinstance(text, str) and len(text) > 64
+                      and source[name].strip() == text), None)
+        result[identifier] = ({key: value for key, value in statement.items() if key != 'text'}
+                              | {'text_from_knowledge': field} if field else dict(statement))
+    return result
+
+
 def protected_request(question, payload, statements):
     agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
     cited = set(payload.get('sources', []))

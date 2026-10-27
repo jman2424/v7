@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
-  import { base } from '$app/paths';
+  import { base } from './consoleBase';
   import PerformanceStatistics from './PerformanceStatistics.svelte';
   import ProductStatistics from './ProductStatistics.svelte';
   import StatisticsOverview from './StatisticsOverview.svelte';

@@ -8,6 +8,28 @@ stripe = test_subscriptions.stripe
 stripe_plan_provider = test_postgres_plan_runtime.stripe_plan_provider
 
 
+def test_stale_subscription_response_cannot_undo_later_cancellation(client, stripe):
+    contract = subscriptions._contract('EXAMPLE', 'platform')
+    metadata = {'tenant': 'EXAMPLE', 'kind': 'platform', 'billing_ref': contract['ref']}
+    canceled = {'id': 'sub_ordering', 'status': 'canceled', 'metadata': metadata}
+    calls = []
+
+    def response(method, path, data=None, **kwargs):
+        assert (method, path) == ('GET', '/v1/subscriptions/sub_ordering')
+        calls.append(path)
+        if len(calls) == 1:
+            # Caller A already received active while B observes cancellation
+            # and commits before A resumes persistence. No live provider calls.
+            subscriptions.sync_subscription('sub_ordering')
+            assert subscriptions._contract('EXAMPLE', 'platform')['status'] == 'canceled'
+            return {**canceled, 'status': 'active'}
+        return canceled
+
+    stripe.side_effect = response
+    subscriptions.sync_subscription('sub_ordering')
+    assert subscriptions._contract('EXAMPLE', 'platform')['status'] == 'canceled'
+
+
 def test_restarting_canceled_subscription_reserves_plan_before_provider_work(client, stripe, monkeypatch):
     _assert_restart_reserves_plan('EXAMPLE', stripe, monkeypatch)
 

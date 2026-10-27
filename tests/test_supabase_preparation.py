@@ -1,4 +1,6 @@
 """Offline migration safety checks and optional real PostgreSQL policy checks."""
+import base64
+import hashlib
 import json
 import os
 import sqlite3
@@ -164,6 +166,55 @@ def test_unique_casefold_reconciliation_preserves_rows_and_source_hashes(mixed_s
     assert bundle.rows['crm_records'][0]['payload']['conversations'] == [{'text': 'Preserved conversation'}]
     assert bundle.reconciled == {'events': 1, 'api_usage': 1, 'crm_records': 1}
     assert before == {str(path): path.read_bytes() for path in mixed_source.rglob('*') if path.is_file()}
+
+
+def test_migration_preserves_alias_mfa_enrollment_and_replay_binding(mixed_source):
+    legacy = json.dumps(['synthetic-owner', 'owner@example.test', 'ALPHA'], separators=(',', ':'))
+    canonical = json.dumps(['synthetic-owner', 'owner@example.test', 'Alpha'], separators=(',', ':'))
+    with closing(sqlite3.connect(mixed_source / 'logs/security.db')) as db, db:
+        db.execute('UPDATE account_authenticators SET account=?', (legacy,))
+        db.execute('UPDATE account_authenticators SET secret=?', ('JBSWY3DPEHPK3PXP',))
+        db.execute('UPDATE mfa_code_uses SET account=?', (legacy,))
+    bundle = prepare(mixed_source)
+    assert bundle.rows['account_authenticators'][0]['account'] == canonical
+    assert bundle.rows['account_authenticators'][0]['secret'] == 'JBSWY3DPEHPK3PXP'
+    assert bundle.rows['mfa_code_uses'][0]['account'] == canonical
+    assert bundle.rows['mfa_code_uses'][0]['timestep'] == 123
+
+
+def test_migration_rebinds_future_totp_high_water_without_rolling_back_either_key(mixed_source):
+    legacy = json.dumps(['synthetic-owner', 'owner@example.test', 'ALPHA'], separators=(',', ':'))
+    canonical = json.dumps(['synthetic-owner', 'owner@example.test', 'Alpha'], separators=(',', ':'))
+    seed = 'JBSWY3DPEHPK3PXP'
+    seed_hex = base64.b32decode(seed).hex()
+    old_hash = hashlib.sha256((legacy + ':' + seed_hex).encode()).hexdigest()
+    new_hash = hashlib.sha256((canonical + ':' + seed_hex).encode()).hexdigest()
+    with closing(sqlite3.connect(mixed_source / 'logs/security.db')) as db, db:
+        db.execute('UPDATE account_authenticators SET account=?,secret=?', (legacy, seed))
+        db.executemany('INSERT INTO totp_steps VALUES (?,?)', [(old_hash, 1001), (new_hash, 1000)])
+    bundle = prepare(mixed_source)
+    migrated = {row['account_hash']: row['step'] for row in bundle.rows['totp_steps']}
+    assert migrated[old_hash] == 1001 and migrated[new_hash] == 1001
+    # Exercise the real monotonic consumer on a synthetic migrated table. A
+    # code from unused older T cannot become valid after accepted future T+1.
+    from service import session_store
+    with closing(sqlite3.connect(':memory:')) as db, db:
+        db.execute('CREATE TABLE totp_steps (account_hash TEXT PRIMARY KEY, step INTEGER NOT NULL)')
+        db.executemany('INSERT INTO totp_steps VALUES (?,?)', migrated.items())
+        assert not session_store.consume_totp(canonical, seed_hex, 1000, database=db)
+        assert not session_store.consume_totp(canonical, seed_hex, 1001, database=db)
+        assert session_store.consume_totp(canonical, seed_hex, 1002, database=db)
+
+
+def test_migration_refuses_colliding_mfa_aliases(mixed_source):
+    keys = [json.dumps(['synthetic-owner', 'owner@example.test', tenant], separators=(',', ':'))
+            for tenant in ['ALPHA', 'Alpha']]
+    with closing(sqlite3.connect(mixed_source / 'logs/security.db')) as db, db:
+        db.execute('DELETE FROM account_authenticators')
+        db.executemany('INSERT INTO account_authenticators VALUES (?,?)',
+                       [(key, 'JBSWY3DPEHPK3PXP') for key in keys])
+    with pytest.raises(ValueError, match='MFA account collision'):
+        prepare(mixed_source)
 
 
 @pytest.mark.parametrize('table', ['events', 'api_usage', 'crm_records'])

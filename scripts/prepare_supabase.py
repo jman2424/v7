@@ -6,6 +6,8 @@ server-only V7_SUPABASE_MIGRATION_DSN. See docs/SUPABASE_MIGRATION.md.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import csv
 import hashlib
 import io
@@ -257,6 +259,51 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
     for row in bundle.rows['managed_businesses']:
         if row['tenant'] not in {item['tenant'] for item in bundle.rows['tenants']}:
             raise ValueError('Managed business has no source documents; stop and investigate')
+    # SQLite accepts legacy case aliases for enrolled authenticators, whereas
+    # PostgreSQL deliberately requires an exact account key. Move enrollment
+    # and its spent-code records together; never silently merge identities.
+    steps = {row['account_hash']: row for row in bundle.rows['totp_steps']}
+    for table in ['account_authenticators', 'mfa_code_uses']:
+        identities = set()
+        for row in bundle.rows[table]:
+            try:
+                identity = strict_json(row['account'])
+            except (ValueError, TypeError):
+                continue  # Preserve opaque historical keys; they are not aliases.
+            if not (isinstance(identity, list) and len(identity) == 3
+                    and all(isinstance(value, str) for value in identity)):
+                continue
+            if identity[2]:
+                identity[2] = canonical_reference(identity[2], table)
+            canonical = json.dumps(identity, separators=(',', ':'))
+            key = (canonical,) if table == 'account_authenticators' else (
+                canonical, row['secret_hash'], row['timestep'])
+            if key in identities:
+                raise ValueError('MFA account collision requires review before migration')
+            identities.add(key)
+            if table == 'account_authenticators' and row['account'] != canonical:
+                # The per-code rows and the monotonic TOTP high-water mark are
+                # separate protections. Preserve both when identity spelling
+                # changes, including an accepted future-skew time step.
+                normalized = row['secret'].strip().upper().rstrip('=')
+                try:
+                    secret_hex = base64.b32decode(normalized + '=' * (-len(normalized) % 8), casefold=True).hex()
+                except (binascii.Error, ValueError):
+                    raise ValueError('Invalid MFA enrollment requires review before migration') from None
+                old_hash = hashlib.sha256((row['account'] + ':' + secret_hex).encode()).hexdigest()
+                new_hash = hashlib.sha256((canonical + ':' + secret_hex).encode()).hexdigest()
+                if old_hash in steps:
+                    old_step = steps[old_hash]['step']
+                    if type(old_step) is not int:
+                        raise ValueError('Invalid MFA high-water mark requires review before migration')
+                    if new_hash in steps:
+                        steps[new_hash]['step'] = max(steps[new_hash]['step'], old_step)
+                    else:
+                        migrated = {'account_hash': new_hash, 'step': old_step}
+                        bundle.rows['totp_steps'].append(migrated)
+                        steps[new_hash] = migrated
+                    bundle.reconciled['totp_steps'] = bundle.reconciled.get('totp_steps', 0) + 1
+            row['account'] = canonical
     versions = root / 'versions'
     if versions.exists():
         if versions.is_symlink():

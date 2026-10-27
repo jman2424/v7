@@ -1,6 +1,6 @@
 <script lang="ts">
   import '../app.css';
-  import Console from '$lib/Console.svelte';
+  import Console from '#lib/Console.svelte';
   import { page } from '$app/state';
 
   let { children } = $props();
