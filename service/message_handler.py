@@ -578,6 +578,12 @@ class MessageHandler:
         analytics_lead_id = self._analytics_lead_id(ctx)
 
         try:
+            combined = getattr(self.analytics, 'upsert_lead_session', None)
+            if callable(combined):
+                combined(tenant=ctx.tenant, lead_id=analytics_lead_id, session_id=ctx.session_id,
+                         phone=entities.get('phone'), name=entities.get('name'))
+                return
+            # Preserve compatibility with existing custom analytics adapters.
             if hasattr(self.analytics, "upsert_lead"):
                 self.analytics.upsert_lead(
                     tenant=ctx.tenant,

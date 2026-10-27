@@ -854,10 +854,12 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS, statements=statements),
             messages=[{"role": "system", "content": INSTRUCTIONS},
                       {"role": "user", "content": json.dumps({
-                          "knowledge": prompt_knowledge(knowledge), "tone": tone,
-                          "approved_destinations": destinations,
+                          "tone": tone,
                           "approved_request_actions": allowed_actions,
+                          "knowledge": prompt_knowledge(knowledge, prioritized=[
+                              context.get('selected_offering_id'), *context.get('offering_ids', [])]),
                           "approved_statements": prompt_statements(knowledge, statements),
+                          "approved_destinations": destinations,
                           "recent_conversation": history_rows(history, memory_settings),
                           "agent_context": context,
                           "continue_selected_offering": selected_next_step,

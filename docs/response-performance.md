@@ -34,6 +34,21 @@ remain in place on each transaction; tenant scope and search path are local to
 that transaction. Independent role probes share a network flush. Existing
 tenant-specific OpenAI clients retain their HTTP connection reuse.
 
+Scope initialization now uses one catalog-only query for fresh role, membership,
+RLS and ownership checks plus transaction-local settings. No caller or business
+query can run before every returned invariant is validated. A rejected scope
+rolls back. Lead/contact and current-session metadata share one atomic scoped
+upsert instead of two transactions; custom analytics adapters retain the existing
+two-method fallback. History, money and audit commits remain synchronous.
+
+After retrieval and its context cap, provider object keys have stable ordering.
+Authoritative facts and verified customer selections remain first; list order,
+fact values and validators are unchanged. Dynamic destinations/history follow
+the stable public facts. This can improve exact-prefix provider cache reuse;
+it never caches/replays answers or replaces tenant validation. No extended
+provider retention or new API parameter is enabled. See the
+[official OpenAI prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
+
 `V7_ASYNC_TELEMETRY=true` batches only `pipeline_in`, `pipeline_out` and
 `pipeline_turn` into one durable commit, then fans them out on a bounded worker
 inside the existing web service. It defaults on under Render. Apply migration

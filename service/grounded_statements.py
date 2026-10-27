@@ -144,6 +144,15 @@ def statement_catalog(knowledge):
     return result
 
 
+def _stable_prompt_data(value):
+    """Canonical object keys after retrieval; list order and all facts survive."""
+    if isinstance(value, dict):
+        return {key: _stable_prompt_data(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_stable_prompt_data(row) for row in value]
+    return value
+
+
 def prompt_statements(knowledge, statements):
     """Reference exact duplicated wording without changing trusted statements.
 
@@ -170,25 +179,29 @@ def prompt_statements(knowledge, statements):
                     result[identifier] = {'source_id': statement['source_id'],
                         'text_from_rule': rule['id'], 'review_note': suffix.strip()}
                     break
-    return result
+    return _stable_prompt_data(result)
 
 
-def prompt_knowledge(knowledge):
+def prompt_knowledge(knowledge, *, prioritized=()):
     """Send an identical offering once; retain every nonduplicated core fact."""
     result = dict(knowledge)
     core = knowledge.get('business_core')
-    if not isinstance(core, dict) or not isinstance(core.get('offerings'), list):
-        return result
-    references, remaining = [], []
-    for row in core['offerings']:
-        identifier = 'offering:' + str(row.get('id')) if isinstance(row, dict) else ''
-        if identifier in knowledge and knowledge[identifier] == row:
-            references.append(identifier)
-        else:
-            remaining.append(row)
-    if references:
-        result['business_core'] = {**core, 'offerings': remaining, 'offering_source_ids': references}
-    return result
+    if isinstance(core, dict) and isinstance(core.get('offerings'), list):
+        references, remaining = [], []
+        for row in core['offerings']:
+            identifier = 'offering:' + str(row.get('id')) if isinstance(row, dict) else ''
+            if identifier in knowledge and knowledge[identifier] == row:
+                references.append(identifier)
+            else:
+                remaining.append(row)
+        if references:
+            result['business_core'] = {**core, 'offerings': remaining, 'offering_source_ids': references}
+    stable = _stable_prompt_data(result)
+    # Preserve authoritative offer and verified customer selections at the
+    # front. Canonicalize only the remaining object-key presentation.
+    pinned = {key: stable[key] for key in ('business', 'current_platform_offer', *prioritized)
+              if isinstance(key, str) and key in stable}
+    return {**pinned, **{key: row for key, row in stable.items() if key not in pinned}}
 
 
 def protected_request(question, payload, statements):

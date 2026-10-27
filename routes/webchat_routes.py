@@ -20,7 +20,7 @@ from service.rate_limit import RateLimiter
 from service.speech_transcription import SpeechTranscriptionError, transcribe_audio
 
 # DB-backed analytics (same DB used by dashboard)
-from service.analytics_db import log_error, log_message, log_navigation_click, set_lead_session, upsert_lead
+from service.analytics_db import log_error, log_message, log_navigation_click, upsert_lead_session
 
 logger = logging.getLogger("WEB.Chat")
 bp = Blueprint("webchat", __name__)
@@ -855,8 +855,7 @@ def chat_api():
     with phase('transport_inbound'):
         # Lead table helpers (non-fatal; included in HTTP duration measurements).
         try:
-            upsert_lead(tenant=tenant, lead_id=lead_id)
-            set_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
+            upsert_lead_session(tenant=tenant, lead_id=lead_id, session_id=session_id)
         except Exception as exc:
             from service.chat_diagnostics import emit
             emit('chat_optional_failure', phase='lead_audit', error_type=type(exc).__name__)
