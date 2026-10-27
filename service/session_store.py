@@ -20,6 +20,52 @@ def _using_postgres():
     return backend == "postgres"
 
 
+def _prepare_postgres_scope(db, authorized_tenant, repeatable_read):
+    """Fresh read-only security checks before a caller can use the transaction."""
+    import psycopg
+    if repeatable_read:
+        db.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+    # Independent, read-only security probes share a network flush.
+    # No tenant/business SQL runs until every result is validated.
+    with db.pipeline() if hasattr(db, 'pipeline') else nullcontext():
+        role_query = db.execute(
+        "SELECT current_user=session_user, "
+        "rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, "
+        "pg_has_role(current_user, 'v7_backend', 'USAGE'), "
+        "has_schema_privilege(current_user, 'v7_private', 'CREATE'), "
+        "has_database_privilege(current_user, current_database(), 'CREATE') "
+        "FROM pg_roles WHERE rolname=current_user"
+        )
+        memberships_query = db.execute(
+        "SELECT r.rolname FROM pg_auth_members m "
+        "JOIN pg_roles r ON r.oid=m.roleid "
+        "WHERE m.member=(SELECT oid FROM pg_roles WHERE rolname=current_user)"
+        )
+        tables_query = db.execute(
+        "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
+        "c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) "
+        "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname='v7_private' "
+        "AND c.relname IN ('management_sessions', 'login_attempts')"
+        )
+    role = role_query.fetchone()
+    memberships = memberships_query.fetchall()
+    tables = tables_query.fetchall()
+    if (role is None or not role[0] or any(role[1:5])
+            or not role[5] or role[6] or role[7]
+            or {row[0] for row in memberships} != {"v7_backend"}
+            or len(tables) != 2
+            or any(not row[1] or not row[2] or row[3] for row in tables)):
+        raise RuntimeError("PostgreSQL security role or tables are not restricted")
+    # Keep unqualified legacy table names in the private schema. Never
+    # search public schemas or a caller-controlled path.
+    if authorized_tenant is not None:
+        db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true), "
+                   "set_config('v7.tenant', %s, true)", (authorized_tenant,))
+    else:
+        db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
+
+
 @contextmanager
 def postgres_connection(authorized_tenant=None, *, repeatable_read=False):
     """Restricted server transaction; caller must authorize a tenant first.
@@ -44,48 +90,8 @@ def postgres_connection(authorized_tenant=None, *, repeatable_read=False):
         # Never accept a weaker TLS mode from the DSN. The login must inherit
         # only the restricted backend role and must not own the private tables.
         from service.postgres_pool import connection as pooled_connection
-        with pooled_connection(dsn, os.getenv("V7_SUPABASE_CA_FILE") or "system") as db:
-            if repeatable_read:
-                db.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
-            # Independent, read-only security probes share a network flush.
-            # No tenant/business SQL runs until every result is validated.
-            with db.pipeline() if hasattr(db, 'pipeline') else nullcontext():
-                role_query = db.execute(
-                "SELECT current_user=session_user, "
-                "rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, "
-                "pg_has_role(current_user, 'v7_backend', 'USAGE'), "
-                "has_schema_privilege(current_user, 'v7_private', 'CREATE'), "
-                "has_database_privilege(current_user, current_database(), 'CREATE') "
-                "FROM pg_roles WHERE rolname=current_user"
-                )
-                memberships_query = db.execute(
-                "SELECT r.rolname FROM pg_auth_members m "
-                "JOIN pg_roles r ON r.oid=m.roleid "
-                "WHERE m.member=(SELECT oid FROM pg_roles WHERE rolname=current_user)"
-                )
-                tables_query = db.execute(
-                "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
-                "c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) "
-                "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-                "WHERE n.nspname='v7_private' "
-                "AND c.relname IN ('management_sessions', 'login_attempts')"
-                )
-            role = role_query.fetchone()
-            memberships = memberships_query.fetchall()
-            tables = tables_query.fetchall()
-            if (role is None or not role[0] or any(role[1:5])
-                    or not role[5] or role[6] or role[7]
-                    or {row[0] for row in memberships} != {"v7_backend"}
-                    or len(tables) != 2
-                    or any(not row[1] or not row[2] or row[3] for row in tables)):
-                raise RuntimeError("PostgreSQL security role or tables are not restricted")
-            # Keep unqualified legacy table names in the private schema. Never
-            # search public schemas or a caller-controlled path.
-            if authorized_tenant is not None:
-                db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true), "
-                           "set_config('v7.tenant', %s, true)", (authorized_tenant,))
-            else:
-                db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
+        with pooled_connection(dsn, os.getenv("V7_SUPABASE_CA_FILE") or "system",
+                initialize=lambda db: _prepare_postgres_scope(db, authorized_tenant, repeatable_read)) as db:
             yield db
     except psycopg.Error:
         # Driver errors can contain connection details or sensitive row values.
