@@ -7,7 +7,7 @@ import re
 import secrets
 import sqlite3
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 
 _TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
@@ -25,45 +25,35 @@ def _prepare_postgres_scope(db, authorized_tenant, repeatable_read):
     import psycopg
     if repeatable_read:
         db.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
-    # Independent, read-only security probes share a network flush.
-    # No tenant/business SQL runs until every result is validated.
-    with db.pipeline() if hasattr(db, 'pipeline') else nullcontext():
-        role_query = db.execute(
+    # One metadata-only exchange also sets transaction-local scope. Setting a
+    # GUC is not authorization: no business SQL/caller can run until EVERY
+    # returned role/RLS invariant passes below. A rejected scope rolls back.
+    # Qualify the catalog functions/views before changing search_path.
+    scope = authorized_tenant or ''
+    row = db.execute(
         "SELECT current_user=session_user, "
         "rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, "
-        "pg_has_role(current_user, 'v7_backend', 'USAGE'), "
-        "has_schema_privilege(current_user, 'v7_private', 'CREATE'), "
-        "has_database_privilege(current_user, current_database(), 'CREATE') "
-        "FROM pg_roles WHERE rolname=current_user"
-        )
-        memberships_query = db.execute(
-        "SELECT r.rolname FROM pg_auth_members m "
-        "JOIN pg_roles r ON r.oid=m.roleid "
-        "WHERE m.member=(SELECT oid FROM pg_roles WHERE rolname=current_user)"
-        )
-        tables_query = db.execute(
-        "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, "
-        "c.relowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) "
-        "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "pg_catalog.pg_has_role(current_user, 'v7_backend', 'USAGE'), "
+        "pg_catalog.has_schema_privilege(current_user, 'v7_private', 'CREATE'), "
+        "pg_catalog.has_database_privilege(current_user, pg_catalog.current_database(), 'CREATE'), "
+        "(SELECT pg_catalog.array_agg(r.rolname::text) FROM pg_catalog.pg_auth_members m "
+        "JOIN pg_catalog.pg_roles r ON r.oid=m.roleid WHERE m.member=actor.oid), "
+        "(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(c.relname, "
+        "c.relrowsecurity, c.relforcerowsecurity, c.relowner=actor.oid)) "
+        "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
         "WHERE n.nspname='v7_private' "
-        "AND c.relname IN ('management_sessions', 'login_attempts')"
-        )
-    role = role_query.fetchone()
-    memberships = memberships_query.fetchall()
-    tables = tables_query.fetchall()
-    if (role is None or not role[0] or any(role[1:5])
-            or not role[5] or role[6] or role[7]
-            or {row[0] for row in memberships} != {"v7_backend"}
-            or len(tables) != 2
-            or any(not row[1] or not row[2] or row[3] for row in tables)):
+        "AND c.relname IN ('management_sessions', 'login_attempts')), "
+        "pg_catalog.set_config('search_path', 'pg_catalog,v7_private', true), "
+        "pg_catalog.set_config('v7.tenant', %s, true) "
+        "FROM pg_catalog.pg_roles actor WHERE rolname=current_user", (scope,)
+    ).fetchone()
+    if (row is None or len(row) != 12 or not row[0] or any(row[1:5])
+            or not row[5] or row[6] or row[7]
+            or set(row[8] or []) != {"v7_backend"}
+            or len(row[9] or []) != 2
+            or any(not table[1] or not table[2] or table[3] for table in row[9])
+            or row[10] != 'pg_catalog,v7_private' or row[11] != scope):
         raise RuntimeError("PostgreSQL security role or tables are not restricted")
-    # Keep unqualified legacy table names in the private schema. Never
-    # search public schemas or a caller-controlled path.
-    if authorized_tenant is not None:
-        db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true), "
-                   "set_config('v7.tenant', %s, true)", (authorized_tenant,))
-    else:
-        db.execute("SELECT set_config('search_path', 'pg_catalog,v7_private', true)")
 
 
 @contextmanager

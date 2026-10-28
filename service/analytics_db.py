@@ -218,21 +218,24 @@ def _ensure_ready() -> None:
 # ---------------------------------------------------------------------
 # Leads
 # ---------------------------------------------------------------------
-def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone: Optional[str] = None) -> None:
+def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone: Optional[str] = None,
+                session_id: Optional[str] = None) -> None:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
     lead_id_n = (lead_id or "unknown").strip() or "unknown"
     now = _utc_now()
+    session_id_n = ((session_id or "unknown").strip() or "unknown") if session_id is not None else None
 
     if _using_postgres():
         with session_store.postgres_connection(tenant_n) as con:
             con.execute(
-                "INSERT INTO v7_private.leads (tenant, lead_id, name, phone, status, tags, updated_utc) "
-                "VALUES (%s, %s, %s, %s, 'Open', '[]', %s) "
+                "INSERT INTO v7_private.leads (tenant, lead_id, name, phone, status, tags, updated_utc, last_session_id) "
+                "VALUES (%s, %s, %s, %s, 'Open', '[]', %s, %s) "
                 "ON CONFLICT (tenant, lead_id) DO UPDATE SET "
                 "name=COALESCE(excluded.name, leads.name), "
-                "phone=COALESCE(excluded.phone, leads.phone), updated_utc=excluded.updated_utc",
-                (tenant_n, lead_id_n, name, phone, now),
+                "phone=COALESCE(excluded.phone, leads.phone), updated_utc=excluded.updated_utc, "
+                "last_session_id=COALESCE(excluded.last_session_id, leads.last_session_id)",
+                (tenant_n, lead_id_n, name, phone, now, session_id_n),
             )
         return
 
@@ -252,6 +255,15 @@ def upsert_lead(*, tenant: str, lead_id: str, name: Optional[str] = None, phone:
             )
         else:
             raise RuntimeError("Legacy leads require tenant migration before writes")
+        if session_id_n is not None and "last_session_id" in cols:
+            con.execute("UPDATE leads SET last_session_id=? WHERE tenant=? AND lead_id=?",
+                        (session_id_n, tenant_n, lead_id_n))
+
+
+def upsert_lead_session(*, tenant: str, lead_id: str, session_id: str,
+                        name: Optional[str] = None, phone: Optional[str] = None) -> None:
+    """Persist the lead and its current conversation in one scoped commit."""
+    upsert_lead(tenant=tenant, lead_id=lead_id, session_id=session_id, name=name, phone=phone)
 
 
 def set_lead_session(*, tenant: str, lead_id: str, session_id: str) -> None:

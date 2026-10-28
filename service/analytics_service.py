@@ -206,9 +206,11 @@ class AnalyticsService:
         lead_id: str,
         phone: Optional[str] = None,
         name: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         if analytics_db._using_postgres():
-            analytics_db.upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone, name=name)
+            analytics_db.upsert_lead(tenant=tenant, lead_id=lead_id, phone=phone, name=name,
+                                     session_id=session_id)
             return
         tenant_n = _norm_tenant(tenant)
         lead_id_n = (lead_id or "unknown").strip() or "unknown"
@@ -226,6 +228,13 @@ class AnalyticsService:
                 """,
                 (tenant_n, lead_id_n, name, phone, now),
             )
+            if session_id is not None:
+                con.execute('UPDATE leads SET last_session_id=? WHERE tenant=? AND lead_id=?',
+                            (_norm_session_id(session_id), tenant_n, lead_id_n))
+
+    def upsert_lead_session(self, *, tenant: str, lead_id: str, session_id: str,
+                            phone: Optional[str] = None, name: Optional[str] = None) -> None:
+        self.upsert_lead(tenant=tenant, lead_id=lead_id, session_id=session_id, phone=phone, name=name)
 
     def set_lead_session(
         self,

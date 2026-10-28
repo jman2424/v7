@@ -60,7 +60,7 @@ def test_blocked_request_has_no_agent_or_usage_side_effects(client, demo, monkey
         assert client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'hello'}).status_code == 200
     lead = Mock()
     allowance = Mock()
-    monkeypatch.setattr(webchat_routes, 'upsert_lead', lead)
+    monkeypatch.setattr(webchat_routes, 'upsert_lead_session', lead)
     monkeypatch.setattr(plan_usage, 'use_resource', allowance)
     assert client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'hello'}).status_code == 429
     assert demo.call_count == 10
