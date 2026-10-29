@@ -65,10 +65,7 @@ def response_format(knowledge, destinations, allowed_actions, *, intents, stages
         # Structured output follows property order. Choose evidence/state first
         # so prose is conditioned on those choices, rather than citing it later.
         'answer': {'type': 'string', 'maxLength': 4000,
-                   'description': 'Brief customer-facing answer supported by selected sources, with blank lines between options. '
-                   'Only when can_render_policy_statements is true, the answer is entirely selected statements, '
-                   'intent is policy/cancel/complaint, no offerings are discussed and no form is requested, '
-                   'use an empty string so the server renders the complete validated statements without unused generated prose.'},
+                   'description': 'Brief customer-facing answer supported by the sources already selected. Use blank lines between options; navigation buttons supply links.'},
     })
     schema['properties']['statement_ids']['description'] = (
         'Select complete published policy/process statement IDs from approved_statements and cite '

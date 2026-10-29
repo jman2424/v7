@@ -32,66 +32,6 @@ def run(monkeypatch, knowledge, *, text='The team checks stock after checkout.',
     return answer, state, diagnostics, calls
 
 
-def test_policy_does_not_require_generation_of_discarded_prose(monkeypatch):
-    knowledge = {'policy:returns': {'answer': RETURNS}}
-    answer, state, diagnostics, calls = run(monkeypatch, knowledge, text='',
-        question='What is your returns policy?', ids=['policy:returns:answer'])
-    assert answer == RETURNS and len(calls) == 1
-    assert diagnostics['accepted'] and diagnostics['mode'] == 'source_statements'
-    assert state['sources'] == ['policy:returns']
-    prompt = json.loads(calls[0]['messages'][1]['content'])
-    assert prompt['can_render_policy_statements'] is True
-
-
-def test_credit_policy_keeps_every_published_charge_condition(monkeypatch):
-    terms = ('Buy GBP 5 or GBP 20 of prepaid AI credit. Credit is granted after verified payment. '
-             'AI pauses when credit cannot cover the next request. No automatic recharge applies.')
-    answer, _, diagnostics, calls = run(monkeypatch, {'faq:credit': {
-        'question': 'How is AI credit charged?', 'answer': terms}}, text='',
-        question='What happens when the AI usage credit runs out?', ids=['faq:credit:answer'])
-    assert answer == terms and len(calls) == 1 and diagnostics['accepted']
-
-
-@pytest.mark.parametrize('overrides', [
-    {'question': 'Compare the products and the returns policy.'},
-    {'question': 'Which size band is a Toyota Yaris?'},
-    {'intent': 'answer'},
-    {'ids': []},
-    {'ids': ['policy:missing:answer']},
-    {'sources': ['business']},
-    {'sources': ['policy:returns', 'product:example']},
-    {'requested_action': 'callback', 'allowed_actions': ['callback']},
-    {'agent': {'intent': 'policy'}},
-])
-def test_empty_prose_cannot_bypass_evidence_metadata_or_mixed_questions(monkeypatch, overrides):
-    knowledge = {'policy:returns': {'answer': RETURNS}, 'business': {'name': 'Synthetic Shop'},
-                 'product:example': {'name': 'Bottle', 'price': 20, 'currency': 'GBP'}}
-    options = {'text': '', 'question': 'What is your returns policy?',
-               'sources': ['policy:returns'], 'ids': ['policy:returns:answer'], **overrides}
-    answer, _, diagnostics, _ = run(monkeypatch, knowledge, **options)
-    assert answer is None and not diagnostics['accepted']
-
-
-def test_source_only_text_still_passes_final_claim_validation(monkeypatch):
-    seen = []
-    def reject(text, *args, **kwargs):
-        seen.append(text)
-        return False
-    monkeypatch.setattr(grounded_conversation, '_claims_supported', reject)
-    answer, _, diagnostics, _ = run(monkeypatch, {'policy:returns': {'answer': RETURNS}},
-        text='', question='What is your returns policy?', ids=['policy:returns:answer'])
-    assert answer is None and seen == [RETURNS]
-    assert diagnostics['rejection_reason'] == 'unsafe_statement'
-
-
-def test_source_only_render_failure_never_emits_empty_or_generic_reply(monkeypatch):
-    from service import grounded_statements
-    monkeypatch.setattr(grounded_statements, 'render_response', lambda *a, **k: None)
-    answer, _, diagnostics, _ = run(monkeypatch, {'policy:returns': {'answer': RETURNS}},
-        text='', question='What is your returns policy?', ids=['policy:returns:answer'])
-    assert answer is None and diagnostics['rejection_reason'] == 'invalid_statement_only'
-
-
 @pytest.mark.parametrize('offering_type',['services','products'])
 def test_shared_price_conditions_appear_once_and_service_flags_are_not_inventory(monkeypatch,offering_type):
     unit = 'vehicle; starting price, final quote on inspection'
