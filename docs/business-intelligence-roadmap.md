@@ -67,10 +67,12 @@ contain historical descriptions; runtime code and current tests take precedence.
    citation is automatically added or accepted.
 8. A later live missing-discount case exposed a renderer problem: the model's
    explicit uncertainty was replaced by a complete but unrelated monthly-pricing
-   FAQ. Explicit information gaps with unrelated FAQ evidence are now rejected
-   before rendering and can use the same single correction slot. The correction
-   must select a clarification or relevant approved evidence and pass all guards.
-   This does not enable free-form generated policy wording or remove exceptions.
+   FAQ. When supported model prose explicitly identifies missing information but
+   cites an unrelated FAQ, that FAQ's facts are now withheld. The existing verified
+   unknown-policy statement and an approved support destination are used without
+   another model call. Original agent metadata still passes its validators;
+   malformed citations, links and unauthorized actions cannot use this path.
+   This does not enable free-form policy prose or remove existing exceptions.
 
 ## C–D. Extensions and architecture
 
@@ -176,6 +178,9 @@ exact test results, commit and release status as each stage completes.
   (6/7 scenarios), and 7/8 new focused turns (2/3 scenarios). They exposed a second
   citation omission and the unrelated-policy rendering issue above. The focused
   rendering/grounding regression group passed 201 tests after those fixes.
+- The first live rerun of the policy-gap correction showed the model repeating
+  the same unrelated pricing evidence after correction. This led to the
+  deterministic withholding/verified-unknown path above, covered by 224 tests.
 - A local full-suite attempt was interrupted after discovering an optional-source
   diagnostic regression. That issue is fixed and its test passes. Sandbox temp ACL
   failures required the previously authorized normal test environment. Neither

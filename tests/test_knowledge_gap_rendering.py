@@ -31,14 +31,21 @@ def test_uncertainty_is_not_replaced_by_an_unrelated_pricing_statement(monkeypat
                  'navigation': ['software-support'], 'requested_action': None}
     answer, calls, diagnostics = exercise(monkeypatch, [unrelated_answer(), corrected])
     assert answer and 'confirm' in answer.lower() and diagnostics['accepted']
-    assert 'Starter' not in answer and 'GBP 20' not in answer and len(calls) == 2
-    assert 'irrelevant_policy_evidence' in calls[1]['messages'][0]['content']
+    assert 'Starter' not in answer and 'GBP 20' not in answer and len(calls) == 1
 
 
-def test_repeated_unrelated_policy_evidence_remains_rejected(monkeypatch):
+def test_unknown_policy_uses_the_existing_verified_path_without_an_extra_call(monkeypatch):
     answer, calls, diagnostics = exercise(monkeypatch, [unrelated_answer()])
-    assert answer is None and len(calls) == 2
-    assert diagnostics['rejection_reason'] == 'irrelevant_policy_evidence'
+    assert answer and 'not established' in answer and 'confirm' in answer and len(calls) == 1
+    assert diagnostics['accepted'] and 'GBP 20' not in answer
+
+
+def test_missing_information_cannot_hide_an_unknown_statement_or_unauthorized_action(monkeypatch):
+    for field, value in [('statement_ids', ['other-tenant:rule']), ('navigation', ['unapproved']),
+                         ('requested_action', 'refund')]:
+        payload = {**unrelated_answer(), field: value}
+        answer, calls, diagnostics = exercise(monkeypatch, [payload])
+        assert answer is None and len(calls) == 1 and not diagnostics['accepted']
 
 
 def test_approved_relevant_policy_keeps_all_conditions_without_an_extra_call(monkeypatch):
