@@ -24,6 +24,8 @@ def record(tenant, metric, value):
 
 
 def observe(tenant, event, fields):
+    if event == 'provider_connection' and fields.get('outcome') in {'opened', 'reused'}:
+        record(tenant, 'provider_new_connections', int(fields['outcome'] == 'opened'))
     names = {'chat_http_finished': 'http_total_ms', 'provider_finished': 'model_ms',
              'stream_first_visible': 'server_first_visible_ms', 'prompt_built': 'prompt_build_ms',
              'validation_finished': 'validation_ms', 'db_connection': 'db_acquire_ms'}

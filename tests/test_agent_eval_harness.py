@@ -9,6 +9,20 @@ from evals import agent_eval
 from evals.agent_eval import Settings, run_suite
 
 
+def test_explicit_eval_effort_reaches_accounted_configuration():
+    from service.model_settings import completion_options
+    settings = Settings(model='gpt-6-luna', reasoning_effort='none')
+    settings.validate()
+    config = agent_eval.model_configuration(settings, timeout_seconds=7)
+    options = completion_options({'messages': [], 'temperature': .2},
+        purpose='conversation_answer', configuration=config)
+    assert options['reasoning_effort'] == 'none' and options['timeout'] == 7
+    assert agent_eval.model_configuration(Settings())['parameters'] == {
+        'max_output_tokens': 1024, 'timeout_seconds': 20}
+    with pytest.raises(ValueError, match='unsupported_benchmark_reasoning_effort'):
+        Settings(model='gpt-4.1-mini', reasoning_effort='none').validate()
+
+
 def test_offline_references_exercise_real_validation_without_network(monkeypatch):
     from service import usage_currency
 

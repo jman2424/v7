@@ -92,7 +92,7 @@ def summarize(reports):
                           'reason': r['validation'].get('rejection_reason')} for r in turns if not r['passed']]}
 
 
-def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini', live=False, rich_business=False, http_pipeline=False):
+def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini', reasoning_effort=None, live=False, rich_business=False, http_pipeline=False):
     # The same trusted external harness can evaluate a frozen checkout. Insert
     # its root before importing runtime modules; never import credentials.
     import os
@@ -137,6 +137,7 @@ def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini'
                     'measurement_scope': ('Full Flask/SQLite HTTP pipeline, excluding production DB/network/browser paint.'
                         if http_pipeline else 'Grounded model and deterministic validation; excludes production HTTP/DB overhead.'),
                     'context_profile': 'large_public_business' if rich_business else 'small_public_business',
+                    'reasoning_effort': reasoning_effort,
                     'scenario_manifest_sha256': fixture_hash, 'scenario_ids': [r['id'] for r in rows],
                     'conversations_planned': 50, 'max_budget_usd': str(ceiling),
                     'elapsed_seconds': round(time.monotonic() - started, 3),
@@ -145,7 +146,10 @@ def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini'
         temporary.write_text(json.dumps(document, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
         temporary.replace(output)
 
-    client = agent_eval.make_client(agent_eval.Settings(live=live, model=model, env_file=env_file))
+    # The external harness can still evaluate a frozen pre-effort checkout.
+    effort_options = {'reasoning_effort': reasoning_effort} if reasoning_effort is not None else {}
+    client = agent_eval.make_client(agent_eval.Settings(live=live, model=model,
+        env_file=env_file, **effort_options))
     try:
         for group in ([rows] if http_pipeline else [[row] for row in rows]):
             totals = summarize(reports)
@@ -153,7 +157,7 @@ def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini'
             if remaining <= Decimal('0.002') or time.monotonic() - started > 1800:
                 break
             settings_class = module.HttpSettings if http_pipeline else agent_eval.Settings
-            settings = settings_class(live=live, model=model, env_file=env_file,
+            settings = settings_class(live=live, model=model, env_file=env_file, **effort_options,
                 scenario_ids=tuple(row['id'] for row in group), max_budget_usd=str(remaining),
                 max_requests=300 if http_pipeline else 20, max_seconds=600 if http_pipeline else 120)
             report = runner(settings, emit=publish, client=client)
@@ -180,6 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--rich-business', action='store_true')
     parser.add_argument('--http-pipeline', action='store_true')
     parser.add_argument('--model', default='gpt-4.1-mini')
+    parser.add_argument('--reasoning-effort', default=None)
     parser.add_argument('--max-budget-usd', default='0.65')
     args = parser.parse_args()
     print(json.dumps(run(**vars(args))), flush=True)

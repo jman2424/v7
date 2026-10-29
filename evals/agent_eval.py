@@ -42,6 +42,7 @@ class Settings:
     extended: bool = False
     live: bool = False
     model: str = 'gpt-4.1-mini'
+    reasoning_effort: str | None = None
     max_requests: int = 20
     max_output_tokens: int = 1024
     timeout_seconds: float = 20
@@ -54,6 +55,10 @@ class Settings:
         from service.model_settings import MODELS
         if self.model not in MODELS:
             raise ValueError('unsupported_benchmark_model')
+        if self.reasoning_effort is not None:
+            from service.model_settings import capabilities
+            if self.reasoning_effort not in capabilities(self.model)['reasoning_efforts']:
+                raise ValueError('unsupported_benchmark_reasoning_effort')
         limit = 512 if self.extended and not self.live else 20
         if type(self.max_requests) is not int or not 1 <= self.max_requests <= limit:
             raise ValueError('max_requests_must_be_1_to_20')
@@ -126,7 +131,8 @@ def _runtime_hashes():
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
              'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
-             'service/usage_pricing.py', 'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py')
+             'service/usage_pricing.py', 'service/provider_http.py', 'service/rewriter.py',
+             'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py')
     return {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths}
 
 
@@ -170,12 +176,16 @@ def sandbox(directory, settings):
         for business in BUSINESSES.values():
             target = root / 'business' / business['tenant']
             target.mkdir(parents=True)
-            (target / 'ai_model.json').write_text(json.dumps({
-                'model': settings.model, 'parameters': {
-                    'max_output_tokens': settings.max_output_tokens, 'timeout_seconds': settings.timeout_seconds,
-                },
-            }), encoding='utf-8')
+            (target / 'ai_model.json').write_text(json.dumps(model_configuration(settings)), encoding='utf-8')
         yield root
+
+
+def model_configuration(settings, *, timeout_seconds=None):
+    parameters = {'max_output_tokens': settings.max_output_tokens,
+                  'timeout_seconds': settings.timeout_seconds if timeout_seconds is None else timeout_seconds}
+    if settings.reasoning_effort is not None:
+        parameters['reasoning_effort'] = settings.reasoning_effort
+    return {'model': settings.model, 'parameters': parameters}
 
 
 def make_client(settings):
@@ -194,8 +204,14 @@ def make_client(settings):
     # Do not enable SDK/transport request logging.
     for name in ('openai', 'httpx', 'httpcore'):
         logging.getLogger(name).setLevel(logging.CRITICAL)
-    return OpenAI(api_key=key, base_url='https://api.openai.com/v1', max_retries=0,
-                  timeout=settings.timeout_seconds)
+    from service.provider_http import ProviderHttpClient
+    http_client = ProviderHttpClient()
+    try:
+        return OpenAI(api_key=key, base_url='https://api.openai.com/v1', max_retries=0,
+                      timeout=settings.timeout_seconds, http_client=http_client)
+    except Exception:
+        http_client.close()
+        raise
 
 
 def check_turn(answer, state, links, expected, business):
@@ -340,10 +356,8 @@ class Recorder:
             self.stop_reason = 'runtime_limit'
         if self.stop_reason:
             raise EvalLimit(self.stop_reason)
-        configuration = {'model': self.settings.model, 'parameters': {
-            'max_output_tokens': self.settings.max_output_tokens,
-            'timeout_seconds': min(self.settings.timeout_seconds, remaining),
-        }}
+        configuration = model_configuration(self.settings,
+            timeout_seconds=min(self.settings.timeout_seconds, remaining))
         effective = completion_options(kwargs, purpose=purpose, configuration=configuration)
         ceiling = api_usage.completion_ceiling(effective, pricing=self.pricing)
         held = sum(row['ceiling_nano_usd'] for row in self.calls if row.get('cost_nano_usd') is None)
@@ -576,6 +590,7 @@ def main(argv=None):
     parser.add_argument('--internal-worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--env-file', help='Explicit live dotenv file; only OPENAI_API_KEY is used.')
     parser.add_argument('--model', default='gpt-4.1-mini')
+    parser.add_argument('--reasoning-effort', default=None)
     parser.add_argument('--scenario', action='append', default=[], dest='scenario_ids')
     parser.add_argument('--max-requests', type=int, default=20)
     parser.add_argument('--max-output-tokens', type=int, default=1024)

@@ -192,9 +192,14 @@ class Rewriter:
         if not api_key.strip():
             return
 
+        http_client = None
         try:
-            self._client = OpenAI(api_key=api_key)
+            from service.provider_http import ProviderHttpClient
+            http_client = ProviderHttpClient()
+            self._client = OpenAI(api_key=api_key, http_client=http_client)
         except Exception:
+            if http_client is not None:
+                http_client.close()
             self._client = None
 
     def rewrite(
