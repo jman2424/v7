@@ -92,6 +92,21 @@ def summarize(reports):
                           'reason': r['validation'].get('rejection_reason')} for r in turns if not r['passed']]}
 
 
+def write_report(output, document):
+    temporary = output.with_suffix('.tmp')
+    temporary.write_text(json.dumps(document, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
+    # Windows readers/virus scanners can briefly hold the destination open.
+    # Retry only this local rename, never a provider request or accounting write.
+    for attempt in range(4):
+        try:
+            temporary.replace(output)
+            return
+        except PermissionError:
+            if attempt == 3:
+                raise
+            time.sleep(.025 * (2 ** attempt))
+
+
 def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini', reasoning_effort=None, live=False, rich_business=False, http_pipeline=False):
     # The same trusted external harness can evaluate a frozen checkout. Insert
     # its root before importing runtime modules; never import credentials.
@@ -142,9 +157,7 @@ def run(*, target, env_file, output, max_budget_usd='0.65', model='gpt-4.1-mini'
                     'conversations_planned': 50, 'max_budget_usd': str(ceiling),
                     'elapsed_seconds': round(time.monotonic() - started, 3),
                     'summary': summarize(active), 'reports': active}
-        temporary = output.with_suffix('.tmp')
-        temporary.write_text(json.dumps(document, ensure_ascii=True, indent=2) + '\n', encoding='utf-8')
-        temporary.replace(output)
+        write_report(output, document)
 
     # The external harness can still evaluate a frozen pre-effort checkout.
     effort_options = {'reasoning_effort': reasoning_effort} if reasoning_effort is not None else {}

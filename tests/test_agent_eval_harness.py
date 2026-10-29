@@ -23,6 +23,28 @@ def test_explicit_eval_effort_reaches_accounted_configuration():
         Settings(model='gpt-4.1-mini', reasoning_effort='none').validate()
 
 
+def test_performance_report_retries_only_local_rename(tmp_path, monkeypatch):
+    from pathlib import Path
+    from evals import performance_suite
+    original = Path.replace
+    attempts = []
+    def replace(path, destination):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError('synthetic file reader')
+        return original(path, destination)
+    monkeypatch.setattr(Path, 'replace', replace)
+    monkeypatch.setattr(performance_suite.time, 'sleep', lambda seconds: None)
+    output = tmp_path / 'report.json'
+    performance_suite.write_report(output, {'passed': 1})
+    assert json.loads(output.read_text()) == {'passed': 1} and len(attempts) == 3
+    attempts.clear()
+    monkeypatch.setattr(Path, 'replace', lambda *a: (_ for _ in ()).throw(PermissionError('still locked')))
+    with pytest.raises(PermissionError):
+        performance_suite.write_report(output, {'passed': 2})
+    assert json.loads(output.read_text()) == {'passed': 1}
+
+
 def test_offline_references_exercise_real_validation_without_network(monkeypatch):
     from service import usage_currency
 
