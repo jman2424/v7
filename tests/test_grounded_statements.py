@@ -142,7 +142,11 @@ def test_statement_selection_is_request_local_bounded_and_cited(monkeypatch, ids
     answer, state, diagnostics, calls = run(monkeypatch,
         {'policy:returns': {'answer': RETURNS}, 'policy:other': {'answer': 'Other rules.'}},
         sources=['policy:returns'], ids=ids)
-    assert answer is None and state == {} and not diagnostics['accepted'] and len(calls) == 1
+    # A known request-local statement with an omitted source gets one fully
+    # validated correction. Unknown/malformed IDs never qualify. Repeating the
+    # same invalid output is still rejected; no source is automatically added.
+    expected_calls = 2 if ids == ['policy:other:answer'] else 1
+    assert answer is None and state == {} and not diagnostics['accepted'] and len(calls) == expected_calls
 
 
 @pytest.mark.parametrize('record', [

@@ -35,7 +35,7 @@ def test_missing_known_capability_citation_can_be_corrected_once(monkeypatch):
     answer, calls, diagnostics = exercise(monkeypatch, [response(), response(complete=True)])
     assert answer and POLICY in answer and 'does not submit a request' in answer
     assert diagnostics['accepted'] and len(calls) == 2
-    assert 'missing_capability_citations' in calls[1]['messages'][0]['content']
+    assert 'missing_statement_citations' in calls[1]['messages'][0]['content']
     assert response()['sources'] == ['policy:quotes']  # no automatic citation expansion
 
 

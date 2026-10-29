@@ -61,9 +61,16 @@ contain historical descriptions; runtime code and current tests take precedence.
 7. The first live check reproduced a metadata reliability failure: valid public
    capability statement IDs lacked their matching source citations. The validator
    correctly rejected the answer. A narrowly scoped, single accounted correction
-   now handles missing citations for already enabled public form/boundary facts;
-   business-policy mismatches, unknown IDs, unsafe prose and unauthorized actions
-   retain the existing rejection path. Repeated errors are still rejected.
+   now handles missing source citations for approved, request-local statements.
+   Unknown/malformed IDs, disabled form capabilities, unsafe prose and unauthorized
+   actions retain the rejection path. Repeated errors are still rejected; no
+   citation is automatically added or accepted.
+8. A later live missing-discount case exposed a renderer problem: the model's
+   explicit uncertainty was replaced by a complete but unrelated monthly-pricing
+   FAQ. Explicit information gaps with unrelated FAQ evidence are now rejected
+   before rendering and can use the same single correction slot. The correction
+   must select a clarification or relevant approved evidence and pass all guards.
+   This does not enable free-form generated policy wording or remove exceptions.
 
 ## C–D. Extensions and architecture
 
@@ -165,6 +172,10 @@ exact test results, commit and release status as each stage completes.
 - Initial live run: 6/7 scenarios; 18/19 executed turns passed, one dependent turn
   was not executed after its preceding failure. Cost USD 0.0131848. The failure
   above was retained and motivated the bounded repair; final live checks follow.
+- First committed live checks were also retained: 17/18 executed default turns
+  (6/7 scenarios), and 7/8 new focused turns (2/3 scenarios). They exposed a second
+  citation omission and the unrelated-policy rendering issue above. The focused
+  rendering/grounding regression group passed 201 tests after those fixes.
 - A local full-suite attempt was interrupted after discovering an optional-source
   diagnostic regression. That issue is fixed and its test passes. Sandbox temp ACL
   failures required the previously authorized normal test environment. Neither
