@@ -65,6 +65,18 @@ it never caches/replays answers or replaces tenant validation. No extended
 provider retention or new API parameter is enabled. See the
 [official OpenAI prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
 
+Pure policy/cancellation/complaint replies can omit the model prose that would
+otherwise be discarded by the protected-source renderer. Eligibility excludes
+mixed product/price/option questions. The model still selects complete current
+statement IDs, citations, task metadata and approved navigation. Only an exact
+empty answer with a supported policy intent, no product citations/shortlist,
+no requested form and nonempty known cited statements qualifies. All metadata
+checks still run. The server must produce nonempty complete source statements,
+and the actual visible text must pass the existing final claim validation.
+An ineligible empty answer, missing render or invalid evidence fails closed.
+Generated descriptive answers, recommendations, classification and form requests
+retain their existing answer and validation paths.
+
 During validation, the advisory database added the console build dependency
 `deepmerge` 4.3.1 under
 [GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4).

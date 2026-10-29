@@ -223,6 +223,13 @@ Select relevant statement_ids and cite their source_ids. The server renders
 those complete statements for protected requests; answer prose cannot add or
 override their timing, exceptions or team capabilities. Do not select a statement
 that does not apply. Use an empty list when the policy detail is not established.
+When can_render_policy_statements is true and a pure policy/cancellation/complaint
+answer is fully covered by selected complete statements, set agent.intent to
+policy/cancel/complaint, keep agent.offering_ids empty and requested_action null,
+and return answer as an empty string. The server validates metadata and renders
+the full selected statements; do not spend tokens rewriting that unused prose.
+Otherwise write the normal concise answer, especially for mixed product questions,
+classification, recommendations, selected-service next steps and request forms.
 For ordinary descriptive questions (such as service details, vehicle size or
 pricing comparisons), answer the specific question in your own concise words
 using cited facts. Do not select a whole FAQ just because some of its words
@@ -822,7 +829,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         return None
     # Keep authoritative current rules and this customer's selection even when
     # broad website/background context exceeds the provider-context budget.
-    from service.grounded_statements import request_facts, statement_catalog, prompt_statements, prompt_knowledge, render_response, direct_size_request, _PROCESS
+    from service.grounded_statements import request_facts, statement_catalog, prompt_statements, prompt_knowledge, render_response, direct_size_request, statement_only_eligible, statement_only_response, _PROCESS
     allowed_actions = [kind for kind in ('consultation', 'quote', 'callback')
                        if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
     knowledge = {**knowledge, **request_facts(allowed_actions)}
@@ -863,6 +870,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "recent_conversation": history_rows(history, memory_settings),
                           "agent_context": context,
                           "continue_selected_offering": selected_next_step,
+                          "can_render_policy_statements": statement_only_eligible(question),
                           "question": question[:4000],
                       }, ensure_ascii=False, separators=(',', ':'))}],
         )
@@ -881,7 +889,8 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 finish('output_contract')
                 return None
             text, sources, kind = payload.get('answer'), payload.get('sources'), payload.get('kind')
-            invalid_contract = (not isinstance(text,str) or not text.strip() or len(text)>4000
+            source_only = statement_only_response(question, payload, statements)
+            invalid_contract = (not isinstance(text,str) or (not text.strip() and not source_only) or len(text)>4000
                 or kind not in {'answer','greeting','clarification','refusal','conversation'}
                 or (kind=='answer' and not sources)
                 or not isinstance(sources,list) or len(sources)>12
@@ -904,7 +913,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                     finish('invalid_conversation')
                     return None
                 failure = {}
-                supported = _claims_supported(text,sources,knowledge,customer_quotes,
+                supported = source_only or _claims_supported(text,sources,knowledge,customer_quotes,
                     approved_urls={row['url'] for row in destinations},failure=failure)
                 from service.grounded_money import extract_money_claims
                 if supported and attempt==0 and size_only and (
@@ -997,6 +1006,10 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             state['next_action'] = 'open_request_form'
         rendered = (None if kind == 'conversation' else
                     render_response(question, payload, state, knowledge, statements, navigation, requested_action))
+        if source_only and (rendered is None or not rendered[2]):
+            pause_ai_for_turn()
+            finish('invalid_statement_only')
+            return None
         if rendered is not None:
             text, rendered_sources, rendered_statements = rendered
             rendering_mode = 'source_statements'

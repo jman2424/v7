@@ -204,6 +204,28 @@ def prompt_knowledge(knowledge, *, prioritized=()):
     return {**pinned, **{key: row for key, row in stable.items() if key not in pinned}}
 
 
+def statement_only_eligible(question):
+    """Only pure consequential questions can omit generated policy prose."""
+    consequential = _PROCESS.search(question) or re.search(
+        r'\b(?:credits?|subscriptions?|top[ -]?ups?|charg(?:e|es|ed|ing))\b', question, re.I)
+    return bool(consequential) and not bool(
+        _PRODUCT_DETAILS.search(question) or _OPTION_DETAILS.search(question))
+
+
+def statement_only_response(question, payload, statements):
+    """Metadata still selects evidence; only approved complete text is rendered."""
+    agent, sources, selected = payload.get('agent'), payload.get('sources'), payload.get('statement_ids')
+    return (statement_only_eligible(question) and payload.get('kind') == 'answer'
+        and payload.get('answer') == '' and payload.get('requested_action') is None
+        and isinstance(agent, dict) and agent.get('intent') in {'policy', 'cancel', 'complaint'}
+        and agent.get('offering_ids', []) == []
+        and isinstance(sources, list) and all(isinstance(key, str) for key in sources)
+        and not any(key.startswith(('product:', 'offering:')) for key in sources)
+        and isinstance(selected, list) and 1 <= len(selected) <= 3
+        and all(isinstance(key, str) and key in statements
+                and statements[key]['source_id'] in sources for key in selected))
+
+
 def protected_request(question, payload, statements):
     agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
     cited = set(payload.get('sources', []))
