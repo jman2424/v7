@@ -34,6 +34,22 @@ remain in place on each transaction; tenant scope and search path are local to
 that transaction. Independent role probes share a network flush. Existing
 tenant-specific OpenAI clients retain their HTTP connection reuse.
 
+The owned text-provider transport retains idle HTTP connections for up to 60
+seconds instead of the SDK's five-second default, with at most 16 connections
+and four idle sockets per client. Separate SDK clients retain separate pools;
+credentials and conversation state are never shared by this change. TLS,
+proxy, redirect and timeout defaults remain the SDK defaults, and accounted
+calls still disable SDK retries. Server-closed sockets are replaced; expired
+sockets and evicted clients are closed. No heartbeat or paid warm-up is sent.
+
+Content-free trace callbacks measure TCP connection setup, TLS and response
+header waiting separately. They ignore trace payloads, URLs, headers, bodies,
+socket metadata and exception text. `provider_new_connections` records one for
+a response that opened a connection and zero for a reused connection. These
+measurements remain tenant-scoped bounded worker metrics. Timing failures do
+not interrupt a provider request. Fewer handshakes can help replies after a
+pause; they do not guarantee generation or full responses under two seconds.
+
 Scope initialization now uses one catalog-only query for fresh role, membership,
 RLS and ownership checks plus transaction-local settings. No caller or business
 query can run before every returned invariant is validated. A rejected scope
@@ -48,6 +64,18 @@ the stable public facts. This can improve exact-prefix provider cache reuse;
 it never caches/replays answers or replaces tenant validation. No extended
 provider retention or new API parameter is enabled. See the
 [official OpenAI prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
+
+Pure policy/cancellation/complaint replies can omit the model prose that would
+otherwise be discarded by the protected-source renderer. Eligibility excludes
+mixed product/price/option questions. The model still selects complete current
+statement IDs, citations, task metadata and approved navigation. Only an exact
+empty answer with a supported policy intent, no product citations/shortlist,
+no requested form and nonempty known cited statements qualifies. All metadata
+checks still run. The server must produce nonempty complete source statements,
+and the actual visible text must pass the existing final claim validation.
+An ineligible empty answer, missing render or invalid evidence fails closed.
+Generated descriptive answers, recommendations, classification and form requests
+retain their existing answer and validation paths.
 
 During validation, the advisory database added the console build dependency
 `deepmerge` 4.3.1 under
@@ -103,6 +131,12 @@ exercises larger public knowledge. `--http-pipeline` exercises the real Flask
 request, token, credit, memory, retrieval and persistence paths with disposable
 fictional SQLite tenants. This excludes production PostgreSQL, network and
 browser paint overhead. Report these scopes separately.
+
+`--reasoning-effort` can compare an explicitly supported setting without
+changing deployed tenant models. The setting is recorded in reports and used
+both in synthetic tenant configuration and the accounted call options. Omitting
+it preserves the existing model default. The evaluator uses the same owned HTTP
+transport as text chat; its runtime fingerprint includes the transport source.
 
 Offline reference replay verifies deterministic behavior but cannot establish
 live answer quality, provider latency, token use or actual API cost. Live mode
