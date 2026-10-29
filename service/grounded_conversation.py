@@ -774,6 +774,29 @@ def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_url
     return True
 
 
+def _repairable_capability_citation(payload, statements, destinations, allowed_actions):
+    """Recover metadata once; never add or automatically accept a citation.
+
+    Only this request's public form/boundary statements qualify. Unknown IDs,
+    business-policy citation gaps and unauthorized actions stay fail-closed.
+    The next output must pass the unchanged statement, price and action guards.
+    """
+    selected = payload.get('statement_ids', [])
+    if (not isinstance(selected, list) or not 1 <= len(selected) <= 3
+            or any(not isinstance(key, str) or key not in statements for key in selected)):
+        return False
+    missing = {statements[key]['source_id'] for key in selected} - set(payload['sources'])
+    eligible = {'capability:requests', 'capability:transaction_boundary'}
+    eligible.update('capability:request:' + action for action in allowed_actions)
+    if 'consultation' in allowed_actions:
+        eligible.add('capability:native_booking_management')
+    navigation = payload.get('navigation', [])
+    approved = {row['id'] for row in destinations}
+    return bool(missing and missing <= eligible and isinstance(navigation, list) and len(navigation) <= 3
+                and all(isinstance(key, str) and key in approved for key in navigation)
+                and payload.get('requested_action') in [None, *allowed_actions])
+
+
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
            agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None, memory_settings=None,
            retrieval_question=None):
@@ -907,7 +930,10 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 supported = _claims_supported(text,sources,knowledge,customer_quotes,
                     approved_urls={row['url'] for row in destinations},failure=failure)
                 from service.grounded_money import extract_money_claims
-                if supported and attempt==0 and size_only and (
+                if supported and attempt == 0 and kind == 'answer' and _repairable_capability_citation(
+                        payload, statements, destinations, allowed_actions):
+                    repair_reason = 'missing_capability_citations'
+                elif supported and attempt==0 and size_only and (
                         extract_money_claims(text) or _PROCESS.search(text)
                         or re.search(r'\bsmall\b.*\bmedium\b.*\blarge\b',text,re.I|re.S)):
                     repair_reason = 'unfocused_size_answer'
@@ -937,6 +963,8 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'the current question asks for pricing. A size/classification follow-up needs the band first, '
                 'not an unrelated catalogue or another request for a known model. '
                 'For required prices use exact current business facts and cite their supplied source IDs. '
+                'Every selected approved statement must have its source_id included in sources. '
+                'Citing a statement ID alone does not cite its source. '
                 'Cite business rules too. Use kind=conversation with no sources only for small talk or '
                 'recalling customer-provided details without introducing business claims. '
                 'When continue_selected_offering is true, name the already selected offering and explain '

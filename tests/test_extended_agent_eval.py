@@ -3,12 +3,12 @@ import pytest
 from evals.agent_eval import Settings, run_suite, selected_scenarios, check_turn
 
 
-def test_all_200_reference_turns_exercise_validator_and_accounting(monkeypatch):
+def test_all_208_reference_turns_exercise_validator_and_accounting(monkeypatch):
     monkeypatch.setattr('httpx.Client.send', lambda *a, **kw: pytest.fail('Reference replay must not call a provider'))
     report = run_suite(Settings(extended=True, max_requests=512))
     assert report['status'] == 'passed'
-    assert report['scenarios_passed'] == report['scenarios_planned'] == 67
-    assert report['turns_passed'] == report['turns_executed'] == report['turns_planned'] == 200
+    assert report['scenarios_passed'] == report['scenarios_planned'] == 70
+    assert report['turns_passed'] == report['turns_executed'] == report['turns_planned'] == 208
     assert report['usage']['usage_kind'] == 'synthetic_not_billable'
     assert report['accounting']['consistent'] and not report['accounting']['pending_reservations']
 

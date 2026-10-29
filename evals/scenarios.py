@@ -57,6 +57,34 @@ BUSINESSES = {
         ],
         'allowed_actions': ['quote', 'callback'],
     },
+    'software': {
+        'tenant': 'EVAL_SOFTWARE',
+        'knowledge': {
+            'business:identity': {'name': 'Example Assist', 'description': 'Fictional business assistant software.'},
+            'faq:credit': {'question': 'How is AI usage credit charged?',
+                'answer': 'AI usage credit is prepaid. Usage depends on the model and input and output tokens. There are no automatic recharges.'},
+            'faq:plans': {'question': 'Which subscription plans are offered?',
+                'answer': 'Starter costs GBP 20 per month. Team costs GBP 50 per month. AI usage credit is separate.'},
+        },
+        'destinations': [{'id': 'software-support', 'label': 'Contact support',
+                          'url': 'https://example.com/software/support', 'purpose': 'support'}],
+        'allowed_actions': [],
+    },
+    'conflicting_knowledge': {
+        'tenant': 'EVAL_CONFLICTS',
+        'knowledge': {
+            'business:identity': {'name': 'Example Service Desk', 'description': 'Fictional customer support business.'},
+            'faq:returns-a': {'question': 'What is the refund window?', 'answer': 'Refunds within 14 days.'},
+            'faq:returns-b': {'question': 'WHAT is the refund window?', 'answer': 'Refunds within 30 days.'},
+            'capability:transaction_boundary': {'answer':
+                'Payments, refunds, order changes and external calendar changes cannot be completed in this chat. '
+                'Use the business\'s approved page or contact its team for help. '
+                'Opening a page or request form does not complete a transaction.'},
+        },
+        'destinations': [{'id': 'desk-support', 'label': 'Contact the team',
+                          'url': 'https://example.com/desk/support', 'purpose': 'support'}],
+        'allowed_actions': [],
+    },
 }
 
 

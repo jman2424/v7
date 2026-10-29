@@ -8,6 +8,8 @@ _STOP_WORDS = frozenset({
     'the', 'and', 'for', 'from', 'this', 'that', 'with', 'what', 'which',
     'how', 'can', 'could', 'would', 'you', 'your', 'our', 'have', 'does',
     'about', 'please', 'tell', 'want', 'need', 'are', 'was', 'into',
+    'when', 'where', 'help', 'know', 'more', 'much', 'information', 'details',
+    'work', 'works', 'also', 'not', 'but', 'will', 'there', 'some', 'like', 'any',
     'les', 'des', 'une', 'pour', 'avec', 'vous', 'quel', 'que',
     'los', 'las', 'una', 'para', 'con', 'por', 'como', 'puedo',
 })
@@ -124,6 +126,49 @@ def prioritize_knowledge(knowledge, question, remembered):
     outweigh a customer's new question. The existing context size cap still
     applies after ranking; no new data is fetched or permissions expanded here.
     """
+    from service.faq_integrity import safe_public_faqs
+    faq_rows = [row for key, row in knowledge.items() if key.startswith(('faq:', 'matched_faq:'))]
+    safe_faqs = {id(row) for row in safe_public_faqs(faq_rows)}
+    words = _terms(question)
+    faq_titles = {key: _terms(row.get('question', ''))
+                     for key, row in knowledge.items()
+                     if key.startswith(('faq:', 'matched_faq:')) and isinstance(row, dict)
+                     and id(row) in safe_faqs}
+    title_matches = {key: len(words & title) for key, title in faq_titles.items()}
+    focused = any(title_matches.values())
+    # A certification, date or model appearing only in an answer can still be
+    # necessary alongside a title-matched topic. Do not confuse that evidence
+    # with repeated generic words in a long, unrelated FAQ answer.
+    answer_only_terms = words - set().union(*faq_titles.values())
+    catalogue_task = any(
+        relevance(row, question) > 0 and (key.startswith(('product:', 'offering:'))
+            or key.startswith(('faq:', 'matched_faq:')) and isinstance(row, dict) and re.search(
+                r'\b(?:classif\w*|sizing|size (?:bands?|guide|categor\w*))\b',
+                str(row.get('question', '')), re.I))
+        for key, row in knowledge.items())
+
+    def catalogue_condition(row):
+        return bool(catalogue_task and isinstance(row, dict) and re.search(
+            r'\b(?:pricing|prices?|estimates?|quotes?|inspection|deposits?|fees?|minimum|'
+            r'classif\w*|sizing|size (?:bands?|guide|categor\w*))\b',
+            str(row.get('question', '')), re.I))
+
+    def usable(key, row):
+        if not key.startswith(('faq:', 'matched_faq:')):
+            return True
+        # Older callers can supply an already curated answer-only source. It
+        # has no question identity to compare, and remains subject to the
+        # existing statement/price validator. Stored FAQs are checked earlier.
+        if isinstance(row, dict) and not row.get('question') and not row.get('q'):
+            return row.get('active') is not False and row.get('public') is not False
+        if id(row) not in safe_faqs:
+            return False
+        # A strong topic match must not compete with incidental words in a
+        # different FAQ's long answer. Keep consequential catalogue conditions
+        # and classification guides even if their titles use different words.
+        return (not focused or title_matches.get(key, 0) > 0 or catalogue_condition(row)
+                or bool(answer_only_terms & _terms(_public_text(row))))
+
     pinned = ['business', 'current_platform_offer', remembered.get('selected_offering_id')]
     narrow = len(knowledge) > 24
     pinned += remembered.get('offering_ids', [])
@@ -131,8 +176,6 @@ def prioritize_knowledge(knowledge, question, remembered):
     # Many near-identical price variants can outrank the rule needed to choose
     # between them. Keep bounded public sizing/classification guidance alongside
     # a matching catalogue task, even when a new model name has no literal match.
-    catalogue_task = any(key.startswith(('product:','offering:')) and relevance(row,question)>0
-                         for key,row in knowledge.items())
     if catalogue_task:
         guides = [key for key,row in knowledge.items() if key.startswith(('faq:','matched_faq:'))
             and isinstance(row,dict) and re.search(
@@ -142,12 +185,15 @@ def prioritize_knowledge(knowledge, question, remembered):
         # Keep the specific clarification plus the core band examples; one
         # generic guide must not displace either side of that decision.
         pinned += guides[:3]
-    ordered = {key: knowledge[key] for key in pinned if isinstance(key, str) and key in knowledge}
-    candidates = [(key, row) for key, row in knowledge.items() if key not in ordered]
+    ordered = {key: knowledge[key] for key in pinned
+               if isinstance(key, str) and key in knowledge and usable(key, knowledge[key])}
+    candidates = [(key, row) for key, row in knowledge.items() if key not in ordered and usable(key, row)]
     related = [(key, row) for key, row in candidates
                if not key.startswith('website:') and key != 'business_core'
-               and (key.startswith('matched_faq:') or relevance(row, question) > 0)]
+               and (key.startswith('matched_faq:') or relevance(row, question) > 0
+                    or (key.startswith('faq:') and catalogue_condition(row)))]
     related.sort(key=lambda pair: relevance(pair[1], question), reverse=True)
+    has_faq_match = any(key.startswith(('faq:', 'matched_faq:')) for key, _ in related)
     for key, row in related[:16] if narrow else related:
         ordered[key] = row
     # Bounded business rules and details supplement individually cited offerings.
@@ -165,6 +211,8 @@ def prioritize_knowledge(knowledge, question, remembered):
     for key, row in candidates if not narrow or not related else []:
         if len(ordered) >= 24:
             break
+        if has_faq_match and key.startswith(('faq:', 'matched_faq:')) and relevance(row, question) == 0:
+            continue
         if key not in ordered and not key.startswith('website:'):
             ordered[key] = row
     return ordered
