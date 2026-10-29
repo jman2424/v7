@@ -1017,7 +1017,19 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'inferred vehicle bands. Use [] when unsure. Set requirements_update to null unless '
                 'the current customer turn provides explicit evidence for a supported update. '
                 'Never invent facts.'}
-            completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
+            followup = list(completion['messages'][1:])
+            if repair_reason == 'missing_statement_citations':
+                # Give the model the exact request-local reference error as
+                # structured data, without replaying its untrusted prose as an
+                # instruction or automatically expanding accepted citations.
+                supplied = json.loads(followup[0]['content'])
+                supplied['validation_feedback'] = {'missing_statement_source_ids': sorted({
+                    statements[key]['source_id'] for key in payload['statement_ids']
+                } - set(sources))}
+                followup[0] = {**followup[0], 'content': json.dumps(supplied, ensure_ascii=False)}
+                correction['content'] += (' The supplied validation_feedback lists the exact missing source IDs. '
+                    'Include the source of every statement you still select; do not select unrelated statements.')
+            completion = {**completion,'messages':[correction,*followup]}
         navigation = payload.get('navigation', [])
         approved = {row['id']: row for row in destinations}
         if not isinstance(navigation, list) or len(navigation) > 3 or any(
