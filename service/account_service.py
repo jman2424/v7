@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import secrets
 from typing import Any, Dict, List
 
@@ -23,9 +22,23 @@ def validated_permissions(value):
     if not isinstance(value, list) or any(not isinstance(item, str) or item not in STAFF_PERMISSIONS for item in value):
         raise ValueError('invalid_account_permissions')
     return sorted(set(value))
-# Domain labels exclude their dot separator, preventing ambiguous repartitioning
-# on a failing suffix. Keep the existing fullmatch API shared by account flows.
-_EMAIL_RE = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+\Z")
+_EMAIL_LOCAL = frozenset("abcdefghijklmnopqrstuvwxyz0123456789.!#$%&'*+/=?^_`{|}~-")
+_EMAIL_LABEL = frozenset('abcdefghijklmnopqrstuvwxyz0123456789-')
+
+
+def valid_account_email(value: object) -> bool:
+    """Bounded, non-regex validation shared by signup and recovery flows.
+
+    Preserve the existing account policy allowing long ASCII local parts; the
+    stricter business-channel validator has its own 64-character local limit.
+    """
+    if not isinstance(value, str) or len(value) > 254 or value.count('@') != 1:
+        return False
+    local, domain = value.split('@')
+    labels = domain.split('.')
+    return (bool(local) and all(char in _EMAIL_LOCAL for char in local)
+            and len(labels) >= 2 and all(label and all(char in _EMAIL_LABEL for char in label)
+                                        for label in labels))
 
 
 class AccountService:
@@ -40,7 +53,7 @@ class AccountService:
         password = str(payload.get("password") or "")
         roles = self._roles(payload.get("roles"))
 
-        if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
+        if len(email) > 254 or not valid_account_email(email):
             raise ValueError("invalid_account_email")
         if len(password) < 12 or len(password) > 256:
             raise ValueError("password_must_be_at_least_12_characters")

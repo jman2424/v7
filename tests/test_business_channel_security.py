@@ -55,14 +55,14 @@ def test_adversarial_validation_has_a_bounded_cpu_budget():
     program = f"""import sys
 sys.path.insert(0, {root!r})
 from service.business_channels import address
-from service.account_service import _EMAIL_RE
+from service.account_service import valid_account_email
 values=['!'*64+'@'+'a.'*90+'!', 'a'+'.'*180+'@example.com', '!'*20000]
 for _ in range(1000):
     for value in values:
         try: address(value)
         except ValueError: pass
         else: raise AssertionError('malformed input accepted')
-    assert _EMAIL_RE.fullmatch('!@'+'-.'*120+'!') is None
+    assert not valid_account_email('!@'+'-.'*120+'!')
 """
     env = {key: os.environ[key] for key in ('SystemRoot', 'WINDIR') if key in os.environ}
     result = subprocess.run([sys.executable, '-I', '-c', program], env=env, cwd=root,
@@ -72,16 +72,16 @@ for _ in range(1000):
 
 @pytest.mark.parametrize('email', ['!'*254, '!@'+'-.'*120+'!', 'a@a..example',
     'a@.example', 'a@example.', 'a@example.com\x00'])
-def test_shared_account_email_regex_has_no_ambiguous_dot_labels(email):
-    from service.account_service import _EMAIL_RE
-    assert _EMAIL_RE.fullmatch(email) is None
+def test_shared_account_email_parser_rejects_malformed_addresses(email):
+    from service.account_service import valid_account_email
+    assert not valid_account_email(email)
 
 
 @pytest.mark.parametrize('email', ['a+b@example.co.uk', 'a'*241+'@example.test',
     'valid!local@sub-domain.example', 'a@xn--bcher-kva.example'])
-def test_shared_account_regex_preserves_existing_email_flows(email):
-    from service.account_service import _EMAIL_RE
-    assert _EMAIL_RE.fullmatch(email)
+def test_shared_account_parser_preserves_existing_email_flows(email):
+    from service.account_service import valid_account_email
+    assert valid_account_email(email)
 
 
 @pytest.mark.parametrize('kind', ['settings', 'grants', 'decision', 'action'])

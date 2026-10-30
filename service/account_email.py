@@ -10,7 +10,7 @@ from flask import current_app, session
 
 from service import account_mfa, account_passwords, oidc_login, registration, registration_mail
 from service import security, session_store, tenant_access, trusted_devices
-from service.account_service import AccountService, _EMAIL_RE
+from service.account_service import AccountService, valid_account_email
 
 INVALID = 'Email change code is invalid, expired or already used. Start again.'
 UNAVAILABLE = 'This email cannot be used for this account. Choose another address.'
@@ -49,7 +49,7 @@ def start(user, data):
     if not isinstance(data, dict) or not isinstance(data.get('email'), str):
         raise ValueError('Enter a valid email address.')
     email, password = data['email'].strip().lower(), data.get('current_password')
-    if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
+    if len(email) > 254 or not valid_account_email(email):
         raise ValueError('Enter a valid email address.')
     if email == user['email']:
         raise ValueError('Enter a different email address.')
