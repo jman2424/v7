@@ -54,6 +54,7 @@ def _require_admin_session() -> None:
         "api_lead_status_put": "customers.read", "api_action_requests_get": "customers.read",
         "api_accounts_get": "users.read", "api_integrations": "integrations.read",
         "api_whatsapp_qr": "integrations.read", "api_platform": "platform.read",
+        "api_business_channels_get": "integrations.read", "api_business_operations_get": "customers.read",
     }.get(endpoint)
     settings_endpoints = {
         "api_faq_get", "api_faq_put", "api_delivery_get", "api_delivery_put",
@@ -1025,6 +1026,142 @@ def api_action_requests_get():
     response = jsonify(requests=list_action_requests(_tenant(), limit))
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _require_channel_owner():
+    if not (is_platform_operator() or 'business_owner' in user_roles()):
+        abort(403)
+
+
+def _audit_operation(tenant, operation_id, action, result):
+    user = management_user()
+    AuditService().record(user=user['id'], role=user['roles'][0], ip=request.remote_addr or '',
+        action=action, target=f'{tenant}/{operation_id}',
+        extra={'tenant': tenant, 'source': 'API', 'result': result})
+
+
+@bp.get('/business-channels')
+def api_business_channels_get():
+    _require_channel_owner()
+    from service.business_channels import readiness
+    response = jsonify(readiness(get_container(), _tenant()))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/business-channels')
+def api_business_channels_put():
+    _require_channel_owner()
+    require_permission('business_settings.write')
+    require_permission('integrations.read')
+    from service import business_channels as channels
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {'settings'}:
+        return jsonify(error='invalid_channel_settings'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        value = channels.validate(data['settings'])
+        ready = channels.readiness(get_container(), tenant)
+        for channel, config in value.items():
+            if config['enabled'] and not ready['grants'][channel]:
+                return jsonify(error='channel_not_granted'), 403
+            if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
+                return jsonify(error='channel_connection_required'), 409
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    _audited_json_write(storage, tenant, channels.FILENAME, value, action='business.channels.update')
+    return jsonify(ok=True, **channels.readiness(get_container(), tenant))
+
+
+@bp.put('/business-channel-grants')
+def api_business_channel_grants_put():
+    require_platform_operator()
+    require_permission('business_settings.write')
+    from service import business_channels as channels
+    try:
+        value = channels.validate_grants(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    tenant = _tenant()
+    _audited_json_write(_storage(), tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
+    return jsonify(ok=True, grants=value)
+
+
+@bp.get('/business-operations')
+def api_business_operations_get():
+    _require_channel_owner()
+    from service.business_operations import listing
+    response = jsonify(operations=listing(_tenant()))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.post('/business-operations/<operation_id>/decision')
+def api_business_operations_decision(operation_id):
+    _require_channel_owner()
+    require_permission('customers.read')
+    require_permission('business_settings.write')
+    from service import business_operations as operations, business_channels as channels, channel_worker
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) - {'decision', 'version', 'reply'}:
+        return jsonify(error='invalid_operation_decision'), 400
+    tenant = _tenant()
+    try:
+        job = operations.get(tenant, operation_id)
+        if job is None:
+            abort(404)
+        if data.get('decision') == 'approve' and not channels.active(_storage(), tenant, job['channel']):
+            return jsonify(error='channel_disabled'), 409
+        outcome = operations.decide(tenant, operation_id, data.get('version'), data.get('decision'), reply=data.get('reply'))
+    except LookupError:
+        abort(404)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 409
+    _audit_operation(tenant, operation_id, 'business.operation.decision', data['decision'])
+    channel_worker.wake()
+    return jsonify(ok=True, operation=outcome)
+
+
+@bp.post('/business-operations/<operation_id>/action')
+def api_business_operations_action(operation_id):
+    _require_channel_owner()
+    require_permission('customers.read')
+    require_permission('business_settings.write')
+    from service import business_operations as operations
+    from service.conversion_actions import submit_action, ActionError
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'version', 'action'}
+            or not isinstance(data['action'], dict)
+            or set(data['action']) - {'action', 'name', 'contact', 'details', 'slot_id', 'consent'}
+            or data['action'].get('consent') is not True):
+        return jsonify(error='invalid_operation_action'), 400
+    tenant = _tenant()
+    # Stable key and frozen payload protect against double clicks, timeouts and
+    # forged customer-supplied action IDs. This endpoint never sends a reply.
+    try:
+        _audit_operation(tenant, operation_id, 'business.operation.action', 'approved')
+        job = operations.begin_action(tenant, operation_id, data['version'], data['action'])
+    except LookupError:
+        abort(404)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 409
+    try:
+        outcome = submit_action(_storage(), tenant,
+            {**data['action'], 'idempotency_key': 'operation-'+job['id']},
+            'operation-'+job['id'], conversation_id=job['conversation_id'])
+        label = 'Appointment confirmed' if outcome['status'] == 'confirmed' else 'Request recorded for the team'
+        saved = operations.finish(tenant, job['id'], job['lease'], 'completed',
+            reply=label+'. Reference: '+outcome['reference'], provider_id=outcome['reference'])
+        if not saved:
+            return jsonify(error='action_outcome_needs_reconciliation'), 409
+    except ActionError as exc:
+        operations.finish(tenant, job['id'], job['lease'], 'needs_review', reply=job['reply'], error_code=exc.code)
+        return jsonify(error=exc.code), exc.status
+    except Exception:
+        operations.finish(tenant, job['id'], job['lease'], 'uncertain', reply=job['reply'], error_code='action_outcome_unknown')
+        return jsonify(error='action_outcome_unknown'), 503
+    _audit_operation(tenant, operation_id, 'business.operation.action', outcome['status'])
+    return jsonify(ok=True, outcome=outcome, operation=operations.get(tenant, job['id']))
 
 
 @bp.put("/widget")

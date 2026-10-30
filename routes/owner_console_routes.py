@@ -12,6 +12,7 @@ from retrieval.storage import Storage
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD_DIR = REPO_ROOT / "frontend" / "build"
 SECTIONS = {"subscription", "platform", "pipeline", "statistics", "test", "implementation", "whatsapp-qr", "usage", "conversations", "agent", "website", "integrations", "catalog", "offers", "faqs", "delivery", "profile", "branches", "team", "companies", "errors", "account", "privacy"}
+SECTIONS.add('operations')
 
 bp = Blueprint("owner_console", __name__)
 
@@ -47,8 +48,11 @@ def _authorize_section(section):
         abort(404, description='unknown_tenant')
     if section == 'platform' and not is_platform_admin(user):
         abort(403, description='platform_admin_required')
-    if section in {'team', 'companies'} and not is_platform_admin(user) and 'business_owner' not in user['roles']:
+    if section in {'team', 'companies', 'operations'} and not is_platform_admin(user) and 'business_owner' not in user['roles']:
         abort(403, description='company_owner_required')
+    if section == 'operations':
+        require_permission('customers.read')
+        require_permission('integrations.read')
     if section == 'usage':
         require_permission('view_costs')
     if section == 'subscription':

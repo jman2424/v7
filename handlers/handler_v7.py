@@ -1107,6 +1107,7 @@ class MessageHandlerV7:
                       destinations=destinations, selected_links=selected if channel in {'web', 'test'} else None,
                       allowed_actions=allowed_actions,
                       retrieval_question=faq_question,
+                      response_channel=channel,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
                                      'customer_statements': [*older_facts,
