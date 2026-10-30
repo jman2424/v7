@@ -1134,8 +1134,10 @@ class MessageHandlerV7:
             return default
 
     def _optional_faq_rows(self, question=None):
-        return self._optional_source('faq_retrieval',
+        from service.faq_integrity import safe_public_faqs
+        rows = self._optional_source('faq_retrieval',
             lambda: self.faq.best_match(question, top_k=5) if question is not None else self.faq.all(), [])
+        return rows if question is not None else safe_public_faqs(rows)
 
     def _answer_from_website(self, question: str) -> Optional[str]:
         if not self.website_knowledge or not self.rewriter:

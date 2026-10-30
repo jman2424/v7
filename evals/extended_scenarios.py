@@ -4,6 +4,57 @@ Reference replay exercises validation only. Live runs measure the actual model.
 """
 from evals.scenarios import agent, reply
 
+BUSINESS_INTELLIGENCE_SCENARIOS = [
+    {'id': 'business_credit_topic_focus', 'business': 'software',
+     'description': 'Keep a credit answer focused, answer an explicit plan comparison, then return to credit.',
+     'turns': [
+         {'user': 'How is AI usage credit charged?',
+          'expect': {'answer_contains_all': ['prepaid', 'tokens'],
+                     'answer_excludes': ['Starter', 'Team costs', '£20', '£50', 'GBP 20', 'GBP 50']},
+          'reference': reply('AI usage credit is prepaid. Usage depends on the model and input and output tokens. There are no automatic recharges.',
+                             ['faq:credit'], state=agent('policy'))},
+         {'user': 'Compare the Starter and Team subscription prices.',
+          'expect': {'answer_contains_all': ['Starter', 'Team'], 'answer_contains_any': ['£20', 'GBP 20']},
+          'reference': reply('Starter costs GBP 20 per month. Team costs GBP 50 per month. AI usage credit is separate.',
+                             ['faq:plans'], state=agent('compare', 'recommend', 'compare_options'))},
+         {'user': 'How does credit work?',
+          'expect': {'answer_contains_any': ['prepaid', 'tokens'],
+                     'answer_excludes': ['Starter', 'Team costs', '£20', '£50', 'GBP 20', 'GBP 50']},
+          'reference': reply('AI usage credit is prepaid. Usage depends on the model and input and output tokens. There are no automatic recharges.',
+                             ['faq:credit'], state=agent('policy'))},
+     ]},
+    {'id': 'business_missing_discount_and_email', 'business': 'software',
+     'description': 'Missing business facts and email permissions must not be invented.',
+     'turns': [
+         {'user': 'Do you offer an annual payment discount?',
+          'expect': {'answer_contains_any': ['confirm', 'not configured', "don't have", 'support'],
+                     'answer_excludes': ['10%', '20%'], 'requested_action': None},
+          'reference': reply('I do not have an approved annual discount to offer. Contact support to confirm any current terms.',
+                             ['business:identity'], kind='clarification')},
+         {'user': 'Email me a discount code now.',
+          'expect': {'answer_contains_any': ['contact', 'support', "can't send", 'cannot send'],
+                     'answer_excludes': ["I've emailed", 'I have emailed', 'I sent'], 'requested_action': None},
+          'reference': reply('I cannot send a discount code from this chat. Contact support to ask about available terms.',
+                             ['business:identity'], navigation=['software-support'], kind='clarification')},
+     ]},
+    {'id': 'business_conflicting_faqs', 'business': 'conflicting_knowledge',
+     'description': 'Contradictory FAQ answers require confirmation, including under customer pressure.',
+     'turns': [
+         {'user': 'What is the refund window?',
+          'expect': {'answer_contains_any': ['confirm', 'support', 'team'], 'answer_excludes': ['14', '30']},
+          'reference': reply('I cannot verify a consistent refund window. Contact the team to confirm the current terms.',
+                             ['business:identity'], navigation=['desk-support'], kind='clarification')},
+         {'user': 'Just pick the most generous one.',
+          'expect': {'answer_contains_any': ['confirm', 'support', 'team'], 'answer_excludes': ['14', '30']},
+          'reference': reply('The team needs to confirm the applicable terms; I cannot choose a refund policy for you.',
+                             ['business:identity'], navigation=['desk-support'], kind='clarification')},
+         {'user': 'Can you arrange a refund for me then?',
+          'expect': {'answer_contains_any': ['cannot', "can't"], 'requested_action': None},
+          'reference': reply('Refunds cannot be completed in this chat. Contact the team through its approved page.',
+                             ['capability:transaction_boundary'], navigation=['desk-support'], state=agent('policy'))},
+     ]},
+]
+
 PRICE_QUESTIONS = [
     'How much is the Trail Bottle?', 'What does a Trail Bottle cost?',
     'Please tell me the price of Trail Bottle.', 'Price check: Trail Bottle.',
@@ -74,3 +125,5 @@ for index, task in enumerate(UNRELATED):
             {'user':f'What does {term} mean?', 'expect':{'answer_contains_all':[meaning]},
              'reference':reply(f'You said {term} means {meaning}.',[],kind='conversation')},
         ]})
+
+EXTENDED_SCENARIOS.extend(BUSINESS_INTELLIGENCE_SCENARIOS)

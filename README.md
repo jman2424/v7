@@ -5,6 +5,12 @@ widgets, tenant management, and admin CRM analytics.
 
 Explore [Vertex Seven and V7 Agents](https://vertex-seven.com/).
 
+The [business-intelligence roadmap](docs/business-intelligence-roadmap.md) records
+the current capability audit, delivery stages, acceptance gates and progress for
+the [business-first agent brief](docs/business-intelligence-brief.md). Core
+business intelligence remains available on every plan; optional execution modules
+are delivered separately with server-enforced permissions.
+
 ## Overview
 
 V7 Agents by Vertex Seven is a modular, multi-tenant chatbot and sales automation

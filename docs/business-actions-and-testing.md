@@ -67,9 +67,10 @@ operation-specific permission and verified customer ownership before exposing th
 ## Expanded evaluations
 
 The original seven scenarios/20 turns remain the default regression benchmark.
-`--extended` adds 60 scenarios/180 turns covering price phrasings, comparison,
+`--extended` adds 63 scenarios/188 turns covering price phrasings, comparison,
 contextual capacity questions, inventory uncertainty, approved navigation,
-unrelated tasks and customer-defined meanings. Total: 67 scenarios/200 turns.
+unrelated tasks and customer-defined meanings, focused credit questions, missing
+discount/email capabilities and conflicting FAQs. Total: 70 scenarios/208 turns.
 
 Offline reference replay runs the real response validator and synthetic ledger;
 it is not evidence of model quality. Paid tests retain the existing 20-provider-

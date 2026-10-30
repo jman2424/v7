@@ -1,11 +1,12 @@
 """Fewer round trips must retain fresh authority and complete prompt facts."""
 import copy
 import json
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
-from service import analytics_db, api_usage, grounded_conversation, session_store
+from service import analytics_db, api_usage, grounded_conversation, session_store, usage_currency
 from service.message_handler import MessageHandler
 from tests import test_api_usage
 from tests.test_grounded_conversation import client_for
@@ -81,7 +82,15 @@ def test_combined_sqlite_lead_session_preserves_contact_and_tenant(tmp_path, mon
                                 ('BETA', 'same')).fetchone()) == ('Other', 'other')
 
 
-def test_prompt_prefix_is_stable_without_removing_or_reordering_facts(ledger):
+def test_prompt_prefix_is_stable_without_removing_or_reordering_facts(ledger, monkeypatch):
+    # The imported funding fixture does not import its original module's
+    # autouse FX fixture. Prompt stability must not depend on public-network
+    # availability; production's missing/stale-rate pause stays unchanged.
+    reference = {'rate': .75, 'date': date.today().isoformat(), 'stale': False, 'source': 'Synthetic test'}
+    monkeypatch.setattr(usage_currency, 'gbp_rate', lambda: dict(reference))
+    monkeypatch.setattr(usage_currency, 'cached_gbp_rate', lambda: dict(reference))
+    monkeypatch.setattr(usage_currency, 'urlopen', lambda *args, **kwargs:
+                        pytest.fail('Prompt stability must not request an external exchange rate.'))
     knowledge = {'product:basic': {'name': 'Basic', 'price': 99, 'currency': 'GBP',
                                  'features': ['First published feature', 'Second published feature']},
                  'faq:returns': {'question': 'Returns?', 'answer': 'Unused goods within 14 days.'}}

@@ -13,6 +13,7 @@
   import WidgetDesigner from './WidgetDesigner.svelte';
   import type { Widget, PreviewTheme } from './widgetAppearance';
   import WebsiteKnowledge from './WebsiteKnowledge.svelte';
+  import KnowledgeReview from './KnowledgeReview.svelte';
   import ConversionSettings from './ConversionSettings.svelte';
   import ApiUsage from './ApiUsage.svelte';
   import Implementation from './Implementation.svelte';
@@ -2056,6 +2057,11 @@
       {/if}
 
         {#if section === 'agent'}
+          {#if user?.permissions?.includes('offerings.read')}
+            {#key tenant}
+              <KnowledgeReview endpoint={apiPath(`/admin/api/knowledge-review?tenant=${encodeURIComponent(tenant)}`)} {tenant} consoleBase={base} accessibleSections={Object.keys(sections).filter(mayOpenScreen)} />
+            {/key}
+          {/if}
       <section id="agent" class="surface workspace-section" aria-labelledby="agent-heading">
           <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="agent-heading">Sales playbook</h2></div></div>
           <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>

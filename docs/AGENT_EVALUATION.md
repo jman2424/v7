@@ -1,7 +1,7 @@
 # Agent conversation benchmark
 
-This small benchmark makes changes to the sales agent measurable. Six fictional
-retail/service conversations exercise 14 turns: budget replacement and checkout;
+This small benchmark makes changes to the sales agent measurable. Seven fictional
+retail/service conversations exercise 20 turns: budget replacement and checkout;
 a returns interruption followed by numbered selection; unknown stock and prompt
 injection; quote-only pricing and a quote form; refusal/cancellation; and an
 unsupported paid booking followed by a callback form.

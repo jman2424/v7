@@ -58,7 +58,7 @@ def _require_admin_session() -> None:
     settings_endpoints = {
         "api_faq_get", "api_faq_put", "api_delivery_get", "api_delivery_put",
         "api_profile_get", "api_profile_put", "api_branches_get", "api_branches_put",
-        "api_agent_settings_get", "api_agent_settings_put", "api_widget_get", "api_widget_put",
+        "api_agent_settings_get", "api_agent_settings_put", "api_knowledge_review", "api_widget_get", "api_widget_put",
         "api_website_knowledge_get", "api_website_knowledge_import", "api_sales_actions_get",
         "api_website_destinations_get", "api_website_destinations_put",
         "api_sales_actions_put", "api_mode_set",
@@ -693,6 +693,20 @@ def _agent_settings_payload(overrides: Any) -> Dict[str, Any]:
 def api_agent_settings_get():
     overrides = _storage().read_json(_tenant(), "overrides.json")
     return jsonify(_agent_settings_payload(overrides))
+
+
+@bp.get('/knowledge-review')
+def api_knowledge_review():
+    require_permission('offerings.read')
+    from service.knowledge_review import review
+    tenant = _tenant()
+    try:
+        response = jsonify(tenant=tenant, **review(_storage(), tenant))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except (OSError, ValueError, TypeError):
+        # Do not return file paths, raw documents or provider/customer data.
+        return jsonify(error='knowledge_review_unavailable'), 503, {'Cache-Control': 'no-store'}
 
 
 @bp.put("/agent-settings")

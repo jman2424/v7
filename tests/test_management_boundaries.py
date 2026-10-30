@@ -8,7 +8,7 @@ from tests.conftest import set_test_identity
 MANAGEMENT_READS = (
     '/admin/api/' + resource for resource in (
         'catalog', 'faq', 'offers', 'delivery', 'profile', 'branches',
-        'agent-settings', 'widget', 'website-knowledge', 'website-destinations', 'accounts',
+        'agent-settings', 'knowledge-review', 'widget', 'website-knowledge', 'website-destinations', 'accounts',
         'join-requests', 'sales-actions', 'action-requests', 'insights',
         'statistics', 'kpis', 'timeseries', 'sessions_timeseries', 'channels',
         'intents', 'fallbacks', 'errors', 'questions', 'leads', 'conversations',

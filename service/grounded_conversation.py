@@ -774,6 +774,56 @@ def _claims_supported(text, sources, knowledge, customer_quotes, *, approved_url
     return True
 
 
+def _known_statement_metadata(payload, statements, destinations, allowed_actions):
+    """Preflight only: unknown IDs/actions cannot qualify for any recovery."""
+    selected = payload.get('statement_ids', [])
+    if (not isinstance(selected, list) or len(selected) > 3
+            or any(not isinstance(key, str) or key not in statements for key in selected)):
+        return False
+    navigation = payload.get('navigation', [])
+    approved = {row['id'] for row in destinations}
+    return bool(isinstance(navigation, list) and len(navigation) <= 3
+                and all(isinstance(key, str) and key in approved for key in navigation)
+                and payload.get('requested_action') in [None, *allowed_actions])
+
+
+def _repairable_statement_citation(payload, statements, destinations, allowed_actions):
+    """Recover a known citation omission once, with unchanged final guards."""
+    if not _known_statement_metadata(payload, statements, destinations, allowed_actions):
+        return False
+    missing = {statements[key]['source_id'] for key in payload.get('statement_ids', [])} - set(payload['sources'])
+    if any(source.startswith('capability:request:') and source[len('capability:request:'):] not in allowed_actions
+           or source == 'capability:native_booking_management' and 'consultation' not in allowed_actions
+           or source == 'capability:requests' and not allowed_actions for source in missing):
+        return False
+    return bool(missing)
+
+
+def _unrelated_policy_for_gap(question, payload, knowledge, statements):
+    """Do not turn an explicit knowledge gap into an unrelated full FAQ.
+
+    This selects the existing verified unknown-policy rendering path, never
+    unchecked prose or an inferred discount/refund condition.
+    """
+    if not re.search(r"\b(?:no (?:mention|information)|not (?:mentioned|specified|provided)|"
+                     r"(?:don['’]t|do not|cannot|can['’]t) (?:have|confirm))\b",
+                     payload.get('answer', ''), re.I):
+        return False
+    from service.grounded_statements import protected_request
+    if not protected_request(question, payload, statements):
+        return False
+    faq_sources = []
+    for source in payload['sources']:
+        if source in {'business', 'business:identity'}:
+            continue
+        row = knowledge[source]
+        if not source.startswith(('faq:', 'matched_faq:')) or not isinstance(row, dict) or not row.get('question'):
+            return False
+        faq_sources.append(row)
+    from service.agent_knowledge import relevance
+    return bool(faq_sources and all(relevance(row, question) == 0 for row in faq_sources))
+
+
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
            agent_context=None, agent_state=None, allowed_actions=None, diagnostics=None, memory_settings=None,
            retrieval_question=None):
@@ -907,7 +957,24 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 supported = _claims_supported(text,sources,knowledge,customer_quotes,
                     approved_urls={row['url'] for row in destinations},failure=failure)
                 from service.grounded_money import extract_money_claims
-                if supported and attempt==0 and size_only and (
+                if (supported and _unrelated_policy_for_gap(question, payload, knowledge, statements)
+                        and _known_statement_metadata(payload, statements, destinations, allowed_actions)):
+                    # Missing information is not authority to repeat a different
+                    # policy. Withhold its facts and use the existing complete,
+                    # verified unknown-policy statement below. Preserve customer
+                    # memory validation; do not repair malformed agent metadata.
+                    kind = 'clarification'
+                    sources = [key for key in sources if key in {'business', 'business:identity'}]
+                    payload = {**payload, 'kind': kind, 'sources': sources, 'statement_ids': [],
+                               'requested_action': None, 'navigation': [row['id'] for row in destinations
+                                if row.get('purpose') == 'support'][:1]}
+                    from service.chat_diagnostics import emit
+                    emit('grounded_policy_gap', outcome='needs_team_confirmation')
+                    break
+                elif supported and attempt == 0 and kind == 'answer' and _repairable_statement_citation(
+                        payload, statements, destinations, allowed_actions):
+                    repair_reason = 'missing_statement_citations'
+                elif supported and attempt==0 and size_only and (
                         extract_money_claims(text) or _PROCESS.search(text)
                         or re.search(r'\bsmall\b.*\bmedium\b.*\blarge\b',text,re.I|re.S)):
                     repair_reason = 'unfocused_size_answer'
@@ -937,6 +1004,11 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'the current question asks for pricing. A size/classification follow-up needs the band first, '
                 'not an unrelated catalogue or another request for a known model. '
                 'For required prices use exact current business facts and cite their supplied source IDs. '
+                'Every selected approved statement must have its source_id included in sources. '
+                'Citing a statement ID alone does not cite its source. '
+                'If the requested policy detail is missing, use kind=clarification and no statement_ids. '
+                'Do not cite a different FAQ or repeat unrelated monthly prices as the answer. '
+                'Use the business identity as context and approved support navigation when useful. '
                 'Cite business rules too. Use kind=conversation with no sources only for small talk or '
                 'recalling customer-provided details without introducing business claims. '
                 'When continue_selected_offering is true, name the already selected offering and explain '
@@ -945,7 +1017,19 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 'inferred vehicle bands. Use [] when unsure. Set requirements_update to null unless '
                 'the current customer turn provides explicit evidence for a supported update. '
                 'Never invent facts.'}
-            completion = {**completion,'messages':[correction,*completion['messages'][1:]]}
+            followup = list(completion['messages'][1:])
+            if repair_reason == 'missing_statement_citations':
+                # Give the model the exact request-local reference error as
+                # structured data, without replaying its untrusted prose as an
+                # instruction or automatically expanding accepted citations.
+                supplied = json.loads(followup[0]['content'])
+                supplied['validation_feedback'] = {'missing_statement_source_ids': sorted({
+                    statements[key]['source_id'] for key in payload['statement_ids']
+                } - set(sources))}
+                followup[0] = {**followup[0], 'content': json.dumps(supplied, ensure_ascii=False)}
+                correction['content'] += (' The supplied validation_feedback lists the exact missing source IDs. '
+                    'Include the source of every statement you still select; do not select unrelated statements.')
+            completion = {**completion,'messages':[correction,*followup]}
         navigation = payload.get('navigation', [])
         approved = {row['id']: row for row in destinations}
         if not isinstance(navigation, list) or len(navigation) > 3 or any(

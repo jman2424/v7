@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from retrieval.storage import Storage
+from service.faq_integrity import safe_public_faqs
 
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 
@@ -147,7 +148,7 @@ class FAQStore:
         tagset = set(_norm(t) for t in (hint_tags or []))
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
-        for f in self._faqs:
+        for f in safe_public_faqs(self._faqs):
             if f.get('active') is False or f.get('public') is False:
                 continue
             if not topic_tokens and _norm(user_question) != f['_q_norm']:

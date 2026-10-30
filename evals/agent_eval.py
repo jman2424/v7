@@ -129,7 +129,7 @@ def _runtime_hashes():
              'service/chat_diagnostics.py', 'retrieval/faq_store.py', 'service/platform_offer_knowledge.py',
              'service/conversation_turns.py', 'service/customer_intent.py', 'service/website_destinations.py',
              'handlers/handler_v7.py', 'service/sales_agent.py', 'service/message_handler.py',
-             'service/agent_knowledge.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
+             'service/agent_knowledge.py', 'service/faq_integrity.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
              'service/usage_pricing.py', 'service/provider_http.py', 'service/rewriter.py',
              'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py')
