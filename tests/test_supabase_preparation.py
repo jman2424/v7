@@ -356,6 +356,7 @@ def test_channel_migration_preserves_content_and_never_restarts_an_interrupted_s
     _channel_operation_source(source)
     row=prepare(source).rows['business_operations'][0]
     assert row['state']=='uncertain' and row['lease']=='' and row['lease_until']==0
+    assert type(row['lease_until']) is float  # Match the PostgreSQL DOUBLE PRECISION round trip.
     assert row['payload']=='{"text":"Preserved request"}'
 
 

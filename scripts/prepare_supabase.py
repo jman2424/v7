@@ -201,7 +201,7 @@ def read_sqlite(path, allowed, bundle):
                             # Frozen migration must not silently resume an
                             # interrupted send/action or reuse a prior approval.
                             row.update(state='uncertain' if row['state'] in {'sending','executing'} else 'needs_review',
-                                       lease='', lease_until=0, error_code='migration_review_required', version=row['version']+1)
+                                       lease='', lease_until=0.0, error_code='migration_review_required', version=row['version']+1)
                         if table == 'registration_requests' and row['status'] in {'verification', 'creating'}:
                             row.update(status='expired', code_hash='', password_hash='')
                     bundle.rows[table] = rows
