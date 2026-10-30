@@ -75,6 +75,17 @@ def test_budget_gate_stops_before_any_provider_request():
     assert report['turns_passed'] == 0
 
 
+def test_quality_scorecard_replays_all_fixed_cross_industry_references():
+    report = run_suite(Settings(quality=True))
+    assert report['status'] == 'passed'
+    assert report['scenarios_passed'] == report['scenarios_planned'] == 12
+    assert report['turns_passed'] == report['turns_executed'] == report['turns_planned'] == 16
+    assert report['accounting']['consistent']
+    assert report['usage']['usage_kind'] == 'synthetic_not_billable'
+    with pytest.raises(ValueError, match='select_one_evaluation_suite'):
+        Settings(quality=True, extended=True).validate()
+
+
 def test_request_limit_cannot_be_hidden_by_reference_or_fallback():
     report = run_suite(Settings(max_requests=1))
     assert report['status'] == 'stopped'

@@ -28,6 +28,9 @@ from unittest.mock import patch
 
 from evals.scenarios import BUSINESSES, SCENARIOS
 from evals.extended_scenarios import EXTENDED_SCENARIOS
+from evals.conversation_quality import QUALITY_BUSINESSES, QUALITY_SCENARIOS
+
+BUSINESSES = {**BUSINESSES, **QUALITY_BUSINESSES}
 
 ROOT = Path(__file__).resolve().parents[1]
 NANO_USD = 1_000_000_000
@@ -40,6 +43,7 @@ class EvalLimit(RuntimeError):
 @dataclass(frozen=True)
 class Settings:
     extended: bool = False
+    quality: bool = False
     live: bool = False
     model: str = 'gpt-4.1-mini'
     reasoning_effort: str | None = None
@@ -74,15 +78,21 @@ class Settings:
                 raise ValueError
         except (InvalidOperation, TypeError, ValueError):
             raise ValueError('max_budget_usd_must_be_positive_and_at_most_5') from None
-        ids = [scenario['id'] for scenario in (SCENARIOS + EXTENDED_SCENARIOS if self.extended else SCENARIOS)]
+        if self.extended and self.quality:
+            raise ValueError('select_one_evaluation_suite')
+        ids = [scenario['id'] for scenario in scenario_pool(self)]
         if len(ids) != len(set(ids)) or any(item not in ids for item in self.scenario_ids):
             raise ValueError('invalid_scenario_id')
         if self.env_file and not self.live:
             raise ValueError('env_file_requires_live_mode')
 
 
+def scenario_pool(settings):
+    return QUALITY_SCENARIOS if settings.quality else SCENARIOS + EXTENDED_SCENARIOS if settings.extended else SCENARIOS
+
+
 def selected_scenarios(settings):
-    return [copy.deepcopy(row) for row in (SCENARIOS + EXTENDED_SCENARIOS if settings.extended else SCENARIOS)
+    return [copy.deepcopy(row) for row in scenario_pool(settings)
             if not settings.scenario_ids or row['id'] in settings.scenario_ids]
 
 
@@ -132,7 +142,7 @@ def _runtime_hashes():
              'service/agent_knowledge.py', 'service/faq_integrity.py', 'service/agent_response_schema.py', 'service/grounded_money.py',
              'service/model_settings.py', 'service/conversation_memory.py', 'service/openai_completion.py', 'service/api_usage.py',
              'service/usage_pricing.py', 'service/provider_http.py', 'service/rewriter.py',
-             'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py')
+             'evals/agent_eval.py', 'evals/scenarios.py', 'evals/extended_scenarios.py', 'evals/conversation_quality.py')
     return {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in paths}
 
 
@@ -244,6 +254,14 @@ def check_turn(answer, state, links, expected, business):
             checks[key] = all(item.casefold() not in text for item in value)
         elif key == 'answer_no_question':
             checks[key] = '?' not in text if value else True
+        elif key == 'answer_has_question':
+            checks[key] = '?' in text if value else True
+        elif key == 'answer_max_words':
+            checks[key] = len(text.split()) <= value
+        elif key == 'navigation_max':
+            checks[key] = len(links) <= value
+        elif key == 'price_counts':
+            checks[key] = all(len(re.findall(pattern, text, re.I)) == count for pattern, count in value.items())
         elif key == 'requirements_contains':
             checks[key] = all(item.casefold() in needs for item in value)
         elif key == 'requirements_exclude':
@@ -586,6 +604,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', help='Explicitly enable paid provider calls.')
     parser.add_argument('--extended', action='store_true', help='Include the 180-turn paraphrase and follow-up matrix; paid runs retain the 20-request cap.')
+    parser.add_argument('--quality', action='store_true', help='Run the cross-industry conversation quality scorecard; paid calls retain the same hard limits.')
     parser.add_argument('--supervised', action='store_true', help='Exercise child-process supervision offline too.')
     parser.add_argument('--internal-worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--env-file', help='Explicit live dotenv file; only OPENAI_API_KEY is used.')

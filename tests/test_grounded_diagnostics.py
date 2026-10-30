@@ -69,7 +69,7 @@ def test_invented_selection_evidence_never_becomes_a_confirmed_choice(monkeypatc
              'agent':{**_state('price',offerings=['product:pro'],selected='product:pro'),
                       'selection_update':'select','selection_evidence':'not in the customer message'}}
     result,state,_,_=_structured_answer(monkeypatch,payload,question='Tell me more about Pro',knowledge=knowledge)
-    assert result==payload['answer'] and state['selected_offering_id'] is None
+    assert result.startswith('Pro: £199.00.') and state['selected_offering_id'] is None
     # Evidence pruning does not authorize a different choice or a foreign ID.
     assert _structured_answer(monkeypatch,payload,question='I choose Basic',knowledge=knowledge)[0] is None
     payload['agent']['selected_offering_id']='product:another-company'
@@ -79,8 +79,9 @@ def test_invented_selection_evidence_never_becomes_a_confirmed_choice(monkeypatc
 def test_validated_answer_records_only_public_source_ids(monkeypatch):
     diagnostics = {}
     text = 'Basic costs £99.'
-    assert run_answer(monkeypatch, {'answer': text, 'kind': 'answer',
-                                   'sources': ['product:basic']}, diagnostics=diagnostics) == text
+    result = run_answer(monkeypatch, {'answer': text, 'kind': 'answer',
+                                     'sources': ['product:basic']}, diagnostics=diagnostics)
+    assert result.startswith('Basic: £99.00.')
     assert diagnostics['accepted'] is True
     assert diagnostics['provider_completed'] is True
     assert diagnostics['rejection_reason'] is None
@@ -307,7 +308,7 @@ def test_remembered_uncited_shortlist_is_not_a_new_recommendation(monkeypatch):
     assert _structured_answer(monkeypatch, followup, knowledge=knowledge,
         question="I'll take the first option.", context=context)[1]['selected_offering_id'] == 'product:basic'
     answer,pruned,_,_ = _structured_answer(monkeypatch,payload,knowledge=knowledge)
-    assert answer==payload['answer']
+    assert answer.startswith('Pro: £199.00.')
     assert pruned['offering_ids']==['product:pro'] and pruned['last_offering_ids']==['product:pro']
 
 

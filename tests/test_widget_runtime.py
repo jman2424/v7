@@ -16,7 +16,7 @@ SCRIPT = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const scenario = process.argv[1];
+const scenario = process.argv[2];
 class Element {
   constructor() {
     this.children=[];this.listeners={};this.attributes={};this.value='';this.checked=false;
@@ -37,6 +37,7 @@ class Element {
 const elements={};
 const get=id=>elements[id] ||= new Element();
 get('dictate').hidden=true;get('dictate').setAttribute('aria-pressed','false');
+get('chat-clear-confirmation').hidden=true;
 const body=new Element();body.dataset={style:'studio'};
 const document={body,documentElement:{lang:'en'},referrer:'https://business.example/page',hidden:false,
   activeElement:body,
@@ -75,13 +76,14 @@ class AudioContext {
 const timers=new Map();let timerId=0;
 const pending=[];
 const requests=[];
+const broadcasts=[];
 let storedToken=scenario==='chat-expired'?'stale-conversation':scenario==='restore-chat'?'synthetic-only':'';
 const browserState=new Map();
 if(scenario==='restore-chat')browserState.set('transcript:EXAMPLE',JSON.stringify({version:1,token:storedToken,expires:Date.now()+3600000,
   messages:[{from:'me',text:'My car is a Polo'},{from:'bot',text:'Small car. This is an estimate.',actions:[{type:'navigate',label:'Services',url:'https://shop.example/services',click_token:'signed',clicked:true}]}],draft:'What about polishing?',pending:''}));
 let closeNotifications=0,readyNotifications=0;
 const config={tenant:'EXAMPLE',endpoint:'/chat_api',actionsEndpoint:'/chat/actions',navigationClickEndpoint:'/chat/navigation-click',theme:{},accentColor:'#ffffff',
-  streaming:scenario.startsWith('stream-'),
+  streaming:scenario.startsWith('stream-') || scenario==='clear-stream',
   deferActions:['preloaded-actions','restore-chat'].includes(scenario),
   colors:{background:'#fafafa',surface:'#101010',text:'#eeeeee',bubble:'#ffffff'},
   parentOrigins:['https://business.example'],
@@ -96,9 +98,9 @@ const window={__WIDGET__:config,isSecureContext:true,
     assert.equal(data.type,'V7_WIDGET_CLOSE');closeNotifications++;}},
   listeners:{},addEventListener(name,callback){this.listeners[name]=callback;}};
 let tabChannel;
-if(scenario.startsWith('cross-tab'))window.BroadcastChannel=class {
+if(scenario.startsWith('cross-tab') || scenario.startsWith('clear-'))window.BroadcastChannel=class {
   constructor(name){assert.equal(name,'v7-chat:EXAMPLE:https://business.example');tabChannel=this;}
-  postMessage(data){assert.ok(['state','request'].includes(data.type));}
+  postMessage(data){assert.ok(['state','request','reset'].includes(data.type));broadcasts.push(data);}
 };
 if(scenario !== 'unsupported' && !scenario.startsWith('server-')) window.SpeechRecognition=Recognition;
 if(scenario.startsWith('server-')) {window.MediaRecorder=Recorder;window.AudioContext=AudioContext;}
@@ -106,10 +108,16 @@ if(scenario==='unsupported'){delete window.speechSynthesis;delete window.SpeechS
 const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortController,Uint8Array,ReadableStream,TextDecoder,
   navigator:{mediaDevices:{getUserMedia:async()=>scenario==='server-permission-race'
     ? new Promise(resolve=>mediaPending.push(resolve)) : mediaStream()}},
-  MediaRecorder:Recorder,sessionStorage:{getItem(key){if(scenario==='cross-tab-blocked')throw Error('blocked');return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(scenario==='cross-tab-blocked')throw Error('full');if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem:key=>browserState.delete(key)},
+  MediaRecorder:Recorder,sessionStorage:{getItem(key){if(scenario==='cross-tab-blocked')throw Error('blocked');return key==='conversation:EXAMPLE'?storedToken:browserState.get(key)||null;},setItem(key,value){if(scenario==='cross-tab-blocked')throw Error('full');if(key==='conversation:EXAMPLE')storedToken=value;else browserState.set(key,value);},removeItem(key){if(key==='conversation:EXAMPLE')storedToken='';else browserState.delete(key);}},
   setTimeout(callback,delay){const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
   fetch:async(url,options={})=>{
     requests.push({url:String(url),options});
+    if(String(url)==='/chat_api' && scenario==='clear-stream' && requests.filter(row=>row.url==='/chat_api').length===1){
+      let reads=0;
+      return {ok:true,headers:{get:name=>name==='Content-Type'?'text/event-stream':null},body:{getReader:()=>({
+        async read(){if(reads++===0)return {done:false,value:new TextEncoder().encode('event: reply_chunk\ndata: '+JSON.stringify({text:'Old streamed content'})+'\n\n')};
+          return new Promise(resolve=>pending.push(resolve));},cancel(){return Promise.resolve();},releaseLock(){}})}};
+    }
     if(String(url)==='/chat_api' && scenario.startsWith('stream-')) {
       assert.equal(options.headers.Accept,'text/event-stream');
       const reply='Verified £25 estimate. <script>not HTML</script>';
@@ -122,6 +130,13 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
           const value=encoded.slice(offset,end);offset=end;return {done:false,value};},releaseLock(){}})}};
     }
     if(String(url).includes('/chat/actions')) {
+      if(scenario.startsWith('clear-')) {
+        if(options.method==='POST')return new Promise(resolve=>pending.push(resolve));
+        const index=requests.filter(row=>row.url.includes('/chat/actions')).length;
+        if(scenario==='clear-late-actions' && index===1)return new Promise(resolve=>pending.push(resolve));
+        return {ok:true,json:async()=>({conversation_token:'fresh-conversation-'+index,
+          ...(scenario.startsWith('clear-action')?{quote:{enabled:true}}:{})})};
+      }
       if(scenario==='actions-unavailable-chat') throw Error('PRIVATE_ACTION_FAILURE');
       return {ok:true,json:async()=>({conversation_token:'synthetic-only'})};
     }
@@ -136,6 +151,8 @@ const context=vm.createContext({window,document,console,Blob,FormData,URL,AbortC
     if(String(url).includes('/chat/transcribe')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('late-playback')) return new Promise(resolve=>pending.push(resolve));
     if(scenario.startsWith('pending-chat')) return new Promise(resolve=>pending.push(resolve));
+    if(scenario==='clear-late-reply' && requests.filter(row=>row.url==='/chat_api').length===1)return new Promise(resolve=>pending.push(resolve));
+    if(scenario.startsWith('clear-'))return {ok:true,json:async()=>({reply:'Fresh answer',conversation_token:JSON.parse(options.body).conversation_token})};
     if(scenario==='cross-tab-concurrent') return new Promise(resolve=>pending.push(resolve));
     if(scenario==='chat-paused') return {ok:false,status:429,json:async()=>({error:'website_allowance_paused'})};
     if(scenario==='chat-rate-limit') return {ok:false,status:429,json:async()=>({error:'rate_limited'})};
@@ -159,7 +176,77 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
   assert.equal(readyNotifications,1,'The styled widget announces readiness once without customer data');
   assert.equal(starts,0,'Microphone must not start on page load');
   assert.equal(utterances.length,0,'Audio must not start on page load');
-  if(scenario.startsWith('stream-')) {
+  if(scenario.startsWith('clear-action')) {
+    const previous=storedToken;
+    await get('chat-action-buttons').children[0].click();
+    get('chat-action-name').value='Synthetic visitor';get('chat-action-contact').value='test@example.com';
+    get('chat-action-consent').checked=true;
+    const submitting=get('chat-action-form').fire('submit');
+    assert.equal(get('chat-clear').disabled,true);
+    await get('chat-clear').click();assert.equal(get('chat-clear-confirmation').hidden,true);
+    tabChannel.onmessage({data:{type:'reset',token:previous,at:Date.now()}});await flush();
+    const fresh=storedToken;assert.notEqual(fresh,previous);
+    pending.shift()(scenario==='clear-action-expired'
+      ?{ok:false,json:async()=>({error:'invalid_conversation'})}
+      :{ok:true,json:async()=>({ok:true,status:'received',reference:'SYNTHETIC-RECEIPT'})});
+    await submitting;
+    assert.equal(storedToken,fresh,'An older request result cannot erase the fresh chat identity');
+    assert.equal(requests.filter(row=>row.options.method==='POST' && row.url==='/chat/actions').length,1);
+    const action=requests.find(row=>row.options.method==='POST' && row.url==='/chat/actions');
+    assert.equal(JSON.parse(action.options.body).conversation_token,previous);
+    assert.ok(JSON.parse(action.options.body).idempotency_key);
+    if(scenario==='clear-action-pending')assert.match(get('chat-action-status').textContent,/received.*SYNTHETIC-RECEIPT/);
+  } else if(scenario.startsWith('clear-')) {
+    const tokenBefore=storedToken;
+    browserState.set('transcript:OTHER','unrelated company history');
+    get('chat-input').value='Remember my old preference';
+    let sending;
+    if(scenario!=='clear-late-actions')sending=get('chat-form').fire('submit');
+    if(!['clear-late-reply','clear-stream'].includes(scenario))await sending;
+    else await flush();
+    get('chat-input').value='A private unfinished draft';
+    await get('chat-clear').click();
+    assert.equal(get('chat-clear-confirmation').hidden,false);
+    if(scenario==='clear-cancel') {
+      const before=requests.length;
+      await get('chat-clear-cancel').click();
+      assert.equal(get('chat-clear-confirmation').hidden,true);
+      assert.equal(storedToken,tokenBefore);assert.equal(requests.length,before);
+      assert.equal(get('chat-input').value,'A private unfinished draft');
+      assert.equal(get('chat-log').children.length,2);
+      return;
+    }
+    if(scenario==='clear-peer')tabChannel.onmessage({data:{type:'reset',token:tokenBefore,at:Date.now()}});
+    else await get('chat-clear-confirm').click();
+    await flush();
+    assert.equal(get('chat-log').children.length,0);
+    assert.equal(get('chat-input').value,'');
+    assert.equal(browserState.get('transcript:OTHER'),'unrelated company history');
+    assert.notEqual(storedToken,tokenBefore,'Fresh action discovery mints a different conversation');
+    assert.equal(get('chat-send').disabled,false);
+    assert.equal(get('chat-clear-confirmation').hidden,true);
+    if(scenario==='clear-late-actions') {
+      pending.shift()({ok:true,json:async()=>({conversation_token:'stale-action-conversation'})});
+      await flush();assert.notEqual(storedToken,'stale-action-conversation');
+    }
+    if(['clear-late-reply','clear-stream'].includes(scenario)) {
+      pending.shift()(scenario==='clear-stream'?{done:true}:{ok:true,json:async()=>({reply:'Old reply must stay cleared',conversation_token:tokenBefore})});
+      await sending;assert.equal(get('chat-log').children.length,0);
+      assert.notEqual(storedToken,tokenBefore);assert.equal(get('chat-input').value,'');
+    }
+    const stale=JSON.stringify({version:1,token:tokenBefore,expires:Date.now()+10000,
+      messages:[{from:'bot',text:'Retired peer answer',actions:[]}],draft:'',pending:''});
+    tabChannel.onmessage({data:{type:'state',value:stale}});
+    assert.equal(get('chat-log').children.length,0,'A delayed peer cannot resurrect the cleared transcript');
+    const fresh=storedToken;
+    tabChannel.onmessage({data:{type:'reset',token:'a-different-conversation',at:Date.now()}});
+    assert.equal(storedToken,fresh,'Reset messages affect only their own conversation');
+    get('chat-input').value='New question';await get('chat-form').fire('submit');
+    const last=requests.filter(row=>row.url==='/chat_api').at(-1);
+    assert.equal(JSON.parse(last.options.body).conversation_token,fresh);
+    assert.equal(get('chat-log').children.length,2);
+    assert.ok(!browserState.get('transcript:EXAMPLE').includes('Old reply'));
+  } else if(scenario.startsWith('stream-')) {
     get('chat-input').value='A question';await get('chat-form').fire('submit');
     assert.equal(requests.filter(row=>row.url==='/chat_api').length,1,'Streaming failures never resend a paid question');
     const rows=get('chat-log').children;
@@ -179,6 +266,12 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     tabChannel.onmessage({data:{type:'state',value}});
     assert.equal(get('chat-log').children.length,2);assert.equal(get('chat-input').value,'Keep my private draft');
     assert.equal(requests.length,before,'Receiving another tab never resends a message');
+    if(scenario==='cross-tab-unrelated-reset') {
+      tabChannel.onmessage({data:{type:'reset',token:'another-conversation',at:Date.now()}});
+      const remote=JSON.parse(value);remote.messages.push({id:'next-reply',at:Date.now(),from:'bot',text:'A current peer reply',actions:[]});
+      tabChannel.onmessage({data:{type:'state',value:JSON.stringify(remote)}});
+      assert.equal(get('chat-log').children.length,3,'Clearing another conversation does not stop this one syncing');
+    }
     const sending=get('chat-form').fire('submit');
     if(scenario==='cross-tab-concurrent') {
       const remote=JSON.parse(value);remote.messages.push({id:'other-reply',at:Date.now()+1,from:'bot',text:'Another completed exchange',actions:[]});
@@ -410,6 +503,8 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
 
 
 @pytest.mark.parametrize("scenario", [
+    "clear-chat", "clear-cancel", "clear-peer", "clear-late-reply", "clear-late-actions",
+    "clear-stream", "clear-action-pending", "clear-action-expired", "cross-tab-unrelated-reset",
     "stream-success", "stream-truncated", "stream-mismatch",
     "restore-chat", "preloaded-actions", "palette", "microphone", "playback", "server-cancel", "unsupported", "navigation-click", "navigation-failure",
     "late-playback-hidden", "late-playback-closed", "late-playback-pagehide",
@@ -420,9 +515,11 @@ const contrast=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05
     "server-audio-wav", "server-audio-too-long", "server-audio-invalid",
     "server-audio-decode-timeout", "server-audio-decode-cancel",
 ])
-def test_customer_widget_runtime(scenario):
+def test_customer_widget_runtime(scenario, tmp_path):
+    script = tmp_path / 'widget-runtime.cjs'
+    script.write_text(SCRIPT, encoding='utf-8')
     result = subprocess.run(
-        [NODE, "-e", SCRIPT, scenario], cwd=ROOT, capture_output=True, text=True, timeout=30,
+        [NODE, str(script), scenario], cwd=ROOT, capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

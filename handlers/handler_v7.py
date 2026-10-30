@@ -896,10 +896,13 @@ class MessageHandlerV7:
         if client is None:
             return None
         knowledge = {"business": {key: value for key, value in self.sales_context.items() if key != 'business_core'}}
-        from service.platform_offer_knowledge import public_knowledge, public_destinations
+        from service.platform_offer_knowledge import public_knowledge, public_destinations, public_plan_context, automatic_offer_answer
         live_offer = public_knowledge(self.tenant_key)
-        if live_offer:
-            knowledge['current_platform_offer'] = live_offer
+        plan_context = public_plan_context(self.tenant_key)
+        from service.plan_catalog import public_plans
+        billing_plans = public_plans() if plan_context else []
+        if plan_context:
+            knowledge['business']['subscription_plans'] = plan_context
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
@@ -943,6 +946,8 @@ class MessageHandlerV7:
                     lambda: relevant_passages(self.website_knowledge, query, limit=6), []):
                 if len(pages) < 6 and page not in pages:
                     pages.append(page)
+        if live_offer and automatic_offer_answer(faq_question, live_offer):
+            knowledge['current_platform_offer'] = live_offer
         for index, page in enumerate(pages):
             knowledge[f'website:{index}'] = page
         if self.faq:
@@ -1007,6 +1012,15 @@ class MessageHandlerV7:
                     if not currency or (not catalogue_needed and selected_id != 'product:'+sku):
                         # A missing currency is not permission to assume GBP.
                         facts.pop('price', None)
+                    if billing_plans and currency == 'GBP':
+                        unit = str(facts.get('unit') or '').strip().lower()
+                        component = {'month': 'monthly_pence', 'one-time setup': 'setup_pence'}.get(unit)
+                        for billing in billing_plans if component else []:
+                            if (facts.get('price') == billing[component] / 100
+                                    and re.search(r'\b' + re.escape(billing['name']) + r'\b',
+                                                  str(facts.get('name') or ''), re.I)):
+                                facts['billing_name'] = billing['name']
+                                break
                     knowledge['product:' + sku] = facts
         if self.faq:
             rows = self._optional_faq_rows()[:120]

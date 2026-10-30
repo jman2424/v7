@@ -76,6 +76,11 @@ body.widget-page--embedded .widget { width: 100%; height: 100dvh; border: 0; bor
 .widget__title { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
 .widget__subtitle { margin: 2px 0 0; color: var(--wpanel-muted); font-size: .8rem; overflow-wrap: anywhere; }
 .widget__close { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border: 1px solid var(--wborder); border-radius: 9px; background: var(--wpanel); color: var(--wpanel-text); }
+.widget__clear { flex: none; min-height: 44px; padding: 6px 9px; border: 1px solid var(--wborder); border-radius: 9px; background: var(--wpanel); color: var(--wpanel-text); font: inherit; font-size: 12px; cursor: pointer; }
+.widget__clear:disabled { opacity: .6; cursor: wait; }
+.widget__clear-confirmation { padding: 10px 14px; border-bottom: 1px solid var(--wborder); background: var(--wpanel); color: var(--wpanel-text); }
+.widget__clear-confirmation p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; }
+.widget__clear-confirmation button { margin: 0 6px 4px 0; }
 .widget__close svg, .widget__microphone svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
 .widget__log {

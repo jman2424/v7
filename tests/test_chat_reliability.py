@@ -158,6 +158,22 @@ def test_definitions_outlive_recent_messages_but_obey_clear_and_tenant_session_s
     assert 'good' not in cleared['reply']
 
 
+def test_clear_uses_new_signed_identity_without_erasing_prior_history(app, client):
+    first = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'green means good'}).json
+    token = first['conversation_token']
+    assert client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'does green = what?',
+                                        'conversation_token': token}).json['reply'] == 'You said green = good.'
+    fresh = client.get('/chat/actions?tenant=EXAMPLE').json['conversation_token']
+    assert fresh != token
+    response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'does green = what?',
+                                            'conversation_token': fresh})
+    assert response.status_code == 200
+    assert response.json['session_id'] != first['session_id']
+    assert 'good' not in response.json['reply']
+    history = app.container.for_tenant('EXAMPLE').handler.memory.get(first['session_id'], 'conversation_history')
+    assert any(row['content'] == 'green means good' for row in history)
+
+
 def test_optional_faq_failure_does_not_break_known_business_answer(monkeypatch, caplog):
     from handlers.handler_v7 import MessageHandlerV7
     from service import grounded_conversation

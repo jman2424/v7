@@ -8,7 +8,7 @@ import re
 from flask import current_app
 
 from service import referrals, subscriptions
-from service.plan_catalog import public_plans
+from service.plan_catalog import public_plans, vat_percent
 from service.website_destinations import validate
 
 
@@ -56,6 +56,21 @@ def public_destinations(tenant, configured):
         return []  # Non-public development origins have no customer links.
 
 
+def public_plan_context(tenant):
+    """Current, allowlisted entitlements; legacy unenforced counters are omitted."""
+    if not tenant or not subscriptions.internal_business(tenant):
+        return None
+    return {
+        'authority': 'Current platform billing catalogue; do not infer features from plan names.',
+        'plans': [{'id': plan['id'], 'name': plan['name'],
+                   **{key: plan[key] for key in ('locations', 'staff_accounts', 'analytics', 'api_access', 'onboarding')}}
+                  for plan in public_plans()],
+        'usage': 'AI processing credit is separately prepaid; none is included. There is no fixed message allowance. Usage depends on the selected model and tokens.',
+        'whatsapp': 'WhatsApp requires provider setup. Business phone numbers and Meta/provider messaging fees are separate costs.',
+        'vat_percent': vat_percent(),
+    }
+
+
 def automatic_offer_answer(question, knowledge):
     """Exact live policy remains available if paid AI is unavailable."""
     import re
@@ -74,6 +89,11 @@ def automatic_offer_answer(question, knowledge):
 def automatic_plan_answer(question, knowledge, history=None):
     """Render actual billing plans for narrow marketing-plan questions only."""
     if not knowledge or re.search(r'\b(cancel|refund|referr?al|refer)\b', question, re.I):
+        return None
+    # A factual tariff shortcut cannot qualify a customer or recommend a plan.
+    # Let the existing single grounded model call use actual needs and limits.
+    if re.search(r'\b(?:recommend\w*|suggest\w*|should|suit\w*|best|right for|'
+                 r'help me (?:choose|pick|decide)|recomiend\w*|recommand\w*)\b|أنسب|تنصح', question, re.I):
         return None
     plans = public_plans()
     names = '|'.join(re.escape(plan['name']) for plan in plans)
