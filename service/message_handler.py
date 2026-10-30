@@ -572,8 +572,10 @@ class MessageHandler:
             channel=ctx.channel,
             session_id=ctx.session_id,
             tags=[reply.get("intent")] if reply.get("intent") else None,
-            messages=[{"from": "user", "text": user_text},
-                      {"from": "assistant", "text": reply.get("reply")}],
+            # Email content has its own owner-configured retention in the hub.
+            # Keep CRM engagement/contact metadata without a second mail archive.
+            messages=[] if ctx.channel == 'email' else [
+                {"from": "user", "text": user_text}, {"from": "assistant", "text": reply.get("reply")}],
         )
         analytics_lead_id = self._analytics_lead_id(ctx)
 

@@ -54,7 +54,8 @@ def _require_admin_session() -> None:
         "api_lead_status_put": "customers.read", "api_action_requests_get": "customers.read",
         "api_accounts_get": "users.read", "api_integrations": "integrations.read",
         "api_whatsapp_qr": "integrations.read", "api_platform": "platform.read",
-        "api_business_channels_get": "integrations.read", "api_business_operations_get": "customers.read",
+        "api_business_channels_get": "integrations.read", "api_business_email_setup_get": "integrations.read",
+        "api_business_operations_get": "customers.read",
     }.get(endpoint)
     settings_endpoints = {
         "api_faq_get", "api_faq_put", "api_delivery_get", "api_delivery_put",
@@ -1049,6 +1050,38 @@ def api_business_channels_get():
     return response
 
 
+@bp.get('/business-email-setup')
+def api_business_email_setup_get():
+    _require_channel_owner()
+    from service.business_email_setup import status
+    response = jsonify(status(get_container(), _tenant()))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/business-email-setup')
+def api_business_email_setup_put():
+    _require_channel_owner()
+    require_permission('integrations.read')
+    require_permission('business_settings.write')
+    from service import business_email_setup as setup, business_channels as channels
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'settings', 'revision'}
+            or not isinstance(data['revision'], str)):
+        return jsonify(error='invalid_email_setup'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        value = setup.validate(data['settings'])
+        recipients = channels.readiness(get_container(), tenant)['channels']['email']['sending_addresses']
+        if channels.settings(storage, tenant)['email']['enabled'] and value['address'] not in recipients:
+            return jsonify(error='email_setup_disable_before_change'), 409
+    except ValueError:
+        return jsonify(error='invalid_email_setup'), 400
+    _audited_json_write(storage, tenant, setup.FILENAME, value, action='business.email.setup',
+                        expected_revision=data['revision'])
+    return jsonify(ok=True, **setup.status(get_container(), tenant))
+
+
 @bp.put('/business-channels')
 def api_business_channels_put():
     _require_channel_owner()
@@ -1067,6 +1100,13 @@ def api_business_channels_put():
                 return jsonify(error='channel_not_granted'), 403
             if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
                 return jsonify(error='channel_connection_required'), 409
+            if channel == 'email':
+                from service import business_email_setup as setup
+                email_setup = setup.status(get_container(), tenant)
+                if config['enabled'] and not email_setup['can_enable']:
+                    return jsonify(error='email_setup_verification_required'), 409
+                if config['provider_cleanup'] != 'keep' and not ready['channels']['email']['provider_cleanup_available']:
+                    return jsonify(error='email_cleanup_not_supported'), 409
     except ValueError:
         return jsonify(error='invalid_channel_settings'), 400
     _audited_json_write(storage, tenant, channels.FILENAME, value, action='business.channels.update')
@@ -1091,7 +1131,12 @@ def api_business_channel_grants_put():
 def api_business_operations_get():
     _require_channel_owner()
     from service.business_operations import listing
-    response = jsonify(operations=listing(_tenant()))
+    import sqlite3
+    try:
+        rows = listing(_tenant())
+    except (RuntimeError, sqlite3.OperationalError):
+        return jsonify(error='channel_storage_unavailable'), 503
+    response = jsonify(operations=rows)
     response.headers['Cache-Control'] = 'no-store'
     return response
 

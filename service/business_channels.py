@@ -15,6 +15,7 @@ FILENAME = 'business_channels.json'
 GRANTS_FILE = 'business_channel_grants.json'
 DEFAULTS = {channel: {'enabled': False, 'mode': 'review', 'daily_limit': 50,
                       'retention_days': 30, 'privacy_confirmed': False, 'language': 'en-GB'} for channel in CHANNELS}
+DEFAULTS['email'].update(provider_cleanup='keep', cleanup_confirmed=False)
 LANGUAGES = ('en-GB', 'en-US', 'fr-FR', 'es-ES', 'de-DE')
 PHONE = re.compile(r'\+[1-9][0-9]{7,14}\Z')
 UUID = re.compile(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\Z')
@@ -52,6 +53,12 @@ def validate(value):
                 or not isinstance(row.get('language'), str) or row['language'] not in LANGUAGES):
             raise ValueError('invalid_channel_settings')
         row['language'] = row.get('language', 'en-GB')
+        if channel == 'email':
+            if (not isinstance(row['provider_cleanup'], str) or row['provider_cleanup'] not in {'keep', 'trash_handled'}
+                    or type(row['cleanup_confirmed']) is not bool):
+                raise ValueError('invalid_channel_settings')
+            if row['provider_cleanup'] != 'keep' and not row['cleanup_confirmed']:
+                raise ValueError('email_cleanup_confirmation_required')
         if row['enabled'] and not row['privacy_confirmed']:
             raise ValueError('channel_privacy_confirmation_required')
     return result
@@ -128,6 +135,29 @@ def inbox_bindings():
         return {}
 
 
+def email_senders():
+    """Verified operator-owned senders may differ from a forwarding alias."""
+    try:
+        raw = json.loads(os.getenv('V7_EMAIL_SENDERS_JSON', '{}'))
+        if not isinstance(raw, dict) or len(raw) > 1000:
+            raise ValueError
+        routes, result = bindings('email'), {}
+        for recipient, sender in raw.items():
+            recipient, sender = address(recipient), address(sender)
+            if recipient not in routes or recipient in result:
+                raise ValueError
+            result[recipient] = sender
+        ownership = {}
+        for recipient, tenant in routes.items():
+            sender = result.get(recipient, recipient)
+            if sender in ownership and ownership[sender] != tenant:
+                raise ValueError
+            ownership[sender] = tenant
+        return {recipient: result.get(recipient, recipient) for recipient in routes}
+    except (ValueError, TypeError, RecursionError):
+        return {}
+
+
 def resend_key():
     # Preserve existing account-email settings; these variables are never edited
     # by a business owner or returned in channel setup responses.
@@ -145,6 +175,12 @@ def readiness(container, tenant):
         ready = bool(recipients and (resend_key() and os.getenv('V7_EMAIL_WEBHOOK_SECRET') if channel == 'email'
                                    else os.getenv('V7_PHONE_AUTH_TOKEN') and os.getenv('V7_PHONE_ACCOUNT_SID')))
         state[channel] = {'granted': allowed[channel], 'configured': ready, 'recipients': recipients,
-                          'enabled': current[channel]['enabled'], 'mode': current[channel]['mode']}
+                          'enabled': current[channel]['enabled'], 'mode': current[channel]['mode'],
+                          'provider_cleanup_available': channel == 'email' and any(
+                              recipient in recipients for recipient in inbox_bindings().values())}
+        if channel == 'email':
+            senders = email_senders()
+            state[channel]['sending_addresses'] = sorted({senders[recipient] for recipient in recipients if recipient in senders})
+            state[channel]['configured'] = ready and all(recipient in senders for recipient in recipients)
     return {'settings': current, 'grants': allowed, 'channels': state,
             'worker_enabled': os.getenv('V7_CHANNEL_WORKER', 'false') == 'true'}

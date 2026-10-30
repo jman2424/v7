@@ -106,6 +106,10 @@ def processors(container, tenant: str | None) -> list[dict[str, str]]:
     if registration_mail.configured():
         result.append({"name": "Resend" if registration_mail._uses_resend_api() else "Configured email delivery provider",
                        "purpose": "Account verification email delivery."})
+    from service import business_channels
+    email_routes = business_channels.bindings('email')
+    if email_routes and (tenant is None or tenant in email_routes.values()):
+        result.append({"name": "Resend", "purpose": "Enabled business support email receiving, draft/reply delivery and configured inbox retention."})
     if os.getenv("STRIPE_API_KEY", "").strip() and os.getenv("BILLING_PROVIDER", "stripe") == "stripe":
         result.append({"name": "Stripe", "purpose": "Payment checkout, invoicing and subscription administration."})
     for provider, name in (("meta", "Meta WhatsApp"), ("twilio", "Twilio")):

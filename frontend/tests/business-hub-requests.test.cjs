@@ -66,3 +66,12 @@ test('unexpected server errors expose no internal response detail',async()=>{
   respond(requests[0],{error:'PRIVATE_PROVIDER_DETAIL'},false);respond(requests[1],{operations:[]});await run;
   assert.equal(subject.state().error,true);assert.doesNotMatch(subject.state().status,/PRIVATE/);
 });
+
+test('missing queue storage leaves client setup and settings accessible',async()=>{
+  const {subject,requests}=harness();const run=subject.load();
+  respond(requests[0],config('available'));
+  respond(requests[1],{error:'channel_storage_unavailable'},false);await run;
+  assert.equal(subject.state().settings.marker,'available');
+  assert.equal(subject.state().operations.length,0);
+  assert.match(subject.state().status,/awaiting platform provisioning/);
+});

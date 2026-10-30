@@ -56,7 +56,7 @@ def email_webhook():
         thread = data.get('thread')
         if (not inbox_recipient or not isinstance(metadata, dict) or metadata.get('id') != data['email_id']
                 or metadata.get('direction') != 'inbound'
-                or isinstance(thread, dict) and thread.get('folder') in {'spam', 'trash'}):
+                or isinstance(thread, dict) and thread.get('folder') == 'spam'):
             return jsonify(ok=True, ignored=True)
         extras = {'inbox_id': data['inbox_id'], 'thread_id': data['thread_id']}
     try:
@@ -81,11 +81,19 @@ def email_webhook():
     container = get_container()
     if not container.storage.tenant_exists(tenant) or not channels.active(container.storage, tenant, 'email'):
         return jsonify(ok=True, ignored=True)
+    if inbox_recipient and isinstance(data.get('thread'), dict) and data['thread'].get('folder') == 'trash':
+        if not operations.previously_trashed(tenant, data['inbox_id'], data['thread_id']):
+            return jsonify(ok=True, ignored=True)
+        extras['restore_thread'] = True
     config = channels.settings(container.storage, tenant)['email']
+    sending_address = channels.email_senders().get(recipient)
+    if not sending_address:
+        abort(503)
     try:
         job, created = operations.enqueue(tenant, 'email', data['email_id'],
             'email:'+hashlib.sha256((tenant+'\0'+data['email_id']).encode()).hexdigest(), sender,
-            {'email_id': data['email_id'], 'recipient': recipient, 'mode_at_intake': config['mode'], **extras},
+            {'email_id': data['email_id'], 'recipient': recipient, 'sending_address': sending_address,
+             'mode_at_intake': config['mode'], **extras},
             daily_limit=config['daily_limit'])
     except ValueError as exc:
         if str(exc) in {'channel_daily_limit', 'channel_sender_limit'}:

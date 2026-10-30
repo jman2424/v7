@@ -1,16 +1,17 @@
 <script lang="ts">
   import {onMount,onDestroy} from 'svelte';
+  import BusinessEmailSetup from './BusinessEmailSetup.svelte';
   export let tenant: string;
   export let csrf: string;
   export let isPlatform = false;
   export let canManage = false;
   export let apiPrefix = '';
   type Channel = 'email'|'phone';
-  type Preferences = {enabled:boolean;mode:'review'|'automatic';daily_limit:number;retention_days:number;privacy_confirmed:boolean;language:string};
+  type Preferences = {enabled:boolean;mode:'review'|'automatic';daily_limit:number;retention_days:number;privacy_confirmed:boolean;language:string;provider_cleanup?:'keep'|'trash_handled';cleanup_confirmed?:boolean};
   type Operation = {id:string;channel:string;state:string;source_address:string;reply:string;provider_id:string;error_code:string;version:number;created:number;payload:{subject?:string;text?:string;recipient?:string}};
   let settings: Record<Channel,Preferences>|null = null;
   let grants: Record<Channel,boolean> = {email:false,phone:false};
-  let readiness: Record<Channel,{configured:boolean;recipients:string[]}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
+  let readiness: Record<Channel,{configured:boolean;recipients:string[];provider_cleanup_available?:boolean}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
   let workerEnabled = false;
   let operations:Operation[] = [];
   let drafts:Record<string,string> = {};
@@ -24,6 +25,9 @@
   const channelNames:Record<Channel,string> = {email:'Email handler',phone:'Phone handler'};
   const stateNames:Record<string,string> = {queued:'Queued',processing:'Preparing reply',needs_review:'Needs your review',approved:'Approved for sending',sending:'Sending',completed:'Completed',failed:'Failed',uncertain:'Outcome needs checking',rejected:'Declined / skipped'};
   const errorMessages:Record<string,string> = {operation_changed:'This item changed. Refresh activity before continuing.',
+    channel_storage_unavailable:'Channel storage is not available yet. Email setup can be prepared; live processing is awaiting platform provisioning.',
+    email_cleanup_not_supported:'Connected-inbox cleanup needs an explicitly configured Resend Inbox. Other mailbox copies use your provider’s own retention settings.',
+    email_setup_verification_required:'The requested mailbox must be verified and routed before email handling can be enabled.',
     channel_not_granted:'The platform operator must permit this channel first.',channel_connection_required:'Provider routing and the channel worker must be configured first.',
     channel_disabled:'This channel is disabled. Enable it before approving a reply.',action_unavailable:'This action is disabled in your agent settings. Refresh activity after configuring it.',
     slot_unavailable:'That V7 slot is unavailable. Refresh activity and choose another slot or submit a request without a slot.',
@@ -44,10 +48,14 @@
   async function load() {
     const current = ++generation;loading = true;status = '';error = false;
     try {
-      const [configuration,activity] = await Promise.all([call('business-channels'),call('business-operations')]);
+      const [configurationResult,activityResult] = await Promise.allSettled([call('business-channels'),call('business-operations')]);
       if (disposed || current !== generation) return;
+      if(configurationResult.status==='rejected')throw configurationResult.reason;
+      const configuration=configurationResult.value;
       settings = configuration.settings;grants = configuration.grants;readiness = configuration.channels;
-      workerEnabled = configuration.worker_enabled;operations = activity.operations;
+      workerEnabled = configuration.worker_enabled;
+      if(activityResult.status==='fulfilled')operations=activityResult.value.operations;
+      else {operations=[];error=true;status=activityResult.reason instanceof Error?activityResult.reason.message:'Activity is unavailable.';}
       drafts = Object.fromEntries(operations.map(row=>[row.id,row.reply]));
     } catch (err) {if (!disposed && current === generation) {error = true;status = err instanceof Error?err.message:'Could not load the business hub.';}}
     finally {if (!disposed && current === generation) loading = false;}
@@ -107,6 +115,7 @@
   {#if status}<p role="status" class:error>{status}</p>{/if}
   {#if loading}<p role="status">Loading your business hub…</p>{/if}
   {#if settings}
+    <BusinessEmailSetup {tenant} {csrf} {canManage} {apiPrefix}/>
     <div class="notice"><strong>Provider connections and costs</strong><p>Email needs a verified sender, incoming mail routing and a signed webhook. Phone needs a connected business number and signed call routing. AI replies use this business’s prepaid AI credit. Email delivery, number rental, calls and provider speech services have separate provider charges. No number or subscription is purchased here.</p><p>{workerEnabled?'The channel worker is enabled.':'The platform operator must enable the channel worker before live handling can start.'}</p></div>
     {#if isPlatform}<fieldset><legend>Platform permissions for {tenant}</legend><p>These permissions make a channel available to this business. The business must still configure and enable it.</p>{#each ['email','phone'] as key}<label class="check"><input type="checkbox" bind:checked={grants[key as Channel]} disabled={saving}/>{channelNames[key as Channel]} allowed</label>{/each}<button type="button" on:click={saveGrants} disabled={saving}>Save platform permissions</button></fieldset>{/if}
     <form on:submit|preventDefault={save}>
@@ -118,7 +127,15 @@
           <label>Handling mode<select bind:value={settings[channel].mode} disabled={!canManage}><option value="review">Review first</option><option value="automatic">Answer routine questions automatically</option></select></label>
           <p class="hint">{channel==='email'?'Review mode prepares drafts for your approval. Automatic mode can reply to routine questions; unauthenticated senders, attachments and important requests stay in review.':'Review mode takes a message. Automatic mode answers routine questions during the call; important requests are saved for the team. No audio recording is created by V7.'}</p>
           <label>Daily inbound {channel==='phone'?'call turns':'messages'}<input type="number" min="1" max="1000" bind:value={settings[channel].daily_limit} disabled={!canManage} required/></label>
-          <label>Keep hub message content for (days)<input type="number" min="1" max="90" bind:value={settings[channel].retention_days} disabled={!canManage} required/></label><p class="hint">Content is removed by the channel worker after this period. Hashed delivery identifiers stay for up to 90 days to prevent duplicate replies. Conversation history, action records and provider retention are managed separately.</p>
+          <label>Keep {channel==='email'?'V7 email':'hub message'} content for (days)<input type="number" min="1" max="90" bind:value={settings[channel].retention_days} disabled={!canManage} required/></label><p class="hint">{channel==='email'?'The worker removes expired email text, drafts and email conversation memory. New email bodies are not duplicated into CRM history.':'Content is removed by the channel worker after this period.'} Hashed delivery identifiers stay for up to 90 days to prevent duplicate replies. Customer records, action requests, audit records and provider copies have separate retention.</p>
+          {#if channel==='email'}
+            <label>Cleanup of the connected inbox<select bind:value={settings.email.provider_cleanup} disabled={!canManage}>
+              <option value="keep">Keep provider copies; delete V7 content only</option>
+              <option value="trash_handled" disabled={!readiness.email.provider_cleanup_available}>Also trash old, handled Resend Inbox conversations</option>
+            </select></label>
+            <p class="hint">Optional inbox cleanup uses the same retention period. It skips unhandled, recent, unrecognised or incomplete threads. Resend moves eligible conversations (including replies) to Trash and schedules permanent deletion 30 days later. Gmail/Outlook originals and forwarded copies are not deleted by this setting; configure retention with that provider.</p>
+            {#if settings.email.provider_cleanup==='trash_handled'}<label class="check"><input type="checkbox" bind:checked={settings.email.cleanup_confirmed} disabled={!canManage} required/>I am authorised to apply this retention policy to handled conversations in the connected inbox.</label>{/if}
+          {/if}
           {#if channel==='phone'}<label>Call language<select bind:value={settings.phone.language} disabled={!canManage}><option value="en-GB">English (UK)</option><option value="en-US">English (US)</option><option value="fr-FR">French</option><option value="es-ES">Spanish</option><option value="de-DE">German</option></select></label>{/if}
           <label class="check"><input type="checkbox" bind:checked={settings[channel].privacy_confirmed} disabled={!canManage}/>Our privacy notice covers this channel and its saved messages.</label>
         </fieldset>
@@ -133,7 +150,7 @@
         <p>{row.source_address}</p>{#if row.payload.subject}<h4>{row.payload.subject}</h4>{/if}
         {#if row.payload.text}<pre>{row.payload.text}</pre>{/if}
         {#if row.error_code}<p class="hint">{row.error_code.replaceAll('_',' ')}</p>{/if}
-        {#if row.state==='needs_review'&&row.channel==='email'}<label for={'draft-'+row.id}>Reply to {row.source_address}<textarea id={'draft-'+row.id} bind:value={drafts[row.id]} maxlength="6000" rows="6" disabled={!canManage||Boolean(busyId)}></textarea></label><p class="hint">Approving sends this reply only to the original sender, from the business address that received the enquiry.</p>{:else if row.reply}<pre>{row.reply}</pre>{/if}
+        {#if row.state==='needs_review'&&row.channel==='email'}<label for={'draft-'+row.id}>Reply to {row.source_address}<textarea id={'draft-'+row.id} bind:value={drafts[row.id]} maxlength="6000" rows="6" disabled={!canManage||Boolean(busyId)}></textarea></label><p class="hint">Approving sends this reply only to the original sender, from the verified business support address.</p>{:else if row.reply}<pre>{row.reply}</pre>{/if}
         {#if row.provider_id}<p class="hint">Result reference: <code>{row.provider_id}</code></p>{/if}
         {#if row.state==='uncertain'}<p>Check the provider before taking further action. V7 will not automatically repeat this send.</p>{/if}
         {#if row.state==='needs_review'&&canManage}<div class="buttons">{#if row.channel==='email'}<button type="button" disabled={Boolean(busyId)||!drafts[row.id]?.trim()} on:click={()=>decide(row,'approve')}>Approve and send reply</button>{/if}<button type="button" disabled={Boolean(busyId)} on:click={()=>prepareAction(row)}>Prepare business action</button><button type="button" disabled={Boolean(busyId)} on:click={()=>decide(row,'complete')}>Mark handled by our team</button><button type="button" disabled={Boolean(busyId)} on:click={()=>decide(row,'reject')}>Decline</button></div>{/if}
