@@ -57,7 +57,7 @@ def _norm_tenant(t: Optional[str]) -> str:
 
 def _norm_channel(ch: Optional[str]) -> str:
     ch = (ch or "web").strip().lower() or "web"
-    return ch if ch in ("web", "whatsapp") else "web"
+    return ch if ch in ("web", "whatsapp", "email", "phone") else "web"
 
 
 def _safe_int(v: Any, default: int) -> int:

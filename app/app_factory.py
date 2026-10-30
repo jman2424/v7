@@ -92,6 +92,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(health_bp)
     app.register_blueprint(webchat_bp)
     app.register_blueprint(whatsapp_bp)
+    from routes.business_channel_routes import bp as business_channels_bp
+    app.register_blueprint(business_channels_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(files_bp)
@@ -275,4 +277,10 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     def healthz():
         return {"ok": True}
 
+    from service.channel_worker import start as start_business_channels
+    # Start after Gunicorn forks, including deployments using --preload. Health
+    # checks also start the worker; no customer request needs to arrive first.
+    @app.before_request
+    def _start_business_channels():
+        start_business_channels(app)
     return app

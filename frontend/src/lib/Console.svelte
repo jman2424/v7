@@ -18,6 +18,7 @@
   import ApiUsage from './ApiUsage.svelte';
   import Implementation from './Implementation.svelte';
   import ConnectionSettings from './ConnectionSettings.svelte';
+  import BusinessHub from './BusinessHub.svelte';
   import WhatsAppQr from './WhatsAppQr.svelte';
   import Statistics from './Statistics.svelte';
   import ErrorsHealth from './ErrorsHealth.svelte';
@@ -38,7 +39,9 @@
   export let section = 'pipeline';
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
+  sections.operations = 'Business hub';
   const pageDescriptions: Record<string, string> = {
+    operations: 'Manage email and phone handling, review replies and confirm business actions.',
     platform: 'A clear view of your businesses, activity and setup.',
     companies: 'Manage business workspaces and onboarding.',
     pipeline: 'Prioritise leads and keep your next steps clear.',
@@ -65,7 +68,7 @@
   };
   const navigationGroups: { id: string; label: string; keys: string[] }[] = [
     { id: 'businesses', label: 'Businesses', keys: ['platform', 'companies'] },
-    { id: 'activity', label: 'Sales activity', keys: ['pipeline', 'statistics', 'conversations', 'errors'] },
+    { id: 'activity', label: 'Sales activity', keys: ['operations', 'pipeline', 'statistics', 'conversations', 'errors'] },
     { id: 'setup', label: 'Agent and channels', keys: ['agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
     { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
     { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'usage'] },
@@ -336,6 +339,7 @@
   let loading = true;
   let navigationOpen = false;
   const sectionKeywords:Record<string,string>={
+    operations:'business hub email phone calls inbox approvals drafts workflows actions',
     subscription:'billing plans payment invoices cancel change plan',usage:'API AI models memory tokens credit costs',
     website:'widget branding colours embed agent test',integrations:'MCP API OpenAI connections',
     faqs:'FAQ knowledge answers support',account:'login password authenticator 2FA security',
@@ -835,6 +839,7 @@
     if (key === 'platform') return operator && Boolean(user.permissions?.includes('platform.read'));
     if (key === 'companies') return operator || owner;
     if (key === 'team') return (operator || owner) && Boolean(user.permissions?.includes('users.read'));
+    if (key === 'operations') return (operator || owner) && Boolean(user.permissions?.includes('customers.read') && user.permissions?.includes('integrations.read'));
     if (key === 'account') return true;
     // Match the permissions required by each section's actual API reads.
     const requiredPermissions: Record<string, string[]> = {
@@ -1752,6 +1757,7 @@
       {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{#if isPlatform||isOwner}{#key tenant}<Referrals {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}{/if}
       {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'operations'}{#key tenant}<BusinessHub {tenant} {csrf} isPlatform={isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}
         {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}

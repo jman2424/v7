@@ -39,7 +39,7 @@ def turn_scope(channel, request_id, session_id, tenant=None):
     started = time.monotonic()
     current = {'request_id': request_id if isinstance(request_id, str) and re.fullmatch(r'[a-f0-9]{24}', request_id) else '-',
                'session_hash': hashlib.sha256(str(session_id).encode()).hexdigest()[:16],
-               'deadline': started + 30 if channel in {'web', 'test'} else None, 'provider_calls': 0,
+               'deadline': started + 30 if channel in {'web', 'test', 'email', 'phone'} else None, 'provider_calls': 0,
                'tenant': tenant}
     token = _turn.set(current)
     try:
