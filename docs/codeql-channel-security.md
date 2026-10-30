@@ -73,6 +73,16 @@ installed mypy module; CodeQL verification uses the unchanged GitHub workflow.
 No `nosec`, `noqa`, CodeQL suppression, rule exclusion, alert dismissal or disabled
 security workflow is introduced.
 
+The first follow-up CodeQL analysis surfaced historical alert **#66** in the
+shared `account_service._EMAIL_RE` validator. Its domain character classes also
+consumed the dot separator, allowing ambiguous backtracking on a failing suffix.
+The follow-up makes domain labels exclude that separator. Its shared `fullmatch`
+API, ASCII/plus-address support and existing long-local-part account policy stay
+compatible with registration, password recovery and account-email flows. Empty
+domain labels are rejected. No account, credential or permission is migrated.
+Additional account-management, signup, reset and email-change regressions cover
+this correction; the five requested alerts remain fixed without dismissal.
+
 Local verification for this follow-up: final affected Python suite **176 passed,
 2 skipped**; initial overlapping parser/provider/memory suite **167 passed**;
 frontend **111 passed**; repository-wide Ruff passed; Svelte/TypeScript reported

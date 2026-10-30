@@ -23,7 +23,9 @@ def validated_permissions(value):
     if not isinstance(value, list) or any(not isinstance(item, str) or item not in STAFF_PERMISSIONS for item in value):
         raise ValueError('invalid_account_permissions')
     return sorted(set(value))
-_EMAIL_RE = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z0-9.-]+\Z")
+# Domain labels exclude their dot separator, preventing ambiguous repartitioning
+# on a failing suffix. Keep the existing fullmatch API shared by account flows.
+_EMAIL_RE = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+\Z")
 
 
 class AccountService:
