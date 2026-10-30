@@ -1067,8 +1067,8 @@ def api_business_channels_put():
                 return jsonify(error='channel_not_granted'), 403
             if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
                 return jsonify(error='channel_connection_required'), 409
-    except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+    except ValueError:
+        return jsonify(error='invalid_channel_settings'), 400
     _audited_json_write(storage, tenant, channels.FILENAME, value, action='business.channels.update')
     return jsonify(ok=True, **channels.readiness(get_container(), tenant))
 
@@ -1080,8 +1080,8 @@ def api_business_channel_grants_put():
     from service import business_channels as channels
     try:
         value = channels.validate_grants(request.get_json(silent=True))
-    except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+    except ValueError:
+        return jsonify(error='invalid_channel_grants'), 400
     tenant = _tenant()
     _audited_json_write(_storage(), tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
     return jsonify(ok=True, grants=value)
@@ -1115,8 +1115,8 @@ def api_business_operations_decision(operation_id):
         outcome = operations.decide(tenant, operation_id, data.get('version'), data.get('decision'), reply=data.get('reply'))
     except LookupError:
         abort(404)
-    except ValueError as exc:
-        return jsonify(error=str(exc)), 409
+    except ValueError:
+        return jsonify(error='operation_changed'), 409
     _audit_operation(tenant, operation_id, 'business.operation.decision', data['decision'])
     channel_worker.wake()
     return jsonify(ok=True, operation=outcome)
@@ -1143,8 +1143,8 @@ def api_business_operations_action(operation_id):
         job = operations.begin_action(tenant, operation_id, data['version'], data['action'])
     except LookupError:
         abort(404)
-    except ValueError as exc:
-        return jsonify(error=str(exc)), 409
+    except ValueError:
+        return jsonify(error='operation_changed'), 409
     try:
         outcome = submit_action(_storage(), tenant,
             {**data['action'], 'idempotency_key': 'operation-'+job['id']},

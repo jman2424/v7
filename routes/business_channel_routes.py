@@ -40,17 +40,31 @@ def email_webhook():
         abort(400)
     if not isinstance(event, dict):
         abort(400)
-    if event.get('type') != 'email.received':
+    if event.get('type') not in {'email.received', 'inbox.email.received'}:
         return jsonify(ok=True, ignored=True)
     data = event.get('data')
     if not isinstance(data, dict) or not isinstance(data.get('email_id'), str) or not _UUID.fullmatch(data['email_id']):
         abort(400)
+    metadata, extras = data, {}
+    inbox_recipient = None
+    if event['type'] == 'inbox.email.received':
+        if any(not isinstance(data.get(key), str) or not channels.UUID.fullmatch(data[key])
+               for key in ('inbox_id', 'thread_id')):
+            abort(400)
+        inbox_recipient = channels.inbox_bindings().get(data['inbox_id'])
+        metadata = data.get('email')
+        thread = data.get('thread')
+        if (not inbox_recipient or not isinstance(metadata, dict) or metadata.get('id') != data['email_id']
+                or metadata.get('direction') != 'inbound'
+                or isinstance(thread, dict) and thread.get('folder') in {'spam', 'trash'}):
+            return jsonify(ok=True, ignored=True)
+        extras = {'inbox_id': data['inbox_id'], 'thread_id': data['thread_id']}
     try:
-        sender = channels.address(parseaddr(data.get('from', ''))[1])
-        if (not isinstance(data.get('from'), str) or not isinstance(data.get('to'), list)
-                or not 1 <= len(data['to']) <= 50 or any(not isinstance(value, str) for value in data['to'])):
+        sender = channels.address(parseaddr(metadata.get('from', ''))[1])
+        if (not isinstance(metadata.get('from'), str) or not isinstance(metadata.get('to'), list)
+                or not 1 <= len(metadata['to']) <= 50 or any(not isinstance(value, str) for value in metadata['to'])):
             raise ValueError
-        recipients = {channels.address(parseaddr(value)[1]) for value in data['to']}
+        recipients = {channels.address(parseaddr(value)[1]) for value in metadata['to']}
     except (TypeError, ValueError):
         abort(400)
     routes = channels.bindings('email')
@@ -59,6 +73,11 @@ def email_webhook():
     if len(matched) != 1:
         return jsonify(ok=True, ignored=True)
     recipient, tenant = matched[0]
+    if (inbox_recipient and inbox_recipient != recipient
+            or not inbox_recipient and recipient in channels.inbox_bindings().values()):
+        # Subscribe to the Inbox event for configured inboxes, never both
+        # delivery products for one address, even if provider IDs differ.
+        return jsonify(ok=True, ignored=True)
     container = get_container()
     if not container.storage.tenant_exists(tenant) or not channels.active(container.storage, tenant, 'email'):
         return jsonify(ok=True, ignored=True)
@@ -66,7 +85,7 @@ def email_webhook():
     try:
         job, created = operations.enqueue(tenant, 'email', data['email_id'],
             'email:'+hashlib.sha256((tenant+'\0'+data['email_id']).encode()).hexdigest(), sender,
-            {'email_id': data['email_id'], 'recipient': recipient, 'mode_at_intake': config['mode']},
+            {'email_id': data['email_id'], 'recipient': recipient, 'mode_at_intake': config['mode'], **extras},
             daily_limit=config['daily_limit'])
     except ValueError as exc:
         if str(exc) in {'channel_daily_limit', 'channel_sender_limit'}:

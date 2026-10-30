@@ -31,6 +31,7 @@ def signature(raw, timestamp=None):
 
 @pytest.fixture
 def configured(app, monkeypatch):
+    monkeypatch.delenv('V7_EMAIL_INBOX_ROUTES_JSON',raising=False)
     monkeypatch.setenv('V7_CHANNEL_RESEND_API_KEY', 're_synthetic_not_a_real_key')
     monkeypatch.setenv('V7_EMAIL_WEBHOOK_SECRET', SECRET)
     monkeypatch.setenv('V7_EMAIL_ROUTES_JSON', '{"business@example.com":"EXAMPLE","other@example.com":"OTHER"}')
@@ -257,7 +258,9 @@ def test_review_phone_saves_message_without_ai_or_send(client, app, configured, 
 
 
 def test_worker_moves_on_after_one_tenant_failure(configured, monkeypatch):
-    monkeypatch.setattr(type(configured.storage),'tenant_keys',lambda _:['BROKEN','EXAMPLE'])
+    monkeypatch.setenv('V7_EMAIL_ROUTES_JSON','{"broken@example.com":"BROKEN","business@example.com":"EXAMPLE"}')
+    monkeypatch.delenv('V7_PHONE_ROUTES_JSON',raising=False)
+    monkeypatch.setattr(type(configured.storage),'tenant_keys',lambda _:pytest.fail('Background work used admin-session listing'))
     real_settings=channels.settings
     def settings(storage,tenant):
         if tenant=='BROKEN':
@@ -290,3 +293,38 @@ def test_mark_handled_cannot_make_an_unverified_draft_spoken(client, app, config
     operations.decide('EXAMPLE',row['id'],row['version'],'complete')
     poll=ElementTree.fromstring(turn.data).find('Redirect').text
     assert 'UNVERIFIED' not in phone(client,app,poll).data.decode()
+
+
+def test_existing_inbox_product_is_explicitly_bound_and_remains_reviewed(client, configured, monkeypatch):
+    inbox='00000000-0000-4000-8000-000000000002'
+    thread='00000000-0000-4000-8000-000000000003'
+    monkeypatch.setenv('V7_EMAIL_INBOX_ROUTES_JSON',json.dumps({inbox:'business@example.com'}))
+    event={'type':'inbox.email.received','data':{'email_id':EMAIL_ID,'inbox_id':inbox,'thread_id':thread,
+        'thread':{'folder':'inbox'},'email':{'id':EMAIL_ID,'direction':'inbound','from':'visitor@example.net','to':['business@example.com']}}}
+    def post():
+        raw=json.dumps(event).encode()
+        return client.post('/channels/email/webhook',data=raw,content_type='application/json',headers=signature(raw))
+    queued=post()
+    assert queued.status_code==200 and queued.json['queued']
+    assert intake(client).json['ignored']  # Do not consume two provider event types for one inbox.
+    calls=[]
+    def request(method,path,**kwargs):
+        calls.append((method,path))
+        return received(id=EMAIL_ID,direction='inbound',headers={'Authentication-Results':'dmarc=pass'})
+    monkeypatch.setattr(email,'_request',request)
+    fake_answer(monkeypatch,configured)
+    channel_worker.process_one(configured,'EXAMPLE')
+    assert operations.get('EXAMPLE',queued.json['reference'])['state']=='needs_review'
+    assert calls==[('GET','/inboxes/'+inbox+'/threads/'+thread+'/emails/'+EMAIL_ID)]
+    event['data']['email']['to']=['other@example.com']
+    assert post().json['ignored']
+    event['data']['email']['direction']='outbound'
+    assert post().json['ignored']
+
+
+def test_inbox_read_cannot_follow_untrusted_paths_or_return_an_outbound_message(monkeypatch):
+    with pytest.raises(email.EmailTransportError,match='invalid_email_id'):
+        email.receive_inbox('../other',EMAIL_ID,EMAIL_ID)
+    monkeypatch.setattr(email,'_request',lambda *_:{'id':EMAIL_ID,'direction':'outbound'})
+    with pytest.raises(email.EmailTransportError,match='email_envelope_mismatch'):
+        email.receive_inbox(EMAIL_ID,EMAIL_ID,EMAIL_ID)

@@ -104,3 +104,15 @@ def test_retention_removes_content_but_delayed_deliveries_cannot_resend(database
     assert duplicate['payload']=={} and duplicate['source_address']==duplicate['conversation_id']==duplicate['reply']==''
     assert 'message-1' not in duplicate['event_key']
     assert operations.claim('ALPHA') is None
+
+
+@pytest.mark.parametrize('value', ['!'*20000, 'a@'+'a.'*130+'com', 'a@-bad.example', 'a@bad-.example',
+    'a..b@example.com', 'a@example.123', 'a@b@c.example', 'a@éxample.com', '.a@example.com', 'a.@example.com'])
+def test_email_parser_rejects_hostile_and_malformed_addresses(value):
+    with pytest.raises(ValueError,match='invalid_channel_address'):
+        channels.address(value)
+
+
+@pytest.mark.parametrize('value', ['info@example.com','a+b@example.co.uk',"valid!local@example.com"])
+def test_linear_email_parser_accepts_normal_addresses(value):
+    assert channels.address(value)==value

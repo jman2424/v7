@@ -13,7 +13,7 @@ import re
 import ssl
 import time
 
-from service.business_channels import address, resend_key
+from service.business_channels import address, resend_key, UUID
 
 
 class EmailTransportError(RuntimeError):
@@ -48,7 +48,8 @@ def _request(method, path, *, data=None, idempotency_key=None):
     key = resend_key()
     if not key:
         raise EmailTransportError('email_not_configured')
-    headers = {'Authorization': 'Bearer '+key, 'Content-Type': 'application/json'}
+    headers = {'Authorization': 'Bearer '+key, 'Content-Type': 'application/json',
+               'User-Agent': 'VertexSeven/1.0 business-channels'}
     if idempotency_key:
         headers['Idempotency-Key'] = idempotency_key
     connection = HTTPSConnection('api.resend.com', timeout=10, context=ssl.create_default_context())
@@ -76,6 +77,17 @@ def receive(email_id):
     if not isinstance(email_id, str) or not re.fullmatch(r'[a-fA-F0-9-]{36}', email_id):
         raise EmailTransportError('invalid_email_id')
     return _request('GET', '/emails/receiving/'+email_id+'?html_format=cid')
+
+
+def receive_inbox(inbox_id, thread_id, email_id):
+    if any(not isinstance(value, str) or not UUID.fullmatch(value) for value in (inbox_id, thread_id, email_id)):
+        raise EmailTransportError('invalid_email_id')
+    result = _request('GET', '/inboxes/'+inbox_id+'/threads/'+thread_id+'/emails/'+email_id)
+    if result.get('id') != email_id or result.get('direction') != 'inbound':
+        raise EmailTransportError('email_envelope_mismatch')
+    # Inbox API currently documents no provider-authenticated DMARC result or
+    # raw loop headers. Never invent that evidence from email-owned fields.
+    return {**result, 'authentication': {}, 'headers': {}}
 
 
 class _Text(HTMLParser):

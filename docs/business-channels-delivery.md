@@ -45,8 +45,9 @@ The user selected **both** review-first and automatic routine-answer modes.
 ## Live prerequisites found
 
 - Existing Resend domain is verified and sending is enabled. Receiving is
-  disabled; no Resend webhooks are registered. Existing mail routing must be
-  inspected before enabling receiving; do not replace MX records blindly.
+  disabled for the standard inbound product; no Resend webhooks are registered.
+  The account already has three Inbox-product mailboxes. Their separate signed
+  event/body adapter is implemented; existing forwarding/MX was not changed.
 - A business phone number/provider has not yet been supplied.
 - Previous GBP 2 benchmark cap remains cumulative; do not reset the ledger.
   Current conservative total after the current-change release check:
@@ -82,14 +83,22 @@ The user selected **both** review-first and automatic routine-answer modes.
    the web app. The table is private, has forced tenant RLS and no Data API grants.
 2. Keep `V7_CHANNEL_WORKER=false` during setup. Configure only server-side values:
    `V7_CHANNEL_RESEND_API_KEY`, `V7_EMAIL_WEBHOOK_SECRET`, `V7_EMAIL_ROUTES_JSON`,
+   `V7_EMAIL_INBOX_ROUTES_JSON`,
    `V7_PHONE_ACCOUNT_SID`, `V7_PHONE_AUTH_TOKEN`, `V7_PHONE_ROUTES_JSON`.
    Email route keys are exact recipient addresses; phone route keys are E.164
    numbers. Values are exact existing tenant keys. No fallback tenant is used.
 3. Standard Resend receiving uses a signed `email.received` webhook at
    `https://<V7 origin>/channels/email/webhook`. Inspect IONOS/Resend mailbox
    forwarding before changing receiving/MX records. This implementation does not
-   silently convert the separate Resend Inbox product's events into standard
-   receiving events. Confirm the actual delivery product before activation.
+   treat the separate Resend Inbox product's events as standard receiving events.
+   Existing Inbox addresses use `inbox.email.received` at the same signed endpoint,
+   with `V7_EMAIL_INBOX_ROUTES_JSON` mapping exact inbox UUIDs to addresses already
+   present in `V7_EMAIL_ROUTES_JSON`. Body retrieval is bound to that inbox/thread
+   and message. Standard receiving events for those addresses are ignored to avoid
+   duplicate handling. The Inbox API documents no provider-authenticated DMARC
+   result, so those drafts require owner review even in automatic mode. Replies
+   use the outbound email API and original sender, ignoring untrusted Reply-To;
+   V7 does not claim that its sent reply appears in the Inbox product's thread UI.
 4. Twilio inbound voice uses POST `https://<V7 origin>/channels/phone/incoming`.
    V7 signs continuation tokens and validates the provider signature against the
    configured `BASE_URL`, account, number and call ID. No outbound calls or audio
@@ -123,6 +132,9 @@ Secure email-thread continuity is a separate enhancement, not silently enabled.
 - If the worker is disabled, run `python -m service.channel_worker --purge-only`
   in the configured server environment for retention. `--once` runs a bounded
   queue pass instead. Neither command is a substitute for worker monitoring.
+  The worker uses only tenants in operator-owned provider routes, without an
+  admin browser session or a new global tenant-listing permission. If a route is
+  removed, use `--purge-only --tenant <existing-key>` for its retention maintenance.
 - Request/model stages reuse existing metadata-only diagnostics. Queue errors
   store safe codes, never provider exception bodies, credentials or message text
   in logs. Owners see tenant-scoped source text and drafts in the hub.
@@ -150,3 +162,16 @@ Secure email-thread continuity is a separate enhancement, not silently enabled.
 
 This record distinguishes implementation and synthetic verification from
 deployment, provider connection and real delivery verification.
+
+CI follow-up: the initial native runtime run confirmed that the cross-tenant
+insert was blocked, but its test expected a driver exception outside the shared
+sanitizing connection wrapper. The assertion now runs inside a savepoint. The
+worker now obtains tenant scope from operator-owned routes rather than the
+admin-session-only tenant listing. CodeQL's new email-regex and exception-detail
+alerts were addressed by linear address parsing and fixed API error messages.
+Frozen migration also preserves queue payloads as text and quarantines interrupted
+sends/actions. These follow-ups require the latest CI result before release.
+The security-follow-up run passed **84 tests with 3 environment-dependent skips**;
+the subsequent latest provider/queue run passed **42 tests**, including the Inbox
+adapter, worker scope and malicious address cases. These groups overlap earlier
+runs and do not replace native PostgreSQL CI or real provider delivery tests.

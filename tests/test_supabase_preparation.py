@@ -343,8 +343,25 @@ def pg():
         yield conn
 
 
+def _channel_operation_source(source):
+    from service.business_operations import _SCHEMA
+    with closing(sqlite3.connect(source/'logs/security.db')) as db, db:
+        db.execute(_SCHEMA)
+        db.execute('INSERT INTO business_operations(id,tenant,channel,event_key,conversation_id,source_address,payload,state,lease,lease_until,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                   ('0'*32,'ALPHA','email','f'*64,'email:synthetic','visitor@example.net',
+                    '{"text":"Preserved request"}','sending','old-worker',999,1,1))
+
+
+def test_channel_migration_preserves_content_and_never_restarts_an_interrupted_send(source):
+    _channel_operation_source(source)
+    row=prepare(source).rows['business_operations'][0]
+    assert row['state']=='uncertain' and row['lease']=='' and row['lease_until']==0
+    assert row['payload']=='{"text":"Preserved request"}'
+
+
 def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypatch):
     psycopg = pytest.importorskip('psycopg')
+    _channel_operation_source(mixed_source)
     with closing(sqlite3.connect(mixed_source / 'logs/analytics.db')) as source_db, source_db:
         source_db.execute('ALTER TABLE events ADD COLUMN message_id TEXT')
         source_db.execute('INSERT INTO events(id,ts_utc,tenant,channel,session_id,event_type,meta_json,message_id) '
@@ -361,6 +378,8 @@ def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypat
     assert pg.execute('SELECT count(*) FROM v7_private.tenants').fetchone()[0] == 0
     import_bundle(pg,bundle)
     verify(pg,bundle)
+    assert pg.execute('SELECT tenant,payload,state,lease FROM v7_private.business_operations').fetchone() == (
+        'Alpha','{"text":"Preserved request"}','uncertain','')
     assert pg.execute('SELECT account_hash, step FROM v7_private.totp_steps').fetchall() == [('test-account-hash', 17000000)]
     assert pg.execute("SELECT payload FROM v7_private.document_versions WHERE filename='_snapshot.json'").fetchone()[0] == {
         'tenant': 'Alpha', 'created_at': '2026-09-26T00:00:00Z', 'source': 'business/Alpha',

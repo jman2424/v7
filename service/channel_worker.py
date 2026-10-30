@@ -44,7 +44,7 @@ def _answer(container, job, text):
     # Preserve existing deterministic salutations/boundaries. This does not
     # bless an extractive FAQ, price, policy, memory recall or model fallback.
     local_conversation = (result.get('intent') in {'greeting', 'smalltalk', 'out_of_scope'}
-                          and not re.search(r'https?://|[£$€%]|\d', answer))
+                          and not re.search(r'https?://|[£$€%]|\b\d+(?:[.,]\d+)?\s*(?:GBP|USD|EUR|pounds?|dollars?|euros?)\b', answer, re.I))
     routine = ((verified or local_conversation) and agent.get('intent') not in {'book', 'quote', 'checkout', 'handoff', 'cancel', 'complaint'}
                and not agent.get('requested_action')
                and agent.get('next_action') not in {'open_request_form', 'request_handoff'})
@@ -84,6 +84,9 @@ def process_one(container, tenant):
         if channels.bindings(channel).get(payload['recipient']) != tenant:
             operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'], error_code='channel_route_changed')
             return True
+        if channel == 'email' and payload.get('inbox_id') and channels.inbox_bindings().get(payload['inbox_id']) != payload['recipient']:
+            operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'], error_code='channel_route_changed')
+            return True
         if job['state'] == 'sending':
             # All sends use an immutable approved draft and one stable provider
             # idempotency key. Expired/ambiguous sends cannot be auto-retried.
@@ -97,7 +100,8 @@ def process_one(container, tenant):
             operations.finish(tenant, identifier, lease, 'needs_review', error_code='call_message_received')
             return True
         if channel == 'email':
-            message = business_email.receive(payload['email_id'])
+            message = (business_email.receive_inbox(payload['inbox_id'], payload['thread_id'], payload['email_id'])
+                       if payload.get('inbox_id') else business_email.receive(payload['email_id']))
             clean = business_email.content(message, expected_sender=job['source_address'], expected_recipient=payload['recipient'])
             payload = {**payload, **clean}
             # No raw headers, HTML, attachments, download URLs or credentials.
@@ -146,11 +150,11 @@ def process_one(container, tenant):
     return True
 
 
-def run_pending(container, limit=20):
+def run_pending(container, limit=20, *, tenants=None):
     global _tenant_offset
     count = 0
     # A bounded share per tenant prevents one busy inbox monopolising a pass.
-    tenants = list(container.storage.tenant_keys())
+    tenants = channels.configured_tenants() if tenants is None else list(tenants)
     if not tenants:
         return 0
     start = _tenant_offset % len(tenants)
@@ -203,14 +207,21 @@ if __name__ == '__main__':
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument('--once', action='store_true')
     choice.add_argument('--purge-only', action='store_true')
+    parser.add_argument('--tenant', help='Explicit existing tenant for maintenance, including a removed provider route.')
     args = parser.parse_args()
     app = create_app()
     with app.app_context():
+        tenants = channels.configured_tenants()
+        if args.tenant:
+            tenant = app.container.storage.validate_tenant_key(args.tenant)
+            if not app.container.storage.tenant_exists(tenant):
+                parser.error('Unknown maintenance tenant')
+            tenants = [tenant]
         if args.once:
-            print('Processed operations:', run_pending(app.container))
+            print('Processed operations:', run_pending(app.container, tenants=tenants))
         else:
             count = 0
-            for tenant in app.container.storage.tenant_keys():
+            for tenant in tenants:
                 for channel in channels.CHANNELS:
                     config = channels.settings(app.container.storage, tenant)[channel]
                     count += operations.purge(tenant, channel, config['retention_days'])

@@ -258,7 +258,7 @@ def prepare(data_dir: Path, *, accounts: Path | None = None) -> Bundle:
     # Older SQLite analytics and CRM uppercase tenant IDs, while document
     # directories preserve case. Reconcile only a unique existing business;
     # never create a tenant or discard/merge rows to hide an orphan/collision.
-    for table in sorted(ANALYTICS_TABLES):
+    for table in sorted(ANALYTICS_TABLES | {'business_operations'}):
         for row in bundle.rows[table]:
             if 'tenant' in row:
                 row['tenant'] = canonical_reference(row['tenant'], table)
@@ -426,7 +426,8 @@ def import_bundle(conn, bundle):
                 sql.Identifier(table), sql.SQL(',').join(map(sql.Identifier, columns)),
                 sql.SQL(',').join(sql.Placeholder() for _ in columns))
             for row in rows:
-                values = [Jsonb(row[column]) if column == 'payload' else row[column] for column in columns]
+                values = [Jsonb(row[column]) if column == 'payload' and table != 'business_operations'
+                          else row[column] for column in columns]
                 conn.execute(query, values)
         # Queue ownership is derived metadata, not a new source of authority.
         # Imported pending telemetry must be recoverable before new traffic.

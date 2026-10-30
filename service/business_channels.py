@@ -17,12 +17,21 @@ DEFAULTS = {channel: {'enabled': False, 'mode': 'review', 'daily_limit': 50,
                       'retention_days': 30, 'privacy_confirmed': False, 'language': 'en-GB'} for channel in CHANNELS}
 LANGUAGES = ('en-GB', 'en-US', 'fr-FR', 'es-ES', 'de-DE')
 PHONE = re.compile(r'\+[1-9][0-9]{7,14}\Z')
-EMAIL = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\Z")
+UUID = re.compile(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\Z')
+_LOCAL = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&'*+/=?^_`{|}~.-")
+_HOST = frozenset('abcdefghijklmnopqrstuvwxyz0123456789-')
 
 
 def address(value):
-    if (not isinstance(value, str) or len(value) > 254 or not EMAIL.fullmatch(value)
-            or value.startswith('.') or '..' in value or '.@' in value or len(value.split('@')[0]) > 64):
+    if not isinstance(value, str) or len(value) > 254 or value.count('@') != 1:
+        raise ValueError('invalid_channel_address')
+    local, domain = value.split('@')
+    labels = domain.lower().split('.')
+    if (not 1 <= len(local) <= 64 or local.startswith('.') or local.endswith('.') or '..' in local
+            or any(char not in _LOCAL for char in local) or len(labels) < 2
+            or not 2 <= len(labels[-1]) <= 63 or not labels[-1].isascii() or not labels[-1].isalpha()
+            or any(not 1 <= len(label) <= 63 or label.startswith('-') or label.endswith('-')
+                   or any(char not in _HOST for char in label) for label in labels)):
         raise ValueError('invalid_channel_address')
     return value.lower()
 
@@ -95,6 +104,28 @@ def active(storage, tenant, channel):
     from service.tenant_access import activation
     return (channel in CHANNELS and grants(storage, tenant)[channel]
             and settings(storage, tenant)[channel]['enabled'] and activation(tenant)['active'])
+
+
+def configured_tenants():
+    """Worker authority comes from operator-owned routes, never an admin cookie."""
+    return sorted({tenant for channel in CHANNELS for tenant in bindings(channel).values()})
+
+
+def inbox_bindings():
+    """An inbox ID must be explicitly bound to an already routed address."""
+    try:
+        value = json.loads(os.getenv('V7_EMAIL_INBOX_ROUTES_JSON', '{}'))
+        if not isinstance(value, dict) or len(value) > 1000:
+            return {}
+        routes, result = bindings('email'), {}
+        for identifier, recipient in value.items():
+            recipient = address(recipient)
+            if not UUID.fullmatch(identifier) or recipient not in routes:
+                return {}
+            result[identifier] = recipient
+        return result
+    except (ValueError, TypeError, RecursionError):
+        return {}
 
 
 def resend_key():
