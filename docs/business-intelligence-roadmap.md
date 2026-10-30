@@ -73,6 +73,13 @@ contain historical descriptions; runtime code and current tests take precedence.
    another model call. Original agent metadata still passes its validators;
    malformed citations, links and unauthorized actions cannot use this path.
    This does not enable free-form policy prose or remove existing exceptions.
+9. `usage_currency.gbp_rate` can synchronously refresh its external reference
+   during a wallet reservation (three-second request timeout). A CI test exposed
+   this dependency by importing the funding fixture without its module's autouse
+   FX stub. That prompt-stability unit test now uses a synthetic reference. The
+   production pause for missing/stale rates remains mandatory. A future latency
+   improvement can refresh in the background only while a verified, sufficiently
+   fresh cached rate exists; missing/stale references must still pause paid AI.
 
 ## C–D. Extensions and architecture
 
@@ -143,6 +150,7 @@ a latency promise without controlled live measurements. The previously authorize
 | --- | --- | --- | --- |
 | 1a — core relevance | Focus FAQ context and prevent exact conflicting FAQ topics from being treated as reliable facts. Preserve source text, price rules, current choices, multilingual facts and broad-query fallback. | Small/large knowledge sets; answer-only distinctive facts; compound questions; prices/estimates; follow-up/changed mind; contradictory/private/inactive FAQs; existing grounding suite. No extra model calls. | Revert code; no data migration. |
 | 1b — knowledge review | Authenticated on-demand report and owner UI over existing documents. Every tier uses the same core service. | Tenant swap, read permissions, no raw private data, empty/malformed sources, duplicates/conflicts, site changed/stale/unknown timestamps; build/type checks. | Remove endpoint/UI; saved data unchanged. |
+| 1c — provider compatibility | Inventory configured chat models and verify a supported replacement before **14 January 2027**. OpenAI's [published schedule](https://developers.openai.com/api/docs/deprecations) includes the existing GPT-4o mini and GPT-4.1 mini snapshots. No automatic global model switch. | Representative factual/multi-turn/permission failures, costs, p50/p95 and provider availability; no weakened grounding or credit enforcement. | Keep a tested, still-supported configuration during staged rollout; do not rely on a retired model after its shutdown date. |
 | 2 — module control | Registry + durable platform/plan/tenant policy, owner controls and audit. Inventory native switches and grandfather enabled actions before enforcing new gates. No global intelligence toggle. | Discovery/execution/direct API/job policy matrix; forged tenant/tool; stale cache/chat; disable mid-flight; revision races; billing unaffected; DB RLS tests. | Preserve explicit legacy grants; staged migration with reversible new policy records. |
 | 3 — useful native modules | Wrap existing lead, quote, product assistance and native booking services first; add support-case creation only with tenant-owned schema, confirmation and owner inbox. Depends on stage 2. | Real durable result/receipt, duplicates/concurrent submissions, explicit refusal/approval, tool outage, cancellation, no invented availability/payment/refund. | Disable optional module; retain records for authorized read/recovery. |
 | 4 — external adapters | Choose systems per client; consented credentials, minimum scopes, customer ownership checks and typed adapter contract. No arbitrary “anything” executor. | Provider sandbox contract tests; timeouts, rate limits, retries/idempotency, revoked credentials, uncertain outcomes and signed webhooks. | Disconnect/revoke; reconcile in-flight outcomes, do not delete customer records. |
@@ -152,8 +160,9 @@ a latency promise without controlled live measurements. The previously authorize
 
 - [x] Preserve original brief and inventory existing implementation on a separate branch.
 - [x] Establish compatibility, all-tier intelligence and default-off module rules.
-- [x] Stage 1a implementation; targeted regression verification passed (full CI pending).
-- [x] Stage 1b implementation; tenant/permission tests and synthetic Chrome UI check passed (full CI pending).
+- [x] Stage 1a implementation; final live checks 28/28 turns across ten conversations; offline replay 208/208. Full CI status is linked in [PR #7](https://github.com/jman2424/v7/pull/7).
+- [x] Stage 1b implementation; tenant/permission tests and synthetic Chrome UI check passed. Full CI status is linked in PR #7.
+- [ ] Stage 1c provider migration before the published retirement date.
 - [ ] Stage 2 policy/migration implementation.
 - [ ] Stages 3–5; require preceding gates and concrete business/provider configuration.
 
@@ -181,6 +190,11 @@ exact test results, commit and release status as each stage completes.
 - The first live rerun of the policy-gap correction showed the model repeating
   the same unrelated pricing evidence after correction. This led to the
   deterministic withholding/verified-unknown path above, covered by 224 tests.
+- Final production-code evaluation revision: `8def01452bd82a0bf1799caf453b64cadfc3ab0a`.
+  Both live suites passed (7 scenarios/20 turns and 3 scenarios/8 turns); the exact
+  same runtime fingerprint passed the 70-scenario/208-turn offline replay. A later
+  test/docs-only commit isolates the prompt-prefix unit test's accidental real FX
+  network call. It does not change the evaluated runtime or its billing logic.
 - A local full-suite attempt was interrupted after discovering an optional-source
   diagnostic regression. That issue is fixed and its test passes. Sandbox temp ACL
   failures required the previously authorized normal test environment. Neither
