@@ -21,10 +21,14 @@ PHONE = re.compile(r'\+[1-9][0-9]{7,14}\Z')
 UUID = re.compile(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\Z')
 _LOCAL = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&'*+/=?^_`{|}~.-")
 _HOST = frozenset('abcdefghijklmnopqrstuvwxyz0123456789-')
+MAX_EMAIL_LENGTH = 254
 
 
-def address(value):
-    if not isinstance(value, str) or len(value) > 254 or value.count('@') != 1:
+def address(value: object) -> str:
+    """Bound input before scanning; all checks are linear, with no backtracking."""
+    if not isinstance(value, str) or len(value) > MAX_EMAIL_LENGTH:
+        raise ValueError('invalid_channel_address')
+    if value.count('@') != 1:
         raise ValueError('invalid_channel_address')
     local, domain = value.split('@')
     labels = domain.lower().split('.')
