@@ -61,6 +61,11 @@
   const dictationLabel = document.getElementById("dictate-label");
   const stopAudio = document.getElementById("stop-speaking");
   const closeChat = document.getElementById("chat-close");
+  const clearChat = document.getElementById("chat-clear");
+  const clearConfirmation = document.getElementById("chat-clear-confirmation");
+  const clearConfirm = document.getElementById("chat-clear-confirm");
+  const clearCancel = document.getElementById("chat-clear-cancel");
+  const greetingText = log.querySelector?.('.msg--intro .msg__bubble')?.textContent || '';
   const actionSection = document.getElementById("chat-actions");
   const actionButtons = document.getElementById("chat-action-buttons");
   const actionStatus = document.getElementById("chat-action-status");
@@ -93,6 +98,7 @@
   let actionToken = "";
   let busy = false;
   let actionBusy = false;
+  let conversationGeneration = 0, replyController = null;
   let activeAction = "";
   let actionRequestId = "";
   let availableActions = {};
@@ -302,7 +308,8 @@
       if (slots.some(slot => slot.id === selected)) actionSlot.value = selected;
     }
   };
-  const loadActions = async () => {
+  const loadActions = async ({preserveStatus = false} = {}) => {
+    const generation = conversationGeneration;
     actionRetry.hidden = true;
     const url = new URL(config.actionsEndpoint, window.location.origin);
     url.searchParams.set("tenant", config.tenant);
@@ -312,6 +319,7 @@
       const response = await fetch(url, {credentials: "same-origin", signal:controller.signal});
       if (!response.ok) throw new Error("Action options unavailable");
       const data = await response.json();
+      if (generation !== conversationGeneration) return;
       availableActions = data && typeof data === "object" ? data : {};
       actionToken = typeof availableActions.conversation_token === "string" ? availableActions.conversation_token : "";
       if (!actionToken) throw new Error("Missing request token");
@@ -323,9 +331,10 @@
         const [bubble, suggestions] = restoredRequests.shift();
         addSuggestedActions(bubble, suggestions);
       }
-      if (activeAction === "consultation") refreshSlots(actionSlot.value);
-      setActionStatus("");
+      if (activeAction === "consultation" && !actionBusy) refreshSlots(actionSlot.value);
+      if (!preserveStatus) setActionStatus("");
     } catch {
+      if (generation !== conversationGeneration) return;
       availableActions = {};
       actionButtons.replaceChildren();
       actionForm.hidden = true;
@@ -369,10 +378,12 @@
     if (!actionName.value.trim()) { setActionStatus("Enter your name.", true); actionName.focus(); return; }
     if (!actionContact.value.trim()) { setActionStatus("Enter your contact details.", true); actionContact.focus(); return; }
     actionBusy = true;
+    if (clearChat) clearChat.disabled = true;
     actionSubmit.disabled = true;
     actionCancel.disabled = true;
     setActionStatus("Sending your request…");
     const action = activeAction;
+    const generation = conversationGeneration;
     const payload = {
       tenant: config.tenant,
       action,
@@ -412,7 +423,7 @@
           throw new Error("This option is no longer available. Reload the options and choose another way to continue.");
         }
         if (error === "invalid_conversation" || error === "conversation_expired") {
-          remember("");
+          if (generation === conversationGeneration) remember("");
           actionRetry.hidden = false;
           throw new Error("This request session expired. Reload the options, then send again.");
         }
@@ -445,6 +456,7 @@
     } finally {
       clearTimeout(timer);
       actionBusy = false;
+      if (clearChat) clearChat.disabled = false;
       actionSubmit.disabled = false;
       actionCancel.disabled = false;
     }
@@ -529,6 +541,7 @@
     event.preventDefault();
     const text = input.value.trim();
     if (busy || !text) return;
+    const generation = conversationGeneration;
     const now = () => window.performance?.now?.() ?? Date.now();
     const startedAt = now();
     let firstVisibleAt = null, progressRow = null;
@@ -550,6 +563,7 @@
     microphoneState(false);
     add(text, "me"); input.value = "";
     const controller = new AbortController();
+    replyController = controller;
     const timer = setTimeout(() => controller.abort(), 45000);
     let reference = "";
     try {
@@ -561,6 +575,7 @@
         body: JSON.stringify({tenant: config.tenant, message: text,
           conversation_token: token || undefined, message_id: newRequestId()})
       });
+      if (generation !== conversationGeneration) return;
       const requestId = response.headers?.get?.('X-Request-ID') || '';
       if (/^[a-f0-9]{24}$/.test(requestId)) reference = requestId;
       const contentType = response.headers?.get?.('Content-Type') || '';
@@ -572,6 +587,7 @@
           try {
             while (true) {
               const chunk = await reader.read();
+              if (generation !== conversationGeneration) return;
               if (chunk.done) break;
               bytes += chunk.value.byteLength;
               if (bytes > 512000) throw new Error('request_failed');
@@ -607,6 +623,7 @@
         }
       }
       catch { throw new Error(response.status >= 500 ? 'service_unavailable' : 'request_failed'); }
+      if (generation !== conversationGeneration) return;
       if (!response.ok) {
         if (data && data.error === "conversation_expired") {
           remember("");
@@ -636,6 +653,7 @@
             total_ms:finishedAt-startedAt})}).catch(()=>{});
       });
     } catch (error) {
+      if (generation !== conversationGeneration) return;
       if (progressRow) progressRow.remove();
       const message = error && error.name === "AbortError"
         ? "The reply took too long. Please try again."
@@ -645,7 +663,10 @@
       // Keep a new draft typed while this reply was pending.
       if (!input.value) input.value = text;
     } finally {
-      clearTimeout(timer); busy = false; send.disabled = false; dictation.disabled = transcribing;
+      clearTimeout(timer);
+      if (generation !== conversationGeneration) return;
+      if (replyController === controller) replyController = null;
+      busy = false; send.disabled = false; dictation.disabled = transcribing;
       pendingText = '';
       if (queuedRows.length && token) {
         transcript = window.V7MergeChatRows(transcript, queuedRows);
@@ -858,6 +879,9 @@
   });
   // Keyboard events inside an iframe do not reach the embed launcher's listener.
   document.addEventListener("keydown", event => {
+    if (event.key === 'Escape' && clearConfirmation && !clearConfirmation.hidden && !event.defaultPrevented) {
+      event.preventDefault(); clearCancel.click(); return;
+    }
     if (closeChat && event.key === "Escape" && !event.defaultPrevented) {
       event.preventDefault();
       closeChat.click();
@@ -895,6 +919,41 @@
     if (savedChat.pending) chatStatus.textContent = 'Your previous reply was interrupted. You can send the message again.';
     restoring = false;
   };
+  const clearConversation = (broadcast = true) => {
+    const previous = token;
+    conversationGeneration++;
+    replyController?.abort(); replyController = null;
+    releaseVoice();
+    busy = false; send.disabled = false; dictation.disabled = false;
+    remember('');
+    try { storage?.removeItem(key); } catch {}
+    transcript = []; queuedRows = []; restoredRequests.length = 0;
+    pendingText = ''; input.value = ''; chatStatus.textContent = 'Conversation cleared. Start a new chat.';
+    log.replaceChildren();
+    if (greetingText) {
+      const row = document.createElement('div'), bubble = document.createElement('div');
+      row.className = 'msg msg--intro'; bubble.className = 'msg__bubble';
+      bubble.textContent = greetingText; row.append(bubble); log.append(row);
+    }
+    // Reset only chat identity. A submitted business request still completes
+    // with its original idempotency key and retains its result/receipt.
+    actionToken = ''; availableActions = {};
+    if (!actionBusy) {
+      activeAction = ''; actionRequestId = ''; actionForm.reset(); actionForm.hidden = true;
+      actionName.value = ''; actionContact.value = ''; actionDetails.value = ''; actionConsent.checked = false;
+    }
+    clearConfirmation.hidden = true;
+    clearChat?.setAttribute('aria-expanded', 'false');
+    if (broadcast) chatTabs?.reset(previous);
+    loadActions({preserveStatus:true});
+    input.focus();
+  };
+  clearChat?.addEventListener('click', () => {
+    if (actionBusy) return;
+    clearConfirmation.hidden = false; clearChat.setAttribute('aria-expanded', 'true'); clearConfirm.focus();
+  });
+  clearCancel?.addEventListener('click', () => { clearConfirmation.hidden = true; clearChat?.setAttribute('aria-expanded', 'false'); clearChat?.focus(); });
+  clearConfirm?.addEventListener('click', () => { if (!actionBusy) clearConversation(); });
   restoreTranscript();
   let site = window.location.origin;
   try { if (document.referrer) site = new URL(document.referrer).origin; } catch {}
@@ -917,6 +976,9 @@
     // Saving directly avoids a broadcast loop; drafts remain tab-local.
     const merged = chatSession?.write(token, {messages:transcript,draft:input.value,pending:''});
     restoreTranscript(merged, true);
+  }, window.BroadcastChannel, previous => {
+    if (previous !== token) return false;
+    clearConversation(false); return true;
   });
   window.addEventListener('pageshow', event => {
     if (event.persisted && !busy) {

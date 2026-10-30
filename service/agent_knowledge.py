@@ -119,6 +119,26 @@ def displayed_catalogue_ids(text,knowledge):
     return found if len(found)>=2 else []
 
 
+def response_focus(question, remembered):
+    """Cheap task hints, never a source of facts, permissions or canned answers."""
+    personal_choice = re.search(r'\b(?:recommend|suggest|help me (?:choose|pick|decide)|right plan|which plan)\b', question, re.I)
+    previous = remembered.get('previous_agent', {})
+    if previous.get('qualification_declined') is True or previous.get('qualification_paused') is True:
+        return 'answer_current_question'
+    quotations = remembered.get('customer_statements', []) + previous.get('requirements', [])
+    customer_context = question + ' ' + ' '.join(row[:300] for row in quotations[-6:] if isinstance(row, str))
+    customer_scenario = re.search(r"\b(?:I (?:run|own|manage|operate)|my (?:business|company|shop)|"
+                                  r"our (?:business|company|shop)|configur\w*|set (?:it|this|your service) up)\b", customer_context, re.I)
+    catalogue = re.search(r'\b(?:plans?|prices?|pricing|costs?|compare|buy|purchase|subscription)\b', question, re.I)
+    if personal_choice:
+        known = previous.get('requirements', []) or remembered.get('customer_statements', [])
+        # Context may be incomplete; its presence never proves suitability.
+        return 'reason_about_personalised_choice' if known or re.search(r'\d', question) else 'ask_one_missing_requirement_before_recommending'
+    if not catalogue and (customer_scenario or previous.get('intent') == 'setup'):
+        return 'apply_configurable_capabilities_to_customer_problem'
+    return 'answer_current_question'
+
+
 def prioritize_knowledge(knowledge, question, remembered):
     """Keep relevant structured facts ahead of large imported website passages.
 
@@ -127,6 +147,12 @@ def prioritize_knowledge(knowledge, question, remembered):
     applies after ranking; no new data is fetched or permissions expanded here.
     """
     from service.faq_integrity import safe_public_faqs
+    scenario = response_focus(question, remembered) == 'apply_configurable_capabilities_to_customer_problem'
+    if scenario and isinstance(knowledge.get('business'), dict):
+        # Even an identity record can carry an unrelated nested plan table.
+        # Keep it available on explicit plan turns; never mutate the source.
+        knowledge = {**knowledge, 'business': {key: value for key, value in knowledge['business'].items()
+                                             if key != 'subscription_plans'}}
     faq_rows = [row for key, row in knowledge.items() if key.startswith(('faq:', 'matched_faq:'))]
     safe_faqs = {id(row) for row in safe_public_faqs(faq_rows)}
     words = _terms(question)
@@ -212,6 +238,11 @@ def prioritize_knowledge(knowledge, question, remembered):
         if len(ordered) >= 24:
             break
         if has_faq_match and key.startswith(('faq:', 'matched_faq:')) and relevance(row, question) == 0:
+            continue
+        if scenario and key not in {'business', 'business:identity', 'business_core'} and relevance(row, question) == 0:
+            # Rebuilt each turn: a customer problem is not a request to preview
+            # every tariff and formal policy. Explicit follow-up pricing and
+            # policy requests retain the normal broad-context fallback.
             continue
         if key not in ordered and not key.startswith('website:'):
             ordered[key] = row

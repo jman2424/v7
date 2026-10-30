@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>{{ tenant }} — Chat</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css', v='20261024privacy') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css', v='20261030clear') }}" />
   {% if branding and branding.favicon %}
   <link rel="icon" href="{{ branding.favicon }}" />
   {% else %}{% include 'platform_favicons.html' %}{% endif %}
@@ -25,6 +25,7 @@
       {% if branding and branding.widget and branding.widget.company_logo_url %}<img class="widget__brand-logo" src="{{ branding.widget.company_logo_url }}" alt="Company logo" />{% endif %}
       {% if closable %}<button id="chat-close" type="button" class="widget__close" aria-label="Close chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>{% endif %}
     </header>
+
 
     <main id="chat-log" class="widget__log" role="log" aria-live="polite">
       <div class="msg msg--intro"><div class="msg__bubble">{{ branding.widget.greeting if branding and branding.widget and branding.widget.greeting else 'Hi! How can I help you today?' }}</div></div>
@@ -47,6 +48,11 @@
     </section>
 
     <footer class="widget__composer">
+      <section id="chat-clear-confirmation" class="widget__clear-confirmation" aria-label="Clear conversation" hidden>
+        <p>Start a fresh chat? This clears this conversation from open tabs in this browser. It does not cancel submitted requests or delete the business’s saved records.</p>
+        <button id="chat-clear-confirm" type="button" class="widget__secondary-button">Clear conversation</button>
+        <button id="chat-clear-cancel" type="button" class="widget__secondary-button">Keep chatting</button>
+      </section>
       <form id="chat-form" autocomplete="off">
         <input id="chat-input" name="message" type="text" aria-label="Your message" aria-describedby="chat-privacy" maxlength="4000" placeholder="Type your message…" required />
         <button id="chat-send" type="submit" class="btn">Send</button>
@@ -54,7 +60,7 @@
       </form>
       <p id="chat-privacy" class="widget__privacy">AI chat by Vertex Seven. Chats are saved for this business to review. <a href="{{ url_for('privacy_pages.privacy_page') }}" target="_blank" rel="noopener noreferrer">V7 privacy</a>{% if business_privacy_url %} · <a href="{{ business_privacy_url }}" target="_blank" rel="noopener noreferrer">Business privacy</a>{% endif %}</p>
       <p id="chat-status" role="status" aria-live="polite"></p>
-      <div class="widget__voice-options"><label><input id="read-aloud" type="checkbox" /> Read new replies aloud</label><button id="stop-speaking" type="button" class="widget__listen" hidden>Stop audio</button></div>
+      <div class="widget__voice-options"><label><input id="read-aloud" type="checkbox" /> Read new replies aloud</label><button id="stop-speaking" type="button" class="widget__listen" hidden>Stop audio</button><button id="chat-clear" type="button" class="widget__clear" aria-controls="chat-clear-confirmation" aria-expanded="false">Clear conversation</button></div>
       <p id="voice-status" role="status" aria-live="polite"></p>
       <details class="widget__voice-help"><summary>About voice</summary><small id="voice-help">{% if transcription_enabled %}Microphone dictation uses your browser speech service or sends a short recording to V7 for transcription.{% else %}Microphone dictation depends on your browser and may use its speech service.{% endif %} Review the text before sending. Audio playback uses your browser's available voices.</small></details>
     </footer>
@@ -85,7 +91,7 @@
       deferActions: {{ defer_actions|default(false)|tojson }}
     };
   </script>
-<script src="{{ url_for('static', filename='js/widget-session.js', v='20261026tabs') }}"></script>
-<script src="{{ url_for('static', filename='js/widget.js', v='20261027perf') }}"></script>
+<script src="{{ url_for('static', filename='js/widget-session.js', v='20261030clear') }}"></script>
+<script src="{{ url_for('static', filename='js/widget.js', v='20261030clear') }}"></script>
 </body>
 </html>

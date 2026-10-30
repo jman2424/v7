@@ -92,6 +92,10 @@ completed qualification step. When qualification_paused is true, keep helping
 with the current question without repeating the unanswered interview question.
 For a setup question about the customer's business, explain preparation rather than
 treating their products or delivery policies as this business's own offerings.
+Distinguish questions about handling a customer's policy enquiries from claims
+about this business's policy. You may propose how verified capabilities could
+help their stated problem; label proposed configuration as a suggestion, not an
+active integration or completed action. Use their actual goals and context.
 For cancellation, complaints or dissatisfaction, answer or acknowledge that issue
 before selling. Never replace an unrelated question with a catalogue list.
 Respect 'no', 'not now' and 'stop': do not continue qualifying or upselling.
@@ -236,6 +240,42 @@ questions; do not infer missing attributes or availability.
 Do not request a sales form for a policy, cancellation or complaint answer.
 Do not claim submission or confirmation. These actions do not
 authorize any payment, account change or other transaction.
+
+Choose the response strategy for THIS turn before writing:
+The supplied response_focus is a server task hint, not business evidence or tool
+permission. For ask_one_missing_requirement_before_recommending, ask a useful
+question rather than listing plans. For apply_configurable_capabilities_to_customer_problem,
+suggest the relevant knowledge to configure and ask one useful follow-up.
+For reason_about_personalised_choice, decide which constraints remain missing;
+the presence of earlier conversation does not establish a suitable plan.
+• Company/suitability question: explain the supported capabilities and fit using
+  business identity. A formal policy is not needed for a company description.
+• Customer problem: connect supported capabilities to their actual workload;
+  give relevant examples rather than volunteering a list of subscription plans.
+• Proposed configuration: name the useful knowledge fields the customer would
+  need to supply for their stated business and what the assistant could do with
+  them. Do not merely say 'customise FAQs'; distinguish proposals from active tools.
+• Personalised plan choice with missing requirements: ask ONE actual, useful
+  question about the missing constraints. Do not list every tariff or defer
+  choosing to a support link. Use stage qualify and next_action ask_clarification.
+• Enough requirements: recommend the lowest-priced suitable configured option
+  and explain WHY it fits in a short noncommercial paragraph. Use the current
+  business.subscription_plans entitlements when supplied, not inferred quotas.
+  Enquiry volume is workload, not an included message allowance.
+• Pricing/terms: put prices and complete commercial terms in a separate block
+  from advice. Keep setup, prepaid AI usage and external charges clear. Cite
+  catalogue records for each discussed offering. Do not repeat the same price.
+• Missing policy: state what is unconfirmed, kind clarification, statement_ids [];
+  never select an unrelated policy to fill the gap. A transaction boundary does
+  not establish a refund window, compensation entitlement or service policy.
+• Unsupported numeric guarantee: do not repeat an unsupported percentage even
+  to deny it. Explain the verified limitation without asserting a numeric fact.
+Select statements only for the terms actually relevant to this question. Do not
+append unrelated guarantees, stock or transaction disclaimers. Usually choose
+zero or one directly useful destination; do not add a generic support link when
+a specific page answers the next step. Preserve earlier verified requirements
+unless the customer corrects/removes them using requirements_update. Do not
+select an offering on behalf of a customer merely because you recommend it.
 """
 
 
@@ -463,10 +503,12 @@ def _requirements_state(raw, question, history, context, memory_settings=None):
         # A model's empty optional object is a no-op, not customer authorization
         # and not a reason to discard an otherwise grounded answer.
         update = None
-    if update is None and requirements == []:
-        # A policy interruption with no update must not erase verified needs.
-        # Clearing them requires a validated reset tied to this customer turn.
-        requirements = old
+    if (update is None and isinstance(requirements, list) and len(requirements) <= 6
+            and all(isinstance(row, str) for row in requirements)):
+        # Omitting an earlier verified need is not a request to forget it.
+        # Replacements/removals use the evidence-bound update contract below.
+        # Keep the latest six, excluding a customer's explicit rejection.
+        requirements = list(dict.fromkeys([row for row in old if not _rejected(question, row)] + requirements))[-6:]
     if update is not None:
         if (not isinstance(update, dict) or set(update) - {'add', 'remove', 'clear', 'evidence'}
                 or type(update.get('clear', False)) is not bool):
@@ -806,22 +848,28 @@ def _unrelated_policy_for_gap(question, payload, knowledge, statements):
     unchecked prose or an inferred discount/refund condition.
     """
     if not re.search(r"\b(?:no (?:mention|information)|not (?:mentioned|specified|provided)|"
-                     r"(?:don['’]t|do not|cannot|can['’]t) (?:have|confirm))\b",
+                     r"(?:don['’]t|do not|cannot|can['’]t) (?:have|confirm)|"
+                     r"does not guarantee|not confirmed|unclear|unknown)\b",
                      payload.get('answer', ''), re.I):
         return False
     from service.grounded_statements import protected_request
     if not protected_request(question, payload, statements):
         return False
     faq_sources = []
+    policy_detail = re.search(r'\b(?:window|days?|deadline|policy|terms|compensation|outage|discount)\b', question, re.I)
+    capability_context = False
     for source in payload['sources']:
         if source in {'business', 'business:identity'}:
             continue
         row = knowledge[source]
-        if not source.startswith(('faq:', 'matched_faq:')) or not isinstance(row, dict) or not row.get('question'):
+        if source.startswith('capability:') and policy_detail:
+            capability_context = True
+            continue
+        if not source.startswith(('faq:', 'matched_faq:', 'policy:')) or not isinstance(row, dict):
             return False
         faq_sources.append(row)
     from service.agent_knowledge import relevance
-    return bool(faq_sources and all(relevance(row, question) == 0 for row in faq_sources))
+    return bool((faq_sources or capability_context) and all(relevance(row, question) == 0 for row in faq_sources))
 
 
 def answer(client, model, question, knowledge, history, tone, *, destinations=None, selected_links=None,
@@ -877,11 +925,14 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                        if isinstance(allowed_actions, (list, tuple)) and kind in allowed_actions]
     knowledge = {**knowledge, **request_facts(allowed_actions)}
     remembered = agent_context_rows(agent_context, knowledge)
-    from service.agent_knowledge import prioritize_knowledge
+    focus_context = {**remembered, 'customer_statements': list(dict.fromkeys([
+        *remembered.get('customer_statements', []), *[
+            row['content'] for row in history_rows(history, memory_settings) if row['role'] == 'user']]))[-6:]}
+    from service.agent_knowledge import prioritize_knowledge, response_focus
     # Ranking must use the same customer-only context as source retrieval.
     # The actual question and all answer/selection validation remain unchanged.
     ranking_question = retrieval_question[:6000] if isinstance(retrieval_question, str) else question
-    knowledge = prioritize_knowledge(knowledge, ranking_question, remembered)
+    knowledge = prioritize_knowledge(knowledge, ranking_question, focus_context)
     # Advertised form capabilities must survive the same context cap as facts.
     forms = {key:value for key,value in request_facts(allowed_actions).items()
              if key.startswith('capability:request:')}
@@ -913,6 +964,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                           "recent_conversation": history_rows(history, memory_settings),
                           "agent_context": context,
                           "continue_selected_offering": selected_next_step,
+                          "response_focus": response_focus(question, focus_context),
                           "question": question[:4000],
                       }, ensure_ascii=False, separators=(',', ':'))}],
         )
@@ -956,6 +1008,23 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
                 failure = {}
                 supported = _claims_supported(text,sources,knowledge,customer_quotes,
                     approved_urls={row['url'] for row in destinations},failure=failure)
+                if (not supported and failure.get('reason') == 'percentage'
+                        and _known_statement_metadata(payload, statements, destinations, allowed_actions)):
+                    # A customer's unsupported percentage may be echoed only in
+                    # a denial. Remove that numeric echo, then run EVERY normal
+                    # guard again. The complete selected policy is still rendered.
+                    denied = r"\b(?:does not|do not|cannot|can't) guarantee\s+(?:a\s+)?(\d+(?:[.,]\d+)?\s*%)"
+                    supplied = set(re.findall(r'\d+(?:[.,]\d+)?\s*%', question))
+                    selected_policy = any(key.startswith('policy:') and re.search(
+                        r'\b(?:no|not|cannot)\b.{0,50}\bguarantee\w*', statements[key]['text'], re.I)
+                        for key in payload.get('statement_ids', []))
+                    matches = list(re.finditer(denied, text, re.I))
+                    if selected_policy and matches and all(match[1] in supplied for match in matches):
+                        repaired = re.sub(denied, lambda match: match[0][:match.start(1)-match.start()]+'any specific', text, flags=re.I)
+                        if _claims_supported(repaired, sources, knowledge, customer_quotes,
+                                             approved_urls={row['url'] for row in destinations}):
+                            text, supported = repaired, True
+                            payload = {**payload, 'answer': text}
                 from service.grounded_money import extract_money_claims
                 if (supported and _unrelated_policy_for_gap(question, payload, knowledge, statements)
                         and _known_statement_metadata(payload, statements, destinations, allowed_actions)):
@@ -1039,6 +1108,11 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             return None
         if kind == 'refusal':
             navigation = []
+        elif (any(approved[key].get('purpose') != 'support' for key in navigation)
+                and not re.search(r'\b(?:support|contact|human|complaint|cancel\w*|speak|team)\b', question, re.I)):
+            # A generic support link is not an additional next step when the
+            # visitor already has a specific, relevant approved destination.
+            navigation = [key for key in navigation if approved[key].get('purpose') != 'support']
         requested_action = payload.get('requested_action')
         if requested_action is not None and (
                 not isinstance(requested_action, str) or requested_action not in allowed_actions
@@ -1085,6 +1159,9 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             text, rendered_sources, rendered_statements = rendered
             rendering_mode = 'source_statements'
             sources = rendered_sources
+            if not sources and kind != 'refusal':
+                kind = 'clarification'
+                state['_response_kind'] = kind
             if not sources and kind == 'refusal':
                 sources = [key for key in payload['sources'] if key in {'business', 'business:identity'}]
             if not _claims_supported(text, sources, knowledge, customer_quotes,

@@ -80,8 +80,18 @@
   };
   // Share requested chat continuity only with open tabs in this browser's
   // same-origin storage partition. No localStorage or longer retention.
-  window.V7ChatTabs = (scope, snapshot, receive, Channel = window.BroadcastChannel) => {
+  window.V7ChatTabs = (scope, snapshot, receive, Channel = window.BroadcastChannel, reset = () => {}) => {
     let channel, last = '';
+    const retired = new Map();
+    let retiredBefore = 0;
+    const validToken = token => typeof token === 'string' && !!token && token.length <= 2048;
+    const retire = (token, at = Date.now()) => {
+      if (!validToken(token)) return false;
+      if (!Number.isFinite(at) || at < Date.now() - DAY || at > Date.now() + 1000) return false;
+      retired.set(token, at);
+      if (retired.size > 40) retired.delete(retired.keys().next().value);
+      return true;
+    };
     const publish = force => {
       try {
         const value = snapshot();
@@ -95,19 +105,35 @@
       if (typeof Channel === 'function') {
         channel = new Channel('v7-chat:' + scope);
         channel.onmessage = event => {
-          if (event.data?.type === 'request') { publish(true); return; }
+          if (event.data?.type === 'request') {
+            for (const [token, at] of retired) channel?.postMessage({type:'reset',token,at});
+            publish(true); return;
+          }
+          if (event.data?.type === 'reset') {
+            if (Number.isFinite(event.data.at) && retire(event.data.token, event.data.at) && reset(event.data.token) === true)
+              retiredBefore = Math.max(retiredBefore, retired.get(event.data.token));
+            return;
+          }
           const raw = event.data?.value;
           if (event.data?.type !== 'state' || typeof raw !== 'string' || byteLength(raw) > LIMIT) return;
           try {
             const token = JSON.parse(raw).token;
-            if (typeof token !== 'string' || !token || token.length > 2048) return;
+            if (!validToken(token) || retired.has(token)) return;
             const saved = window.V7ChatSession({getItem:()=>raw,removeItem(){}},scope).read(token);
+            // expires is the fixed transcript birth time plus one day, not a
+            // sliding expiry. This fence outlives the bounded token tombstones.
+            if (saved && saved.expires < retiredBefore + DAY) return;
             if (saved?.messages.length) receive(token, raw);
           } catch { /* Malformed messages cannot disrupt ordinary chat. */ }
         };
         channel.postMessage({type:'request'});
       }
     } catch { channel = null; }
-    return {publish:()=>publish(false),close:()=>{try { channel?.close(); } catch {}}};
+    return {publish:()=>publish(false), reset:token=>{
+      if (!retire(token)) return;
+      retiredBefore = Math.max(retiredBefore, retired.get(token));
+      last = '';
+      try { channel?.postMessage({type:'reset',token,at:retired.get(token)}); } catch {}
+    },close:()=>{try { channel?.close(); } catch {}}};
   };
 })();

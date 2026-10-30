@@ -36,7 +36,7 @@ def test_uncertainty_is_not_replaced_by_an_unrelated_pricing_statement(monkeypat
 
 def test_unknown_policy_uses_the_existing_verified_path_without_an_extra_call(monkeypatch):
     answer, calls, diagnostics = exercise(monkeypatch, [unrelated_answer()])
-    assert answer and 'not established' in answer and 'confirm' in answer and len(calls) == 1
+    assert answer and 'confirmed information' in answer and 'confirm' in answer and len(calls) == 1
     assert diagnostics['accepted'] and 'GBP 20' not in answer
 
 

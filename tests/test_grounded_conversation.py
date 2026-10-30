@@ -47,7 +47,7 @@ def test_empty_credit_skips_provider_and_suppresses_more_calls_this_turn(ledger)
         with pytest.raises(AllowancePaused, match='saved_knowledge_only_for_turn'):
             api_usage.tracked_completion(client, purpose='planning', model='gpt-4o-mini')
     client.chat.completions.create.assert_not_called()
-    assert ask(client, 'BETA') == 'Basic is £99.'
+    assert ask(client, 'BETA').startswith('Basic: £99.00.')
 
 
 @pytest.mark.parametrize('text,sources', [
@@ -68,7 +68,7 @@ def test_missing_business_citations_receive_one_accounted_repair(ledger):
     first = client.chat.completions.create.return_value
     corrected = client_for('Basic is £99.',['product:basic']).chat.completions.create.return_value
     client.chat.completions.create.side_effect = [first,corrected]
-    assert ask(client)=='Basic is £99.'
+    assert ask(client).startswith('Basic: £99.00.')
     assert client.chat.completions.create.call_count==2
     assert 'previous response failed validation' in client.chat.completions.create.call_args.kwargs['messages'][0]['content']
     assert 'previous response failed validation' not in client.chat.completions.create.call_args_list[0].kwargs['messages'][0]['content']
@@ -212,7 +212,7 @@ def test_reusable_agent_understands_different_business_tasks(monkeypatch, busine
         context={'playbook': {'business_model': business, 'response_guidance': 'Be concise.'}})
     if business in {'appointments', 'professional_services'}:
         # An about field is not an authoritative appointment/quote policy.
-        assert 'not established' in reply
+        assert 'confirmed information' in reply
     elif business == 'hospitality':
         assert reply == knowledge['faq:cancel']['answer']
     else:
@@ -275,7 +275,7 @@ def test_requirements_can_only_quote_customers_never_assistant_assumptions(monke
     payload = {'answer': 'Basic is £99.', 'kind': 'answer', 'sources': ['product:basic'],
                'agent': _state('price', requirements=[assumption])}
     answer,state,_,_=_structured_answer(monkeypatch,payload,question='How much?',history=history)
-    assert answer=='Basic is £99.' and state['requirements']==[]
+    assert answer.startswith('Basic: £99.00.') and state['requirements']==[]
 
 
 def test_context_excludes_unapproved_fields_and_stale_other_tenant_source_ids(monkeypatch):

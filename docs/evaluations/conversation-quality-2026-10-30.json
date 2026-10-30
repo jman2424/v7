@@ -1,0 +1,3861 @@
+{
+  "status": "incremental_change_verified_remaining_quality_gaps",
+  "baseline_source_revision": "5e25d1996cab11df6813ad6ab5364370d313688e",
+  "method": "One fixed synthetic component scorecard; no production HTTP or business actions; baseline archive had an identical evaluation-only harness overlay.",
+  "rubric_criteria_frozen_before_live_runs": true,
+  "latest_code_tested_live": true,
+  "runs": {
+    "before": {
+      "turns_passed": 2,
+      "turns_executed": 16,
+      "scenarios_passed": 2,
+      "scenarios_planned": 12,
+      "model": "gpt-4.1-mini",
+      "fixture_sha256": "88f3750ff4ce204f357214f1d9bb5418a3ddda3f8aeb7fe085ecaf5f7c43be77",
+      "runtime_code_sha256": "37a432bd1abf6f06157a35f29e357297828b96bf19cb61f11989d9d4bb3808b0",
+      "prompt_sha256": "53f1ee839635671c07ffc611212e1c397edce0d00a2ea38f91196f1bde84f3c8",
+      "provider_requests": 16,
+      "input_tokens": 76047,
+      "output_tokens": 3172,
+      "cached_tokens": 63232,
+      "known_cost_usd": 0.0165244,
+      "unknown_cost_ceiling_usd": 0.0,
+      "model_p50_ms": 1906.5,
+      "model_p95_ms": 5328.0,
+      "component_p50_ms": 1953.85,
+      "component_p95_ms": 5382.63,
+      "accounting": {
+        "consistent": true,
+        "recorded_calls": 16,
+        "recorded_known_cost_usd": 0.0165244,
+        "pending_reservations": 0,
+        "ledger": "temporary_synthetic_sqlite"
+      },
+      "results": [
+        {
+          "scenario_id": "quality_identity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "approved_sources_only",
+            "answer_excludes",
+            "navigation_max",
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": "That detail is not established in the available business policy. Please ask the team to confirm.",
+          "candidate": {
+            "answer": "Atlas Assist specialises in providing configurable website assistants that help businesses engage with their customers through saved products, services, FAQs, and policies. Our assistants support multiple languages including English, Urdu, and Arabic, and can be tailored to your branding and tone.\n\nYou should consider using Atlas Assist if you want to enhance your website's customer interaction with AI-powered assistance, customizable to your needs, and backed by flexible subscription plans. We also offer integration options for CRM, live orders, calendars, and payments with the right permissions and setups.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question"
+          ],
+          "answer": "1. Starter: £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team: £50.00. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth: £90.00. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "Atlas Assist offers three subscription plans:\n\n1. Starter: £20 per month plus £10 one-time setup, includes one location, two staff accounts, and basic analytics.\n\n2. Team: £50 per month plus £25 one-time setup, includes five locations, five staff accounts, and advanced analytics.\n\n3. Growth: £90 per month plus £40 one-time setup, includes fifteen locations, fifteen staff accounts, and advanced analytics.\n\nYour choice depends on your business size and needs for locations, staff accounts, and analytics. You can compare plans in detail or ask the team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "faq:plans",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "price_counts"
+          ],
+          "answer": "Starter (month): £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "The Starter plan fits your needs well: it offers one location, two staff accounts, and basic analytics for £20 per month, which is within your budget under £30 monthly. It also has a one-time setup fee of £10. This plan includes WhatsApp software, but phone numbers and messaging fees are separate. No sales uplift is guaranteed, as results depend on your business and usage.\n\nYou can compare plans or ask the team for more details using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "One location, two staff accounts, basic analytics and a tight budget under GBP 30 monthly.",
+              "requirements": [
+                "One location, two staff accounts, basic analytics",
+                "a tight budget under GBP 30 monthly"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "One location, two staff accounts, basic analytics",
+              "a tight budget under GBP 30 monthly"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_setup",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any",
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching your language needs. You can customize the assistant's branding and tone to fit your business. For detailed setup and configuration tailored to your specific requirements, you can contact our team for support.",
+          "candidate": {
+            "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching your language needs. You can customize the assistant's branding and tone to fit your business. For detailed setup and configuration tailored to your specific requirements, you can contact our team for support.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question"
+          ],
+          "answer": "For your small online clothing business needing help with customer enquiries, Atlas Assist offers three subscription plans that could suit you. The Starter plan includes one location and two staff accounts with basic analytics, suitable for smaller operations. The Team plan offers five locations and five staff accounts with advanced analytics, and the Growth plan supports fifteen locations and fifteen staff accounts with advanced analytics.\n\nYou can compare these plans in detail or ask the team for personalized advice to find the best fit for your needs.",
+          "candidate": {
+            "answer": "For your small online clothing business needing help with customer enquiries, Atlas Assist offers three subscription plans that could suit you. The Starter plan includes one location and two staff accounts with basic analytics, suitable for smaller operations. The Team plan offers five locations and five staff accounts with advanced analytics, and the Growth plan supports fifteen locations and fifteen staff accounts with advanced analytics.\n\nYou can compare these plans in detail or ask the team for personalized advice to find the best fit for your needs.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "small online clothing business",
+                "help handling customer enquiries"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question",
+            "requirements_contains"
+          ],
+          "answer": "Handling 300 enquiries per month suggests you might benefit from a plan with multiple staff accounts to manage the volume efficiently. The Starter plan offers two staff accounts, which may be tight for this volume, while the Team plan provides five staff accounts and advanced analytics, likely better suited for your needs. The Growth plan offers even more capacity if you expect to scale further.\n\nYou can compare the plans in detail or contact the team for tailored advice to choose the best option for your enquiry volume.",
+          "candidate": {
+            "answer": "Handling 300 enquiries per month suggests you might benefit from a plan with multiple staff accounts to manage the volume efficiently. The Starter plan offers two staff accounts, which may be tight for this volume, while the Team plan provides five staff accounts and advanced analytics, likely better suited for your needs. The Growth plan offers even more capacity if you expect to scale further.\n\nYou can compare the plans in detail or contact the team for tailored advice to choose the best option for your enquiry volume.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 3,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_contains_all",
+            "answer_has_question"
+          ],
+          "answer": "Starter (month): £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Given your need for one location and two staff accounts with a limited budget, the Starter plan fits well. It includes one location, two staff accounts, and basic analytics for £20 per month plus a £10 one-time setup fee. This plan should handle your delivery and returns enquiries efficiently within your budget.\n\nYou can compare this plan with others or ask the team for more personalized advice if needed.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "assist",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "one location and two staff accounts. My budget is limited",
+              "requirements": [
+                "one location and two staff accounts",
+                "limited budget"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "one location and two staff accounts"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 4,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "requirements_contains"
+          ],
+          "answer": "1. Starter: £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team: £50.00. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth: £90.00. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Based on your need for one location and two staff accounts with basic analytics, and considering your limited budget, the Starter plan is the best fit. It costs £20 per month plus a £10 one-time setup fee. It includes one location, two staff accounts, and basic analytics, which matches your requirements.\n\nIf your enquiry volume grows or you need more staff accounts later, you can consider upgrading to the Team or Growth plans, which offer more locations, staff accounts, and advanced analytics.\n\nYou can compare the plans in detail or contact the team for further advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "assist",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "one location and two staff accounts",
+              "requirements": [
+                "one location and two staff accounts"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "one location and two staff accounts"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_honest_limits",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "validator_accepted",
+            "approved_sources_only",
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": null,
+          "candidate": {
+            "answer": "Our AI does not guarantee a 30% increase in sales. Results depend on your business, the quality of information provided, and customer demand, so outcomes can vary.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer"
+            ],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": null,
+            "stage": null,
+            "next_action": null,
+            "offering_ids": null,
+            "last_offering_ids": null,
+            "selected_offering_id": null,
+            "requirements": null,
+            "retired_requirements": null,
+            "requested_action": null,
+            "navigation_ids": null,
+            "sources": null
+          }
+        },
+        {
+          "scenario_id": "quality_costs",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "price_counts"
+          ],
+          "answer": "1. Starter: £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team: £50.00. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth: £90.00. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "There are three subscription plans with these costs and features:\n\n1. Starter: £20 per month plus a £10 one-time setup fee. Includes one location, two staff accounts, and Basic analytics.\n2. Team: £50 per month plus a £25 one-time setup fee. Includes five locations, five staff accounts, and Advanced analytics.\n3. Growth: £90 per month plus a £40 one-time setup fee. Includes fifteen locations, fifteen staff accounts, and Advanced analytics.\n\nAI processing credit is prepaid separately and is not included in any plan. WhatsApp software is included, but phone numbers and provider messaging fees are separate and not included.\n\nNo sales uplift is guaranteed; results depend on your business, information quality, and customer demand. Payments, refunds, and order changes cannot be done in this chat; please use the business's approved pages or contact the team for help.\n\nYou can compare plans or ask the team for more details using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "faq:plans",
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer",
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_knowledge_gap",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "No sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Atlas Assist does not guarantee any sales uplift or contractual compensation for outages. Results and service availability depend on various factors including the business, information quality, and customer demand, but there is no specific compensation for an outage lasting 17 minutes or any other duration.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees",
+              "business"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer"
+            ],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_restaurant_application",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all"
+          ],
+          "answer": "Tell staff about allergies before visiting. Shared preparation areas mean allergen-free food cannot be guaranteed.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "Juniper Kitchen is a vegetarian restaurant with a seasonal menu, and it offers quieter early-evening sittings, which should suit your plan for a quiet family meal. Please note that the staff discuss dietary needs before visits to accommodate any requirements.\n\nAlso, let the staff know about any allergies before your visit, as shared preparation areas mean allergen-free food cannot be guaranteed.\n\nYou can view the current menu on our website to see the options available for your meal.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "policy:allergens",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "policy:allergens:answer",
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "juniper-menu"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "juniper-menu"
+            ],
+            "sources": [
+              "policy:allergens",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_assessment",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Business Document Translation: Price requires a quote. Human-reviewed business document translation. Price and turnaround depend on assessment.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.\n\nThe team reviews the document scope, word count and deadline before confirming a price and turnaround. No instant quote or certification is guaranteed.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "offering:documents"
+            ],
+            "last_offering_ids": [
+              "offering:documents"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "1200-word Arabic business document",
+              "needed in English by Friday"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "cedar-enquiry"
+            ],
+            "sources": [
+              "offering:documents",
+              "capability:transaction_boundary",
+              "policy:quotes"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_disabled_action",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_product_recommendation",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max"
+          ],
+          "answer": "1. Trail Bottle: £20.00. Lightweight 500 ml bottle for short walks. Product availability needs confirmation.\n\n2. Summit Bottle: £35.00. Larger 1000 ml insulated bottle; heavier than Trail Bottle. Product availability needs confirmation.",
+          "candidate": {
+            "answer": "For short walks and your preference for the lightest bottle within your budget, the Trail Bottle is the best fit. It is a lightweight 500 ml bottle priced at £20, well under your £40 budget. The Summit Bottle is larger and heavier, so it may not suit your need for lightness on short walks.\n\nYou can choose to buy the Trail Bottle or review the Summit Bottle if you want a larger size, but for your stated needs, the Trail Bottle is recommended.",
+            "kind": "answer",
+            "sources": [
+              "product:trail",
+              "product:summit"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "trail-checkout",
+              "summit-checkout"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "assist",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:trail",
+                "product:summit"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "For short walks I want the lightest bottle",
+                "I can spend up to GBP 40"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:trail",
+              "product:summit"
+            ],
+            "last_offering_ids": [
+              "product:trail",
+              "product:summit"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "For short walks I want the lightest bottle",
+              "I can spend up to GBP 40"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "trail-checkout",
+              "summit-checkout"
+            ],
+            "sources": [
+              "product:trail",
+              "product:summit"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_source_conflict",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "The refund window length is not specified here as either 14 or 30 days. To get a certain and official answer about the refund window, please contact the team directly through the support page provided. They can confirm the exact refund policy for you.",
+            "kind": "answer",
+            "sources": [
+              "business:identity",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "desk-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "desk-support"
+            ],
+            "sources": [
+              "capability:transaction_boundary"
+            ]
+          }
+        }
+      ]
+    },
+    "after": {
+      "turns_passed": 3,
+      "turns_executed": 16,
+      "scenarios_passed": 3,
+      "scenarios_planned": 12,
+      "model": "gpt-4.1-mini",
+      "fixture_sha256": "88f3750ff4ce204f357214f1d9bb5418a3ddda3f8aeb7fe085ecaf5f7c43be77",
+      "runtime_code_sha256": "6a0e8518c8cfe0597c1ebb65ff7b49ed1fb2ae17f502df1b119d1127eb9fd659",
+      "prompt_sha256": "77ab7714146381cd642036ba68a5dabbb9c0e93cba7bfa2e096c792b942cd275",
+      "provider_requests": 16,
+      "input_tokens": 78925,
+      "output_tokens": 3118,
+      "cached_tokens": 55808,
+      "known_cost_usd": 0.0198164,
+      "unknown_cost_ceiling_usd": 0.0,
+      "model_p50_ms": 1703.0,
+      "model_p95_ms": 4110.0,
+      "component_p50_ms": 1750.04,
+      "component_p95_ms": 4267.78,
+      "accounting": {
+        "consistent": true,
+        "recorded_calls": 16,
+        "recorded_known_cost_usd": 0.0198164,
+        "pending_reservations": 0,
+        "ledger": "temporary_synthetic_sqlite"
+      },
+      "results": [
+        {
+          "scenario_id": "quality_identity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "approved_sources_only",
+            "navigation_max",
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": {
+            "answer": "Atlas Assist specialises in providing configurable website assistants that help businesses by using saved products, services, FAQs, and policies. Our assistants can communicate in English, Urdu, and Arabic, offering flexible support tailored to your needs. You might consider using us to enhance your customer interactions with a branded, multilingual assistant that can handle enquiries efficiently and improve user experience.\n\nIf you want to explore our service plans or need support, you can check our plan comparisons or contact our team through the provided options.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question"
+          ],
+          "answer": "Consider your number of locations and staff, and whether you need advanced analytics to choose the best fit. You can compare all plans in detail or ask our team for personalized advice using the buttons below.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "We offer three subscription plans to suit different business sizes and needs. The Starter plan costs GBP 20 per month plus a GBP 10 one-time setup fee and includes one location and two staff accounts with basic analytics. The Team plan costs GBP 50 per month plus a GBP 25 setup fee, supporting five locations and five staff accounts with advanced analytics. The Growth plan is GBP 90 per month plus GBP 40 setup, offering fifteen locations and staff accounts with advanced analytics.\n\nConsider your number of locations and staff, and whether you need advanced analytics to choose the best fit. You can compare all plans in detail or ask our team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "faq:plans",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max"
+          ],
+          "answer": "You can compare all plans in detail or ask our team for personalized advice using the buttons below.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "The Starter plan fits your needs well. It supports one location, two staff accounts, and basic analytics, matching your requirements. It costs GBP 20 per month plus a GBP 10 one-time setup fee, which keeps you within your budget under GBP 30 monthly.\n\nYou can compare all plans in detail or ask our team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "faq:plans",
+              "product:starter"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "One location, two staff accounts, basic analytics and a tight budget under GBP 30 monthly.",
+              "requirements": [
+                "One location, two staff accounts, basic analytics and a tight budget under GBP 30 monthly."
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "One location, two staff accounts, basic analytics and a tight budget under GBP 30 monthly."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_setup",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any",
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching your language needs. You can customize branding and tone to fit your business style. To set this up effectively, you would define your specific service options and FAQs within the assistant.\n\nFor detailed configuration help or to discuss your exact requirements, you can contact our team through the support page.",
+          "candidate": {
+            "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching your language needs. You can customize branding and tone to fit your business style. To set this up effectively, you would define your specific service options and FAQs within the assistant.\n\nFor detailed configuration help or to discuss your exact requirements, you can contact our team through the support page.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question"
+          ],
+          "answer": "For your small online clothing business needing help with customer enquiries, Atlas Assist offers three subscription plans that could suit you. The Starter plan supports one location and two staff accounts with basic analytics, ideal for smaller setups. The Team plan offers more capacity with five locations and five staff accounts plus advanced analytics. The Growth plan is larger still, with fifteen locations and staff accounts and advanced analytics.\n\nYou can compare these plans in detail or contact the team for personalized advice using the buttons below.",
+          "candidate": {
+            "answer": "For your small online clothing business needing help with customer enquiries, Atlas Assist offers three subscription plans that could suit you. The Starter plan supports one location and two staff accounts with basic analytics, ideal for smaller setups. The Team plan offers more capacity with five locations and five staff accounts plus advanced analytics. The Growth plan is larger still, with fifteen locations and staff accounts and advanced analytics.\n\nYou can compare these plans in detail or contact the team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_has_question"
+          ],
+          "answer": "With 300 enquiries per month for your small online clothing business, the Starter plan might be sufficient if you operate from one location with up to two staff handling enquiries. If you expect to scale or need more staff accounts and advanced analytics, the Team plan could be a better fit. The Growth plan is designed for larger operations with more locations and staff.\n\nYou can compare these plans in detail or contact the team for personalized advice using the buttons below.",
+          "candidate": {
+            "answer": "With 300 enquiries per month for your small online clothing business, the Starter plan might be sufficient if you operate from one location with up to two staff handling enquiries. If you expect to scale or need more staff accounts and advanced analytics, the Team plan could be a better fit. The Growth plan is designed for larger operations with more locations and staff.\n\nYou can compare these plans in detail or contact the team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "We get 300 enquiries per month."
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 3,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "answer_contains_all",
+            "answer_has_question"
+          ],
+          "answer": "Starter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Given your need for one location and two staff accounts and a limited budget, the Starter plan is the most suitable option. It costs GBP 20 per month plus a GBP 10 one-time setup fee and includes basic analytics, which should cover handling delivery and returns enquiries effectively.\n\nNo sales uplift is guaranteed, as results depend on your business and customer demand. You can compare plans or ask the team for more personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "one location and two staff accounts. My budget is limited.",
+              "requirements": [
+                "one location and two staff accounts",
+                "My budget is limited"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "one location and two staff accounts",
+              "My budget is limited"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 4,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max",
+            "requirements_contains"
+          ],
+          "answer": "Starter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Based on your needs for one location, two staff accounts, and a limited budget, I recommend the Starter plan. It includes basic analytics, supports one location and two staff accounts, and costs GBP 20 per month plus a GBP 10 one-time setup fee. This plan should suit your small online clothing business handling delivery and returns enquiries.\n\nYou can compare plans in detail or ask the team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "Basic analytics is fine. Which plan would you recommend based on what I told you?",
+              "requirements": [
+                "one location and two staff accounts",
+                "My budget is limited"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "one location and two staff accounts",
+              "My budget is limited"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_honest_limits",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "validator_accepted",
+            "approved_sources_only",
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": null,
+          "candidate": {
+            "answer": "Our AI does not guarantee a 30% increase in sales. Results depend on your business, the quality of information provided, and customer demand. If you want to discuss how it might help your specific situation, you can ask our team for support.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": null,
+            "stage": null,
+            "next_action": null,
+            "offering_ids": null,
+            "last_offering_ids": null,
+            "selected_offering_id": null,
+            "requirements": null,
+            "retired_requirements": null,
+            "requested_action": null,
+            "navigation_ids": null,
+            "sources": null
+          }
+        },
+        {
+          "scenario_id": "quality_costs",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "navigation_max"
+          ],
+          "answer": "Starter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Atlas Assist offers three subscription plans with different costs and features:\n\n1. Starter: £20 per month plus a £10 one-time setup fee. Includes one location, two staff accounts, and Basic analytics.\n2. Team: £50 per month plus a £25 one-time setup fee. Includes five locations, five staff accounts, and Advanced analytics.\n3. Growth: £90 per month plus a £40 one-time setup fee. Includes fifteen locations, fifteen staff accounts, and Advanced analytics.\n\nAI processing credit is prepaid separately and is not included in any plan. WhatsApp software is included, but phone numbers and provider messaging fees are separate and not covered by the subscription.\n\nNo sales uplift is guaranteed; results depend on your business, information quality, and customer demand.\n\nYou can compare plans in detail or ask the team for support using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "sources": [
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_knowledge_gap",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "No sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Atlas Assist does not guarantee any sales uplift or contractual compensation for outages. Results and service availability depend on your business, the quality of information, and customer demand. For specific concerns about service interruptions, you can contact the support team for assistance.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": [
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_restaurant_application",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all"
+          ],
+          "answer": "Tell staff about allergies before visiting. Shared preparation areas mean allergen-free food cannot be guaranteed.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "Juniper Kitchen is a vegetarian restaurant with a seasonal menu and quieter early-evening sittings, making it well suited for a quiet family meal early in the evening. The staff will discuss any dietary needs with you before your visit to ensure a good experience.\n\nPlease note that if you have allergies, you should inform the staff before visiting, as shared preparation areas mean allergen-free food cannot be guaranteed.\n\nYou can view the current menu on our website to plan your meal. If you want to proceed with a booking or have other questions, please let me know.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "policy:allergens",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "policy:allergens:answer",
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "juniper-menu"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "juniper-menu"
+            ],
+            "sources": [
+              "policy:allergens",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_assessment",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Business Document Translation: Price requires a quote. Human-reviewed business document translation. Price and turnaround depend on assessment.\n\nThe team reviews the document scope, word count and deadline before confirming a price and turnaround. No instant quote or certification is guaranteed.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "offering:documents"
+            ],
+            "last_offering_ids": [
+              "offering:documents"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "1200-word Arabic business document",
+              "needed in English by Friday"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "cedar-enquiry"
+            ],
+            "sources": [
+              "offering:documents",
+              "policy:quotes",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_disabled_action",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.\n\nTell staff about allergies before visiting. Shared preparation areas mean allergen-free food cannot be guaranteed.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "capability:transaction_boundary",
+              "policy:allergens"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_product_recommendation",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Trail Bottle: £20.00. Lightweight 500 ml bottle for short walks. Product availability needs confirmation.\n\nLive inventory is not connected. The team must confirm quantity and availability.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:trail"
+            ],
+            "last_offering_ids": [
+              "product:trail"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "lightest bottle",
+              "short walks"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "trail-checkout"
+            ],
+            "sources": [
+              "product:trail",
+              "policy:stock"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_source_conflict",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "The exact refund window duration is not specified here, so it is unclear whether it is 14 or 30 days. For a certain and official answer, please contact the team directly using the support link provided below.",
+            "kind": "answer",
+            "sources": [
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "desk-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "desk-support"
+            ],
+            "sources": [
+              "capability:transaction_boundary"
+            ]
+          }
+        }
+      ]
+    },
+    "after2": {
+      "turns_passed": 6,
+      "turns_executed": 16,
+      "scenarios_passed": 4,
+      "scenarios_planned": 12,
+      "model": "gpt-4.1-mini",
+      "fixture_sha256": "88f3750ff4ce204f357214f1d9bb5418a3ddda3f8aeb7fe085ecaf5f7c43be77",
+      "runtime_code_sha256": "c8f0d20a7984b6d3cad7425ef5c19ef90a31bafae6c364e122239e5b2ea653d5",
+      "prompt_sha256": "5a2f9e8e564e528d4cb2db06fdb2442f6c774a1b78fb1f3603dcd57aecd4241b",
+      "provider_requests": 16,
+      "input_tokens": 83773,
+      "output_tokens": 3093,
+      "cached_tokens": 62464,
+      "known_cost_usd": 0.0197188,
+      "unknown_cost_ceiling_usd": 0.0,
+      "model_p50_ms": 1898.5,
+      "model_p95_ms": 3188.0,
+      "component_p50_ms": 1958.38,
+      "component_p95_ms": 3362.41,
+      "accounting": {
+        "consistent": true,
+        "recorded_calls": 16,
+        "recorded_known_cost_usd": 0.0197188,
+        "pending_reservations": 0,
+        "ledger": "temporary_synthetic_sqlite"
+      },
+      "results": [
+        {
+          "scenario_id": "quality_identity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": {
+            "answer": "Atlas Assist specialises in providing configurable website assistants that help businesses deliver information and support to their customers efficiently. Our assistants can be tailored with your branding, tone, and languages, and can explain your saved products, services, FAQs, and policies clearly.\n\nYou should consider using Atlas Assist if you want a flexible, multilingual assistant that integrates your business information seamlessly on your website, improving customer engagement and support without needing complex integrations or guarantees of sales uplift.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "You can compare the full details and pricing of these plans to find the best fit for your business needs.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "Atlas Assist offers three subscription plans to suit different business sizes and needs. The Starter plan includes one location and two staff accounts with basic analytics, suitable for small businesses. The Team plan supports five locations and five staff accounts with advanced analytics, ideal for growing teams. The Growth plan offers fifteen locations and fifteen staff accounts with advanced analytics, designed for larger businesses.\n\nYou can compare the full details and pricing of these plans to find the best fit for your business needs.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "faq:plans",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 2,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "You can review full details and pricing by visiting the Compare plans page.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "One location, two staff accounts, basic analytics",
+              "a tight budget under GBP 30 monthly"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_setup",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any",
+            "answer_has_question"
+          ],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": {
+            "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching your language needs. You can customize the assistant's branding and tone to fit your company style. The service uses saved products, services, FAQs, and policies to respond accurately to your customers' questions in these languages. This setup helps you manage multilingual enquiries efficiently on your website.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "For your small online clothing business needing help with customer enquiries, our Starter plan could be a good fit. It supports one location and two staff accounts with basic analytics, suitable for smaller operations.\n\nIf you expect to grow or need more staff accounts and locations, the Team or Growth plans offer more capacity and advanced analytics.\n\nYou can compare all plans and their features or contact our team for personalized advice using the buttons below.",
+          "candidate": {
+            "answer": "For your small online clothing business needing help with customer enquiries, our Starter plan could be a good fit. It supports one location and two staff accounts with basic analytics, suitable for smaller operations.\n\nIf you expect to grow or need more staff accounts and locations, the Team or Growth plans offer more capacity and advanced analytics.\n\nYou can compare all plans and their features or contact our team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "small online clothing business",
+                "help handling customer enquiries"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business",
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "The Team plan supports five locations and five staff accounts with advanced analytics, which could better accommodate your enquiry volume and provide more detailed insights.\n\nThe Growth plan offers even more capacity with fifteen locations and staff accounts and advanced analytics, suitable if you expect further growth.\n\n1. Starter. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "Handling 300 enquiries per month is a significant volume that may require more capacity than the Starter plan offers, which supports one location and two staff accounts with basic analytics.\n\nThe Team plan supports five locations and five staff accounts with advanced analytics, which could better accommodate your enquiry volume and provide more detailed insights.\n\nThe Growth plan offers even more capacity with fifteen locations and staff accounts and advanced analytics, suitable if you expect further growth.\n\nYou can compare these plans in detail or contact our team for tailored advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "small online clothing business",
+                "help handling customer enquiries",
+                "We get 300 enquiries per month."
+              ]
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries",
+              "We get 300 enquiries per month."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 3,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "Given your need for one location and two staff accounts along with a limited budget, the Starter plan is the most suitable option.\n\nThis plan should handle your delivery and returns enquiries efficiently within your budget. If your needs grow later, you can consider upgrading.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "Given your need for one location and two staff accounts along with a limited budget, the Starter plan is the most suitable option. It supports exactly one location and two staff accounts, includes basic analytics, and costs GBP 20 per month plus a GBP 10 one-time setup fee.\n\nThis plan should handle your delivery and returns enquiries efficiently within your budget. If your needs grow later, you can consider upgrading.\n\nYou can compare plans or contact our team for more help using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "assist",
+              "next_action": "recommend_option",
+              "selection_update": "select",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": "product:starter",
+              "selection_evidence": "I need one location and two staff accounts. My budget is limited.",
+              "requirements": [
+                "one location and two staff accounts",
+                "limited budget"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries",
+              "We get 300 enquiries per month.",
+              "one location and two staff accounts"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 4,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "You can compare plans or contact our team for more advice using the buttons below.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "small online clothing business",
+              "help handling customer enquiries",
+              "We get 300 enquiries per month.",
+              "one location and two staff accounts",
+              "Basic analytics is fine"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_honest_limits",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "validator_accepted",
+            "approved_sources_only",
+            "answer_contains_all",
+            "answer_contains_any"
+          ],
+          "answer": null,
+          "candidate": {
+            "answer": "Our AI does not guarantee a 30% increase in sales. Results depend on your business, the quality of information provided, and customer demand. There is no fixed sales uplift guaranteed.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "capability:transaction_boundary:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": null,
+            "stage": null,
+            "next_action": null,
+            "offering_ids": null,
+            "last_offering_ids": null,
+            "selected_offering_id": null,
+            "requirements": null,
+            "retired_requirements": null,
+            "requested_action": null,
+            "navigation_ids": null,
+            "sources": null
+          }
+        },
+        {
+          "scenario_id": "quality_costs",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "1. Starter. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_knowledge_gap",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "Atlas Assist does not guarantee any sales uplift or specific results, and there is no contractual compensation for outages, including one lasting exactly 17 minutes. Payments, refunds, or compensation cannot be processed through this chat; please contact the business team for any concerns about service interruptions.",
+          "candidate": {
+            "answer": "Atlas Assist does not guarantee any sales uplift or specific results, and there is no contractual compensation for outages, including one lasting exactly 17 minutes. Payments, refunds, or compensation cannot be processed through this chat; please contact the business team for any concerns about service interruptions.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer",
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_restaurant_application",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all"
+          ],
+          "answer": "You can view our current menu online to see the options available.\n\nTell staff about allergies before visiting. Shared preparation areas mean allergen-free food cannot be guaranteed.",
+          "candidate": {
+            "answer": "Juniper Kitchen is a vegetarian restaurant with a seasonal menu and quieter early-evening sittings, making it well suited for a quiet family meal early in the evening. The staff will discuss any dietary needs with you before your visit to ensure a good experience. Please note that if anyone has allergies, you should inform the staff beforehand, although allergen-free food cannot be fully guaranteed due to shared preparation areas.\n\nYou can view our current menu online to see the options available.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "policy:allergens"
+            ],
+            "statement_ids": [
+              "policy:allergens:answer"
+            ],
+            "navigation": [
+              "juniper-menu"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "answer",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "juniper-menu"
+            ],
+            "sources": [
+              "policy:allergens",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_assessment",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Business Document Translation: Price requires a quote. Human-reviewed business document translation. Price and turnaround depend on assessment.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.\n\nThe team reviews the document scope, word count and deadline before confirming a price and turnaround. No instant quote or certification is guaranteed.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "offering:documents"
+            ],
+            "last_offering_ids": [
+              "offering:documents"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "1200-word Arabic business document",
+              "needed in English by Friday"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "cedar-enquiry"
+            ],
+            "sources": [
+              "offering:documents",
+              "capability:transaction_boundary",
+              "policy:quotes"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_disabled_action",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_product_recommendation",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "The Summit Bottle is larger and heavier, so it doesn't match your need for lightness.\n\nTrail Bottle: £20.00. Listed price is within your stated budget. Lightweight 500 ml bottle for short walks. Product availability needs confirmation.\n\nLive inventory is not connected. The team must confirm quantity and availability.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:trail"
+            ],
+            "last_offering_ids": [
+              "product:trail"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "lightest bottle",
+              "up to GBP 40",
+              "For short walks"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "trail-checkout"
+            ],
+            "sources": [
+              "product:trail",
+              "policy:stock",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_source_conflict",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "Payments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "The exact refund window duration is not confirmed here. For certainty about whether the refund window is 14 or 30 days, please contact the team directly through our support page. Payments, refunds, and order changes cannot be completed or confirmed in this chat.",
+            "kind": "answer",
+            "sources": [
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "desk-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "desk-support"
+            ],
+            "sources": [
+              "capability:transaction_boundary"
+            ]
+          }
+        }
+      ]
+    },
+    "after3": {
+      "turns_passed": 12,
+      "turns_executed": 16,
+      "scenarios_passed": 10,
+      "scenarios_planned": 12,
+      "model": "gpt-4.1-mini",
+      "fixture_sha256": "88f3750ff4ce204f357214f1d9bb5418a3ddda3f8aeb7fe085ecaf5f7c43be77",
+      "runtime_code_sha256": "65799abb9ce97d4541f380ca25e372f20261370678bf6fa73e9dcb91503591c2",
+      "prompt_sha256": "d15df8ab181c752351acfd5e5d2e0d4cb72c13ea68db798baf099ef4a62c84e7",
+      "provider_requests": 17,
+      "input_tokens": 89733,
+      "output_tokens": 3186,
+      "cached_tokens": 68992,
+      "known_cost_usd": 0.0202932,
+      "unknown_cost_ceiling_usd": 0.0,
+      "model_p50_ms": 1656.0,
+      "model_p95_ms": 3000.0,
+      "component_p50_ms": 1735.26,
+      "component_p95_ms": 3809.25,
+      "accounting": {
+        "consistent": true,
+        "recorded_calls": 17,
+        "recorded_known_cost_usd": 0.0202932,
+        "pending_reservations": 0,
+        "ledger": "temporary_synthetic_sqlite"
+      },
+      "results": [
+        {
+          "scenario_id": "quality_identity",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Atlas Assist specialises in providing configurable website assistants that help businesses offer tailored customer support and information. Our assistants can be customised with your saved products, services, FAQs, and policies, and they support multiple languages including English, Urdu, and Arabic.\n\nIf you want to explore our pricing plans or need help, you can compare plans or ask our team for support using the buttons below.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "To help you choose the right plan, could you please tell me how many locations and staff accounts you need for your business? This will help me recommend the most suitable option among Starter, Team, and Growth plans.",
+          "candidate": null,
+          "state": {
+            "intent": "discover",
+            "stage": "qualify",
+            "next_action": "ask_clarification",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 2,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "You can compare plans in detail to confirm this choice.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "One location, two staff accounts, basic analytics and a tight budget under GBP 30 monthly."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_setup",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any",
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching the languages you work with. You can customize the assistant's branding and tone to fit your company style and set up saved products, services, FAQs, and policies relevant to your business.\n\nTo tailor the service precisely, it would be helpful to know more about the types of enquiries you receive and any specific workflows or information you want the assistant to handle.",
+          "candidate": {
+            "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching the languages you work with. You can customize the assistant's branding and tone to fit your company style and set up saved products, services, FAQs, and policies relevant to your business.\n\nTo tailor the service precisely, it would be helpful to know more about the types of enquiries you receive and any specific workflows or information you want the assistant to handle. You can also enable enquiry forms if you want to collect detailed requests from your clients.\n\nIf you want, I can connect you to the team for more detailed setup assistance.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "setup",
+              "stage": "assist",
+              "next_action": "ask_clarification",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "handling English, Urdu and Arabic enquiries"
+              ]
+            }
+          },
+          "state": {
+            "intent": "setup",
+            "stage": "assist",
+            "next_action": "ask_clarification",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [
+              "handling English, Urdu and Arabic enquiries"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can help your small online clothing business by providing configurable website assistants that handle customer enquiries efficiently. These assistants can be tailored to your brand and support multiple languages, helping you manage customer questions and improve service.\n\nYou might consider exploring the available subscription plans to find one that fits your business size and needs. If you want personalized help or have specific questions, you can also ask the team directly through the support page.",
+          "candidate": {
+            "answer": "Atlas Assist can help your small online clothing business by providing configurable website assistants that handle customer enquiries efficiently. These assistants can be tailored to your brand and support multiple languages, helping you manage customer questions and improve service.\n\nYou might consider exploring the available subscription plans to find one that fits your business size and needs. If you want personalized help or have specific questions, you can also ask the team directly through the support page.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 2,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "The Starter plan supports one location and two staff accounts with basic analytics, suitable for smaller volumes. The Team plan includes five locations and five staff accounts with advanced analytics, and the Growth plan supports up to fifteen locations and staff accounts with advanced analytics.\n\nYou can compare the plans in detail or ask the team for personalized advice using the buttons below.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "For handling around 300 enquiries per month, Atlas Assist offers three subscription plans with different capacities and features. The Starter plan supports one location and two staff accounts with basic analytics, suitable for smaller volumes. The Team plan includes five locations and five staff accounts with advanced analytics, and the Growth plan supports up to fifteen locations and staff accounts with advanced analytics.\n\nNone of the plans include prepaid AI credit, which is separate. There is no fixed message allowance, and WhatsApp software is included, though phone numbers and messaging fees are separate. No sales uplift is guaranteed as results depend on your business and customer demand.\n\nYou can compare the plans in detail or ask the team for personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans",
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter",
+                "product:team",
+                "product:growth"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "We get 300 enquiries per month."
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "faq:plans",
+              "policy:guarantees",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 3,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_has_question"
+          ],
+          "answer": "For your needs of one location and two staff accounts with a limited budget, the Starter plan is the most suitable option. This plan includes basic analytics and supports your scale.\n\nYou can compare plans or ask the team for more personalized advice using the buttons below.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": {
+            "answer": "For your needs of one location and two staff accounts with a limited budget, the Starter plan is the most suitable option. It costs GBP 20 per month plus a GBP 10 one-time setup fee. This plan includes basic analytics and supports your scale.\n\nSince most enquiries are about delivery and returns, the assistant can be configured to handle these common questions efficiently, helping your staff manage workload.\n\nYou can compare plans or ask the team for more personalized advice using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ],
+            "statement_ids": [
+              "faq:plans:answer",
+              "policy:guarantees:answer",
+              "capability:transaction_boundary:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "open_destination",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": [
+                "one location and two staff accounts",
+                "My budget is limited"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month.",
+              "one location and two staff accounts",
+              "My budget is limited"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 4,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Starter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month.",
+              "one location and two staff accounts",
+              "My budget is limited",
+              "Basic analytics is fine"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_honest_limits",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "No sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_costs",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Starter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_knowledge_gap",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": null,
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": []
+          }
+        },
+        {
+          "scenario_id": "quality_restaurant_application",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Juniper Kitchen is a vegetarian restaurant with a seasonal menu, and it offers quieter early-evening sittings, making it well suited for a quiet family meal. You can view the current menu on our website to see the available dishes.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "juniper-menu"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_assessment",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "We can assess your 1200-word Arabic business document for translation into English with a deadline by Friday. Our team will review the document's scope, word count, and deadline to confirm the price and turnaround time.\n\nYou can start your enquiry here.\n\nBusiness Document Translation: Price requires a quote. Human-reviewed business document translation. Price and turnaround depend on assessment.\n\nThe team reviews the document scope, word count and deadline before confirming a price and turnaround. No instant quote or certification is guaranteed.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "offering:documents"
+            ],
+            "last_offering_ids": [
+              "offering:documents"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "cedar-enquiry"
+            ],
+            "sources": [
+              "offering:documents",
+              "policy:quotes",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_disabled_action",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "This chat cannot complete or confirm bookings.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "capability:transaction_boundary",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_product_recommendation",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "The Summit Bottle is larger and heavier, so it is less suitable for your needs.\n\n1. Trail Bottle: £20.00. Lightweight 500 ml bottle for short walks. Product availability needs confirmation.\n\n2. Summit Bottle: £35.00. Larger 1000 ml insulated bottle; heavier than Trail Bottle. Product availability needs confirmation.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:trail",
+              "product:summit"
+            ],
+            "last_offering_ids": [
+              "product:trail",
+              "product:summit"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "lightest bottle",
+              "short walks"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "trail-checkout"
+            ],
+            "sources": [
+              "product:trail",
+              "product:summit"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_source_conflict",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "desk-support"
+            ],
+            "sources": []
+          }
+        }
+      ]
+    },
+    "release": {
+      "turns_passed": 12,
+      "turns_executed": 16,
+      "scenarios_passed": 9,
+      "scenarios_planned": 12,
+      "model": "gpt-4.1-mini",
+      "fixture_sha256": "88f3750ff4ce204f357214f1d9bb5418a3ddda3f8aeb7fe085ecaf5f7c43be77",
+      "runtime_code_sha256": "d12a632bd18692f52fd1870aa67f8a43c2e6a96478f33df1a6c4ff48712a30e4",
+      "prompt_sha256": "0de9619e16cbb46f26ea19c70f901081bfc20b07f16b9c15b2da4cf468710ab3",
+      "provider_requests": 16,
+      "input_tokens": 83439,
+      "output_tokens": 2813,
+      "known_cost_usd": 0.0204044,
+      "unknown_cost_ceiling_usd": 0.0,
+      "cached_tokens": 58240,
+      "model_p50_ms": 1671.5,
+      "model_p95_ms": 4515.0,
+      "component_p50_ms": 1757.57,
+      "component_p95_ms": 4733.96,
+      "accounting": {
+        "consistent": true,
+        "recorded_calls": 16,
+        "recorded_known_cost_usd": 0.0204044,
+        "pending_reservations": 0,
+        "ledger": "temporary_synthetic_sqlite"
+      },
+      "results": [
+        {
+          "scenario_id": "quality_identity",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Our assistants can be tailored with your branding, tone, and languages, and can explain your saved products, services, FAQs, and policies clearly.\n\nYou should consider using Atlas Assist if you want a flexible, multilingual assistant that can improve customer engagement on your website without requiring complex integrations.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "To help you choose the right plan for your business, could you please tell me how many locations and staff accounts you need to support? This will help narrow down the best fit among our Starter, Team, and Growth plans.",
+          "candidate": null,
+          "state": {
+            "intent": "discover",
+            "stage": "qualify",
+            "next_action": "ask_clarification",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_qualification",
+          "turn": 2,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "The Starter plan fits your needs well. It supports one location, two staff accounts, and basic analytics, matching your requirements.\n\nYou can compare this plan and others in detail by visiting the Compare plans page.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "One location",
+              "two staff accounts",
+              "basic analytics",
+              "a tight budget under GBP 30 monthly"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_setup",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_contains_any",
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching the languages you work with. You can customize the assistant with your branding and control the tone to suit your business style. To tailor the service effectively, it would be helpful to know more about the specific types of enquiries you receive and any particular workflows or information you want the assistant to handle.\n\nIf you want, I can connect you with the team to discuss your specific needs and how to best configure the service for your company.",
+          "candidate": {
+            "answer": "Atlas Assist can be configured to support your translation company by providing website assistants that handle enquiries in English, Urdu, and Arabic, matching the languages you work with. You can customize the assistant with your branding and control the tone to suit your business style. To tailor the service effectively, it would be helpful to know more about the specific types of enquiries you receive and any particular workflows or information you want the assistant to handle.\n\nIf you want, I can connect you with the team to discuss your specific needs and how to best configure the service for your company.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "setup",
+              "stage": "assist",
+              "next_action": "ask_clarification",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "setup",
+            "stage": "assist",
+            "next_action": "ask_clarification",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-support"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_has_question"
+          ],
+          "answer": "Atlas Assist can help your small online clothing business by providing configurable website assistants that handle customer enquiries efficiently. These assistants can be tailored to your products, services, and FAQs, helping to manage customer questions in multiple languages including English, Urdu, and Arabic.\n\nTo explore suitable plans or get direct support from the team, you can visit the Compare plans page or Ask the team page using the buttons below.",
+          "candidate": {
+            "answer": "Atlas Assist can help your small online clothing business by providing configurable website assistants that handle customer enquiries efficiently. These assistants can be tailored to your products, services, and FAQs, helping to manage customer questions in multiple languages including English, Urdu, and Arabic.\n\nTo explore suitable plans or get direct support from the team, you can visit the Compare plans page or Ask the team page using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business"
+            ],
+            "statement_ids": [],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 2,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Handling 300 enquiries per month is a significant workload that Atlas Assist's configurable website assistants can help manage efficiently by automating responses and routing queries.\n\nTo recommend the best plan for your needs, could you please specify how many staff members will need access to the assistant and how many locations your business operates from? This will help tailor the solution to your exact requirements.\n\nMeanwhile, you can explore our plans or contact the team for personalized support using the buttons below.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "ask_clarification",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month."
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 3,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_all",
+            "answer_has_question"
+          ],
+          "answer": "For your small online clothing business with one location and two staff accounts, and considering your limited budget, the Starter plan is the most suitable option.\n\nYou can compare this plan with others or contact the team for further assistance using the buttons below.\n\nStarter (month). One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.",
+          "candidate": {
+            "answer": "For your small online clothing business with one location and two staff accounts, and considering your limited budget, the Starter plan is the most suitable option. It costs GBP 20 per month plus a GBP 10 one-time setup fee and includes basic analytics, which should help manage delivery and returns enquiries efficiently.\n\nYou can compare this plan with others or contact the team for further assistance using the buttons below.",
+            "kind": "answer",
+            "sources": [
+              "business",
+              "faq:plans",
+              "product:starter"
+            ],
+            "statement_ids": [
+              "faq:plans:answer"
+            ],
+            "navigation": [
+              "atlas-plans",
+              "atlas-support"
+            ],
+            "requested_action": null,
+            "agent": {
+              "intent": "recommend",
+              "stage": "recommend",
+              "next_action": "recommend_option",
+              "selection_update": "keep",
+              "offering_ids": [
+                "product:starter"
+              ],
+              "selected_offering_id": null,
+              "selection_evidence": "I need one location and two staff accounts. My budget is limited.",
+              "requirements": [
+                "one location",
+                "two staff accounts",
+                "limited budget"
+              ]
+            }
+          },
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month.",
+              "one location",
+              "two staff accounts"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "faq:plans",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_clothing_continuity",
+          "turn": 4,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "It includes one location, two staff accounts, and basic analytics, fitting well with your requirements.\n\nYou can compare this plan with others or contact the team for further assistance using the buttons below.\n\nStarter (month): £20.00. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": null,
+          "state": {
+            "intent": "recommend",
+            "stage": "recommend",
+            "next_action": "recommend_option",
+            "offering_ids": [
+              "product:starter"
+            ],
+            "last_offering_ids": [
+              "product:starter"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "We get 300 enquiries per month.",
+              "one location",
+              "two staff accounts",
+              "Basic analytics is fine"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_honest_limits",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "No sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_costs",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "1. Starter. One location, two staff accounts, Basic analytics. Product availability needs confirmation.\n\n2. Team. Five locations, five staff accounts, Advanced analytics. Product availability needs confirmation.\n\n3. Growth. Fifteen locations, fifteen staff accounts, Advanced analytics. Product availability needs confirmation.\n\nPricing: month.\n\nStarter costs GBP 20 per month plus GBP 10 one-time setup. Team costs GBP 50 per month plus GBP 25 one-time setup. Growth costs GBP 90 per month plus GBP 40 one-time setup. AI processing credit is prepaid and separate; none is included. There is no fixed message allowance. WhatsApp software is included, but phone numbers and provider messaging fees are separate.\n\nNo sales uplift is guaranteed. Results depend on the business, information quality and customer demand.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "last_offering_ids": [
+              "product:starter",
+              "product:team",
+              "product:growth"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "atlas-plans"
+            ],
+            "sources": [
+              "product:starter",
+              "product:team",
+              "product:growth",
+              "faq:plans",
+              "policy:guarantees",
+              "capability:transaction_boundary"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_knowledge_gap",
+          "turn": 1,
+          "passed": false,
+          "failed_checks": [
+            "answer_contains_any"
+          ],
+          "answer": "No sales uplift is guaranteed. Results depend on the business, information quality and customer demand.",
+          "candidate": {
+            "answer": "There is no guaranteed sales uplift or contractual compensation for outages, including one lasting exactly 17 minutes. Results and service availability depend on your business, information quality, and customer demand, without specific compensation terms.",
+            "kind": "answer",
+            "sources": [
+              "policy:guarantees"
+            ],
+            "statement_ids": [
+              "policy:guarantees:answer"
+            ],
+            "navigation": [],
+            "requested_action": null,
+            "agent": {
+              "intent": "policy",
+              "stage": "assist",
+              "next_action": "await_customer_question",
+              "selection_update": "keep",
+              "offering_ids": [],
+              "selected_offering_id": null,
+              "selection_evidence": null,
+              "requirements": []
+            }
+          },
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "policy:guarantees"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_restaurant_application",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Juniper Kitchen is a vegetarian restaurant with a seasonal menu, and it offers quieter early-evening sittings, which should suit your plan for a quiet family meal. The staff will discuss any dietary needs with you before your visit to ensure a good experience.\n\nYou can view the current menu on our website to see the options available for your meal.\n\nTell staff about allergies before visiting. Shared preparation areas mean allergen-free food cannot be guaranteed.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "juniper-menu"
+            ],
+            "sources": [
+              "policy:allergens",
+              "capability:transaction_boundary",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_translation_assessment",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "Cedar Languages can assess your 1200-word Arabic business document for translation into English with a deadline by Friday. The team will review the document's scope, word count, and deadline to confirm the price and turnaround time.\n\nBusiness Document Translation: Price requires a quote. Human-reviewed business document translation. Price and turnaround depend on assessment.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.\n\nThe team reviews the document scope, word count and deadline before confirming a price and turnaround. No instant quote or certification is guaranteed.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [
+              "offering:documents"
+            ],
+            "last_offering_ids": [
+              "offering:documents"
+            ],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "cedar-enquiry"
+            ],
+            "sources": [
+              "offering:documents",
+              "capability:transaction_boundary",
+              "policy:quotes",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_disabled_action",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "This chat cannot confirm or complete bookings or changes.\n\nPayments, refunds, order changes and external calendar changes cannot be completed in this chat. Use the business's approved page or contact its team for help. Opening a page or request form does not complete a transaction.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [],
+            "sources": [
+              "capability:transaction_boundary",
+              "business"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_product_recommendation",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "For short walks and wanting the lightest bottle within your budget, the Trail Bottle is the best fit.\n\nTrail Bottle: £20.00. Lightweight 500 ml bottle for short walks. Product availability needs confirmation.",
+          "candidate": null,
+          "state": {
+            "intent": "answer",
+            "stage": "assist",
+            "next_action": "await_customer_question",
+            "offering_ids": [
+              "product:trail"
+            ],
+            "last_offering_ids": [
+              "product:trail"
+            ],
+            "selected_offering_id": null,
+            "requirements": [
+              "For short walks I want the lightest bottle",
+              "I can spend up to GBP 40"
+            ],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "trail-checkout"
+            ],
+            "sources": [
+              "product:trail"
+            ]
+          }
+        },
+        {
+          "scenario_id": "quality_source_conflict",
+          "turn": 1,
+          "passed": true,
+          "failed_checks": [],
+          "answer": "I don't have confirmed information about that. Please ask the team to confirm.",
+          "candidate": null,
+          "state": {
+            "intent": "policy",
+            "stage": "assist",
+            "next_action": "open_destination",
+            "offering_ids": [],
+            "last_offering_ids": [],
+            "selected_offering_id": null,
+            "requirements": [],
+            "retired_requirements": [],
+            "requested_action": null,
+            "navigation_ids": [
+              "desk-support"
+            ],
+            "sources": []
+          }
+        }
+      ]
+    }
+  },
+  "task_known_cost_usd": 0.0967572,
+  "cumulative_budget": {
+    "user_limit_gbp": 2,
+    "known_cost_usd": 1.48392347,
+    "conservative_total_usd": 1.58590107,
+    "internal_envelope_usd": 1.65,
+    "conversation_quality_reservations_usd": {}
+  },
+  "verification_blocker": null,
+  "full_suite_before_final_followups": {
+    "passed": 3672,
+    "failed": 6,
+    "skipped": 76,
+    "seconds": 1561.95
+  },
+  "final_followups": "Updated three exact-price assertions and added valid timestamps to peer-reset test fixtures; final regression rerun pending.",
+  "final_affected_regressions": {
+    "passed": 389,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 70.93
+  }
+}

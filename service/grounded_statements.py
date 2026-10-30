@@ -13,7 +13,7 @@ import re
 _PROCESS = re.compile(
     r'\b(?:polic(?:y|ies)|returns?|refunds?|cancel\w*|complain\w*|stock|availability|'
     r'book(?:ing|ed)?|appointments?|reservations?|payments?|paid|quotes?|callbacks?|orders?|'
-    r'money[ -]back|money back|exchang\w*|replac\w*|reimburs\w*|warrant\w*|guarantee\w*|'
+    r'money[ -]back|money back|exchang\w*|replac\w*|reimburs\w*|warrant\w*|guarantee\w*|compensation|SLA|'
     r'shipping|delivery|deliver\w*|dispatch\w*|postage|arriv\w*|fees?|'
     r'check\s?out|buy|purchase|submit\w*|forms?|'
     r'devoluci\w*|reembols\w*|cancelar|disponibilidad|reservar|pago|pagado|presupuesto|formulario|'
@@ -207,11 +207,118 @@ def prompt_knowledge(knowledge, *, prioritized=()):
 def protected_request(question, payload, statements):
     agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
     cited = set(payload.get('sources', []))
+    from service.grounded_money import extract_money_claims
     return (bool(_PROCESS.search(question)) or bool(_PROCESS.search(payload.get('answer', '')))
+            or bool(extract_money_claims(payload.get('answer', '')) and any(
+                key.startswith(('product:', 'offering:')) for key in cited))
             or bool(payload.get('statement_ids')) or agent.get('intent') in _INTENTS
             or bool(payload.get('requested_action'))
             or any(row['source_id'] in cited and row['source_id'] != 'business_core'
                    for row in statements.values()))
+
+
+def _topic_only_text(text):
+    """A topic of customer enquiries is not the business's policy or an action.
+
+    Only noun phrases are normalized. 'Refund the order', payment promises,
+    deadlines and policy conditions still reach the protected renderer.
+    """
+    topic = r'(?:delivery|shipping|returns?|refunds?|orders?|bookings?|appointments?|payments?|cancellations?)'
+    sequence = topic + r'(?:\s*(?:,|and|or|/|&)\s*' + topic + r'){0,4}'
+    text = re.sub(r'\b' + sequence + r'\s+(?:questions|enquiries|queries|FAQs)\b', 'customer topics', text, flags=re.I)
+    text = re.sub(r'\b(?:questions|enquiries|queries|FAQs)\s+(?:about|on|regarding)\s+' + sequence,
+                  'customer topics', text, flags=re.I)
+    text = re.sub(r'\b(?:saved|approved|configured|your own)\s+(?:(?:products?|services?|FAQs?|information|knowledge)'
+                  r'\s*(?:,\s*(?:and\s+|or\s+)?|and|or|&)\s*){0,4}policies\b', 'approved knowledge', text, flags=re.I)
+    return re.sub(r'\b(?:approved\s+)?booking\s+(?:links?|pages?)\b', 'navigation', text, flags=re.I)
+
+
+def _business_guidance(question, payload, knowledge):
+    """Use the ordinary grounded path for noncommercial business explanations.
+
+    This does not authorize prose for a policy, financial term or business
+    action. Raw claims still pass the original price/URL/action validators.
+    """
+    agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
+    if (agent.get('intent') in _INTENTS or payload.get('requested_action') or payload.get('statement_ids')
+            or any(key.startswith(('policy:', 'capability:')) or key == 'current_platform_offer'
+                   for key in payload.get('sources', []))):
+        return False
+    descriptive = any(isinstance(knowledge.get(key), dict) and (
+        knowledge[key].get('about') or knowledge[key].get('description') or knowledge[key].get('features'))
+        for key in payload.get('sources', []) if key == 'business' or key.startswith(('product:', 'offering:')))
+    text = str(payload.get('answer') or '')
+    comparative = re.sub(r"\b(?:cannot|can't|can not)\s+claim\b[^.!?]{0,90}\b(?:better|cheaper) than\b"
+                         r"[^.!?]{0,90}\bwithout evidence\b", '', text, flags=re.I)
+    from service.grounded_money import extract_money_claims
+    return bool(descriptive and not _PROCESS.search(_topic_only_text(question))
+        and not _PROCESS.search(_topic_only_text(text)) and not extract_money_claims(text)
+        and not re.search(r'\b(?:fees?|monthly|per month|subscriptions?|credit|setup|VAT|'
+                          r'unlimited|accredited|certified|guaranteed|cheaper than|better than)\b|\d\s*%', comparative, re.I))
+
+
+def _guidance_paragraphs(question, payload, knowledge, statements, selected):
+    """Retain concise advice/questions alongside complete commercial statements."""
+    agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
+    if (agent.get('intent') not in {'discover', 'recommend', 'compare', 'setup', 'answer'}
+            or payload.get('requested_action') or _SUPPORT_TOPIC.search(_topic_only_text(question))):
+        return []
+    if agent.get('intent') == 'answer' and _PROCESS.search(_topic_only_text(question)):
+        return []
+    result = []
+    complete = '\n\n'.join(statements[key]['text'] for key in selected)
+    from service.grounded_money import extract_money_claims
+    for paragraph in re.split(r'\n\s*\n', payload.get('answer', '')):
+        paragraph = paragraph.strip()
+        probe = {**payload, 'statement_ids': [], 'sources': [
+            key for key in payload['sources'] if key == 'business' or key.startswith(('product:', 'offering:'))]}
+        # Keep only independent nonconsequential sentences. Complete policy and
+        # financial source units remain intact below, including their exceptions.
+        paragraph = ' '.join(sentence for sentence in re.split(r'(?<=[.!?])\s+', paragraph)
+            if not extract_money_claims(sentence) and _business_guidance('', {**probe, 'answer': sentence}, knowledge))
+        if (not paragraph or paragraph in complete or 'https://' in paragraph or 'http://' in paragraph
+                or len('\n\n'.join(result + [paragraph])) > 700):
+            continue
+        probe = {**probe, 'answer': paragraph}
+        if _business_guidance('', probe, knowledge):
+            result.append(paragraph)
+        if len(result) == 2:
+            break
+    return result
+
+
+def _duplicate_price(row, statements, selected):
+    """Suppress only a repeated catalogue amount, never a complete source unit.
+
+    Names and billing units must agree. Description, stock, options and price
+    qualifications remain in the catalogue summary; source terms stay whole.
+    """
+    if (not isinstance(row.get('name'), str) or type(row.get('price')) not in (int, float)
+            or not math.isfinite(row['price']) or not 0 <= row['price'] <= 1_000_000_000
+            or not isinstance(row.get('currency'), str) or not re.fullmatch(r'[A-Z]{3}', row['currency'])):
+        return False
+    name = str(row.get('billing_name') or row['name']).strip()
+    if not name or row.get('price_type') or row.get('pricing_mode'):
+        return False
+    from service.grounded_money import monetary_claims_supported
+    claim = f"{name}: {row.get('currency')} {row['price']}"
+    for key in selected:
+        statement = statements[key]
+        if not statement['source_id'].startswith(('faq:', 'matched_faq:', 'policy:')):
+            continue
+        for sentence in re.split(r'(?<=[.!?])\s+|\n', statement['text']):
+            named = r'(?<!\w)' + re.escape(name) + r'\s*(?::|—|is\b|costs\b|starts\b|[$£€])'
+            if not re.search(named, sentence, re.I):
+                continue
+            for fragment in re.split(r'\b(?:plus|and)\b|;', sentence, flags=re.I):
+                unit = str(row.get('unit') or '').strip().lower()
+                if unit and unit not in fragment.lower():
+                    continue
+                if not re.search(named, fragment, re.I) and not row.get('billing_name'):
+                    continue
+                if monetary_claims_supported(claim, [{'question': name, 'answer': fragment}]):
+                    return True
+    return False
 
 
 def _descriptive_answer(question, payload, knowledge):
@@ -220,6 +327,12 @@ def _descriptive_answer(question, payload, knowledge):
     Actual policy/process questions and capabilities retain the extractive
     boundary. Merely citing an overview/size/pricing FAQ must not dump it whole.
     """
+    if _business_guidance(question, payload, knowledge):
+        return True
+    from service.grounded_money import extract_money_claims
+    if extract_money_claims(payload.get('answer', '')) and any(
+            key.startswith(('product:', 'offering:')) for key in payload.get('sources', [])):
+        return False
     agent = payload.get('agent') if isinstance(payload.get('agent'), dict) else {}
     if (_PROCESS.search(question) or agent.get('intent') in {'policy', 'cancel', 'complaint'}
             or payload.get('requested_action')):
@@ -417,6 +530,8 @@ def render_response(question, payload, state, knowledge, statements, navigation,
             if key not in cited or key not in knowledge:
                 continue
             row = knowledge[key]
+            if isinstance(row, dict) and _duplicate_price(row, statements, selected):
+                row = {**row, 'price': None}
             text = _offering_summary(row, product=key.startswith('product:'), budget=budget,
                                      question=question,shared_unit=shared_unit,
                                      service_business=service_business) if isinstance(row, dict) else ''
@@ -444,10 +559,13 @@ def render_response(question, payload, state, knowledge, statements, navigation,
         sources.append(source)
         if requested_action=='consultation':
             lines.append('Any price or assessment discussed is an estimate, not a final quote.')
-    if not lines:
+    guidance = _guidance_paragraphs(question, payload, knowledge, statements, selected)
+    if guidance:
+        sources += [key for key in payload['sources'] if key == 'business' or key.startswith(('product:', 'offering:'))]
+    if not lines and not guidance:
         lines.append('I cannot perform transactions or provide private information.' if payload['kind'] == 'refusal'
-                     else 'That detail is not established in the available business policy. Please ask the team to confirm.')
-    text = '\n\n'.join(lines)
+                     else "I don't have confirmed information about that. Please ask the team to confirm.")
+    text = '\n\n'.join(guidance + lines)
     if len(text) > 4000:
         raise ValueError('statement_response_too_long')
     return text, list(dict.fromkeys(sources)), selected

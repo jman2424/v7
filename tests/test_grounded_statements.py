@@ -157,7 +157,7 @@ def test_ineligible_units_cannot_become_authoritative_prefixes(monkeypatch, reco
     answer, _, _, _ = run(monkeypatch, {'policy:returns': record}, ids=['policy:returns:answer'])
     assert answer is None
     answer, _, diagnostics, _ = run(monkeypatch, {'policy:returns': record}, ids=[])
-    assert 'not established' in answer and diagnostics['source_ids'] == []
+    assert 'confirmed information' in answer and diagnostics['source_ids'] == []
 
 
 @pytest.mark.parametrize('question', ['When is payment confirmed?', '¿Cuándo se confirma el pago?',
@@ -165,7 +165,7 @@ def test_ineligible_units_cannot_become_authoritative_prefixes(monkeypatch, reco
 def test_customer_request_cannot_bypass_boundary_with_general_intent(monkeypatch, question):
     answer, _, _, _ = run(monkeypatch, {'business': {'about': 'A fictional shop.'}},
                           question=question, intent='answer')
-    assert 'not established' in answer
+    assert 'confirmed information' in answer
 
 
 def test_native_rule_preserves_exception_and_manual_review(monkeypatch):
@@ -339,7 +339,7 @@ def test_current_platform_offer_overrides_stale_referral_faq(monkeypatch):
 def test_common_money_back_paraphrase_cannot_bypass_protection(monkeypatch):
     answer, _, diagnostics, _ = run(monkeypatch, {'business': {'name': 'Shop'}},
         question='Can I get my money back?', intent='answer', text='You can get your money back within 45 days.')
-    assert 'not established' in answer and '45' not in answer
+    assert 'confirmed information' in answer and '45' not in answer
     assert diagnostics['mode'] == 'source_statements'
 
 

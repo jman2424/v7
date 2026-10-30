@@ -6,6 +6,34 @@ from types import SimpleNamespace
 from service import platform_offer_knowledge, referrals, subscriptions
 
 
+def test_personal_advice_is_not_replaced_by_the_tariff_shortcut():
+    for question in ['Compare your plans and recommend one for my business.',
+                     'What plan should I choose based on price and features?',
+                     'Help me choose between Starter and Business pricing plans.',
+                     'Which pricing plan is best for my limited budget?']:
+        assert platform_offer_knowledge.automatic_plan_answer(question, {'enabled': True}) is None
+
+
+def test_plan_reasoning_uses_current_enforced_entitlements_without_legacy_quotas(monkeypatch):
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'MARKETING')
+    assert platform_offer_knowledge.public_plan_context('OTHER') is None
+    context = platform_offer_knowledge.public_plan_context('MARKETING')
+    from service.plan_catalog import public_plans
+    for actual, expected in zip(context['plans'], public_plans()):
+        assert actual['locations'] == expected['locations']
+        assert actual['staff_accounts'] == expected['staff_accounts']
+        assert actual['analytics'] == expected['analytics']
+    assert 'website_conversations' not in json.dumps(context)
+    assert 'whatsapp_messages' not in json.dumps(context)
+    assert 'separately prepaid' in context['usage'] and 'separate costs' in context['whatsapp']
+    from service.grounded_money import monetary_claims_supported
+    evidence = [{'name': 'Fictional platform', 'subscription_plans': context}]
+    # Limits are not a bag of price amounts. Prices keep their own catalogue
+    # sources and protected commercial terms.
+    assert not monetary_claims_supported('Starter costs GBP 99 per month plus GBP 149 setup.', evidence)
+    assert not monetary_claims_supported('Scale costs GBP 99 per month.', evidence)
+
+
 def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(client, monkeypatch):
     monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'VERTEX')
     with client.application.app_context():
