@@ -15,6 +15,7 @@
   let readiness: Record<Channel,{configured:boolean;recipients:string[];provider_cleanup_available?:boolean}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
   let workerEnabled = false;
   let moduleInitialized = false;
+  let phoneWebhook = '';
   let operations:Operation[] = [];
   let drafts:Record<string,string> = {};
   let actionFor = '';
@@ -108,7 +109,7 @@
     } catch(err) {if(!disposed){error=true;status=err instanceof Error?err.message:'Could not record the action. Refresh activity before retrying.';}}
     finally {if(!disposed)busyId='';}
   }
-  onMount(load);
+  onMount(()=>{phoneWebhook = new URL(`${apiPrefix}/channels/phone/incoming`,window.location.origin).href;load();});
   onDestroy(()=>{disposed = true;generation++;for(const controller of controllers) controller.abort();});
 </script>
 
@@ -119,6 +120,13 @@
   {#if settings}
     <AgentModules {tenant} {csrf} {canManage} {isPlatform} {apiPrefix} onReady={(value)=>moduleInitialized=value} onSaved={load}/>
     <BusinessEmailSetup {tenant} {csrf} {canManage} {apiPrefix}/>
+    <section class="notice" aria-labelledby="phone-setup-title"><h3 id="phone-setup-title">Connect your business phone</h3>
+      <p>Bring a voice-capable Twilio number you control. Your platform operator securely connects the provider account and assigns the exact number to your company. Start in review mode to take messages; automatic mode answers permitted business questions.</p>
+      <label>Incoming call webhook<input readonly value={phoneWebhook}/></label>
+      <p>Set the number’s incoming-call webhook to this URL using HTTP POST after the operator confirms the connection. Then choose your call language and enable the channel below. Test a real call before publishing the number.</p>
+      <p>Callers hear an AI and synthetic-voice notice before input collection. They can press 0 to leave a message for the team; this requests follow-up and does not transfer to a live person. Number rental, calls and provider speech charges are separate. No number is purchased here.</p>
+      <a href="https://www.twilio.com/docs/voice/quickstart" target="_blank" rel="noopener noreferrer">Twilio inbound voice setup ↗</a>
+    </section>
     <div class="notice"><strong>Provider connections and costs</strong><p>Email needs a verified sender, incoming mail routing and a signed webhook. Phone needs a connected business number and signed call routing. AI replies use this business’s prepaid AI credit. Email delivery, number rental, calls and provider speech services have separate provider charges. No number or subscription is purchased here.</p><p>{workerEnabled?'The channel worker is enabled.':'The platform operator must enable the channel worker before live handling can start.'}</p></div>
     {#if isPlatform&&!moduleInitialized}<fieldset><legend>Platform permissions for {tenant}</legend><p>These permissions make a channel available to this business. The business must still configure and enable it.</p>{#each ['email','phone'] as key}<label class="check"><input type="checkbox" bind:checked={grants[key as Channel]} disabled={saving}/>{channelNames[key as Channel]} allowed</label>{/each}<button type="button" on:click={saveGrants} disabled={saving}>Save platform permissions</button></fieldset>{/if}
     <form id="channel-settings" on:submit|preventDefault={save}>
@@ -129,6 +137,7 @@
           <label class="check"><input type="checkbox" bind:checked={settings[channel].enabled} disabled={!canManage||!grants[channel]||!readiness[channel].configured||!workerEnabled}/>Enable this channel</label>
           <label>Handling mode<select bind:value={settings[channel].mode} disabled={!canManage}><option value="review">Review first</option><option value="automatic">Answer routine questions automatically</option></select></label>
           <p class="hint">{channel==='email'?'Review mode prepares drafts for your approval. Automatic mode can reply to routine questions; unauthenticated senders, attachments and important requests stay in review.':'Review mode takes a message. Automatic mode answers routine questions during the call; important requests are saved for the team. No audio recording is created by V7.'}</p>
+          {#if channel==='email'}<p class="hint">Every sent assistant reply includes the non-editable notice: “AI-assisted reply. Please check important details with the business team.” This also applies to edited and approved drafts.</p>{/if}
           <label>Daily inbound {channel==='phone'?'call turns':'messages'}<input type="number" min="1" max="1000" bind:value={settings[channel].daily_limit} disabled={!canManage} required/></label>
           <label>Keep {channel==='email'?'V7 email':'hub message'} content for (days)<input type="number" min="1" max="90" bind:value={settings[channel].retention_days} disabled={!canManage} required/></label><p class="hint">{channel==='email'?'The worker removes expired email text, drafts and email conversation memory. New email bodies are not duplicated into CRM history.':'Content is removed by the channel worker after this period.'} Hashed delivery identifiers stay for up to 90 days to prevent duplicate replies. Customer records, action requests, audit records and provider copies have separate retention.</p>
           {#if channel==='email'}

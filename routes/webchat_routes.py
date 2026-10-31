@@ -963,7 +963,9 @@ def chat_api():
                 message_id=f"{message_id}:error" if message_id else "",
             )
 
+    from service.ai_disclosure import AI_LABEL, WEB_NOTICE
     payload = dict(reply=reply, conversation_token=token, session_id=session_id,
+                   ai_disclosure={'label': AI_LABEL, 'notice': WEB_NOTICE},
                    error=error_code or None, agent=_public_agent_payload(result),
                    actions=_public_action_payload(result, tenant=tenant, session_id=session_id,
                                                   message_id=out_message_id))

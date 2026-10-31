@@ -173,7 +173,8 @@ def test_phone_signature_call_binding_and_memory(client, app, configured, monkey
     incoming=phone(client,app)
     assert incoming.status_code==200
     gather=ElementTree.fromstring(incoming.data).find('Gather')
-    assert 'AI assistant' in gather.find('Say').text
+    assert 'AI assistant' in ElementTree.fromstring(incoming.data).find('Say').text
+    assert list(ElementTree.fromstring(incoming.data))[0].tag == 'Say'
     path=gather.attrib['action']
     assert phone(client,app,path,CallSid='CA'+'3'*32,SpeechResult='Opening hours?').status_code==403
     turn=phone(client,app,path,SpeechResult='Opening hours?')

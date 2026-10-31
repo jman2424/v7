@@ -14,6 +14,7 @@ import ssl
 import time
 
 from service.business_channels import address, resend_key, UUID
+from service.ai_disclosure import email_reply
 
 
 class EmailTransportError(RuntimeError):
@@ -193,7 +194,7 @@ def send_reply(operation, reply):
     # Recipient, sender and headers come from verified/stored intake, never
     # from model output or the editable draft text.
     result = _request('POST', '/emails', data={'from': sender, 'to': [recipient], 'subject': subject,
-        'text': reply, 'headers': headers}, idempotency_key='v7-reply-'+operation['id'])
+        'text': email_reply(reply), 'headers': headers}, idempotency_key='v7-reply-'+operation['id'])
     identifier = result.get('id')
     if not isinstance(identifier, str) or not 1 <= len(identifier) <= 200:
         raise EmailTransportError('email_provider_response_invalid', uncertain=True)

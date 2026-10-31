@@ -16,6 +16,7 @@ from twilio.twiml.voice_response import VoiceResponse
 from connectors import business_email
 from routes import get_container
 from service import business_channels as channels, business_operations as operations, channel_worker
+from service.ai_disclosure import phone_copy
 
 bp = Blueprint('business_channels', __name__, url_prefix='/channels')
 _SID = re.compile(r'CA[a-fA-F0-9]{32}\Z')
@@ -135,13 +136,15 @@ def _xml(response):
     return Response(str(response), content_type='application/xml; charset=utf-8')
 
 
-def _gather(response, tenant, call, turn, language, prompt=None):
-    proof = _phone_signer().dumps({'tenant': tenant, 'call': call, 'turn': turn})
-    gather = response.gather(input='speech', action='/channels/phone/turn?token='+proof,
-                             method='POST', language=language, speech_timeout='auto', timeout=5)
+def _gather(response, tenant, call, turn, language, prompt=None, *, silence=0, handoff=False):
+    proof = _phone_signer().dumps({'tenant': tenant, 'call': call, 'turn': turn,
+                                 'silence': silence, 'handoff': handoff})
+    gather = response.gather(input='speech dtmf', action='/channels/phone/turn?token='+proof,
+                             method='POST', language=language, speech_timeout='auto', timeout=5,
+                             num_digits=1, action_on_empty_result=True)
     if prompt:
         gather.say(prompt, language=language)
-    response.say('No input was received. Please contact the business using its website.', language=language)
+    response.say(phone_copy(language, 'silent'), language=language)
     response.hangup()
 
 
@@ -150,11 +153,10 @@ def phone_incoming():
     container, tenant, _, call, _ = _phone_context()
     config = channels.settings(container.storage, tenant)['phone']
     response = VoiceResponse()
-    prompt = ('You are speaking to an AI assistant. Your words are transcribed and saved for this business. '
-              'Please do not share passwords or payment information. How can we help?')
-    if config['mode'] == 'review':
-        prompt = ('This is an AI message-taking service. Your message will be transcribed and saved for the team. '
-                  'Please say your enquiry and how you would like the team to contact you. Do not share passwords or payment information.')
+    language = config['language']
+    # Identification plays before Gather so barge-in cannot skip the notice.
+    response.say(phone_copy(language, config['mode']), language=language)
+    prompt = phone_copy(language, 'message' if config['mode'] == 'review' else 'question')
     _gather(response, tenant, call, 1, config['language'], prompt)
     return _xml(response)
 
@@ -174,26 +176,45 @@ def phone_turn():
     container, tenant, recipient, call, source = _phone_context()
     proof = _proof(tenant, call)
     turn, text = proof.get('turn'), request.form.get('SpeechResult', '').strip()
-    if type(turn) is not int or not 1 <= turn <= 12 or not text or len(text) > 4000 or '\x00' in text:
+    silence, handoff = proof.get('silence', 0), proof.get('handoff', False)
+    digits = request.form.get('Digits', '')
+    if (type(turn) is not int or not 1 <= turn <= 12 or len(text) > 4000 or '\x00' in text
+            or type(silence) is not int or not 0 <= silence <= 1 or type(handoff) is not bool
+            or digits and text):
         abort(400)
     config = channels.settings(container.storage, tenant)['phone']
     response = VoiceResponse()
+    language = config['language']
+    if digits == '0' and not handoff:
+        _gather(response, tenant, call, turn, language, phone_copy(language, 'message'), handoff=True)
+        return _xml(response)
+    if not text or digits:
+        if silence == 0:
+            _gather(response, tenant, call, turn, language, phone_copy(language, 'retry'),
+                    silence=1, handoff=handoff)
+        else:
+            response.say(phone_copy(language, 'silent'), language=language)
+            response.hangup()
+        return _xml(response)
+    review = config['mode'] == 'review' or handoff
     try:
         job, _ = operations.enqueue(tenant, 'phone', call+':'+str(turn), 'phone:'+call, source,
-            {'recipient': recipient, 'call': call, 'turn': turn, 'text': text, 'mode_at_intake': config['mode']},
+            {'recipient': recipient, 'call': call, 'turn': turn, 'text': text,
+             'mode_at_intake': 'review' if review else config['mode']},
             daily_limit=config['daily_limit'])
     except ValueError as exc:
         if str(exc) not in {'channel_daily_limit', 'channel_sender_limit', 'call_turn_limit'}:
             raise
-        response.say('The automated service has reached its limit. Please contact the business using its website.', language=config['language'])
+        response.say(phone_copy(language, 'limit'), language=language)
         response.hangup()
         return _xml(response)
     channel_worker.wake()
-    if config['mode'] == 'review':
-        response.say('Your message has been saved for the team to review. No booking or account change has been made. Thank you.', language=config['language'])
+    if review:
+        response.say(phone_copy(language, 'saved'), language=language)
         response.hangup()
     else:
         poll = _phone_signer().dumps({'tenant': tenant, 'call': call, 'job': job['id'], 'turn': turn, 'poll': 0})
+        response.say(phone_copy(language, 'waiting'), language=language)
         response.pause(length=1)
         response.redirect('/channels/phone/poll?token='+poll, method='POST')
     return _xml(response)
@@ -214,13 +235,16 @@ def phone_poll():
     polls, turn = proof.get('poll'), proof.get('turn')
     if type(polls) is not int or not 0 <= polls <= 20 or type(turn) is not int or not 1 <= turn <= 12:
         abort(403)
+    if job['payload'].get('call') != call or job['payload'].get('turn') != turn:
+        abort(403)
     if (job['state'] == 'completed' and job['reply'] and config['mode'] == 'automatic'
+            and job['payload'].get('mode_at_intake') == 'automatic'
             and job['payload'].get('phone_reply_verified') is True):
         response.say(job['reply'], language=config['language'])
         if turn < 12:
             _gather(response, tenant, call, turn+1, config['language'])
         else:
-            response.say('Please contact the team if you need further help.', language=config['language'])
+            response.say(phone_copy(config['language'], 'end'), language=config['language'])
             response.hangup()
     elif job['state'] in {'queued', 'processing'} and polls < 20:
         proof['poll'] = polls+1
@@ -229,6 +253,6 @@ def phone_poll():
     else:
         if job['state'] in {'queued', 'processing'}:
             operations.expire_call_turn(tenant, job['id'])
-        response.say('Your enquiry has been saved for the team to review. No booking or account change has been made.', language=config['language'])
+        response.say(phone_copy(config['language'], 'followup'), language=config['language'])
         response.hangup()
     return _xml(response)
