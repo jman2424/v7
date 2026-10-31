@@ -100,7 +100,7 @@ def process_one(container, tenant):
             provider_id = business_email.send_reply(job, job['reply'])
             operations.finish(tenant, identifier, lease, 'completed', reply=job['reply'], provider_id=provider_id)
             return True
-        if channel == 'phone' and current['mode'] == 'review':
+        if channel == 'phone' and (current['mode'] == 'review' or payload.get('mode_at_intake') == 'review'):
             operations.finish(tenant, identifier, lease, 'needs_review', error_code='call_message_received')
             return True
         if channel == 'email':

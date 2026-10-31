@@ -1,5 +1,7 @@
 {
   "en": {
+    "Read-aloud uses a synthetic voice.": "Read-aloud uses a synthetic voice.",
+    "AI assistant. Replies may be AI-generated and can contain mistakes.": "AI assistant. Replies may be AI-generated and can contain mistakes.",
     "Subscription and payments": "Subscription and payments",
     "All company subscriptions": "All company subscriptions",
     "{count} companies on your platform, including those without a subscription.": "{count} companies on your platform, including those without a subscription.",
@@ -645,6 +647,8 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge."
   },
   "es": {
+    "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
+    "AI assistant. Replies may be AI-generated and can contain mistakes.": "Asistente de IA. Las respuestas pueden estar generadas por IA y contener errores.",
     "Subscription and payments": "Suscripción y pagos",
     "All company subscriptions": "Suscripciones de todas las empresas",
     "{count} companies on your platform, including those without a subscription.": "{count} empresas en tu plataforma, incluidas las que no tienen suscripción.",
@@ -1290,6 +1294,8 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Cargo al cliente exonerado. El coste del proveedor sigue sin conocerse; la plataforma acepta cualquier cargo posterior."
   },
   "fr": {
+    "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
+    "AI assistant. Replies may be AI-generated and can contain mistakes.": "Assistant IA. Les réponses peuvent être générées par IA et contenir des erreurs.",
     "Subscription and payments": "Abonnement et paiements",
     "All company subscriptions": "Abonnements de toutes les entreprises",
     "{count} companies on your platform, including those without a subscription.": "{count} entreprises sur votre plateforme, y compris celles sans abonnement.",
@@ -1935,6 +1941,8 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Frais client annulés. Le coût du fournisseur reste inconnu ; la plateforme accepte toute facturation ultérieure."
   },
   "ar": {
+    "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
+    "AI assistant. Replies may be AI-generated and can contain mistakes.": "مساعد ذكاء اصطناعي. قد تُنشأ الردود بالذكاء الاصطناعي وقد تحتوي على أخطاء.",
     "Subscription and payments": "الاشتراك والمدفوعات",
     "All company subscriptions": "اشتراكات جميع الشركات",
     "{count} companies on your platform, including those without a subscription.": "توجد {count} شركة على منصتك، بما فيها الشركات دون اشتراك.",

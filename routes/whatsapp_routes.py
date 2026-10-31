@@ -15,6 +15,7 @@ from connectors.whatsapp import parse_inbound, send_reply
 from connectors.whatsapp_audio import AudioMediaError, download_audio
 from routes import get_container
 from service import webhook_inbox
+from service.ai_disclosure import message_reply
 from service.analytics_db import log_error, log_message, set_lead_session, upsert_lead
 from service.whatsapp_configuration import has_secret, provider_enabled, recipient_routes, recipient_tenant, twilio_token
 
@@ -119,8 +120,8 @@ def _reply(c, event, source):
             # cached text response without passing invented text to the agent.
             log_error(tenant=tenant, channel="whatsapp", session_id=sid,
                       error_code="wa_audio_rejected", error_type=type(error).__name__)
-            return ("I couldn't read that voice message. Please send your question as text "
-                    "or try a shorter recording.")
+            return message_reply("I couldn't read that voice message. Please send your question as text "
+                                 "or try a shorter recording.")
     if not isinstance(text, str) or not text.strip() or len(text) > 4000:
         abort(400)
     raw = event.get("raw", {})
@@ -147,6 +148,7 @@ def _reply(c, event, source):
         abort(503, description="agent_unavailable")
     from service.product_metrics import matched_products
     from service.offer_metrics import shown_offers
+    reply = message_reply(reply)
     log_message(tenant=tenant, channel="whatsapp", direction="outbound", session_id=sid,
                 text=reply, intent=str(result.get("intent", "unknown")), lead_id=sid,
                 fallback=any(result.get(key) is True for key in ('fallback','is_fallback','did_fallback')) or result.get('intent') in {'system_no_results','system_clarify','unknown','fallback','default','clarify','needs_clarification','no_match','system_fallback'},
@@ -170,7 +172,7 @@ def _process(c, event, source):
     key = (c.settings.BUSINESS_KEY, source, message_id)
     state, cached_reply = webhook_inbox.claim(*key)
     if state == "done":
-        return cached_reply
+        return message_reply(cached_reply)
     if state == "busy":
         abort(503, description="message_processing")
     try:

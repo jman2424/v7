@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>{{ tenant }} — Chat</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css', v='20261030clear') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css', v='20261031ai') }}" />
   {% if branding and branding.favicon %}
   <link rel="icon" href="{{ branding.favicon }}" />
   {% else %}{% include 'platform_favicons.html' %}{% endif %}
@@ -19,6 +19,7 @@
           {% set chat_title = branding.widget.chat_title if branding and branding.widget and branding.widget.chat_title else 'Sales Assistant' %}
           {% set assistant_name = branding.widget.assistant_name if branding and branding.widget and branding.widget.assistant_name else chat_title %}
           <h1 class="widget__title">{{ assistant_name }}</h1>
+          <span class="widget__ai-label">AI assistant</span>
           {% if chat_title != assistant_name %}<p class="widget__subtitle">{{ chat_title }}</p>{% endif %}
         </div>
       </div>
@@ -58,11 +59,11 @@
         <button id="chat-send" type="submit" class="btn">Send</button>
         <button id="dictate" type="button" class="widget__microphone" aria-label="Start microphone dictation" aria-pressed="false" aria-describedby="voice-status voice-help" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></svg><span id="dictate-label">Microphone</span></button>
       </form>
-      <p id="chat-privacy" class="widget__privacy">AI chat by Vertex Seven. Chats are saved for this business to review. <a href="{{ url_for('privacy_pages.privacy_page') }}" target="_blank" rel="noopener noreferrer">V7 privacy</a>{% if business_privacy_url %} · <a href="{{ business_privacy_url }}" target="_blank" rel="noopener noreferrer">Business privacy</a>{% endif %}</p>
+      <p id="chat-privacy" class="widget__privacy">AI chat by Vertex Seven. Chats are saved for this business to review. Replies may be AI-generated and can contain mistakes. <a href="{{ url_for('privacy_pages.privacy_page') }}" target="_blank" rel="noopener noreferrer">V7 privacy</a>{% if business_privacy_url %} · <a href="{{ business_privacy_url }}" target="_blank" rel="noopener noreferrer">Business privacy</a>{% endif %}</p>
       <p id="chat-status" role="status" aria-live="polite"></p>
       <div class="widget__voice-options"><label><input id="read-aloud" type="checkbox" /> Read new replies aloud</label><button id="stop-speaking" type="button" class="widget__listen" hidden>Stop audio</button><button id="chat-clear" type="button" class="widget__clear" aria-controls="chat-clear-confirmation" aria-expanded="false">Clear conversation</button></div>
       <p id="voice-status" role="status" aria-live="polite"></p>
-      <details class="widget__voice-help"><summary>About voice</summary><small id="voice-help">{% if transcription_enabled %}Microphone dictation uses your browser speech service or sends a short recording to V7 for transcription.{% else %}Microphone dictation depends on your browser and may use its speech service.{% endif %} Review the text before sending. Audio playback uses your browser's available voices.</small></details>
+      <details class="widget__voice-help"><summary>About voice</summary><small id="voice-help">{% if transcription_enabled %}Microphone dictation uses your browser speech service or sends a short recording to V7 for transcription.{% else %}Microphone dictation depends on your browser and may use its speech service.{% endif %} Review the text before sending. Audio playback uses a synthetic voice from your browser's available voices.</small></details>
     </footer>
   </div>
 

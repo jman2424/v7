@@ -67,6 +67,35 @@ def test_webhook_inbound_dispatch_ok(client):
     assert response.get_json() == {"ok": True, "events": 1}
 
 
+@pytest.mark.parametrize('provider', ['cloud', 'twilio'])
+def test_assistant_disclosure_survives_retries_without_duplicate_answers(client, app, monkeypatch, provider):
+    from service.ai_disclosure import MESSAGE_LABEL
+    from xml.etree import ElementTree
+    answer = 'Small £100\nMedium £150\nLarge £200'
+    calls, sends = [], []
+    def handle(*args, **kwargs):
+        calls.append(kwargs)
+        return {'reply': answer, 'intent': 'question'}
+    monkeypatch.setattr(app.container.for_tenant('EXAMPLE').handler, 'handle', handle)
+    monkeypatch.setattr('routes.whatsapp_routes.send_reply', lambda event, reply, **kwargs: sends.append(reply))
+    if provider == 'cloud':
+        assert cloud_post(client, _cloud_payload()).status_code == 200
+        assert cloud_post(client, _cloud_payload()).status_code == 200
+        assert len(sends) == 1
+        reply = sends[0]
+    else:
+        form = {'Body': 'What are your prices?', 'From': 'whatsapp:+447700900123',
+                'To': 'whatsapp:+447700900999', 'MessageSid': 'SMdisclosure'}
+        signed = RequestValidator('configured-token').compute_signature(app.container.settings.BASE_URL+'/whatsapp/webhook', form)
+        first = client.post('/whatsapp/webhook', data=form, headers={'X-Twilio-Signature': signed})
+        replay = client.post('/whatsapp/webhook', data=form, headers={'X-Twilio-Signature': signed})
+        assert first.status_code == replay.status_code == 200
+        reply = ElementTree.fromstring(first.data).find('Message').text
+        assert ElementTree.fromstring(replay.data).find('Message').text == reply
+    assert len(calls) == 1
+    assert reply == MESSAGE_LABEL+'\n\n'+answer
+
+
 def test_twilio_webhook_keeps_customer_content_out_of_operational_logs(client, app, caplog):
     caplog.set_level(logging.INFO)
     caplog.clear()
