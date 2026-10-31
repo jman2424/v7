@@ -290,6 +290,18 @@ def test_configured_processors_are_named_without_keys_or_private_connection_stri
     assert "synthetic-client-id" not in response.text
 
 
+def test_support_email_processor_disclosure_does_not_expose_other_mailboxes(privacy_app, monkeypatch):
+    from service.privacy_settings import processors
+    monkeypatch.setenv('V7_EMAIL_ROUTES_JSON','{"private-inbound@example.com":"ALPHA"}')
+    own=processors(privacy_app.container,'ALPHA')
+    other=processors(privacy_app.container,'BETA')
+    public=processors(privacy_app.container,None)
+    assert any('support email receiving' in row['purpose'] for row in own)
+    assert any('support email receiving' in row['purpose'] for row in public)
+    assert not any('support email receiving' in row['purpose'] for row in other)
+    assert 'private-inbound' not in str(own+other+public)
+
+
 def test_own_account_export_requires_current_session_and_ignores_other_tenant(privacy_app):
     client = privacy_app.test_client()
     assert client.get("/auth/privacy/export").status_code == 401

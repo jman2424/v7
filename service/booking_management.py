@@ -61,13 +61,17 @@ def manage_booking(storage, tenant, reference, operation, *, slot_id=None, expec
             if expected_slot_id != result['slot_id']:
                 raise ActionError('booking_changed', 409)
             config = load_actions(storage, tenant)['consultation']
+            from service.agent_modules import decisions
+            modules = decisions(storage, tenant, ('consultation', 'booking_management'))
+            if not modules['booking_management']['allowed']:
+                raise ActionError('management_unavailable', 409)
             if not config.get('manage_bookings', False):
                 raise ActionError('management_unavailable', 409)
             if operation == 'cancel':
                 db.execute(f'UPDATE {table} SET status={p},slot_id=NULL WHERE tenant={p} AND reference={p}',
                            ('cancelled', tenant, reference))
                 return {**result, 'status': 'cancelled', 'slot_id': None}
-            if not config['enabled']:
+            if not config['enabled'] or not modules['consultation']['allowed']:
                 raise ActionError('action_unavailable', 409)
             slot = next((item for item in config['slots'] if item['id'] == slot_id), None)
             if slot is None or _start_time(slot['start_at']) <= datetime.now(timezone.utc):

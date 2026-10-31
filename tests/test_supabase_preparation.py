@@ -360,6 +360,15 @@ def test_channel_migration_preserves_content_and_never_restarts_an_interrupted_s
     assert row['payload']=='{"text":"Preserved request"}'
 
 
+def test_channel_migration_quarantines_an_interrupted_cleanup(source):
+    _channel_operation_source(source)
+    with closing(sqlite3.connect(source/'logs/security.db')) as db, db:
+        db.execute("UPDATE business_operations SET state='retaining'")
+    row=prepare(source).rows['business_operations'][0]
+    assert row['state']=='uncertain' and row['error_code']=='retention_failed'
+    assert row['lease']=='' and type(row['lease_until']) is float and row['lease_until']==0
+
+
 def test_postgres_copy_verification_and_row_security(pg, mixed_source, monkeypatch):
     psycopg = pytest.importorskip('psycopg')
     _channel_operation_source(mixed_source)

@@ -1,7 +1,6 @@
 """Verified owner onboarding and owner-approved, least-privilege join requests."""
 import hashlib
 import hmac
-import re
 import secrets
 import time
 from contextlib import contextmanager
@@ -11,9 +10,7 @@ from werkzeug.security import generate_password_hash
 
 from retrieval.storage import Storage
 from service import registration_mail, session_store
-from service.account_service import AccountService, _EMAIL_RE
-
-_MAILBOX_RE = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+")
+from service.account_service import AccountService, valid_account_email
 
 
 def _schema(db):
@@ -56,7 +53,7 @@ def start(data):
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
     kind = data.get('kind')
-    if len(email) > 254 or not _MAILBOX_RE.fullmatch(email) or not _EMAIL_RE.fullmatch(email):
+    if len(email) > 254 or not valid_account_email(email):
         raise ValueError('Enter a valid email address.')
     if not 12 <= len(password) <= 256:
         raise ValueError('Use a password between 12 and 256 characters.')

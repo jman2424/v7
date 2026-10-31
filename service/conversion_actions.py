@@ -146,7 +146,8 @@ def _database() -> sqlite3.Connection:
 
 
 def public_availability(storage: Any, tenant: str) -> dict[str, Any]:
-    config = load_actions(storage, tenant)
+    from service.agent_modules import effective_actions
+    config = effective_actions(storage, tenant)
     available: list[dict[str, str]] = []
     if config["consultation"]["enabled"]:
         if session_store._using_postgres():
@@ -259,7 +260,8 @@ def _submit_action_postgres(storage, tenant, *, action, name, contact, details,
                 if existing[2] != fingerprint:
                     raise ActionError("idempotency_conflict", 409)
                 return {"ok": True, "status": existing[1], "reference": existing[0]}
-        config = load_actions(storage, tenant)
+        from service.agent_modules import effective_actions
+        config = effective_actions(storage, tenant)
         if not config[action]["enabled"]:
             raise ActionError("action_unavailable", 409)
         status, slot_start_at, slot_label = "requested", None, None
@@ -335,7 +337,8 @@ def submit_action(storage: Any, tenant: str, payload: dict[str, Any], ip_digest:
                     raise ActionError("idempotency_conflict", 409)
                 db.commit()
                 return {"ok": True, "status": existing["status"], "reference": existing["reference"]}
-        config = load_actions(storage, tenant)
+        from service.agent_modules import effective_actions
+        config = effective_actions(storage, tenant)
         if not config[action]["enabled"]:
             raise ActionError("action_unavailable", 409)
         status = "requested"

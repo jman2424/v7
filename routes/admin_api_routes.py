@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List
 from urllib.parse import quote, urlsplit
 from html import escape
 
-from flask import Blueprint, abort, current_app, jsonify, request, session
+from flask import Blueprint, Response, abort, current_app, jsonify, request, session
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from jsonschema.exceptions import ValidationError
 
@@ -28,6 +28,44 @@ from service.conversion_actions import (
 
 logger = logging.getLogger("ADMIN.API")
 bp = Blueprint("admin_api", __name__, url_prefix="/admin/api")
+
+# Preserve existing documented validation messages only when they match a
+# reviewed literal. Parser/provider/storage exceptions must never become UI text.
+_PUBLIC_WEBSITE_ERRORS = (
+    'Enter a valid public HTTPS website URL in Business profile.',
+    'Only public HTTPS websites on the standard port can be imported.',
+    'Enter a valid public HTTPS website hostname.',
+    'The imported pages must stay on the configured website host.',
+    'Private and local website addresses cannot be imported.',
+    'Enter a public website hostname, not an IP address.',
+    'The configured website could not be reached.',
+    'Private or non-public website addresses cannot be imported.',
+    'No readable public pages were found. Check the website URL and try again.',
+)
+_PUBLIC_DESTINATION_ERRORS = _PUBLIC_WEBSITE_ERRORS + (
+    'Use at most 30 website destinations.', 'Invalid website destination.',
+    'Destination IDs must be unique.', 'Invalid destination label or purpose.',
+    'Website destinations must not contain credentials.',
+)
+_PUBLIC_ACTION_ERRORS = (
+    'A slot needs a valid ISO start time', 'A slot start time needs a timezone',
+    'Expected consultation, quote and callback settings', 'Invalid consultation settings',
+    'Invalid appointment management setting', 'Too many consultation slots',
+    'Invalid consultation slot', 'Invalid or repeated slot ID',
+    'Invalid consultation slot time', 'Invalid consultation slot label',
+    'Invalid quote settings', 'Invalid callback settings',
+)
+
+
+def _validation_failure(error: BaseException, code: str, status: int = 400,
+                        public_messages: tuple[str, ...] = ()) -> tuple[Response, int]:
+    for message in public_messages:
+        if error.args == (message,):
+            return jsonify(error=message), status
+    # Never format the exception, traceback, request JSON or private tenant data.
+    logger.warning('Admin validation rejected endpoint=%s error_type=%s',
+                   request.endpoint, type(error).__name__)
+    return jsonify(error=code), status
 
 
 @bp.get('/performance')
@@ -54,7 +92,9 @@ def _require_admin_session() -> None:
         "api_lead_status_put": "customers.read", "api_action_requests_get": "customers.read",
         "api_accounts_get": "users.read", "api_integrations": "integrations.read",
         "api_whatsapp_qr": "integrations.read", "api_platform": "platform.read",
-        "api_business_channels_get": "integrations.read", "api_business_operations_get": "customers.read",
+        "api_business_channels_get": "integrations.read", "api_business_email_setup_get": "integrations.read",
+        "api_agent_modules_get": "integrations.read",
+        "api_business_operations_get": "customers.read",
     }.get(endpoint)
     settings_endpoints = {
         "api_faq_get", "api_faq_put", "api_delivery_get", "api_delivery_put",
@@ -960,7 +1000,7 @@ def api_website_destinations_put():
     try:
         destinations = validate(request.get_json(silent=True))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _validation_failure(exc, 'invalid_website_destinations', public_messages=_PUBLIC_DESTINATION_ERRORS)
     tenant = _tenant()
     _audited_json_write(_storage(), tenant, FILENAME, destinations, action='website.destinations.update')
     _invalidate_tenant(tenant)
@@ -978,7 +1018,7 @@ def api_website_knowledge_import():
     try:
         knowledge = import_website(website or "")
     except WebsiteImportError as exc:
-        return jsonify(error=str(exc)), 422
+        return _validation_failure(exc, 'website_import_failed', 422, _PUBLIC_WEBSITE_ERRORS)
     # A fetch runs outside the write lock; the source must still be current.
     _audited_json_write(storage, tenant, "website_knowledge.json", knowledge,
                         action="website.knowledge.import", expected_website=website,
@@ -1009,7 +1049,7 @@ def api_sales_actions_put():
     try:
         settings = validate_actions_config(data)
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _validation_failure(exc, 'invalid_sales_actions', public_messages=_PUBLIC_ACTION_ERRORS)
     tenant = _tenant()
     storage = _storage()
     _audited_json_write(storage, tenant, "sales_actions.json", settings,
@@ -1033,6 +1073,55 @@ def _require_channel_owner():
         abort(403)
 
 
+@bp.get('/agent-modules')
+def api_agent_modules_get():
+    _require_channel_owner()
+    from service.agent_modules import snapshot
+    try:
+        response = jsonify(snapshot(get_container(), _tenant()))
+    except ValueError:
+        return jsonify(error='invalid_module_configuration'), 409
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/agent-modules')
+def api_agent_modules_put():
+    _require_channel_owner()
+    require_permission('business_settings.write')
+    require_permission('integrations.read')
+    return _save_agent_modules(grants=False)
+
+
+@bp.put('/agent-modules/grants')
+def api_agent_module_grants_put():
+    require_platform_operator()
+    require_permission('business_settings.write')
+    return _save_agent_modules(grants=True)
+
+
+def _save_agent_modules(*, grants):
+    from service import agent_modules
+    data = request.get_json(silent=True)
+    field = 'grants' if grants else 'enabled'
+    if not isinstance(data, dict) or set(data) != {'revision', field} or not isinstance(data['revision'], str):
+        return jsonify(error='invalid_module_settings'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        prepare = agent_modules.update_grants if grants else agent_modules.update_enabled
+        value = prepare(storage, tenant, data[field])
+    except PermissionError:
+        return jsonify(error='module_not_granted'), 403
+    except ValueError as exc:
+        if exc.args == ('module_policy_not_initialized',):
+            return jsonify(error='module_policy_not_initialized'), 409
+        return _validation_failure(exc, 'invalid_module_settings')
+    _audited_json_write(storage, tenant, agent_modules.FILENAME, value,
+                        action='agent.modules.grants' if grants else 'agent.modules.settings',
+                        expected_revision=data['revision'])
+    return jsonify(ok=True, **agent_modules.snapshot(get_container(), tenant))
+
+
 def _audit_operation(tenant, operation_id, action, result):
     user = management_user()
     AuditService().record(user=user['id'], role=user['roles'][0], ip=request.remote_addr or '',
@@ -1047,6 +1136,38 @@ def api_business_channels_get():
     response = jsonify(readiness(get_container(), _tenant()))
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@bp.get('/business-email-setup')
+def api_business_email_setup_get():
+    _require_channel_owner()
+    from service.business_email_setup import status
+    response = jsonify(status(get_container(), _tenant()))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/business-email-setup')
+def api_business_email_setup_put():
+    _require_channel_owner()
+    require_permission('integrations.read')
+    require_permission('business_settings.write')
+    from service import business_email_setup as setup, business_channels as channels
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'settings', 'revision'}
+            or not isinstance(data['revision'], str)):
+        return jsonify(error='invalid_email_setup'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        value = setup.validate(data['settings'])
+        recipients = channels.readiness(get_container(), tenant)['channels']['email']['sending_addresses']
+        if channels.settings(storage, tenant)['email']['enabled'] and value['address'] not in recipients:
+            return jsonify(error='email_setup_disable_before_change'), 409
+    except ValueError:
+        return jsonify(error='invalid_email_setup'), 400
+    _audited_json_write(storage, tenant, setup.FILENAME, value, action='business.email.setup',
+                        expected_revision=data['revision'])
+    return jsonify(ok=True, **setup.status(get_container(), tenant))
 
 
 @bp.put('/business-channels')
@@ -1067,8 +1188,15 @@ def api_business_channels_put():
                 return jsonify(error='channel_not_granted'), 403
             if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
                 return jsonify(error='channel_connection_required'), 409
-    except ValueError:
-        return jsonify(error='invalid_channel_settings'), 400
+            if channel == 'email':
+                from service import business_email_setup as setup
+                email_setup = setup.status(get_container(), tenant)
+                if config['enabled'] and not email_setup['can_enable']:
+                    return jsonify(error='email_setup_verification_required'), 409
+                if config['provider_cleanup'] != 'keep' and not ready['channels']['email']['provider_cleanup_available']:
+                    return jsonify(error='email_cleanup_not_supported'), 409
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_channel_settings')
     _audited_json_write(storage, tenant, channels.FILENAME, value, action='business.channels.update')
     return jsonify(ok=True, **channels.readiness(get_container(), tenant))
 
@@ -1080,10 +1208,23 @@ def api_business_channel_grants_put():
     from service import business_channels as channels
     try:
         value = channels.validate_grants(request.get_json(silent=True))
-    except ValueError:
-        return jsonify(error='invalid_channel_grants'), 400
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_channel_grants')
     tenant = _tenant()
-    _audited_json_write(_storage(), tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
+    storage = _storage()
+    from service import agent_modules
+    raw = agent_modules.document(storage, tenant)
+    if raw is not None:
+        try:
+            config = agent_modules.validate(raw)
+        except ValueError:
+            return jsonify(error='invalid_module_configuration'), 409
+        for channel, granted in value.items():
+            config['modules'][channel]['granted'] = granted
+        _audited_json_write(storage, tenant, agent_modules.FILENAME, config,
+                            action='business.channels.grant', expected_revision=revision(raw))
+    else:
+        _audited_json_write(storage, tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
     return jsonify(ok=True, grants=value)
 
 
@@ -1091,7 +1232,13 @@ def api_business_channel_grants_put():
 def api_business_operations_get():
     _require_channel_owner()
     from service.business_operations import listing
-    response = jsonify(operations=listing(_tenant()))
+    import sqlite3
+    try:
+        rows = listing(_tenant())
+    except (RuntimeError, sqlite3.OperationalError) as exc:
+        logger.error('Channel storage unavailable (%s)', type(exc).__name__)
+        return jsonify(error='channel_storage_unavailable'), 503
+    response = jsonify(operations=rows)
     response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -1102,8 +1249,14 @@ def api_business_operations_decision(operation_id):
     require_permission('customers.read')
     require_permission('business_settings.write')
     from service import business_operations as operations, business_channels as channels, channel_worker
+    if not re.fullmatch(r'[a-f0-9]{32}', operation_id):
+        return jsonify(error='invalid_operation_id'), 400
     data = request.get_json(silent=True)
-    if not isinstance(data, dict) or set(data) - {'decision', 'version', 'reply'}:
+    if (not isinstance(data, dict) or set(data) - {'decision', 'version', 'reply'}
+            or not isinstance(data.get('decision'), str) or data['decision'] not in {'approve', 'reject', 'complete'}
+            or type(data.get('version')) is not int or data['version'] < 1
+            or (data.get('reply') is not None and (not isinstance(data['reply'], str)
+                or len(data['reply']) > 6000 or '\x00' in data['reply']))):
         return jsonify(error='invalid_operation_decision'), 400
     tenant = _tenant()
     try:
@@ -1112,12 +1265,14 @@ def api_business_operations_decision(operation_id):
             abort(404)
         if data.get('decision') == 'approve' and not channels.active(_storage(), tenant, job['channel']):
             return jsonify(error='channel_disabled'), 409
+        # Audit the authorised instruction before mutating the queue. An audit
+        # storage failure must not leave a reply approved for background sending.
+        _audit_operation(tenant, operation_id, 'business.operation.decision', data['decision'])
         outcome = operations.decide(tenant, operation_id, data.get('version'), data.get('decision'), reply=data.get('reply'))
     except LookupError:
         abort(404)
-    except ValueError:
-        return jsonify(error='operation_changed'), 409
-    _audit_operation(tenant, operation_id, 'business.operation.decision', data['decision'])
+    except ValueError as exc:
+        return _validation_failure(exc, 'operation_changed', 409)
     channel_worker.wake()
     return jsonify(ok=True, operation=outcome)
 
@@ -1129,10 +1284,15 @@ def api_business_operations_action(operation_id):
     require_permission('business_settings.write')
     from service import business_operations as operations
     from service.conversion_actions import submit_action, ActionError
+    if not re.fullmatch(r'[a-f0-9]{32}', operation_id):
+        return jsonify(error='invalid_operation_id'), 400
     data = request.get_json(silent=True)
     if (not isinstance(data, dict) or set(data) != {'version', 'action'}
+            or type(data.get('version')) is not int or data['version'] < 1
             or not isinstance(data['action'], dict)
             or set(data['action']) - {'action', 'name', 'contact', 'details', 'slot_id', 'consent'}
+            or not isinstance(data['action'].get('action'), str)
+            or data['action']['action'] not in {'consultation', 'quote', 'callback'}
             or data['action'].get('consent') is not True):
         return jsonify(error='invalid_operation_action'), 400
     tenant = _tenant()
@@ -1143,8 +1303,8 @@ def api_business_operations_action(operation_id):
         job = operations.begin_action(tenant, operation_id, data['version'], data['action'])
     except LookupError:
         abort(404)
-    except ValueError:
-        return jsonify(error='operation_changed'), 409
+    except ValueError as exc:
+        return _validation_failure(exc, 'operation_changed', 409)
     try:
         outcome = submit_action(_storage(), tenant,
             {**data['action'], 'idempotency_key': 'operation-'+job['id']},

@@ -15,7 +15,7 @@ from flask import current_app, session
 
 from retrieval.storage import Storage
 from service import registration, registration_mail, security, session_store
-from service.account_service import ACCOUNT_FILE, AccountService, _EMAIL_RE
+from service.account_service import ACCOUNT_FILE, AccountService, valid_account_email
 
 GENERIC_NOTICE = 'If an eligible account matches, a reset code has been sent. Check your email.'
 INVALID_CODE = 'Reset code is invalid, expired or already used. Request a new code.'
@@ -113,7 +113,7 @@ def start(data):
     if not isinstance(data, dict) or not isinstance(data.get('email'), str) or not isinstance(data.get('tenant'), str):
         raise ValueError('Enter your company key and account email.')
     email = data['email'].strip().lower()
-    if len(email) > 254 or not _EMAIL_RE.fullmatch(email):
+    if len(email) > 254 or not valid_account_email(email):
         raise ValueError('Enter a valid email address.')
     # Unknown companies deliberately receive the same response as missing accounts.
     tenant = _tenant(data['tenant'].strip())
@@ -180,7 +180,7 @@ def details(user):
     tenant = _tenant(user.get('tenant') or current_app.container.settings.BUSINESS_KEY)
     found = _find(user['email'], tenant)
     return {'email': user['email'], 'tenant': user.get('tenant'), 'password_change_available': bool(found),
-            'reset_email_available': registration_mail.configured() and bool(_EMAIL_RE.fullmatch(user['email'])) and bool(found)}
+            'reset_email_available': registration_mail.configured() and valid_account_email(user['email']) and bool(found)}
 
 
 def change(user, data):

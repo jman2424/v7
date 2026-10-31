@@ -204,11 +204,91 @@ def begin_action(tenant, operation_id, version, payload):
 def purge(tenant, channel, retention_days):
     if channel not in {'email', 'phone'} or type(retention_days) is not int or not 1 <= retention_days <= 90:
         raise ValueError('invalid_operation_retention')
+    with connection(tenant) as db:
+        rows = [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND channel=? AND created<? AND state NOT IN ('processing','sending','executing','retaining','expired') ORDER BY created LIMIT 100",
+                                                   (tenant, channel, time.time()-retention_days*86400)).fetchall()]
+    count = 0
+    for row in rows:
+        memory = None
+        if channel == 'email' and row['conversation_id']:
+            from service.conversation_memory import ConversationMemory
+            memory = ConversationMemory(None, tenant)
+            # Initialise the optional SQLite table before acquiring the queue
+            # write transaction. Both stores use the same private database.
+            with memory._connection():
+                pass
+        marker = {key: row['payload'][key] for key in ('cleanup_thread_hash', 'cleanup_attempted', 'cleanup_outcome')
+                  if key in row['payload']}
+        with connection(tenant, write=True) as db:
+            changed = db.execute("UPDATE business_operations SET conversation_id='',source_address='',payload=?,reply='',provider_id='',state='expired',lease='',lease_until=0,version=version+1 WHERE tenant=? AND id=? AND version=?",
+                                 (json.dumps(marker), tenant, row['id'], row['version'])).rowcount
+            if changed and memory is not None:
+                # Atomic with the version-bound queue expiry: a concurrent
+                # generation/approval must not lose its model context. Failure
+                # rolls back expiry so later maintenance can retry safely.
+                db.execute('DELETE FROM conversation_memory WHERE tenant=? AND session_hash=?',
+                           (tenant, memory._identity(row['conversation_id'])))
+            count += changed
     with connection(tenant, write=True) as db:
-        # Retain only a hashed event tombstone for 90 days. Otherwise choosing
-        # one-day content retention could let a delayed provider retry resend an
-        # already handled email after its original record was removed.
-        count = db.execute("UPDATE business_operations SET conversation_id='',source_address='',payload='{}',reply='',provider_id='',error_code='',state='expired',lease='',lease_until=0,version=version+1 WHERE tenant=? AND channel=? AND created<? AND state NOT IN ('processing','sending','executing','expired')",
-                           (tenant, channel, time.time()-retention_days*86400)).rowcount
         db.execute("DELETE FROM business_operations WHERE tenant=? AND channel=? AND state='expired' AND created<?", (tenant, channel, time.time()-90*86400))
         return count
+
+
+def cleanup_candidates(tenant, days):
+    with connection(tenant) as db:
+        return [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND channel='email' AND created<? AND state IN ('completed','rejected') ORDER BY created LIMIT 100",
+                                                  (tenant, time.time()-days*86400)).fetchall()]
+
+
+def thread_operations(tenant, inbox, thread):
+    with connection(tenant) as db:
+        rows = [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND channel='email' AND payload LIKE ? LIMIT 101",
+                                                  (tenant, '%'+thread+'%')).fetchall()]
+    return [row for row in rows if row['payload'].get('inbox_id') == inbox and row['payload'].get('thread_id') == thread]
+
+
+def cleanup_hash(inbox, thread):
+    return hashlib.sha256((inbox+'\0'+thread).encode()).hexdigest()
+
+
+def claim_cleanup(tenant, row):
+    payload = {**row['payload'], 'cleanup_source_state': row['state']}
+    lease, now = secrets.token_hex(16), time.time()
+    with connection(tenant, write=True) as db:
+        changed = db.execute("UPDATE business_operations SET state='retaining',payload=?,lease=?,lease_until=?,version=version+1 WHERE tenant=? AND id=? AND version=? AND state IN ('completed','rejected')",
+                             (json.dumps(payload), lease, now+90, tenant, row['id'], row['version'])).rowcount
+    return {**row, 'payload': payload, 'lease': lease} if changed else None
+
+
+def cleanup_receipt(tenant, row, outcome):
+    if outcome not in {'trashed', 'skipped', 'failed', 'restored'}:
+        raise ValueError('invalid_cleanup_outcome')
+    payload = {**row['payload'], 'cleanup_outcome': outcome}
+    with connection(tenant, write=True) as db:
+        return db.execute('UPDATE business_operations SET state=?,payload=?,error_code=?,lease=\'\',lease_until=0,version=version+1 WHERE tenant=? AND id=? AND lease=? AND lease_until>?',
+            (payload.pop('cleanup_source_state'), json.dumps(payload), 'retention_'+outcome,
+             tenant, row['id'], row['lease'], time.time())).rowcount == 1
+
+
+def recover_cleanup(tenant):
+    with connection(tenant, write=True) as db:
+        rows = [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND state='retaining' AND lease_until<?", (tenant, time.time())).fetchall()]
+        for row in rows:
+            payload = {**row['payload'], 'cleanup_outcome': 'failed'}
+            db.execute("UPDATE business_operations SET state=?,payload=?,error_code='retention_failed',lease='',lease_until=0,version=version+1 WHERE tenant=? AND id=? AND lease=?",
+                       (payload.pop('cleanup_source_state', 'completed'), json.dumps(payload), tenant, row['id'], row['lease']))
+
+
+def previously_trashed(tenant, inbox, thread):
+    marker = cleanup_hash(inbox, thread)
+    with connection(tenant) as db:
+        rows = db.execute("SELECT payload FROM business_operations WHERE tenant=? AND channel='email' AND (state='retaining' OR error_code IN ('retention_trashed','retention_failed')) AND payload LIKE ? LIMIT 101", (tenant, '%'+marker+'%')).fetchall()
+    return any((payload := json.loads(row['payload'])).get('cleanup_thread_hash') == marker
+               and payload.get('cleanup_attempted') is True
+               and payload.get('cleanup_outcome') in {None, 'trashed', 'failed'} for row in rows)
+
+
+def cleanup_counts(tenant):
+    with connection(tenant) as db:
+        return {row['error_code']: row['n'] for row in db.execute(
+            "SELECT error_code,COUNT(*) AS n FROM business_operations WHERE tenant=? AND channel='email' AND error_code IN ('retention_trashed','retention_skipped','retention_failed','retention_restored') GROUP BY error_code", (tenant,)).fetchall()}

@@ -32,6 +32,7 @@ def signature(raw, timestamp=None):
 @pytest.fixture
 def configured(app, monkeypatch):
     monkeypatch.delenv('V7_EMAIL_INBOX_ROUTES_JSON',raising=False)
+    monkeypatch.delenv('V7_EMAIL_SENDERS_JSON',raising=False)
     monkeypatch.setenv('V7_CHANNEL_RESEND_API_KEY', 're_synthetic_not_a_real_key')
     monkeypatch.setenv('V7_EMAIL_WEBHOOK_SECRET', SECRET)
     monkeypatch.setenv('V7_EMAIL_ROUTES_JSON', '{"business@example.com":"EXAMPLE","other@example.com":"OTHER"}')
@@ -268,7 +269,12 @@ def test_worker_moves_on_after_one_tenant_failure(configured, monkeypatch):
         return real_settings(storage,tenant)
     monkeypatch.setattr(channels,'settings',settings)
     seen=[]
-    monkeypatch.setattr(channel_worker,'process_one',lambda _,tenant:seen.append(tenant) or False)
+    def process(_,tenant):
+        if tenant=='BROKEN':
+            raise ValueError('invalid_config')
+        seen.append(tenant)
+        return False
+    monkeypatch.setattr(channel_worker,'process_one',process)
     assert channel_worker.run_pending(configured)==0
     assert seen==['EXAMPLE']
 

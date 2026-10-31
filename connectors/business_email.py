@@ -58,9 +58,9 @@ def _request(method, path, *, data=None, idempotency_key=None):
         response = connection.getresponse()
         raw = response.read(262145)
         if not 200 <= response.status < 300:
-            raise EmailTransportError('email_provider_rejected', uncertain=method == 'POST' and response.status >= 500)
+            raise EmailTransportError('email_provider_rejected', uncertain=method != 'GET' and response.status >= 500)
         if len(raw) > 262144:
-            raise EmailTransportError('email_provider_response_invalid', uncertain=method == 'POST')
+            raise EmailTransportError('email_provider_response_invalid', uncertain=method != 'GET')
         result = json.loads(raw)
         if not isinstance(result, dict):
             raise ValueError
@@ -68,7 +68,7 @@ def _request(method, path, *, data=None, idempotency_key=None):
     except EmailTransportError:
         raise
     except (OSError, HTTPException, ValueError, UnicodeError):
-        raise EmailTransportError('email_provider_unavailable', uncertain=method == 'POST') from None
+        raise EmailTransportError('email_provider_unavailable', uncertain=method != 'GET') from None
     finally:
         connection.close()
 
@@ -88,6 +88,31 @@ def receive_inbox(inbox_id, thread_id, email_id):
     # Inbox API currently documents no provider-authenticated DMARC result or
     # raw loop headers. Never invent that evidence from email-owned fields.
     return {**result, 'authentication': {}, 'headers': {}}
+
+
+def thread_path(inbox_id, thread_id):
+    if any(not isinstance(value, str) or not UUID.fullmatch(value) for value in (inbox_id, thread_id)):
+        raise EmailTransportError('invalid_email_id')
+    return '/inboxes/'+inbox_id+'/threads/'+thread_id
+
+
+def thread_emails(inbox_id, thread_id):
+    result = _request('GET', thread_path(inbox_id, thread_id)+'/emails?limit=100')
+    if result.get('has_more') is not False or not isinstance(result.get('data'), list) or not 1 <= len(result['data']) <= 100:
+        raise EmailTransportError('email_cleanup_needs_review')
+    return result['data']
+
+
+def restore_thread(inbox_id, thread_id):
+    result = _request('PATCH', thread_path(inbox_id, thread_id), data={'folder': 'inbox'})
+    if result.get('id') != thread_id or result.get('folder') != 'inbox':
+        raise EmailTransportError('email_thread_restore_failed', uncertain=True)
+
+
+def trash_thread(inbox_id, thread_id):
+    result = _request('DELETE', thread_path(inbox_id, thread_id))
+    if result.get('id') != thread_id or type(result.get('deleted')) is not bool:
+        raise EmailTransportError('email_cleanup_outcome_unknown', uncertain=True)
 
 
 class _Text(HTMLParser):
@@ -152,7 +177,8 @@ def content(message, *, expected_sender, expected_recipient):
 
 def send_reply(operation, reply):
     payload = operation['payload']
-    sender, recipient = address(payload['recipient']), address(operation['source_address'])
+    sender = address(payload.get('sending_address', payload['recipient']))
+    recipient = address(operation['source_address'])
     if sender == recipient or not isinstance(reply, str) or not reply.strip() or len(reply) > 6000:
         raise EmailTransportError('invalid_email_reply')
     subject = payload.get('subject') or 'Your enquiry'

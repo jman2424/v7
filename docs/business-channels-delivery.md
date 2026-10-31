@@ -121,6 +121,11 @@ Secure email-thread continuity is a separate enhancement, not silently enabled.
 
 ## Retention, diagnostics and recovery
 
+Client email setup and the newer email-specific memory/provider retention controls
+are described in [client-email-setup.md](client-email-setup.md). That document
+supersedes the original email-memory retention limitation below; other channels
+and pre-existing CRM/action/audit records retain their separate policies.
+
 - Hub message bodies/drafts/envelope content expire at the owner's 1–90 day
   setting while the worker runs. Only hashed event keys and content-free
   tombstones remain for up to 90 days, preventing delayed webhook retries from

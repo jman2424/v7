@@ -17,6 +17,7 @@ from service import business_channels as channels, business_operations as operat
 
 _lock, _wake, _stop = Lock(), Event(), Event()
 _thread = None
+_retention_thread = None
 _pid = None
 _tenant_offset = 0
 
@@ -87,6 +88,9 @@ def process_one(container, tenant):
         if channel == 'email' and payload.get('inbox_id') and channels.inbox_bindings().get(payload['inbox_id']) != payload['recipient']:
             operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'], error_code='channel_route_changed')
             return True
+        if channel == 'email' and channels.email_senders().get(payload['recipient']) != payload.get('sending_address', payload['recipient']):
+            operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'], error_code='channel_sender_changed')
+            return True
         if job['state'] == 'sending':
             # All sends use an immutable approved draft and one stable provider
             # idempotency key. Expired/ambiguous sends cannot be auto-retried.
@@ -100,6 +104,8 @@ def process_one(container, tenant):
             operations.finish(tenant, identifier, lease, 'needs_review', error_code='call_message_received')
             return True
         if channel == 'email':
+            if payload.get('restore_thread'):
+                business_email.restore_thread(payload['inbox_id'], payload['thread_id'])
             message = (business_email.receive_inbox(payload['inbox_id'], payload['thread_id'], payload['email_id'])
                        if payload.get('inbox_id') else business_email.receive(payload['email_id']))
             clean = business_email.content(message, expected_sender=job['source_address'], expected_recipient=payload['recipient'])
@@ -161,9 +167,6 @@ def run_pending(container, limit=20, *, tenants=None):
     for index in range(len(tenants)):
         tenant = tenants[(start+index) % len(tenants)]
         try:
-            for channel in channels.CHANNELS:
-                config = channels.settings(container.storage, tenant)[channel]
-                operations.purge(tenant, channel, config['retention_days'])
             for _ in range(2):
                 if count >= limit or not process_one(container, tenant):
                     break
@@ -177,12 +180,31 @@ def run_pending(container, limit=20, *, tenants=None):
     return count
 
 
+def run_retention(container, *, tenants=None, provider_cleanup=True):
+    from service.business_email_retention import run as cleanup_email
+    count = 0
+    for tenant in channels.configured_tenants() if tenants is None else tenants:
+        try:
+            if provider_cleanup:
+                cleanup_email(container, tenant)
+            else:
+                operations.recover_cleanup(tenant)
+            for channel in channels.CHANNELS:
+                config = channels.settings(container.storage, tenant)[channel]
+                count += operations.purge(tenant, channel, config['retention_days'])
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='channel_retention', error_type=type(exc).__name__)
+    return count
+
+
 def start(app):
-    global _thread, _pid
+    global _thread, _retention_thread, _pid
     if os.getenv('V7_CHANNEL_WORKER', 'false') != 'true' or app.testing:
         return
     with _lock:
-        if _pid == os.getpid() and _thread and _thread.is_alive():
+        if (_pid == os.getpid() and _thread and _thread.is_alive()
+                and _retention_thread and _retention_thread.is_alive()):
             return
         _pid = os.getpid()
         _stop.clear()
@@ -195,8 +217,20 @@ def start(app):
                     app.logger.warning('Business channel worker failed (%s)', type(exc).__name__)
                 _wake.wait(3)
                 _wake.clear()
-        _thread = Thread(target=loop, name='v7-business-channels', daemon=True)
-        _thread.start()
+        if not _thread or not _thread.is_alive():
+            _thread = Thread(target=loop, name='v7-business-channels', daemon=True)
+            _thread.start()
+        def retention_loop():
+            while not _stop.is_set():
+                try:
+                    with app.app_context():
+                        run_retention(app.container)
+                except Exception as exc:
+                    app.logger.warning('Channel retention worker failed (%s)', type(exc).__name__)
+                _stop.wait(300)
+        if not _retention_thread or not _retention_thread.is_alive():
+            _retention_thread = Thread(target=retention_loop, name='v7-channel-retention', daemon=True)
+            _retention_thread.start()
         atexit.register(lambda: (_stop.set(), _wake.set()))
 
 
@@ -207,6 +241,7 @@ if __name__ == '__main__':
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument('--once', action='store_true')
     choice.add_argument('--purge-only', action='store_true')
+    choice.add_argument('--retention-once', action='store_true')
     parser.add_argument('--tenant', help='Explicit existing tenant for maintenance, including a removed provider route.')
     args = parser.parse_args()
     app = create_app()
@@ -220,9 +255,5 @@ if __name__ == '__main__':
         if args.once:
             print('Processed operations:', run_pending(app.container, tenants=tenants))
         else:
-            count = 0
-            for tenant in tenants:
-                for channel in channels.CHANNELS:
-                    config = channels.settings(app.container.storage, tenant)[channel]
-                    count += operations.purge(tenant, channel, config['retention_days'])
-            print('Removed message content:', count)
+            print('Removed message content:', run_retention(app.container, tenants=tenants,
+                                                            provider_cleanup=args.retention_once))

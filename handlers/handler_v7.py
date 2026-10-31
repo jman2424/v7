@@ -241,6 +241,7 @@ class MessageHandlerV7:
 
         self.business_core = None
         storage = getattr(self.catalog, 'storage', None)
+        self.module_storage = storage
         self.tenant_key = getattr(storage, 'tenant_key', None)
         self.website_knowledge = {}
         self.sales_actions = {}
@@ -1095,8 +1096,18 @@ class MessageHandlerV7:
         allowed_actions = [action for action in ('consultation', 'quote', 'callback')
                            if channel == 'web' and isinstance(self.sales_actions.get(action), dict)
                            and self.sales_actions[action].get('enabled') is True]
+        module_state = {}
+        if self.module_storage is not None and allowed_actions:
+            from service.agent_modules import decisions
+            requested_modules = [*allowed_actions, *(['booking_management'] if 'consultation' in allowed_actions else [])]
+            module_state = decisions(self.module_storage, self.tenant_key, requested_modules)
+            allowed_actions = [name for name in allowed_actions if module_state[name]['allowed']]
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}
+        management_allowed = True
+        if 'booking_management' in module_state:
+            management_allowed = module_state['booking_management']['allowed']
         if ('consultation' in allowed_actions
+                and management_allowed
                 and self.sales_actions['consultation'].get('manage_bookings') is True):
             from service.grounded_statements import request_facts
             knowledge.update(request_facts(allowed_actions, native_booking_management=True))
@@ -1122,6 +1133,10 @@ class MessageHandlerV7:
                 agent_state['sources'] = list(dict.fromkeys([*agent_state.get('sources',[]),*references]))
                 emit('catalogue_choices_linked',outcome='exact_public_price_matches',count=len(references))
         requested_action = agent_state.get('requested_action')
+        if isinstance(requested_action, str) and requested_action in allowed_actions and self.module_storage is not None:
+            from service.agent_modules import allowed
+            if not allowed(self.module_storage, self.tenant_key, requested_action):
+                allowed_actions.remove(requested_action)
         if (agent_state.get('_validated_grounded') is True and requested_action in allowed_actions):
             # Render an existing authenticated request form. This is only a
             # customer-controlled next step, never an executed model action.
@@ -1168,6 +1183,10 @@ class MessageHandlerV7:
     def _conversion_action(self, user_text: str, channel: str) -> Optional[Tuple[str, str]]:
         if channel != "web" or not isinstance(self.sales_actions, dict):
             return None
+        modules = None
+        if self.module_storage is not None:
+            from service.agent_modules import decisions
+            modules = decisions(self.module_storage, self.tenant_key, ('consultation', 'quote', 'callback'))
         text = self._action_request_text(user_text)
         if (re.search(r"\b(cancel|cancellation|reschedule|change|move|refund|existing|already booked|"
                       r"cancelar|cancelación|reprogramar|cambiar|anular|annuler|annulation|reporter|modifier|"
@@ -1189,6 +1208,7 @@ class MessageHandlerV7:
         for action_type, pattern in requests:
             settings = self.sales_actions.get(action_type)
             if (not isinstance(settings, dict) or settings.get("enabled") is not True
+                    or (modules is not None and not modules[action_type]['allowed'])
                     or not re.search(pattern, text) or (action_type != "callback" and not intent)):
                 continue
             if action_type == "consultation":

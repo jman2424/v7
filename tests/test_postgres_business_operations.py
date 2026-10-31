@@ -1,6 +1,7 @@
 """Real private PostgreSQL migration, queue and RLS checks in disposable CI DB."""
 import pytest
 import json
+import time
 from types import SimpleNamespace
 
 from service import business_operations as operations, session_store
@@ -44,3 +45,28 @@ def test_native_worker_needs_no_admin_browser_session(pg_runtime,monkeypatch):
         'recipient':'+447700900001','text':'Please call back','mode_at_intake':'review'})
     assert channel_worker.run_pending(SimpleNamespace(storage=storage))==1
     assert operations.get(tenant,row['id'])['state']=='needs_review'
+
+
+def test_native_cleanup_receipts_and_body_retention_are_tenant_scoped(pg_runtime):
+    tenant,other=pg_runtime['tenant'],pg_runtime['other']
+    inbox,thread='00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000003'
+    row,_=operations.enqueue(tenant,'email','cleanup-test','email:cleanup','visitor@example.net',
+        {'inbox_id':inbox,'thread_id':thread,'text':'Private synthetic body'})
+    claim=operations.claim(tenant)
+    assert operations.finish(tenant,row['id'],claim['lease'],'completed',reply='Synthetic draft')
+    with operations.connection(tenant,write=True) as db:
+        db.execute('UPDATE business_operations SET created=? WHERE tenant=? AND id=?',
+                   (time.time()-2*86400,tenant,row['id']))
+    candidate=operations.cleanup_candidates(tenant,1)[0]
+    job=operations.claim_cleanup(tenant,candidate)
+    job['payload'].update(cleanup_thread_hash=operations.cleanup_hash(inbox,thread),cleanup_attempted=True)
+    assert operations.save_payload(tenant,job['id'],job['lease'],job['payload'])
+    assert operations.cleanup_receipt(tenant,job,'trashed')
+    assert operations.thread_operations(other,inbox,thread)==[]
+    assert operations.cleanup_counts(other)=={}
+    assert operations.purge(tenant,'email',1)==1
+    result=operations.get(tenant,row['id'])
+    assert result['state']=='expired' and result['reply']==result['source_address']==''
+    assert 'text' not in result['payload']
+    assert operations.previously_trashed(tenant,inbox,thread)
+    assert not operations.previously_trashed(other,inbox,thread)
