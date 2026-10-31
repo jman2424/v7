@@ -7,7 +7,12 @@ from tests.test_business_access import owner
 
 
 @pytest.fixture
-def mailbox(monkeypatch):
+def mailbox(monkeypatch, app):
+    from service import business_applications as applications
+    with applications.database(write=True) as db:
+        value = {**applications.DEFAULT_SETTINGS, 'intake_enabled': True, 'legal_review_completed': True,
+                 'owner_email': 'operator@testing.test'}
+        applications._execute(db, 'INSERT INTO business_application_settings VALUES (1,?)', (applications._json(value),))
     messages = {}
     monkeypatch.setattr(registration_mail, 'configured', lambda: True)
     monkeypatch.setattr(registration_mail, 'send_code', lambda email, code: messages.update({email: code}))
@@ -18,6 +23,7 @@ def request_account(client, kind='owner', tenant='NEWCO'):
     return client.post('/auth/register', json={
         'email':'new@testing.test', 'password':'Signup-test-password-123',
         'kind':kind, 'tenant':tenant, 'business_name':'New company',
+        'description':'A retail business', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-1',
         'roles':['platform_admin'], 'active':True, 'permissions':['view_costs']})
 
 

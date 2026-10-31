@@ -1,6 +1,7 @@
 """Verified owner onboarding and owner-approved, least-privilege join requests."""
 import hashlib
 import hmac
+import json
 import secrets
 import time
 from contextlib import contextmanager
@@ -23,6 +24,8 @@ def _schema(db):
         status TEXT NOT NULL, created REAL NOT NULL, decided_by TEXT)''')
     db.execute('CREATE INDEX IF NOT EXISTS registration_email_time ON registration_requests(email,created)')
     db.execute('CREATE INDEX IF NOT EXISTS registration_tenant_status ON registration_requests(tenant,status)')
+    if 'application' not in {row[1] for row in db.execute('PRAGMA table_info(registration_requests)')}:
+        db.execute("ALTER TABLE registration_requests ADD COLUMN application TEXT NOT NULL DEFAULT '{}'")
 
 
 def _database():
@@ -59,7 +62,8 @@ def start(data):
         raise ValueError('Use a password between 12 and 256 characters.')
     if kind not in {'owner', 'join'}:
         raise ValueError('Choose create a business or request to join.')
-    tenant = Storage.validate_tenant_key(data.get('tenant', '').strip())
+    tenant = Storage.validate_tenant_key(data.get('tenant', '').strip() or
+                                       ('B_' + secrets.token_hex(12) if kind == 'owner' else ''))
     if kind == 'join':
         tenant = current_app.container.storage.canonical_tenant_key(tenant)
     name = data.get('business_name', '').strip()
@@ -67,6 +71,14 @@ def start(data):
         raise ValueError('Enter a business name up to 120 characters.')
     if len(name) > 120:
         raise ValueError('Business name is too long.')
+    application = {}
+    if kind == 'owner':
+        from service import business_applications as applications
+        policy = applications.settings(public=True)
+        if not policy['intake_enabled'] or not policy['legal_review_completed']:
+            raise applications.ApplicationError('business_application_intake_closed', 503)
+        application = applications.validate_details(data, policy=policy)
+        application.update(accepted_terms=True, policy_version=policy['policy_version'])
     now = time.time()
     request_id = secrets.token_urlsafe(32)
     code = f'{secrets.randbelow(1000000):06d}'
@@ -79,8 +91,8 @@ def start(data):
         recent = _execute(db, 'SELECT COUNT(*),MAX(created) FROM registration_requests WHERE email=? AND created>?', (email, now-86400)).fetchone()
         if recent[0] >= 5 or (recent[1] and recent[1] > now-60):
             raise ValueError('Please wait before requesting another verification code.')
-        _execute(db, 'INSERT INTO registration_requests (id,email,password_hash,kind,tenant,business_name,code_hash,expires,status,created) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                   (request_id,email,generate_password_hash(password),kind,tenant,name,_code_hash(request_id,code),now+600,'verification',now))
+        _execute(db, 'INSERT INTO registration_requests (id,email,password_hash,kind,tenant,business_name,code_hash,expires,status,created,application) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                   (request_id,email,generate_password_hash(password),kind,tenant,name,_code_hash(request_id,code),now+600,'verification',now,json.dumps(application)))
     try:
         registration_mail.send_code(email, code)
     except Exception as exc:
@@ -128,10 +140,10 @@ def confirm(code):
         if not session_store._using_postgres():
             db.execute('BEGIN IMMEDIATE')
         lock = ' FOR UPDATE' if session_store._using_postgres() else ''
-        row = _execute(db, "SELECT email,password_hash,kind,tenant,business_name,code_hash FROM registration_requests WHERE id=? AND status='verification' AND expires>? AND attempts<5" + lock, (request_id,time.time())).fetchone()
+        row = _execute(db, "SELECT email,password_hash,kind,tenant,business_name,code_hash,application FROM registration_requests WHERE id=? AND status='verification' AND expires>? AND attempts<5" + lock, (request_id,time.time())).fetchone()
         if not row:
             raise ValueError('Verification expired or already used. Start again.')
-        email, password_hash, kind, tenant, name, expected = row
+        email, password_hash, kind, tenant, name, expected, application = row
         if not hmac.compare_digest(expected, _code_hash(request_id,code)):
             _execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
             _execute(db, "UPDATE registration_requests SET status='expired',password_hash='',code_hash='' WHERE id=? AND attempts>=5", (request_id,))
@@ -146,15 +158,17 @@ def confirm(code):
                     raise ValueError('An account already exists for this company. Use the existing sign-in.')
                 _execute(db, "UPDATE registration_requests SET status='pending',code_hash='' WHERE id=?", (request_id,))
             else:
-                owner_details = (email,password_hash,tenant,name)
+                owner_details = (email,password_hash,tenant,name,application)
                 _execute(db, "UPDATE registration_requests SET status='creating',code_hash='' WHERE id=?", (request_id,))
     if owner_details:
-        email,password_hash,tenant,name = owner_details
+        email,password_hash,tenant,name,application = owner_details
         from service.tenant_service import TenantService
         identity = {'id':'signup:'+request_id,'email':email,'tenant':tenant,'roles':['business_owner']}
         try:
             TenantService(storage).create_tenant(tenant,name,owner=identity,
                 initial_account={'id':identity['id'],'email':email,'password_hash':password_hash,'roles':['business_owner'],'active':True,'permissions':[]})
+            from service.business_applications import submit_verified
+            submit_verified(tenant, email, json.loads(application))
         except Exception:
             with _database() as db:
                 _execute(db, "UPDATE registration_requests SET status='failed',password_hash='' WHERE id=?", (request_id,))
@@ -172,12 +186,12 @@ def _confirm_postgres(code):
     storage = current_app.container.storage
     invalid = False
     with _database() as db:
-        row = _execute(db, "SELECT email,password_hash,kind,tenant,business_name,code_hash "
+        row = _execute(db, "SELECT email,password_hash,kind,tenant,business_name,code_hash,application "
                        "FROM registration_requests WHERE id=? AND status='verification' "
                        "AND expires>? AND attempts<5 FOR UPDATE", (request_id,time.time())).fetchone()
         if not row:
             raise ValueError('Verification expired or already used. Start again.')
-        email, password_hash, kind, tenant, name, expected = row
+        email, password_hash, kind, tenant, name, expected, application = row
         if not hmac.compare_digest(expected, _code_hash(request_id,code)):
             _execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
             _execute(db, "UPDATE registration_requests SET status='expired',password_hash='',code_hash='' "
@@ -208,6 +222,8 @@ def _confirm_postgres(code):
                 db.execute("SELECT set_config('v7.tenant', %s, true)", (tenant,))
                 try:
                     repository.create_tenant(documents, owner_key=owner_key(identity), transaction=db)
+                    from service.business_applications import submit_verified
+                    submit_verified(tenant, email, json.loads(application), db=db)
                 except Exception:
                     raise ValueError('The workspace could not be created. The company key may already be in use. '
                                      'Use a different company key or contact the operator.') from None

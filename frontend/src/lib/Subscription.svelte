@@ -21,7 +21,7 @@
   type ChannelAllowance={used:number;limit:number;paused:boolean;enforced?:boolean;measured_by?:string};
   type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;alerts:UsageAlert[]};
   type PlanState={selected_plan:string|null;active_plan:string|null;setup_plan:string|null;whatsapp_paused:boolean;checkout_pending:boolean;checkout_expires:number|null};
-  type Report={discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null;management?:{can_change_plan:boolean;can_cancel:boolean}};
+  type Report={business_purchase_allowed?:boolean;business_application?:{status:string}|null;discount_percent:number;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null;management?:{can_change_plan:boolean;can_cancel:boolean}};
   type Company={key:string;name:string;contracts:Contract[];totals:{paid:number;due:number};plan_state?:PlanState|null;allowance?:Allowance|null};
   const dispatch=createEventDispatcher<{company:string;creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data:(Report&{referral_setup_percent?:number})|null=null;
@@ -75,6 +75,7 @@
   $: paidMonths=months.map(month=>(data?.invoices.filter(row=>row.month===month).reduce((sum,row)=>sum+row.paid,0)||0)/100);
   $: dueMonths=months.map(month=>(data?.invoices.filter(row=>row.month===month&&row.status==='open').reduce((sum,row)=>sum+row.remaining,0)||0)/100);
   async function read(path:string, body?:Record<string,unknown>, signal?:AbortSignal){
+    if(body&&data?.business_purchase_allowed===false&&['checkout','change-plan','portal','usage-credit/checkout'].includes(path))throw new Error('Business approval is required before this purchase. Open My application.');
     const response=await fetch(apiPrefix+'/billing/'+path+(path.includes('?')?'&':'?')+'tenant='+encodeURIComponent(tenant),{credentials:'same-origin',signal,...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
     const result=await response.json();
     if(!response.ok)throw new Error(subscriptionError(String(result.error||'')));
@@ -121,6 +122,7 @@
 </script>
 
 <section class="billing" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-label={$t('Subscription and payments')}>
+  {#if data?.business_purchase_allowed===false}<section class="notice"><h2>{$t('Manual business approval required')}</h2><p>{$t('Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.')}</p><a href={"/console/application?tenant="+encodeURIComponent(tenant)}>{$t('View or complete your application')}</a></section>{/if}
   {#if isPlatform}
   <article class="panel"><header><div><h2>{$t('All company subscriptions')}</h2><p>{$t('{count} companies on your platform, including those without a subscription.',{count:count(companyCount)})}</p></div></header>
     <form class="controls" on:submit|preventDefault={()=>{page=1;listCompanies();}}><label>{$t('Find a company')}<input bind:value={search} placeholder={$t('Company name or key')}/></label><button disabled={busy||companyBusy}>{$t('Search')}</button></form>

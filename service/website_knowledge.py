@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import urllib.robotparser
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from threading import Event, Lock, Timer
@@ -270,9 +271,41 @@ def _same_site_links(base_url: str, links: list[str], host: str, seen: set[str])
     return found
 
 
-def import_website(url: str) -> dict[str, Any]:
+def _research_robots(url):
+    """Research honours robots restrictions without weakening fetch isolation."""
+    parsed = urllib.parse.urlsplit(url)
+    robots_url = urllib.parse.urlunsplit(('https', parsed.netloc, '/robots.txt', '', ''))
+    _validate_public_https_url(robots_url)
+    pinned_ip = _resolve_public_ip(parsed.hostname)
+    policy = urllib.robotparser.RobotFileParser()
+    try:
+        with _FetchDeadline() as deadline:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(),
+                                                  _PinnedHTTPSHandler(pinned_ip, deadline))
+            req = urllib.request.Request(robots_url, headers={'User-Agent': 'V7-Business-Knowledge-Importer/1.0'})
+            with opener.open(req, timeout=3) as response:
+                raw = _read_page(response)
+                if len(raw) > 65536:
+                    raise WebsiteImportError('Research access rules unavailable.')
+                policy.parse(raw.decode('utf-8', errors='replace').splitlines())
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise WebsiteImportError('Research access rules unavailable.') from None
+        policy.parse([])
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
+        raise WebsiteImportError('Research access rules unavailable.') from None
+    return policy
+
+
+def import_website(url: str, *, max_pages: int = MAX_PAGES, max_total_chars: int = MAX_TOTAL_CHARS,
+                   max_seconds: int = MAX_IMPORT_SECONDS, respect_robots: bool = False) -> dict[str, Any]:
     """Fetch up to twenty public same-host pages within a bounded crawl budget."""
+    if (type(max_pages) is not int or not 1 <= max_pages <= MAX_PAGES
+            or type(max_total_chars) is not int or not 1000 <= max_total_chars <= MAX_TOTAL_CHARS
+            or type(max_seconds) is not int or not 1 <= max_seconds <= MAX_IMPORT_SECONDS):
+        raise WebsiteImportError('Invalid website import limits.')
     start_url = _validate_public_https_url(url)
+    robots = _research_robots(start_url) if respect_robots else None
     host = urllib.parse.urlsplit(start_url).hostname or ""
     queue = [start_url]
     seen: set[str] = set()
@@ -280,14 +313,16 @@ def import_website(url: str) -> dict[str, Any]:
     total_chars = 0
     started = time.monotonic()
 
-    while queue and len(seen) < MAX_PAGES and len(pages) < MAX_PAGES and total_chars < MAX_TOTAL_CHARS:
-        if time.monotonic() - started >= MAX_IMPORT_SECONDS:
+    while queue and len(seen) < max_pages and len(pages) < max_pages and total_chars < max_total_chars:
+        if time.monotonic() - started >= max_seconds:
             break
         page_url = queue.pop(0)
         if page_url in seen:
             continue
         seen.add(page_url)
         page_url = _validate_public_https_url(page_url, expected_host=host)
+        if robots is not None and not robots.can_fetch('V7-Business-Knowledge-Importer/1.0', page_url):
+            continue
         pinned_ip = _resolve_public_ip(host)
         request = urllib.request.Request(page_url, headers={
             "Accept": "text/html,application/xhtml+xml",
@@ -319,11 +354,11 @@ def import_website(url: str) -> dict[str, Any]:
         if len(text) < 40:
             continue
         title = " ".join(parser.title_parts).strip()[:200]
-        room = MAX_TOTAL_CHARS - total_chars
+        room = max_total_chars - total_chars
         text = text[:room]
         pages.append({"url": page_url, "title": title, "text": text})
         total_chars += len(text)
-        if len(pages) < MAX_PAGES:
+        if len(pages) < max_pages:
             queue.extend(_same_site_links(page_url, parser.links, host, seen))
 
     if not pages:
@@ -332,7 +367,7 @@ def import_website(url: str) -> dict[str, Any]:
         "source_url": start_url,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "pages": pages,
-        "crawl_limit": MAX_PAGES,
+        "crawl_limit": max_pages,
         "partial": bool(queue),
     }
 

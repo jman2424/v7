@@ -1,6 +1,7 @@
 """Authenticated, tenant-scoped prepaid AI billing; Stripe owns payment status."""
 from flask import Blueprint, abort, jsonify, request
 
+from service.business_applications import ApplicationError
 from routes import get_container
 from service import subscriptions, usage_payments, usage_wallet
 from service.security import management_user, authorized_tenant, is_platform_admin, require_permission
@@ -54,6 +55,8 @@ def checkout_post():
     try:
         result = usage_payments.checkout(tenant, user['email'], data.get('pack_id'), data.get('request_id'),
                                          get_container().settings.BASE_URL.rstrip('/'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -85,6 +88,8 @@ def adjustment_post():
     try:
         result = usage_wallet.adjust(tenant, data.get('amount_pence'), data.get('reason'), user['email'],
                                      request_id=usage_payments._request_id(data.get('request_id')))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     if not result['duplicate']:
@@ -102,6 +107,8 @@ def waive_unconfirmed_post():
         return jsonify(error='usage_review_confirmation_required'), 400
     try:
         result = usage_wallet.waive_unconfirmed_usage(tenant,data.get('reference'),data.get('reason'),user['email'])
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     if not result['duplicate']:

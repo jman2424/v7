@@ -644,7 +644,10 @@
     "Usage review reason": "Usage review reason",
     "I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.": "I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.",
     "Waive client charge and release reservation": "Waive client charge and release reservation",
-    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge."
+    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.",
+    "Manual business approval required": "Manual business approval required",
+    "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.",
+    "View or complete your application": "View or complete your application"
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1291,7 +1294,10 @@
     "Usage review reason": "Motivo de revisión de uso",
     "I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.": "Acepto cualquier coste posterior del proveedor en nombre de la plataforma y exonero este cargo al cliente para {company}.",
     "Waive client charge and release reservation": "Exonerar cargo y liberar reserva",
-    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Cargo al cliente exonerado. El coste del proveedor sigue sin conocerse; la plataforma acepta cualquier cargo posterior."
+    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Cargo al cliente exonerado. El coste del proveedor sigue sin conocerse; la plataforma acepta cualquier cargo posterior.",
+    "Manual business approval required": "Se requiere la aprobación manual de la empresa",
+    "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Tu empresa debe aprobarse antes de iniciar una suscripción o comprar saldo de IA. No se ha realizado ningún cobro.",
+    "View or complete your application": "Ver o completar tu solicitud"
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -1938,7 +1944,10 @@
     "Usage review reason": "Motif de l’examen de consommation",
     "I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.": "J’accepte tout coût ultérieur du fournisseur au nom de la plateforme et annule ces frais client pour {company}.",
     "Waive client charge and release reservation": "Annuler les frais client et libérer la réserve",
-    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Frais client annulés. Le coût du fournisseur reste inconnu ; la plateforme accepte toute facturation ultérieure."
+    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Frais client annulés. Le coût du fournisseur reste inconnu ; la plateforme accepte toute facturation ultérieure.",
+    "Manual business approval required": "Approbation manuelle de l’entreprise requise",
+    "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Votre entreprise doit être approuvée avant de souscrire ou d’acheter du crédit IA. Aucun paiement n’a été prélevé.",
+    "View or complete your application": "Consulter ou compléter votre demande"
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -2585,6 +2594,9 @@
     "Usage review reason": "سبب مراجعة الاستخدام",
     "I accept any eventual provider cost on behalf of the platform and waive this client charge for {company}.": "أتحمل نيابة عن المنصة أي تكلفة لاحقة للمزود وأعفي {company} من رسوم هذا الطلب.",
     "Waive client charge and release reservation": "إعفاء العميل من الرسوم وتحرير الحجز",
-    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "تم إعفاء العميل من الرسوم. تظل تكلفة المزود غير معروفة وتتحمل المنصة أي رسوم لاحقة."
+    "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "تم إعفاء العميل من الرسوم. تظل تكلفة المزود غير معروفة وتتحمل المنصة أي رسوم لاحقة.",
+    "Manual business approval required": "موافقة يدوية على النشاط التجاري مطلوبة",
+    "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "يجب الموافقة على نشاطك التجاري قبل الاشتراك أو شراء رصيد الذكاء الاصطناعي. لم يتم تحصيل أي دفعة.",
+    "View or complete your application": "عرض طلبك أو إكماله"
   }
 }

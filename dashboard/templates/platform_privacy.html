@@ -21,6 +21,7 @@
       <p>When a business uses V7 to serve its own customers, that business normally decides why its customer information is collected and is the controller for those conversations. Vertex Seven processes that information to provide the service under the business's instructions. For a conversation with another business's agent, contact that business first; we can help route a request to it. Its privacy notice applies alongside this explanation of the platform.</p>
     </section>
     <section id="information"><h2>What information we use</h2><ul>
+      <li><strong>Business applications:</strong> business contact details, selected plans, website addresses, descriptions, policy acceptance, clarification requests and human review records. Optional AI-assisted research uses bounded public website sources to help a human reviewer; it cannot approve or reject an application. Internal notes are not sent to applicants.</li>
       <li><strong>Accounts and security:</strong> names, email addresses, account identifiers, roles, business details, sign-in and MFA records, linked-account identifiers and security events. Passwords are stored as hashes, not readable passwords.</li>
       <li><strong>Enquiries and conversations:</strong> messages, assistant replies, information you choose to share, contact and callback details, booking or quote requests, selected offerings and recorded clicks on suggested links. Please avoid sending sensitive personal information that is not needed for your enquiry.</li>
       <li><strong>Business configuration:</strong> the products, services, policies, website content, contact paths and other information an authorised business user supplies or imports.</li>
@@ -56,6 +57,7 @@
     </section>
     {% endif %}
     <section id="retention"><h2>How long information is kept</h2>
+      <p>Closed applications without existing paid service have their business contact details, description, website, research and private review notes minimised after the configured application retention period (180 days by default). Minimal decision/security audit records remain. Sent application-notification payloads are removed after 30 days when the maintenance worker runs. Pending applications, existing service records, invoices and prepaid balances have separate retention and contractual requirements. You can request correction or reconsideration from your signed-in application page.</p>
       {% if policy.settings.retention_days is not none %}<p>Configured platform retention period: {{ policy.settings.retention_days }} days, subject to the record-specific criteria below.</p>{% endif %}
       <p class="owner-text">{{ policy.settings.retention_criteria }}</p>
       <p>Customer records processed for another business follow that business's instructions and applicable legal requirements. Clearing model memory, ending a chat or withdrawing cookie consent does not automatically erase server-side conversation, billing, security or backup records. Ask the relevant controller to review a deletion request. Where information must be retained for a legal obligation or dispute, we explain the applicable exception.</p>

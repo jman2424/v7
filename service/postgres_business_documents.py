@@ -240,6 +240,11 @@ class PostgresBusinessDocuments:
             ).fetchone()
             if tenant is None:
                 raise FileNotFoundError(self.tenant_key)
+            if filename in {'store_info.json', 'overrides.json'}:
+                previous = connection.execute('SELECT payload FROM v7_private.business_documents WHERE tenant=%s AND filename=%s',
+                                              (self.tenant_key, filename)).fetchone()
+                from service.business_applications import material_change
+                material_change(self.tenant_key, filename, previous[0] if previous else None, payload, db=connection)
             if snapshot:
                 existing_day = connection.execute(
                     "SELECT 1 FROM v7_private.document_versions WHERE tenant = %s AND day = %s LIMIT 1",

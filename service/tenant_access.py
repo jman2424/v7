@@ -74,6 +74,11 @@ def owned_tenants(user):
 
 
 def activation(tenant):
+    from service.business_applications import ApplicationError, require_eligible
+    try:
+        require_eligible(tenant, activation=True)
+    except ApplicationError:
+        return {'active': False, 'status': 'awaiting_business_approval'}
     with _database() as db:
         _schema(db)
         managed = _execute(db, 'SELECT owner FROM managed_businesses WHERE tenant=?', (tenant,)).fetchone()

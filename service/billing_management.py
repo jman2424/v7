@@ -217,6 +217,8 @@ def cancel_subscription(tenant, base_url):
 
 
 def change_plan(tenant, plan_id, base_url):
+    from service.business_applications import require_eligible
+    require_eligible(tenant)
     plan = get_plan(plan_id)
     contract, data = _verified_subscription(tenant, change=True)
     state = subscriptions.plan_state(tenant)

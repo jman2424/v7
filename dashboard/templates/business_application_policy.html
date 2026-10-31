@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ 'Application and service terms' if terms else 'Acceptable Use Policy' }} | Vertex Seven</title>
+{% include 'platform_favicons.html' %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261031') }}">
+</head><body><a class="skip" href="#main">Skip to content</a>
+<header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/terms">Terms</a><a href="/console/">Workspace</a></nav></header>
+<main id="main" class="policy"><h1>{{ 'Application and service terms' if terms else 'Acceptable Use Policy' }}</h1>
+{% if not policy.legal_review_completed %}<p role="note"><strong>Draft for UK legal review. New business application intake is closed until the policy and rejection procedure have been reviewed and configured.</strong></p>{% endif %}
+{% if not terms %}<p>Policy version: {{ policy.policy_version }}</p>
+{% for paragraph in policy.policy.split('\n') %}{% if paragraph.strip() %}<p>{{ paragraph }}</p>{% endif %}{% endfor %}
+<h2>Human review and corrections</h2><p>Applications are reviewed personally by an authorised platform operator. Optional AI-generated public-source research is advisory and cannot approve or reject an application. A lack of identified concerns does not establish eligibility.</p>
+<p>Use your signed-in application page to correct business information, answer a request for clarification or request reconsideration. Customer-facing updates do not include confidential reviewer notes.</p>
+<h2>Agent activities</h2><p>Business approval is separate from permissions for each agent activity. Integrations, transactions and customer data remain subject to the relevant access, consent and approval controls.</p>
+{% else %}
+<p>Application terms version: application-terms-20261031. These terms are supplied for business customers and must be reviewed with the full service agreement before rollout.</p>
+<h2>Applying and approval</h2><p>An application is not a subscription or a promise of service. Submit accurate business activities and intended use. No application payment is taken. Manual approval is required before your first purchase. You can correct details and request reconsideration without another account.</p>
+<h2>Subscription and AI processing charges</h2><ul>{% for plan in subscription_plans %}<li>{{ plan.name }}: £{{ '%.2f'|format(plan.monthly_pence / 100) }} per month and £{{ '%.2f'|format(plan.setup_pence / 100) }} one-time setup.</li>{% endfor %}</ul><p>AI processing credit is separate, prepaid and not included in these fees. Model and token usage determine AI cost. There are no automatic AI-credit top-ups. Approved discounts, applicable tax and final charges are shown in secure checkout. Opening checkout does not activate paid service; verified payment and the required billing checks do.</p>
+<h2>Account access and service configuration</h2><p>Keep sign-in details and authenticators secure. Configure accurate knowledge, policies and permitted actions. AI output can contain errors; review important outputs and keep appropriate human oversight. Do not use agents for unlawful activities or outside the agreed activity and integration permissions.</p>
+<h2>Changes, cancellation and existing obligations</h2><p>Manage or request subscription changes and cancellation in Subscription using the existing Stripe controls. Check the effective date and final charges before confirming. An application correction or withdrawal does not itself cancel an existing subscription or remove prepaid credit. Material business changes require review before further purchases; existing contractual and prepaid obligations must be handled separately.</p>
+<h2>Privacy and contact</h2><p>See the <a href="/privacy">privacy policy</a> for account, application, research, review, billing and service data handling. Contact <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a> for application corrections or service questions.</p>
+{% endif %}</main></body></html>

@@ -411,6 +411,10 @@ class Storage:
                 shutil.copy2(dest, snapshot_file)
             if snapshot_file.exists():
                 snap_path = str(snapshot_file.relative_to(self.versions_root))
+        if filename in {'store_info.json', 'overrides.json'}:
+            from service.business_applications import material_change
+            previous = _read_json(dest) if dest.exists() else None
+            material_change(tkey, filename, previous, data)
         _atomic_write_json(dest, data)
 
         return snap_path

@@ -8,10 +8,11 @@
           {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000) }} setup</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
           <ul class="plan-highlights"><li>No fixed message or conversation cap</li><li>AI processing credit purchased separately · usage depends on model and tokens</li><li>{{ plan.locations }} location{% if plan.locations != 1 %}s{% endif %} / service area{% if plan.locations != 1 %}s{% endif %} · {{ plan.staff }} staff accounts</li></ul>
           <p class="plan-exclusion">WhatsApp phone numbers are not included. Provider and number rental charges are separate.</p>
-          <a class="button button-dark" href="/console/subscription?plan={{ plan.id }}">Choose {{ plan.name }} <span aria-hidden="true">→</span></a>
+          <a class="button button-dark" href="/console/?apply=1&amp;next=application&amp;plan={{ plan.id }}">Apply for {{ plan.name }} <span aria-hidden="true">→</span></a>
         </article>
         {% endfor %}
       </div>
+      <p class="pricing-note">A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.</p>
       {% if not subscription_vat_percent %}<p class="pricing-note">Prices shown are final GBP amounts. VAT is not currently charged.</p>{% endif %}
       {% if referral_offer is defined and referral_offer.enabled %}
       <aside class="referral-offer" aria-labelledby="referral-offer-title">

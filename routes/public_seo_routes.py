@@ -20,6 +20,20 @@ def _site_origin():
     return current_app.container.settings.BASE_URL.rstrip("/")
 
 
+@bp.get('/acceptable-use')
+def acceptable_use_page():
+    from service.business_applications import settings
+    return render_template('business_application_policy.html', policy=settings(public=True), terms=False,
+                           subscription_plans=public_plans())
+
+
+@bp.get('/terms')
+def application_terms_page():
+    from service.business_applications import settings
+    return render_template('business_application_policy.html', policy=settings(public=True), terms=True,
+                           subscription_plans=public_plans())
+
+
 @bp.get("/favicon.ico")
 def favicon():
     # A fixed public asset, never a tenant file or a caller-supplied path.

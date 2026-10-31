@@ -112,6 +112,9 @@ def complimentary_plan(tenant):
 
 
 def grant_complimentary_scale(tenant, *, enabled=True):
+    if enabled:
+        from service.business_applications import require_eligible
+        require_eligible(tenant)
     with connection(tenant) as db:
         if not enabled:
             db.execute("UPDATE billing_contracts SET status='revoked' WHERE tenant=? AND kind='complimentary_scale'", (tenant,))
@@ -288,6 +291,13 @@ def redeem_discount(tenant, code):
 
 
 def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=None):
+    from service import business_applications as applications
+    applications.require_eligible(tenant)
+    application = applications.get(tenant)
+    if application and not application['existing_service_preserved'] and kind in {'platform', 'implementation'}:
+        if plan_id is not None and plan_id != application['plan_id']:
+            raise applications.ApplicationError('application_plan_changed_review_required', 409)
+        plan_id = application['plan_id']
     if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
     plan = None
@@ -465,6 +475,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         if reward:
             data['discounts[0][coupon]'] = referrals.coupon(stripe,tenant,reward)
             data['metadata[referral_reward]'] = reward['id']
+    applications.reserve_payment(tenant, ref, kind)
     result = stripe.stripe_request('POST','/v1/checkout/sessions',data,idempotency_key='v7-checkout-'+ref)
     url = _safe_url(result.get('url'),'checkout.stripe.com')
     if not url or not re.fullmatch(r'cs_[A-Za-z0-9_]+', result.get('id','')):
@@ -472,6 +483,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     with connection(tenant) as db:
         table = 'billing_api_charges' if kind=='api' else 'billing_contracts'
         db.execute(f'UPDATE {table} SET checkout=?,checkout_url=?,checkout_expires=? WHERE ref=?', (result['id'],url,result.get('expires_at'),ref))
+    applications.bind_payment(tenant, ref, result['id'])
     return {'url':url}
 
 
@@ -487,6 +499,7 @@ def _confirmed_plan(db, metadata, identity):
 
 
 def sync_subscription(subscription_id):
+    from service import business_applications as applications
     if not re.fullmatch(r'sub_[A-Za-z0-9]+',subscription_id):
         raise ValueError('invalid_subscription')
     data = client().stripe_request('GET','/v1/subscriptions/'+subscription_id)
@@ -502,6 +515,8 @@ def sync_subscription(subscription_id):
         row = db.execute('SELECT tenant,kind FROM billing_references WHERE ref=?', (metadata.get('billing_ref',''),)).fetchone()
         if not row or row['tenant'] != metadata.get('tenant') or row['kind'] != metadata.get('kind'):
             raise ValueError('unknown_billing_reference')
+        applications.verify_payment(tenant, metadata['billing_ref'], row['kind'],
+                                    db=db.cursor.connection if session_store._using_postgres() else db)
         plan = _confirmed_plan(db, metadata, row)
         if plan and row['kind'] == 'platform':
             from service.billing_management import confirmed_plan
@@ -517,6 +532,7 @@ def sync_subscription(subscription_id):
 
 
 def sync_invoice(invoice_id):
+    from service import business_applications as applications
     if not re.fullmatch(r'in_[A-Za-z0-9]+',invoice_id):
         raise ValueError('invalid_invoice')
     invoice = client().stripe_request('GET','/v1/invoices/'+invoice_id,{'expand[0]':'discounts'})
@@ -540,6 +556,7 @@ def sync_invoice(invoice_id):
             plan = _confirmed_plan(db, metadata, row)
         identity = {**dict(row),'billing_ref':metadata['billing_ref']}
         month = metadata.get('month') if row['kind']=='api' else datetime.fromtimestamp(invoice['created'],timezone.utc).strftime('%Y-%m')
+    applications.verify_payment(identity['tenant'], identity['billing_ref'], identity['kind'])
     lines = [{'description':str(line.get('description') or '')[:300], 'amount':line.get('amount',0)} for line in invoice.get('lines',{}).get('data',[])]
     with connection(identity['tenant']) as db:
         db.execute("INSERT INTO billing_invoices VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET total=excluded.total,paid=excluded.paid,remaining=excluded.remaining,status=excluded.status,lines=excluded.lines,url=excluded.url WHERE billing_invoices.status!='paid' OR excluded.status='paid'",
@@ -559,6 +576,8 @@ def sync_invoice(invoice_id):
     verified_invoice = {**invoice,'id':invoice_id}
     referrals.consumed_payment(identity['tenant'],identity['kind'],identity['billing_ref'],verified_invoice)
     referrals.qualified_payment(identity['tenant'],identity['kind'],verified_invoice)
+    if invoice.get('status') == 'paid' and invoice.get('amount_paid', 0) > 0:
+        applications.settle_payment(identity['tenant'], identity['billing_ref'])
 
 
 def sync_zero_setup_checkout(checkout_id):
@@ -583,6 +602,8 @@ def sync_zero_setup_checkout(checkout_id):
     if not isinstance(tenant,str) or not session_store._TENANT_KEY.fullmatch(tenant):
         raise ValueError('unknown_billing_reference')
     from service import referrals
+    from service import business_applications as applications
+    applications.verify_payment(tenant, metadata.get('billing_ref'), 'implementation')
     coupons = referrals._coupon_ids(data.get('discounts') or [])
     with connection(tenant) as db:
         if not session_store._using_postgres():
@@ -605,9 +626,13 @@ def sync_zero_setup_checkout(checkout_id):
         # Preserve the provider checkout ID as the proof; do not invent an
         # invoice, cash payment, or a qualifying subscription payment.
         db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND id=? AND status='reserved'",(checkout_id,tenant,reward['id']))
+    applications.settle_payment(tenant, metadata['billing_ref'])
 
 
 def change_whatsapp(tenant, enabled):
+    if enabled:
+        from service.business_applications import require_eligible
+        require_eligible(tenant)
     if configured_plan(tenant):
         with connection(tenant) as db:
             db.execute('UPDATE billing_plan_state SET whatsapp_paused=? WHERE tenant=?', (int(not enabled),tenant))
@@ -624,6 +649,8 @@ def change_whatsapp(tenant, enabled):
 
 
 def portal(tenant, base_url):
+    from service.business_applications import require_eligible
+    require_eligible(tenant)
     customer = _contract(tenant,'platform').get('customer')
     if not customer:
         raise ValueError('subscription_required')
