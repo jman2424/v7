@@ -1,6 +1,7 @@
 <script lang="ts">
   import {onMount,onDestroy} from 'svelte';
   import BusinessEmailSetup from './BusinessEmailSetup.svelte';
+  import AgentModules from './AgentModules.svelte';
   export let tenant: string;
   export let csrf: string;
   export let isPlatform = false;
@@ -13,6 +14,7 @@
   let grants: Record<Channel,boolean> = {email:false,phone:false};
   let readiness: Record<Channel,{configured:boolean;recipients:string[];provider_cleanup_available?:boolean}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
   let workerEnabled = false;
+  let moduleInitialized = false;
   let operations:Operation[] = [];
   let drafts:Record<string,string> = {};
   let actionFor = '';
@@ -115,10 +117,11 @@
   {#if status}<p role="status" class:error>{status}</p>{/if}
   {#if loading}<p role="status">Loading your business hub…</p>{/if}
   {#if settings}
+    <AgentModules {tenant} {csrf} {canManage} {isPlatform} {apiPrefix} onReady={(value)=>moduleInitialized=value} onSaved={load}/>
     <BusinessEmailSetup {tenant} {csrf} {canManage} {apiPrefix}/>
     <div class="notice"><strong>Provider connections and costs</strong><p>Email needs a verified sender, incoming mail routing and a signed webhook. Phone needs a connected business number and signed call routing. AI replies use this business’s prepaid AI credit. Email delivery, number rental, calls and provider speech services have separate provider charges. No number or subscription is purchased here.</p><p>{workerEnabled?'The channel worker is enabled.':'The platform operator must enable the channel worker before live handling can start.'}</p></div>
-    {#if isPlatform}<fieldset><legend>Platform permissions for {tenant}</legend><p>These permissions make a channel available to this business. The business must still configure and enable it.</p>{#each ['email','phone'] as key}<label class="check"><input type="checkbox" bind:checked={grants[key as Channel]} disabled={saving}/>{channelNames[key as Channel]} allowed</label>{/each}<button type="button" on:click={saveGrants} disabled={saving}>Save platform permissions</button></fieldset>{/if}
-    <form on:submit|preventDefault={save}>
+    {#if isPlatform&&!moduleInitialized}<fieldset><legend>Platform permissions for {tenant}</legend><p>These permissions make a channel available to this business. The business must still configure and enable it.</p>{#each ['email','phone'] as key}<label class="check"><input type="checkbox" bind:checked={grants[key as Channel]} disabled={saving}/>{channelNames[key as Channel]} allowed</label>{/each}<button type="button" on:click={saveGrants} disabled={saving}>Save platform permissions</button></fieldset>{/if}
+    <form id="channel-settings" on:submit|preventDefault={save}>
       <div class="channels">{#each ['email','phone'] as key}{@const channel=key as Channel}
         <fieldset><legend>{channelNames[channel]}</legend>
           <p class="connection">{readiness[channel].configured?'Provider routing configured':'Awaiting provider connection'} · {grants[channel]?'Permitted by platform':'Not yet permitted by platform'}</p>

@@ -164,6 +164,11 @@ a latency promise without controlled live measurements. The previously authorize
 - [x] Stage 1b implementation; tenant/permission tests and synthetic Chrome UI check passed. Full CI status is linked in PR #7.
 - [ ] Stage 1c provider migration before the published retirement date.
 - [ ] Stage 2 policy/migration implementation.
+- [x] Stage 2a first slice: registry and tenant module controls over existing
+  native/email/phone services, with explicit legacy initialization, per-step
+  enforcement and deployment-owned global restrictions. See
+  [module control boundaries](agent-module-controls.md). Live global admin control
+  and its durable multi-instance policy remain pending; stage 2 is not complete.
 - [ ] Stages 3–5; require preceding gates and concrete business/provider configuration.
 
 No new feature from this branch is deployed merely by checking a box here. Add

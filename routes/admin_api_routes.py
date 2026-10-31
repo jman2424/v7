@@ -93,6 +93,7 @@ def _require_admin_session() -> None:
         "api_accounts_get": "users.read", "api_integrations": "integrations.read",
         "api_whatsapp_qr": "integrations.read", "api_platform": "platform.read",
         "api_business_channels_get": "integrations.read", "api_business_email_setup_get": "integrations.read",
+        "api_agent_modules_get": "integrations.read",
         "api_business_operations_get": "customers.read",
     }.get(endpoint)
     settings_endpoints = {
@@ -1072,6 +1073,55 @@ def _require_channel_owner():
         abort(403)
 
 
+@bp.get('/agent-modules')
+def api_agent_modules_get():
+    _require_channel_owner()
+    from service.agent_modules import snapshot
+    try:
+        response = jsonify(snapshot(get_container(), _tenant()))
+    except ValueError:
+        return jsonify(error='invalid_module_configuration'), 409
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/agent-modules')
+def api_agent_modules_put():
+    _require_channel_owner()
+    require_permission('business_settings.write')
+    require_permission('integrations.read')
+    return _save_agent_modules(grants=False)
+
+
+@bp.put('/agent-modules/grants')
+def api_agent_module_grants_put():
+    require_platform_operator()
+    require_permission('business_settings.write')
+    return _save_agent_modules(grants=True)
+
+
+def _save_agent_modules(*, grants):
+    from service import agent_modules
+    data = request.get_json(silent=True)
+    field = 'grants' if grants else 'enabled'
+    if not isinstance(data, dict) or set(data) != {'revision', field} or not isinstance(data['revision'], str):
+        return jsonify(error='invalid_module_settings'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        prepare = agent_modules.update_grants if grants else agent_modules.update_enabled
+        value = prepare(storage, tenant, data[field])
+    except PermissionError:
+        return jsonify(error='module_not_granted'), 403
+    except ValueError as exc:
+        if exc.args == ('module_policy_not_initialized',):
+            return jsonify(error='module_policy_not_initialized'), 409
+        return _validation_failure(exc, 'invalid_module_settings')
+    _audited_json_write(storage, tenant, agent_modules.FILENAME, value,
+                        action='agent.modules.grants' if grants else 'agent.modules.settings',
+                        expected_revision=data['revision'])
+    return jsonify(ok=True, **agent_modules.snapshot(get_container(), tenant))
+
+
 def _audit_operation(tenant, operation_id, action, result):
     user = management_user()
     AuditService().record(user=user['id'], role=user['roles'][0], ip=request.remote_addr or '',
@@ -1161,7 +1211,20 @@ def api_business_channel_grants_put():
     except ValueError as exc:
         return _validation_failure(exc, 'invalid_channel_grants')
     tenant = _tenant()
-    _audited_json_write(_storage(), tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
+    storage = _storage()
+    from service import agent_modules
+    raw = agent_modules.document(storage, tenant)
+    if raw is not None:
+        try:
+            config = agent_modules.validate(raw)
+        except ValueError:
+            return jsonify(error='invalid_module_configuration'), 409
+        for channel, granted in value.items():
+            config['modules'][channel]['granted'] = granted
+        _audited_json_write(storage, tenant, agent_modules.FILENAME, config,
+                            action='business.channels.grant', expected_revision=revision(raw))
+    else:
+        _audited_json_write(storage, tenant, channels.GRANTS_FILE, value, action='business.channels.grant')
     return jsonify(ok=True, grants=value)
 
 

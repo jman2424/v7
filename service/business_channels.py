@@ -87,6 +87,14 @@ def settings(storage, tenant):
 
 
 def grants(storage, tenant):
+    from service.agent_modules import document, validate as module_config
+    policy = document(storage, tenant)
+    if policy is not None:
+        try:
+            config = module_config(policy)
+        except ValueError:
+            return {channel: False for channel in CHANNELS}
+        return {channel: config['modules'][channel]['granted'] for channel in CHANNELS}
     return validate_grants(_read(storage, tenant, GRANTS_FILE, {channel: False for channel in CHANNELS}))
 
 
@@ -113,8 +121,18 @@ def bindings(channel):
 
 def active(storage, tenant, channel):
     from service.tenant_access import activation
-    return (channel in CHANNELS and grants(storage, tenant)[channel]
-            and settings(storage, tenant)[channel]['enabled'] and activation(tenant)['active'])
+    from service.agent_modules import decisions
+    if channel not in CHANNELS:
+        return False
+    decision = decisions(storage, tenant, (channel,))[channel]
+    if not decision['allowed']:
+        return False
+    # A migrated decision already checked the authoritative module grant and
+    # owner switch. Read the old grant file only for unmigrated businesses.
+    if not decision['managed'] and not validate_grants(_read(
+            storage, tenant, GRANTS_FILE, {name: False for name in CHANNELS}))[channel]:
+        return False
+    return settings(storage, tenant)[channel]['enabled'] and activation(tenant)['active']
 
 
 def configured_tenants():
