@@ -168,12 +168,19 @@ def validate_details(data, *, policy=None):
     if data.get('accepted_terms') is not True or data.get('policy_version') != policy['policy_version']:
         raise ApplicationError('application_policy_acceptance_required')
     return {'business_name': name, 'website': website, 'description': description, 'plan_id': plan,
-            'accepted_terms_version': 'application-terms-20261031'}
+            'accepted_terms_version': 'application-terms-20261031', 'accepted_policy_text': policy['policy']}
 
 
 def _event(db, tenant, revision, kind, actor, note=''):
     _execute(db, 'INSERT INTO business_application_events VALUES (?,?,?,?,?,?,?)',
              (secrets.token_urlsafe(24), tenant, revision, kind, actor, note, time.time()))
+
+
+def _record_acceptance(db, row):
+    detail = json.loads(row['details'])
+    _event(db, row['tenant'], row['revision'], 'policy_accepted', 'verified_applicant',
+           f"Policy version: {row['policy_version']}\nTerms version: {detail['accepted_terms_version']}\n\n"
+           + detail['accepted_policy_text'])
 
 
 def _notify(db, row, stage):
@@ -200,7 +207,10 @@ def _notify(db, row, stage):
 def public_application(row):
     if not row:
         return None
-    return {**json.loads(row['details']), **{key: row[key] for key in
+    detail = json.loads(row['details'])
+    public_detail = {key: detail[key] for key in ('business_name', 'website', 'description', 'plan_id',
+                    'accepted_terms_version', 'accepted_policy_text') if key in detail}
+    return {**public_detail, **{key: row[key] for key in
             ('status', 'revision', 'created', 'updated', 'public_message', 'policy_version')},
             'contact_email': row['contact_email'], 'existing_service_preserved': bool(row['service_preserved'])}
 
@@ -275,6 +285,7 @@ def _submit(db, tenant, email, data, *, preserved=False):
              (tenant, _json(details), email, policy['policy_version'], now, now, int(preserved)))
     row = _lock(db, tenant)
     _event(db, tenant, 1, 'submitted', 'verified_applicant')
+    _record_acceptance(db, row)
     _notify(db, row, 'PENDING_REVIEW')
     return public_application(row)
 
@@ -324,6 +335,7 @@ def update(tenant, data, email, *, actor=None):
                  (_json(details), revision, time.time(), settings(db=db)['policy_version'], email, tenant))
         _event(db, tenant, revision, 'resubmitted', actor or 'verified_applicant')
         row = _lock(db, tenant)
+        _record_acceptance(db, row)
         _notify(db, row, 'PENDING_REVIEW')
         return public_application(row)
 
@@ -444,7 +456,9 @@ def save_settings(data):
         _execute(db, 'INSERT INTO business_application_settings VALUES (1,?) '
                  'ON CONFLICT(id) DO UPDATE SET value=excluded.value', (_json(updated),))
         # Settings events contain no notification addresses or applicant data.
-        _event(db, '__platform__', updated['revision'], 'settings_updated', actor['id'])
+        _event(db, '__platform__', updated['revision'], 'settings_updated', actor['id'],
+               _json({key: updated[key] for key in ('policy', 'policy_version', 'categories', 'intake_enabled',
+                                                   'legal_review_completed', 'research_enabled', 'owner_email_enabled')}))
         return updated
 
 

@@ -381,3 +381,26 @@ def test_application_api_returns_json_and_rejects_cross_origin_writes(workspace)
     assert result.headers.get('X-Robots-Tag') == 'noindex, nofollow'
     assert client.post('/business-applications/current?tenant=' + tenant, json=details(),
                        headers={'Origin':'https://attacker.example'}).status_code == 403
+
+
+def test_accepted_policy_is_preserved_when_platform_policy_changes(workspace):
+    client, operator, tenant = workspace
+    row = apply(workspace)
+    accepted = row['accepted_policy_text']
+    value = operator.get('/business-applications/settings').json['settings']
+    changed = operator.put('/business-applications/settings', json={**value, 'policy': value['policy'] + '\nA reviewed new policy condition.'})
+    assert changed.status_code == 200
+    response = client.get('/business-applications/current?tenant=' + tenant).json
+    assert response['application']['accepted_policy_text'] == accepted
+    assert response['policy']['policy'] != accepted
+    assert response['application']['policy_version'] != response['policy']['policy_version']
+    review = operator.get('/business-applications/review?tenant=' + tenant).json['application']
+    assert any(event['kind'] == 'policy_accepted' and accepted in event['note'] for event in review['history'])
+    # A private stored annotation cannot become a public DTO merely because it
+    # was added alongside the whitelisted public application details.
+    with applications.database(tenant, write=True) as db:
+        stored = applications._lock(db, tenant)
+        detail = json.loads(stored['details'])
+        detail['private_annotation'] = 'INTERNAL_ONLY_MARKER'
+        applications._execute(db, 'UPDATE business_applications SET details=? WHERE tenant=?', (applications._json(detail), tenant))
+    assert 'INTERNAL_ONLY_MARKER' not in client.get('/business-applications/current?tenant=' + tenant).text

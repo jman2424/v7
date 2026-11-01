@@ -5,7 +5,7 @@
   export let csrf:string;
   export let apiPrefix='';
   export let canEdit=true;
-  type Application={status:string;revision:number;business_name:string;website:string;description:string;plan_id:string;public_message:string;existing_service_preserved:boolean};
+  type Application={status:string;revision:number;business_name:string;website:string;description:string;plan_id:string;public_message:string;existing_service_preserved:boolean;accepted_policy_text?:string};
   let application:Application|null=null;
   let policy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;setup_pence:number}[]}={intake_enabled:false,guidance:'',policy_version:'',plans:[]};
   let businessName='', website='', description='', planId='starter', acceptedTerms=false;
@@ -58,6 +58,7 @@
       <p><strong>{application.business_name}</strong> · {application.plan_id}</p>
       {#if application.status==='PENDING_REVIEW'}<p>We've received your application and are reviewing your business details. We'll email you when there is an update. No payment is needed while it is under review.</p>{/if}
       {#if application.public_message}<p class="message">{application.public_message}</p>{/if}
+      {#if application.accepted_policy_text}<details><summary>Policy accepted with this application</summary><p class="message">{application.accepted_policy_text}</p></details>{/if}
       {#if application.existing_service_preserved}<p>Existing services and prepaid balances remain subject to their current billing and permissions. This review does not automatically cancel your subscription.</p>{/if}
       {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and setup fees are separate from prepaid AI usage credit. Activation follows verified payment.</p>{/if}
       <div class="actions"><button disabled={busy} on:click={load}>Refresh status</button>{#if canEdit}<button disabled={busy} on:click={()=>{editing=!editing;fill();}}>Correct details / request reconsideration</button>{#if application.status!=='CANCELLED'}<button disabled={busy} on:click={withdraw}>Withdraw application</button>{/if}{/if}</div>

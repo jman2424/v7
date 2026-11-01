@@ -22,6 +22,9 @@ an applicant can still pay an open checkout. Existing Stripe reference validatio
 idempotency, webhook signature checks and payment proof remain mandatory.
 
 Store private reviewer notes/research separately from the public response fields.
+Keep the exact accepted policy/terms version and public policy text with each
+application and its append-only acceptance history; later policy edits do not
+rewrite those records. Customer DTOs explicitly whitelist public detail fields.
 Decisions, changes and notification outbox records commit together. Retry delivery
 with stable event identifiers; no sensitive mail payloads in logs. Research is
 optional, bounded, public-source-only and advisory; failure never decides status.
