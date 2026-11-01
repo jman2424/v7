@@ -36,6 +36,7 @@ def _wants_json_response() -> bool:
 
     if p.startswith((
         "/admin/api",
+        "/business-applications",
         "/api/v1",
         "/mcp",
         "/oauth",
@@ -98,6 +99,11 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(admin_bp)
     app.register_blueprint(files_bp)
     app.register_blueprint(auth_bp)
+    from routes.business_application_routes import bp as business_applications_bp
+    app.register_blueprint(business_applications_bp)
+    from routes.business_application_routes import application_error
+    from service.business_applications import ApplicationError
+    app.register_error_handler(ApplicationError, application_error)
     app.register_blueprint(oidc_bp)
     app.register_blueprint(diag_bp)
     app.register_blueprint(catalog_bp)
@@ -277,6 +283,8 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     def healthz():
         return {"ok": True}
 
+    from service.application_notifications import start as start_application_notifications
+    start_application_notifications(app)
     from service.channel_worker import start as start_business_channels
     # Start after Gunicorn forks, including deployments using --preload. Health
     # checks also start the worker; no customer request needs to arrive first.

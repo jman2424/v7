@@ -141,6 +141,8 @@ def checkout_requests(tenant):
 
 
 def checkout(tenant, email, pack_id, request_id, base_url):
+    from service import business_applications as applications
+    applications.require_eligible(tenant)
     if subscriptions.internal_business(tenant):
         raise ValueError("internal_business_has_no_customer_usage_charge")
     from service.tenant_access import activation
@@ -177,6 +179,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
         if row["pack_id"] != pack_id:
             raise ValueError("usage_request_mismatch")
     if row["checkout"]:
+        applications.recover_payment_binding(tenant, row['reference'], 'ai_credit', row['checkout'])
         return _checkout_result(_refresh_checkout(row))
     if row['created'] < time.time() - 23*3600:
         # Stripe may discard an idempotency key after 24 hours. Never create a
@@ -205,6 +208,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
         data['customer_creation'] = 'always'
     for prefix in ("metadata", "payment_intent_data[metadata]", "invoice_creation[invoice_data][metadata]"):
         data.update({prefix + "[" + key + "]": value for key, value in metadata.items()})
+    applications.reserve_payment(tenant, row['reference'], 'ai_credit')
     result = stripe.stripe_request("POST", "/v1/checkout/sessions", data, idempotency_key="v7-ai-credit-" + row["reference"])
     checkout_id = _id(result.get("id"), "cs")
     url = subscriptions._safe_url(result.get("url"), "checkout.stripe.com")
@@ -219,6 +223,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
         db.execute("UPDATE usage_checkout_requests SET checkout=?,checkout_url=?,expires_at=?,"
                    "status=CASE WHEN status='preparing' THEN 'pending' ELSE status END WHERE tenant=? AND reference=?",
                    (checkout_id, url, result["expires_at"], tenant, row["reference"]))
+    applications.bind_payment(tenant, row['reference'], checkout_id)
     return _checkout_result(_snapshot(tenant, row["reference"]))
 
 
@@ -306,10 +311,12 @@ def _disputed(stripe, charge, row, canonical_dispute=None):
 
 
 def _fulfill(checkout_id, *, event_id="", canonical_dispute=None):
+    from service import business_applications as applications
     stripe = subscriptions.client()
     checkout_id = _id(checkout_id, "cs")
     checkout = stripe.stripe_request("GET", "/v1/checkout/sessions/" + checkout_id)
     row = _metadata(checkout)
+    applications.verify_payment(row['tenant'], row['reference'], 'ai_credit')
     _common(checkout, row, "cs", checkout_id)
     _require_payment_mode(bool(row['livemode']))
     if row["checkout"] and row["checkout"] != checkout_id:
@@ -392,6 +399,7 @@ def _fulfill(checkout_id, *, event_id="", canonical_dispute=None):
                                    dispute_states=dispute_states, event_id=event_id)
     with subscriptions.connection(row["tenant"]) as db:
         db.execute("UPDATE usage_checkout_requests SET status='paid' WHERE tenant=? AND reference=?", (row["tenant"], row["reference"]))
+    applications.settle_payment(row['tenant'], row['reference'])
     return True
 
 

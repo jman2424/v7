@@ -81,13 +81,24 @@ def _send(email, code, *, reset, email_change=False):
                             'Enter it only in the signed-in V7 account page where you requested this change. '
                             'Do not share the code. Your password and authenticator will remain unchanged. '
                             'If you did not request this change, ignore this email.')
+    _deliver(message)
+
+
+def _deliver(message, *, idempotency_key=None):
     if _uses_resend_api():
-        content = {'from': message['From'], 'to': [email],
-                   'subject': message['Subject'], 'text': message.get_content()}
+        content = {'from': message['From'], 'to': [message['To']], 'subject': message['Subject']}
+        if message.is_multipart():
+            content['text'] = message.get_body(preferencelist=('plain',)).get_content()
+            content['html'] = message.get_body(preferencelist=('html',)).get_content()
+        else:
+            content['text'] = message.get_content()
         if message['Reply-To']:
             content['reply_to'] = message['Reply-To']
         payload = json.dumps(content).encode('utf-8')
-        _send_resend(payload)
+        if idempotency_key is None:
+            _send_resend(payload)
+        else:
+            _send_resend(payload, idempotency_key=idempotency_key)
         return
     mode = os.getenv('SMTP_TLS_MODE', 'starttls')
     if mode not in {'starttls', 'ssl'}:
@@ -103,11 +114,24 @@ def _send(email, code, *, reset, email_change=False):
         server.send_message(message)
 
 
-def _send_resend(payload):
+def send_transactional(email, subject, text, html, *, idempotency_key):
+    from service.account_service import valid_account_email
+    if not configured() or not valid_account_email(email) or len(email) > 254:
+        raise RuntimeError('Transactional email unavailable')
+    message = EmailMessage()
+    message['From'], message['To'], message['Subject'] = os.environ['SMTP_FROM'], email, subject
+    if os.getenv('SMTP_REPLY_TO', '').strip():
+        message['Reply-To'] = os.environ['SMTP_REPLY_TO'].strip()
+    message.set_content(text)
+    message.add_alternative(html, subtype='html')
+    _deliver(message, idempotency_key=idempotency_key)
+
+
+def _send_resend(payload, *, idempotency_key=None):
     # Reuse the exact body/key for one bounded retry, including an uncertain
     # timeout after acceptance. Never retry certificate or permanent API errors.
     headers = {'Authorization': 'Bearer ' + os.environ['SMTP_PASSWORD'],
-               'Content-Type': 'application/json', 'Idempotency-Key': secrets.token_urlsafe(32)}
+               'Content-Type': 'application/json', 'Idempotency-Key': idempotency_key or secrets.token_urlsafe(32)}
     for attempt in range(2):
         if attempt:
             time.sleep(0.5)

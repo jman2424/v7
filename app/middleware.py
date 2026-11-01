@@ -21,7 +21,7 @@ NON_INDEXABLE_PREFIXES = (
     "/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console",
     "/mcp", "/oauth", "/api/", "/mode", "/version", "/export_catalog_csv",
     "/catalog_webhook", "/chat_ui", "/chat_api", "/chat/", "/webchat", "/widget",
-    "/whatsapp", "/channels/", "/health", "/ready", "/.well-known/",
+    "/whatsapp", "/channels/", "/business-applications", "/health", "/ready", "/.well-known/",
 )
 
 
@@ -57,7 +57,7 @@ def install_request_boundaries(app, settings):
             get_host(request.environ, trusted_hosts=trusted)
         if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return
-        management = request.path.startswith(("/admin/", "/auth/", "/files/", "/analytics/", "/__diag/", "/billing/")) or request.path in {"/mode", "/oauth/authorize"}
+        management = request.path.startswith(("/admin/", "/auth/", "/files/", "/analytics/", "/__diag/", "/billing/", "/business-applications/")) or request.path in {"/mode", "/oauth/authorize"}
         if not management or request.path == "/billing/stripe/webhook":
             return
         if request.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -174,7 +174,7 @@ def install_rate_limit(app, settings):
             key, rate, capacity = (ip, "public_chat"), 30, 40
         elif not login and request.path.startswith(("/analytics", "/admin/api/")) and request.method == "GET":
             key, rate, capacity = (ip, "analytics"), 30, 40
-        elif not login and request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.path.startswith(("/admin", "/files")):
+        elif not login and request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.path.startswith(("/admin", "/files", "/business-applications")):
             key, rate, capacity = (ip, "management_write"), 20, 25
         else:
             key = (ip, "login") if login else None

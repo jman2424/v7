@@ -11,8 +11,10 @@ from service.account_service import AccountService
 from service.security import generate_totp_token
 from tests.conftest import set_test_identity
 from tests.test_subscriptions import signature, stripe as stripe_fixture
+from tests.test_business_applications import intake as application_intake, details as application_details
 
 stripe = stripe_fixture
+intake = application_intake
 
 
 def owner(client, name='owner'):
@@ -90,7 +92,7 @@ def test_unknown_permissions_rejected(client):
     assert client.post('/admin/api/accounts',json={'email':'staff@testing.test','password':'Test-password-only-123','roles':['business_staff'],'permissions':['platform_admin']}).status_code==400
 
 
-def test_activation_requires_both_verified_payments_and_blocks_all_agent_paths(client,stripe,monkeypatch):
+def test_activation_requires_both_verified_payments_and_blocks_all_agent_paths(client,stripe,monkeypatch,intake):
     owner(client)
     assert client.post('/admin/api/tenants',json={'key':'SHOP','name':'Grocery shop'}).status_code==201
     assert client.get('/admin/api/activation?tenant=SHOP').json['active'] is False
@@ -101,8 +103,20 @@ def test_activation_requires_both_verified_payments_and_blocks_all_agent_paths(c
     monkeypatch.setattr(whatsapp_routes,'_reply',reply)
     assert whatsapp_routes._process(SimpleNamespace(settings=SimpleNamespace(BUSINESS_KEY='SHOP')),{},'cloud')==''
     reply.assert_not_called()
+    # Account verification and commercial approval are separate. A new managed
+    # business now needs the real manual-review transition before payment proof.
+    row = client.post('/business-applications/current?tenant=SHOP', json=application_details(
+        business_name='Grocery shop', description='Groceries', plan_id='starter')).json['application']
+    operator = client.application.test_client()
+    from tests.test_subscriptions import identity
+    identity(operator)
+    assert operator.post('/business-applications/review?tenant=SHOP',
+        json={'revision':row['revision'],'decision':'approve'}).status_code == 200
     plan=subscriptions._contract('SHOP','platform')
     setup=subscriptions._contract('SHOP','implementation')
+    from service import business_applications
+    business_applications.reserve_payment('SHOP', plan['ref'], 'platform')
+    business_applications.reserve_payment('SHOP', setup['ref'], 'implementation')
     sub={'metadata':{'tenant':'SHOP','kind':'platform','billing_ref':plan['ref']},'customer':'cus_shop','status':'active','items':{'data':[{'current_period_end':int(time.time())+86400}]}}
     invoice={'id':'in_setup','currency':'gbp','created':int(time.time()),'customer':'cus_shop','metadata':{'tenant':'SHOP','kind':'implementation','billing_ref':setup['ref']},'total':24000,'amount_paid':24000,'amount_remaining':0,'status':'paid','lines':{'data':[]}}
     stripe.side_effect=lambda method,path,*a,**k: invoice if path.startswith('/v1/invoices/') else sub

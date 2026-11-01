@@ -97,18 +97,21 @@ def password_change():
 
 @bp.get('/registration')
 def registration_status():
-    from service import registration, registration_mail
+    from service import registration, registration_mail, business_applications
     return jsonify(enabled=registration_mail.configured(), sender=registration_mail.sender_address(),
-                   request=registration.status())
+                   request=registration.status(), application_policy=business_applications.settings(public=True))
 
 
 @bp.post('/register')
 def register_post():
     from service import registration
+    from service.business_applications import ApplicationError
     if session.get('user'):
         return jsonify(error='Use Companies or Team access from your signed-in account.'), 400
     try:
         result = registration.start(request.get_json(silent=True))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     except RuntimeError as exc:

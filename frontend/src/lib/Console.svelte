@@ -23,6 +23,8 @@
   import Statistics from './Statistics.svelte';
   import ErrorsHealth from './ErrorsHealth.svelte';
   import Registration from './Registration.svelte';
+  import BusinessApplication from './BusinessApplication.svelte';
+  import BusinessApplications from './BusinessApplications.svelte';
   import JoinRequests from './JoinRequests.svelte';
   import AccountSecurity from './AccountSecurity.svelte';
   import PasswordManagement from './PasswordManagement.svelte';
@@ -40,6 +42,8 @@
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
   $: pageTitle = sections[section] || 'Sales workspace';
   sections.operations = 'Business hub';
+  sections.applications = 'Business Applications';
+  sections.application = 'My application';
   const pageDescriptions: Record<string, string> = {
     operations: 'Manage email and phone handling, review replies and confirm business actions.',
     platform: 'A clear view of your businesses, activity and setup.',
@@ -67,7 +71,7 @@
     privacy: 'Manage business data and privacy preferences.'
   };
   const navigationGroups: { id: string; label: string; keys: string[] }[] = [
-    { id: 'businesses', label: 'Businesses', keys: ['platform', 'companies'] },
+    { id: 'businesses', label: 'Businesses', keys: ['platform', 'applications', 'companies', 'application'] },
     { id: 'activity', label: 'Sales activity', keys: ['operations', 'pipeline', 'statistics', 'conversations', 'errors'] },
     { id: 'setup', label: 'Agent and channels', keys: ['agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
     { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
@@ -838,6 +842,8 @@
     const owner = user.roles.includes('business_owner');
     if (key === 'platform') return operator && Boolean(user.permissions?.includes('platform.read'));
     if (key === 'companies') return operator || owner;
+    if (key === 'applications') return operator;
+    if (key === 'application') return operator || owner;
     if (key === 'team') return (operator || owner) && Boolean(user.permissions?.includes('users.read'));
     if (key === 'operations') return (operator || owner) && Boolean(user.permissions?.includes('customers.read') && user.permissions?.includes('integrations.read'));
     if (key === 'account') return true;
@@ -1603,6 +1609,7 @@
   onMount(async () => {
     initialiseLanguage();
     const params = new URLSearchParams(window.location.search);
+    signupOpen = params.get('apply') === '1';
     const notices: Record<string,string> = {
       linked:'Your sign-in provider is linked to this account.',
       mfa_required:'Provider verified. Complete your authenticator check to sign in.',
@@ -1745,17 +1752,19 @@
         <section class="activation-notice" aria-label={$t('AI usage credit')}><div><strong>{$t('AI usage credit')}</strong><p role="alert">{usageCreditWarning(alert.code)}</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>{$t('View usage credit and top up')} <span aria-hidden="true">↗</span></a>{/if}</section>
       {/each}
       {#if activation && !activation.active}
-        <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>Business awaiting activation</strong><p>Business data editing and the agent unlock after Stripe confirms both the platform subscription and the one-time implementation payment.</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>Open subscriptions <span aria-hidden="true">↗</span></a>{/if}</section>
+        <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>{activation.status==='awaiting_business_approval'?'Business application required':'Business awaiting activation'}</strong><p>{activation.status==='awaiting_business_approval'?'Manual approval is required before payment and agent activation. View your application to check its status or supply business details.':'Business data editing and the agent unlock after Stripe confirms the required subscription and implementation payment.'}</p></div><a href={base+'/'+(activation.status==='awaiting_business_approval'?'application':'subscription')+'?tenant='+encodeURIComponent(tenant)}>{activation.status==='awaiting_business_approval'?'View application':'Open subscriptions'} <span aria-hidden="true">↗</span></a></section>
       {/if}
 
       {#if !mayOpenScreen(section)}
         <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/'+defaultWorkspaceScreen()+'?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
-      {:else if !isPlatform && activation && !activation.active && !['subscription','companies','account','privacy'].includes(section)}
+      {:else if !isPlatform && activation && !activation.active && !['subscription','companies','account','privacy','application'].includes(section)}
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
       {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{#if isPlatform||isOwner}{#key tenant}<Referrals {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}{/if}
       {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'application'}{#key tenant}<BusinessApplication {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'applications' && isPlatform}<BusinessApplications {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
       {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'operations'}{#key tenant}<BusinessHub {tenant} {csrf} isPlatform={isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
       {#if section === 'platform'}

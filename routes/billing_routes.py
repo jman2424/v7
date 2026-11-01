@@ -1,6 +1,7 @@
 """Owner-scoped billing, platform oversight, and verified Stripe callbacks."""
 import json
 from flask import Blueprint, abort, jsonify, request, session
+from service.business_applications import ApplicationError
 from routes import get_container
 from service.security import management_user, authorized_tenant, is_platform_admin, require_permission, account_permissions
 from service import subscriptions
@@ -39,6 +40,8 @@ def change_plan_post():
     tenant, data = _tenant(), _body()
     try:
         result = billing_management.change_plan(tenant, data.get('plan_id'), get_container().settings.BASE_URL.rstrip('/'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -52,6 +55,8 @@ def cancel_subscription_post():
     tenant = _tenant()
     try:
         result = billing_management.cancel_subscription(tenant, get_container().settings.BASE_URL.rstrip('/'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -82,6 +87,8 @@ def referrals_post(action):
             result = referrals.set_program(tenant, data.get('enabled'), session_store._digest(session.get('management_token')))
         else:
             abort(404)
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -94,6 +101,13 @@ def subscription_get():
     tenant = _tenant(read_only=True)
     user = management_user()
     report = subscriptions.report(tenant, include_api='view_costs' in account_permissions(user))
+    from service import business_applications
+    report['business_application'] = business_applications.get(tenant)
+    try:
+        business_applications.require_eligible(tenant)
+        report['business_purchase_allowed'] = True
+    except ApplicationError:
+        report['business_purchase_allowed'] = False
     if not is_platform_admin(user) and 'business_owner' not in user['roles']:
         for invoice in report['invoices']:
             invoice['url'] = None
@@ -141,6 +155,8 @@ def complimentary_plan_post():
         return jsonify(error='invalid_plan_grant'), 400
     try:
         state = subscriptions.grant_complimentary_scale(tenant, enabled=enabled)
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -153,6 +169,8 @@ def checkout_post():
     tenant, data = _tenant(), _body()
     try:
         result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''),plan_id=data.get('plan_id'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     from routes.admin_api_routes import _audit
@@ -165,6 +183,8 @@ def select_plan_post():
     tenant, data = _tenant(), _body()
     try:
         state = subscriptions.select_plan(tenant, data.get('plan_id'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit
@@ -177,6 +197,8 @@ def cancel_checkout_post():
     tenant = _tenant()
     try:
         result = subscriptions.cancel_pending_checkouts(tenant)
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit
@@ -189,6 +211,8 @@ def discount_post():
     tenant, data = _tenant(), _body()
     try:
         result = subscriptions.redeem_discount(tenant,data.get('code'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit
@@ -201,6 +225,8 @@ def portal_post():
     tenant = _tenant()
     try:
         return jsonify(subscriptions.portal(tenant,get_container().settings.BASE_URL.rstrip('/')))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
 
@@ -212,6 +238,8 @@ def whatsapp_post():
         abort(400,description='enabled_must_be_boolean')
     try:
         subscriptions.change_whatsapp(tenant,data['enabled'])
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit
@@ -225,6 +253,8 @@ def api_charge_post():
     tenant, data = _tenant(), _body()
     try:
         subscriptions.approve_api_charge(tenant,data.get('month'),data.get('amount_pence'))
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit

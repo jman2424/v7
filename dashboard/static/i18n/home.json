@@ -215,7 +215,11 @@
     "“Which product is right for me?”": "«¿Qué producto es adecuado para mí?»",
     "The assistant is currently unavailable.": "El asistente no está disponible en este momento.",
     "Contact Vertex Seven": "Contacta con Vertex Seven",
-    "and we can help with your enquiry.": "y te ayudaremos con tu consulta."
+    "and we can help with your enquiry.": "y te ayudaremos con tu consulta.",
+    "Apply for Starter": "Solicitar Starter",
+    "Apply for Business": "Solicitar Business",
+    "Apply for Scale": "Solicitar Scale",
+    "A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.": "Antes del pago, se requiere una breve solicitud de empresa y una aprobación personal. Los clientes actuales pueden gestionar sus suscripciones desde su espacio de trabajo."
   },
   "fr": {
     "* A website conversation is a distinct chat session used during the month, rather than each message. ** Message usage is measured by AI processing cost in GBP, with one prepaid balance shared across website and WhatsApp. No AI credit is included in the monthly subscription. It is not a fixed number of website or WhatsApp messages and does not include Meta, Twilio or phone number charges. Message capacity depends on the selected model’s price and the tokens used, including conversation context and reply length. There is no fixed message or conversation cap. Activity counters reset at the start of each calendar month in UTC; purchased credit carries forward.": "* Une conversation web est une session de chat distincte utilisée au cours du mois, et non chaque message. ** L’utilisation est mesurée par le coût du traitement IA en GBP, avec un solde prépayé commun au site et à WhatsApp. L’abonnement mensuel n’inclut aucun crédit IA. Il ne correspond pas à un nombre fixe de messages et ne couvre pas les frais de Meta, Twilio ou de numéro de téléphone. La capacité dépend du prix du modèle et des jetons utilisés, notamment le contexte et la longueur des réponses. Il n’y a pas de plafond fixe de messages ou de conversations. Les compteurs sont remis à zéro au début de chaque mois civil en UTC ; le crédit acheté reste disponible.",
@@ -433,7 +437,11 @@
     "“Which product is right for me?”": "« Quel produit me convient ? »",
     "The assistant is currently unavailable.": "L’assistant est actuellement indisponible.",
     "Contact Vertex Seven": "Contactez Vertex Seven",
-    "and we can help with your enquiry.": "et nous vous aiderons pour votre demande."
+    "and we can help with your enquiry.": "et nous vous aiderons pour votre demande.",
+    "Apply for Starter": "Demander Starter",
+    "Apply for Business": "Demander Business",
+    "Apply for Scale": "Demander Scale",
+    "A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.": "Une courte demande professionnelle et une approbation personnelle sont nécessaires avant tout paiement. Les clients existants peuvent gérer leurs abonnements depuis leur espace de travail."
   },
   "ar": {
     "* A website conversation is a distinct chat session used during the month, rather than each message. ** Message usage is measured by AI processing cost in GBP, with one prepaid balance shared across website and WhatsApp. No AI credit is included in the monthly subscription. It is not a fixed number of website or WhatsApp messages and does not include Meta, Twilio or phone number charges. Message capacity depends on the selected model’s price and the tokens used, including conversation context and reply length. There is no fixed message or conversation cap. Activity counters reset at the start of each calendar month in UTC; purchased credit carries forward.": "* المحادثة على الموقع هي جلسة دردشة مستقلة استُخدمت خلال الشهر، وليست كل رسالة. ** يُقاس الاستخدام بتكلفة معالجة الذكاء الاصطناعي بالجنيه الإسترليني، برصيد مسبق الدفع مشترك بين الموقع وWhatsApp. لا يشمل الاشتراك الشهري رصيدًا للذكاء الاصطناعي. ولا يمثل عددًا ثابتًا من الرسائل، ولا يشمل رسوم Meta أو Twilio أو أرقام الهاتف. تعتمد سعة الرسائل على سعر النموذج والرموز المستخدمة، بما فيها سياق المحادثة وطول الرد. لا يوجد حد ثابت للرسائل أو المحادثات. تُصفّر عدادات النشاط في بداية كل شهر ميلادي بتوقيت UTC، ويظل الرصيد المشترى متاحًا.",
@@ -651,6 +659,10 @@
     "“Which product is right for me?”": "«ما المنتج المناسب لي؟»",
     "The assistant is currently unavailable.": "المساعد غير متاح حاليًا.",
     "Contact Vertex Seven": "تواصل مع Vertex Seven",
-    "and we can help with your enquiry.": "وسنساعدك في استفسارك."
+    "and we can help with your enquiry.": "وسنساعدك في استفسارك.",
+    "Apply for Starter": "التقدم لخطة Starter",
+    "Apply for Business": "التقدم لخطة Business",
+    "Apply for Scale": "التقدم لخطة Scale",
+    "A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.": "يلزم تقديم طلب تجاري قصير والحصول على موافقة شخصية قبل الدفع. يمكن للعملاء الحاليين إدارة اشتراكاتهم من مساحة العمل."
   }
 }

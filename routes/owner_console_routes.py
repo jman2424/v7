@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUILD_DIR = REPO_ROOT / "frontend" / "build"
 SECTIONS = {"subscription", "platform", "pipeline", "statistics", "test", "implementation", "whatsapp-qr", "usage", "conversations", "agent", "website", "integrations", "catalog", "offers", "faqs", "delivery", "profile", "branches", "team", "companies", "errors", "account", "privacy"}
 SECTIONS.add('operations')
+SECTIONS.update({'applications', 'application'})
 
 bp = Blueprint("owner_console", __name__)
 
@@ -46,7 +47,7 @@ def _authorize_section(section):
     tenant = container.storage.canonical_tenant_key(tenant)
     if not container.storage.tenant_exists(tenant):
         abort(404, description='unknown_tenant')
-    if section == 'platform' and not is_platform_admin(user):
+    if section in {'platform', 'applications'} and not is_platform_admin(user):
         abort(403, description='platform_admin_required')
     if section in {'team', 'companies', 'operations'} and not is_platform_admin(user) and 'business_owner' not in user['roles']:
         abort(403, description='company_owner_required')
