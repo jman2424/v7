@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import secrets
 import time
 from contextlib import contextmanager
@@ -483,12 +484,25 @@ def reserve_payment(tenant, reference, kind):
 
 
 def bind_payment(tenant, reference, checkout):
+    if not isinstance(checkout, str) or len(checkout) > 255 or not re.fullmatch(r'cs_[A-Za-z0-9_]+', checkout):
+        raise ApplicationError('application_checkout_binding_conflict', 409)
     with database(tenant, write=True) as db:
         previous = _one(_execute(db, 'SELECT * FROM business_application_permits WHERE reference=? AND tenant=?', (reference, tenant)))
         if not previous or previous['state'] == 'expired' or (previous['checkout'] and previous['checkout'] != checkout):
             raise ApplicationError('application_checkout_binding_conflict', 409)
         _execute(db, "UPDATE business_application_permits SET checkout=?,state=CASE WHEN state='settled' THEN state ELSE 'issued' END WHERE reference=? AND tenant=?",
                  (checkout, reference, tenant))
+
+
+def recover_payment_binding(tenant, reference, kind, checkout):
+    """Repair a known binding after a crash; never authorise a new payment."""
+    with database(tenant) as db:
+        row = _one(_execute(db, 'SELECT kind,state FROM business_application_permits WHERE tenant=? AND reference=?', (tenant, reference)))
+    if row is None or row['state'] == 'expired':
+        return  # Historical receipts must not acquire a new open permit.
+    if row['kind'] != kind:
+        raise ApplicationError('application_checkout_binding_conflict', 409)
+    bind_payment(tenant, reference, checkout)
 
 
 def verify_payment(tenant, reference, kind, *, db=None):
@@ -537,7 +551,20 @@ def close_payments(tenant):
     for row in rows:
         checkout = row['checkout']
         if not checkout:
-            raise ApplicationError('application_checkout_creation_unresolved', 409)
+            with subscriptions.connection(tenant) as db:
+                if row['kind'] == 'ai_credit':
+                    from service.usage_payments import _schema
+                    _schema(db)
+                    stored = db.execute('SELECT checkout FROM usage_checkout_requests WHERE tenant=? AND reference=?',
+                                        (tenant, row['reference'])).fetchone()
+                else:
+                    table = 'billing_api_charges' if row['kind'] == 'api' else 'billing_contracts'
+                    stored = db.execute('SELECT checkout FROM ' + table + ' WHERE tenant=? AND ref=?',
+                                        (tenant, row['reference'])).fetchone()
+            if not stored or not stored['checkout']:
+                raise ApplicationError('application_checkout_creation_unresolved', 409)
+            checkout = stored['checkout']
+            recover_payment_binding(tenant, row['reference'], row['kind'], checkout)
         session = subscriptions.client().stripe_request('GET', '/v1/checkout/sessions/' + checkout)
         if session.get('id') != checkout:
             raise ApplicationError('application_checkout_unresolved', 409)

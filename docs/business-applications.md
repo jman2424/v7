@@ -105,7 +105,10 @@ is reserved immediately before Stripe session creation. A provider timeout after
 reservation deliberately keeps the permit unresolved. Retry the original checkout
 with its existing idempotency key to recover its session; do not invent another
 reference or clear the permit manually. The application page/review screen can
-resolve known unpaid sessions by checking and expiring them through Stripe. A
+recover a missing final binding from an already-stored subscription/credit
+checkout record, without authorising another payment. Normal checkout retries
+repair that same binding. Historical paid receipts do not gain new open permits.
+Known unpaid sessions can be resolved by checking and expiring them through Stripe. A
 completed session requires verified webhook reconciliation; an unknown session
 requires operator/provider investigation. Failed/unknown responses never activate
 a business. Ordinary renewal verification recognises historical paid/complimentary

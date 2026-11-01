@@ -413,3 +413,39 @@ def test_application_search_uses_business_details_not_agreement_text(workspace):
     # This word exists in the accepted policy, not the applicant's activities.
     assert operator.get('/business-applications/queue?search=gambling').json['total'] == 0
     assert operator.get('/business-applications/queue?search=%25').json['total'] == 0
+
+
+def test_checkout_retry_recovers_binding_after_interrupted_persistence(workspace, stripe, monkeypatch):
+    client, _, tenant = workspace
+    apply(workspace)
+    assert decide(workspace, 'approve').status_code == 200
+    monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
+    created = {'id':'cs_recovery','url':'https://checkout.stripe.com/c/pay/recovery'}
+    stripe.return_value = created
+    with monkeypatch.context() as patch:
+        patch.setattr(applications, 'bind_payment', Mock(side_effect=RuntimeError('Synthetic interrupted binding')))
+        failed = client.post('/billing/checkout?tenant=' + tenant, json={'kind':'platform'})
+        assert failed.status_code == 500 and 'Synthetic interrupted binding' not in failed.text
+    payload = stripe.call_args.args[2]
+    reference = payload['metadata[billing_ref]']
+    metadata = {key: payload['metadata[' + key + ']'] for key in ('tenant','kind','billing_ref','plan_id','billing_version')}
+    stripe.reset_mock()
+    stripe.return_value = {**created,'status':'open','metadata':metadata}
+    assert client.post('/billing/checkout?tenant=' + tenant, json={'kind':'platform'}).status_code == 200
+    assert all(call.args[0] == 'GET' for call in stripe.call_args_list)
+    with applications.database(tenant) as db:
+        row = applications._one(applications._execute(db, 'SELECT checkout,state FROM business_application_permits WHERE tenant=? AND reference=?', (tenant,reference)))
+    assert row == {'checkout':'cs_recovery','state':'issued'}
+
+
+def test_operator_can_resolve_missing_binding_from_existing_financial_record(workspace, stripe):
+    client, _, tenant = workspace
+    apply(workspace)
+    assert decide(workspace, 'approve').status_code == 200
+    contract = subscriptions._contract(tenant, 'platform')
+    applications.reserve_payment(tenant, contract['ref'], 'platform')
+    with subscriptions.connection(tenant) as db:
+        db.execute('UPDATE billing_contracts SET checkout=? WHERE tenant=? AND ref=?', ('cs_recovery',tenant,contract['ref']))
+    stripe.side_effect = [{'id':'cs_recovery','status':'open'}, {'id':'cs_recovery','status':'expired'}]
+    assert client.post('/business-applications/close-payments?tenant=' + tenant, json={}).status_code == 200
+    assert decide(workspace, 'reject').status_code == 200

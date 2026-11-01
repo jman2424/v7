@@ -179,6 +179,7 @@ def checkout(tenant, email, pack_id, request_id, base_url):
         if row["pack_id"] != pack_id:
             raise ValueError("usage_request_mismatch")
     if row["checkout"]:
+        applications.recover_payment_binding(tenant, row['reference'], 'ai_credit', row['checkout'])
         return _checkout_result(_refresh_checkout(row))
     if row['created'] < time.time() - 23*3600:
         # Stripe may discard an idempotency key after 24 hours. Never create a

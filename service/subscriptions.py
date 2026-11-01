@@ -386,6 +386,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
                 if expired.get('status') != 'expired':
                     raise ValueError('stripe_response_invalid')
             else:
+                applications.recover_payment_binding(tenant, contract['ref'], kind, contract['checkout'])
                 return {'url':_safe_url(previous.get('url'),'checkout.stripe.com')}
         if previous.get('status') == 'complete':
             raise ValueError('payment_processing_refresh_soon')
