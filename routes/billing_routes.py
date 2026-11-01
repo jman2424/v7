@@ -216,7 +216,7 @@ def discount_post():
     except ValueError as exc:
         return jsonify(error=str(exc)),400
     from routes.admin_api_routes import _audit
-    _audit('billing.discount',tenant,after={'percent':50})
+    _audit('billing.discount',tenant,after={key:result[key] for key in ('discount_percent','setup_discount_percent','first_month_discount_percent') if key in result})
     return jsonify(result)
 
 

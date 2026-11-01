@@ -289,7 +289,10 @@ def _coupon_ids(discounts):
 
 def apply_next_month(tenant):
     from service import subscriptions
-    if subscriptions.saved_campaign(tenant):
+    from service import billing_promotions
+    campaign = subscriptions.saved_campaign(tenant)
+    if campaign and (campaign not in billing_promotions.CAMPAIGNS
+                     or billing_promotions.preview(tenant)['first_month_discount_percent']):
         raise ValueError('referral_does_not_stack_with_existing_discount')
     contract = subscriptions._contract(tenant,'platform')
     if not contract.get('subscription') or contract['status']!='active':

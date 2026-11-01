@@ -6,6 +6,21 @@ from types import SimpleNamespace
 from service import platform_offer_knowledge, referrals, subscriptions
 
 
+def test_setup_scope_and_codes_override_old_installation_promises_for_platform_only(client, monkeypatch):
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'VERTEX')
+    assert platform_offer_knowledge.public_setup_policy('OTHER') is None
+    policy = platform_offer_knowledge.public_setup_policy('VERTEX')
+    assert policy['answer_complete'] is True
+    assert 'your team or website developer' in policy['answer']
+    assert 'not included as a done-for-you implementation service' in policy['answer']
+    assert 'Use SETUP for free one-time setup' in policy['answer']
+    assert '50% off the first subscription month only' in policy['answer']
+    assert 'do not cover AI credit' in policy['answer']
+    from service.grounded_statements import statement_catalog
+    statements = statement_catalog({'policy:platform_setup': policy})
+    assert statements['policy:platform_setup:answer']['text'] == policy['answer']
+
+
 def test_personal_advice_is_not_replaced_by_the_tariff_shortcut():
     for question in ['Compare your plans and recommend one for my business.',
                      'What plan should I choose based on price and features?',
