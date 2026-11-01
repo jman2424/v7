@@ -38,7 +38,7 @@ def test_native_application_rls_and_private_api_roles(pg_runtime):
         assert db.execute('SELECT tenant FROM business_applications').fetchall() == []
 
 
-def test_native_platform_inventory_requires_a_live_operator_session(pg_runtime):
+def test_native_platform_inventory_requires_a_live_operator_session(pg_runtime, monkeypatch):
     configure(pg_runtime)
     tenant = pg_runtime['tenant']
     applications.submit_verified(tenant, 'applicant@example.test', details())
@@ -49,6 +49,17 @@ def test_native_platform_inventory_requires_a_live_operator_session(pg_runtime):
             db.execute("SELECT set_config('v7.application_session',%s,true)", (session_store._digest(token),))
             result = db.execute('SELECT tenant FROM business_applications WHERE tenant=%s', (tenant,)).fetchall()
             assert bool(result) == (role == 'platform_admin')
+        if role == 'platform_admin':
+            from flask import Flask, session
+            app = Flask(__name__)
+            app.secret_key = 'Synthetic-application-search-session'
+            # The HTTP role gate is covered separately; exercise the native JSON
+            # search under a real scoped DB operator session here.
+            with app.test_request_context(), monkeypatch.context() as patch:
+                session['management_token'] = token
+                patch.setattr(applications, '_operator', lambda: {'id': 'operator'})
+                assert applications.list_applications(search='detailing')['total'] >= 1
+                assert applications.list_applications(search='gambling')['total'] == 0
         session_store.revoke(token)
         with session_store.postgres_connection() as db:
             db.execute("SELECT set_config('v7.application_session',%s,true)", (session_store._digest(token),))

@@ -404,3 +404,12 @@ def test_accepted_policy_is_preserved_when_platform_policy_changes(workspace):
         detail['private_annotation'] = 'INTERNAL_ONLY_MARKER'
         applications._execute(db, 'UPDATE business_applications SET details=? WHERE tenant=?', (applications._json(detail), tenant))
     assert 'INTERNAL_ONLY_MARKER' not in client.get('/business-applications/current?tenant=' + tenant).text
+
+
+def test_application_search_uses_business_details_not_agreement_text(workspace):
+    _, operator, _ = workspace
+    apply(workspace)
+    assert operator.get('/business-applications/queue?search=detailing').json['total'] == 1
+    # This word exists in the accepted policy, not the applicant's activities.
+    assert operator.get('/business-applications/queue?search=gambling').json['total'] == 0
+    assert operator.get('/business-applications/queue?search=%25').json['total'] == 0

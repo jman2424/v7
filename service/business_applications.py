@@ -405,8 +405,13 @@ def list_applications(*, status='', search='', sort='newest', page=1):
     if search:
         # Escape wildcard characters; input is a literal search, never SQL.
         term = search.replace('!', '!!').replace('%', '!%').replace('_', '!_')
-        clause.append("(lower(details) LIKE ? ESCAPE '!' OR lower(contact_email) LIKE ? ESCAPE '!')")
-        params.extend(['%' + term + '%'] * 2)
+        fields = ('business_name', 'website', 'description', 'plan_id')
+        expressions = [("details::jsonb->>'" + field + "'" if session_store._using_postgres()
+                        else "json_extract(details,'$." + field + "')") for field in fields]
+        expressions.append('contact_email')
+        clause.append('(' + ' OR '.join("lower(COALESCE(" + expression + ",'')) LIKE ? ESCAPE '!'"
+                                        for expression in expressions) + ')')
+        params.extend(['%' + term + '%'] * len(expressions))
     where = ' WHERE ' + ' AND '.join(clause) if clause else ''
     with database(operator=True) as db:
         total = _execute(db, 'SELECT COUNT(*) FROM business_applications' + where, tuple(params)).fetchone()[0]
