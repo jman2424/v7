@@ -146,6 +146,25 @@ test('GBP, counts and calendar months follow the selected locale, including Arab
   assert.equal(format.subscriptionMonth('not-a-month', 'en-GB'), 'not-a-month');
 });
 
+test('setup and first-month offers do not lower the displayed recurring renewal price', () => {
+  const names = new Set(['setupPercent', 'setupTotal', 'totalWithVat', 'firstMonthTotal']);
+  const calculations = parse(component).instance.content.body.filter(node =>
+    node.type === 'LabeledStatement' && node.label.name === '$' &&
+    node.body.type === 'ExpressionStatement' && names.has(node.body.expression.left?.name));
+  assert.equal(calculations.length, 4);
+  const source = 'let setupPercent, setupTotal, totalWithVat, firstMonthTotal;\n' +
+    calculations.map(node => component.slice(node.body.start, node.body.end)).join('\n') +
+    '\nglobalThis.result = {setup: setupTotal(59900), first: firstMonthTotal(34900), renewal: totalWithVat(34900)};';
+  const executable = ts.transpileModule(source, {compilerOptions: {target: ts.ScriptTarget.ES2022}}).outputText;
+  for (const first of [0, 50]) for (const vat of [0, 20]) {
+    const context = {data: {discount_percent: 0, setup_discount_percent: 100, first_month_discount_percent: first, vat_percent: vat}, subscriptionPrice: format.subscriptionPrice};
+    vm.runInNewContext(executable, context);
+    assert.equal(context.result.setup, 0);
+    assert.equal(context.result.first, format.subscriptionPrice(34900, first, vat).total);
+    assert.equal(context.result.renewal, format.subscriptionPrice(34900, 0, vat).total);
+  }
+});
+
 test('known billing errors are actionable and localized while arbitrary provider/network text is hidden', () => {
   const known = format.subscriptionError('cancel_pending_checkout_before_changing_plan');
   assert.equal(known, 'Cancel the pending checkout before choosing another plan.');

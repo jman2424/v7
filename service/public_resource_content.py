@@ -12,7 +12,7 @@ RESOURCE_PAGES: dict[str, Solution] = {
         'audience': 'For business owners checking integration requirements before setup or purchase.',
         'sections': [
             {'heading': 'Website chat and approved destinations', 'paragraphs': [
-                'Add the workspace embed snippet to a website you control and approve its origin. Configure the widget name, branding, greeting and business knowledge. Test on the actual website, including a phone, before sharing it with visitors.',
+                'We provide implementation support and the workspace embed snippet. Your team or website developer adds it to a website you control and approves its origin. Website editing and custom development are separate. Configure the widget name, branding, greeting and business knowledge. Test on the actual website, including a phone, before sharing it with visitors.',
                 'Approved destinations let the assistant offer a button to a relevant product, checkout, booking or support page. A visitor clicking a button opens that destination; it does not prove that an order, payment or booking was completed there.',
             ]},
             {'heading': 'WhatsApp needs a provider connection', 'paragraphs': [

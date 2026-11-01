@@ -12,6 +12,8 @@
         </article>
         {% endfor %}
       </div>
+      <aside class="referral-offer" aria-labelledby="setup-offer-title"><div><p class="eyebrow" data-i18n>SETUP OFFER</p><h3 id="setup-offer-title" data-i18n>Free setup</h3><p data-i18n>Use code SETUP in your Subscription section before checkout. Your monthly subscription price is unchanged.</p><p class="referral-terms" data-i18n>For unpaid one-time setup only. Business approval is required. Offers do not stack or cover AI credit, and paid setup is not refunded.</p></div></aside>
+      <p class="pricing-note" data-i18n>Implementation support is included. We provide the embed snippet and guidance; your team or website developer adds it to your website.</p>
       <p class="pricing-note">A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.</p>
       {% if not subscription_vat_percent %}<p class="pricing-note">Prices shown are final GBP amounts. VAT is not currently charged.</p>{% endif %}
       {% if referral_offer is defined and referral_offer.enabled %}

@@ -897,13 +897,14 @@ class MessageHandlerV7:
         if client is None:
             return None
         knowledge = {"business": {key: value for key, value in self.sales_context.items() if key != 'business_core'}}
-        from service.platform_offer_knowledge import public_knowledge, public_destinations, public_plan_context, automatic_offer_answer
+        from service.platform_offer_knowledge import public_knowledge, public_destinations, public_plan_context, public_setup_policy, automatic_offer_answer
         live_offer = public_knowledge(self.tenant_key)
         plan_context = public_plan_context(self.tenant_key)
         from service.plan_catalog import public_plans
         billing_plans = public_plans() if plan_context else []
         if plan_context:
             knowledge['business']['subscription_plans'] = plan_context
+            knowledge['policy:platform_setup'] = public_setup_policy(self.tenant_key)
         from service.website_knowledge import relevant_passages
         history = session.get('conversation_history', [])
         previous = session.get('sales_agent') if isinstance(session.get('sales_agent'),dict) else {}

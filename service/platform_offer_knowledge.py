@@ -12,6 +12,25 @@ from service.plan_catalog import public_plans, vat_percent
 from service.website_destinations import validate
 
 
+SETUP_SUPPORT = (
+    'Vertex Seven provides business and agent setup with implementation support. '
+    'We provide the embed snippet and help your team or website developer add it and test it. '
+    'Website editing, installation by Vertex Seven, custom development and third-party integrations are not included as a done-for-you implementation service. '
+    'Use SETUP for free one-time setup; the normal monthly subscription price still applies. '
+    'MHIGHSTREET gives free one-time setup and 50% off the first subscription month only; later months use the normal plan price. '
+    'Enter a code in Subscription before checkout. Business approval and verified checkout completion are still required. '
+    'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid setup.'
+)
+
+
+def public_setup_policy(tenant):
+    if not tenant or not subscriptions.internal_business(tenant):
+        return None
+    return {'question': 'What do setup, implementation support and setup codes include?',
+            'answer': SETUP_SUPPORT, 'answer_complete': True,
+            'authority': 'Current platform service scope and billing offers override older imported implementation claims.'}
+
+
 def public_knowledge(tenant):
     if not tenant or not subscriptions.internal_business(tenant):
         return None
@@ -67,6 +86,7 @@ def public_plan_context(tenant):
                   for plan in public_plans()],
         'usage': 'AI processing credit is separately prepaid; none is included. There is no fixed message allowance. Usage depends on the selected model and tokens.',
         'whatsapp': 'WhatsApp requires provider setup. Business phone numbers and Meta/provider messaging fees are separate costs.',
+        'implementation_support': SETUP_SUPPORT,
         'vat_percent': vat_percent(),
     }
 
@@ -120,4 +140,5 @@ def automatic_plan_answer(question, knowledge, history=None):
         tax = ' No VAT is added to the published prices.'
     lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
                  'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overages or recharges.' + tax)
+    lines.append('Use code SETUP for free one-time setup. Monthly subscription prices are unchanged. Implementation support is included; your team or website developer installs the widget.')
     return '\n\n'.join(lines)

@@ -29,9 +29,15 @@ def _discount_campaign(kind, code):
     if not code.strip():
         return ''
     digest = hashlib.sha256(code.strip().upper().encode()).hexdigest()
-    if kind not in {'platform','implementation'} or not hmac.compare_digest(digest, _PLATFORM_DISCOUNT_DIGEST):
+    from service import billing_promotions
+    campaign = billing_promotions.CODE_DIGESTS.get(digest)
+    if kind not in {'platform','implementation'}:
         raise ValueError('invalid_discount_code')
-    return _PLATFORM_CAMPAIGN
+    if campaign:
+        return campaign
+    if hmac.compare_digest(digest, _PLATFORM_DISCOUNT_DIGEST):
+        return _PLATFORM_CAMPAIGN
+    raise ValueError('invalid_discount_code')
 
 
 @contextmanager
@@ -253,9 +259,9 @@ def _tax():
 
 
 def saved_campaign(tenant):
-    with connection(tenant) as db:
-        row = db.execute('SELECT campaign FROM billing_discounts WHERE tenant=?',(tenant,)).fetchone()
-    return _PLATFORM_CAMPAIGN if row and row['campaign'] == _PLATFORM_CAMPAIGN else ''
+    from service import billing_promotions
+    campaign = billing_promotions.state(tenant).get('campaign')
+    return campaign if campaign in {_PLATFORM_CAMPAIGN, *billing_promotions.CAMPAIGNS} else ''
 
 
 def _discount_coupon(stripe, key):
@@ -271,6 +277,12 @@ def redeem_discount(tenant, code):
     campaign = _discount_campaign('platform', code)
     if not campaign:
         raise ValueError('invalid_discount_code')
+    from service import billing_promotions
+    if campaign in billing_promotions.CAMPAIGNS:
+        billing_promotions.redeem(tenant, campaign)
+        return {'ok': True, 'discount_percent': 0, **billing_promotions.preview(tenant)}
+    if saved_campaign(tenant) in billing_promotions.CAMPAIGNS:
+        raise ValueError('discount_does_not_stack')
     contract = _contract(tenant,'platform')
     if contract.get('subscription'):
         sync_subscription(contract['subscription'])
@@ -286,6 +298,9 @@ def redeem_discount(tenant, code):
             if result.get('id') != contract['subscription'] or (result.get('metadata') or {}).get('discount_campaign') != campaign:
                 raise ValueError('stripe_discount_invalid')
     with connection(tenant) as db:
+        billing_promotions._lock(db, tenant)
+        if billing_promotions.state(tenant, db).get('campaign') in billing_promotions.CAMPAIGNS:
+            raise ValueError('discount_does_not_stack')
         db.execute('INSERT INTO billing_discounts VALUES (?,?) ON CONFLICT(tenant) DO UPDATE SET campaign=excluded.campaign',(tenant,campaign))
     return {'ok':True,'discount_percent':50}
 
@@ -320,11 +335,15 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     if entered_campaign:
         redeem_discount(tenant, discount_code)
     campaign = saved_campaign(tenant) if kind in {'platform','implementation'} else ''
+    from service import billing_promotions
+    campaign_terms = billing_promotions.terms(tenant, campaign, kind)
+    if campaign in billing_promotions.CAMPAIGNS and not campaign_terms:
+        campaign = ''
     if kind=='implementation' and campaign:
         from service import referrals
         # The joining business's free setup is stronger than the campaign.
         # Keep the campaign on its subscription, without stacking coupons.
-        if referrals.has_stronger_reward(tenant,kind,50):
+        if referrals.has_stronger_reward(tenant,kind,campaign_terms['percent'] if campaign_terms else 50):
             campaign = ''
     one_time = kind in {'implementation','api'}
     if kind=='implementation' and (_contract(tenant,'platform')['implementation_paid'] or _contract(tenant,kind)['status']=='paid'):
@@ -457,7 +476,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     items = [(kind, amount, not one_time)]
     for index, (item,amount,recurring) in enumerate(items):
         prefix = f'line_items[{index}]'
-        name = {'platform':'V7 monthly subscription','implementation':'V7 implementation (one time)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
+        name = {'platform':'V7 monthly subscription','implementation':'V7 setup (one time)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
         if plan:
             name = 'V7 '+plan['name']+(' setup (one time)' if one_time else ' monthly subscription')
         data.update({prefix+'[quantity]':1,prefix+'[price_data][currency]':'gbp',prefix+'[price_data][unit_amount]':amount,
@@ -468,8 +487,10 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
             data[prefix+'[price_data][recurring][interval]'] = 'month'
     data['automatic_tax[enabled]'] = 'false'
     if campaign:
-        data['discounts[0][coupon]'] = _discount_coupon(stripe, ref)
+        data['discounts[0][coupon]'] = (billing_promotions.coupon(stripe, tenant, campaign, kind, ref)
+                                      if campaign in billing_promotions.CAMPAIGNS else _discount_coupon(stripe, ref))
         data['metadata[discount_campaign]'] = campaign
+        data[f'{meta_prefix}[discount_campaign]'] = campaign
     elif kind in {'platform','implementation'}:
         from service import referrals
         reward = referrals.reserve(tenant,kind,ref)
@@ -529,6 +550,9 @@ def sync_subscription(subscription_id):
             current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
             if current and current['ref'] == metadata['billing_ref']:
                 db.execute('UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant=?', (plan['id'],plan['id'],tenant))
+    if row['kind'] == 'platform':
+        from service import billing_promotions
+        billing_promotions.mark_subscription_started(tenant, metadata['billing_ref'])
     return {**dict(row),'billing_ref':metadata['billing_ref']}
 
 
@@ -577,7 +601,8 @@ def sync_invoice(invoice_id):
     verified_invoice = {**invoice,'id':invoice_id}
     referrals.consumed_payment(identity['tenant'],identity['kind'],identity['billing_ref'],verified_invoice)
     referrals.qualified_payment(identity['tenant'],identity['kind'],verified_invoice)
-    if invoice.get('status') == 'paid' and invoice.get('amount_paid', 0) > 0:
+    if invoice.get('status') == 'paid' and (invoice.get('amount_paid', 0) > 0
+            or identity['kind'] == 'implementation' and invoice.get('total') == 0 and invoice.get('amount_remaining') == 0):
         applications.settle_payment(identity['tenant'], identity['billing_ref'])
 
 
@@ -616,17 +641,22 @@ def sync_zero_setup_checkout(checkout_id):
         subtotal = plan['setup_pence'] if plan else PRICES['implementation']
         if data.get('amount_subtotal')!=subtotal:
             raise ValueError('invalid_zero_setup_checkout')
-        reward = db.execute("SELECT id,coupon FROM referral_rewards WHERE tenant=? AND kind='implementation' AND billing_ref=? AND percent=100 AND status IN ('reserved','used')",
-                            (tenant,row['ref'])).fetchone()
-        if not reward or metadata.get('referral_reward')!=reward['id'] or coupons!={reward['coupon']}:
-            raise ValueError('invalid_zero_setup_checkout')
+        from service import billing_promotions
+        promotion = billing_promotions.verifies_free_setup(db, tenant, metadata, coupons)
+        reward = None
+        if not promotion:
+            reward = db.execute("SELECT id,coupon FROM referral_rewards WHERE tenant=? AND kind='implementation' AND billing_ref=? AND percent=100 AND status IN ('reserved','used')",
+                                (tenant,row['ref'])).fetchone()
+            if not reward or metadata.get('referral_reward')!=reward['id'] or coupons!={reward['coupon']}:
+                raise ValueError('invalid_zero_setup_checkout')
         db.execute("UPDATE billing_contracts SET status='paid',customer=? WHERE tenant=? AND kind='implementation'",(data.get('customer'),tenant))
         db.execute("UPDATE billing_contracts SET implementation_paid=1 WHERE tenant=? AND kind='platform'",(tenant,))
         if plan:
             db.execute('UPDATE billing_plan_state SET setup_plan=? WHERE tenant=?',(plan['id'],tenant))
         # Preserve the provider checkout ID as the proof; do not invent an
         # invoice, cash payment, or a qualifying subscription payment.
-        db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND id=? AND status='reserved'",(checkout_id,tenant,reward['id']))
+        if reward:
+            db.execute("UPDATE referral_rewards SET status='used',invoice=? WHERE tenant=? AND id=? AND status='reserved'",(checkout_id,tenant,reward['id']))
     applications.settle_payment(tenant, metadata['billing_ref'])
 
 
@@ -720,6 +750,7 @@ def report(tenant, include_api=True):
     state = plan_state(tenant)
     from service import referrals
     from service.billing_management import summary as management_summary
-    return {'tenant':tenant,'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
+    from service import billing_promotions
+    return {'tenant':tenant, **billing_promotions.preview(tenant), 'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) == _PLATFORM_CAMPAIGN else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
             'plans':public_plans(), 'plan_state':state, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'management':management_summary(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

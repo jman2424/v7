@@ -28,6 +28,10 @@ export function subscriptionCreditAlerts<T extends {code: string}>(alerts: T[]):
 
 const billingErrors: Record<string, string> = {
   invalid_discount_code: 'This discount code is not valid.',
+  discount_does_not_stack: 'This offer cannot be combined with your saved discount.',
+  first_month_discount_new_subscription_only: 'This first-month offer is only available before your first subscription.',
+  checkout_promotion_changed_refresh: 'Your offer changed. Refresh payments before continuing.',
+  discount_not_applicable: 'This offer does not apply to this charge.',
   stripe_discount_invalid: 'The discount could not be applied. Contact your platform administrator.',
   existing_subscription_requires_review: 'Contact your platform administrator to change an existing subscription.',
   paid_setup_plan_requires_review: 'Contact your platform administrator before changing a plan with paid setup.',

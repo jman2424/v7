@@ -647,7 +647,20 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.",
     "Manual business approval required": "Manual business approval required",
     "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.",
-    "View or complete your application": "View or complete your application"
+    "View or complete your application": "View or complete your application",
+    "Offer saved. Review the setup and subscription amounts below. Existing invoices are unchanged.": "Offer saved. Review the setup and subscription amounts below. Existing invoices are unchanged.",
+    "Free setup and 50% off your first subscription month. Later months are charged at the normal plan price.": "Free setup and 50% off your first subscription month. Later months are charged at the normal plan price.",
+    "Free setup saved. Your monthly subscription price is unchanged.": "Free setup saved. Your monthly subscription price is unchanged.",
+    "AI credit is separate. Offers do not stack and paid setup is not refunded.": "AI credit is separate. Offers do not stack and paid setup is not refunded.",
+    "First month {price}; normal monthly price applies afterwards.": "First month {price}; normal monthly price applies afterwards.",
+    "Complete free {plan} setup": "Complete free {plan} setup",
+    "Complete free setup": "Complete free setup",
+    "Pay setup · {price} including VAT": "Pay setup · {price} including VAT",
+    "Pay setup · {price}": "Pay setup · {price}",
+    "This offer cannot be combined with your saved discount.": "This offer cannot be combined with your saved discount.",
+    "This first-month offer is only available before your first subscription.": "This first-month offer is only available before your first subscription.",
+    "Your offer changed. Refresh payments before continuing.": "Your offer changed. Refresh payments before continuing.",
+    "This offer does not apply to this charge.": "This offer does not apply to this charge."
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1297,7 +1310,20 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Cargo al cliente exonerado. El coste del proveedor sigue sin conocerse; la plataforma acepta cualquier cargo posterior.",
     "Manual business approval required": "Se requiere la aprobación manual de la empresa",
     "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Tu empresa debe aprobarse antes de iniciar una suscripción o comprar saldo de IA. No se ha realizado ningún cobro.",
-    "View or complete your application": "Ver o completar tu solicitud"
+    "View or complete your application": "Ver o completar tu solicitud",
+    "Offer saved. Review the setup and subscription amounts below. Existing invoices are unchanged.": "Oferta guardada. Revisa abajo los importes de configuración y suscripción. Las facturas existentes no cambian.",
+    "Free setup and 50% off your first subscription month. Later months are charged at the normal plan price.": "Configuración gratis y un 50% de descuento el primer mes. Los meses siguientes se cobran al precio habitual del plan.",
+    "Free setup saved. Your monthly subscription price is unchanged.": "Configuración gratis guardada. El precio de tu suscripción mensual no cambia.",
+    "AI credit is separate. Offers do not stack and paid setup is not refunded.": "El crédito de IA se paga aparte. Las ofertas no se acumulan y no se reembolsan los gastos de configuración ya pagados.",
+    "First month {price}; normal monthly price applies afterwards.": "Primer mes {price}; después se aplica el precio mensual habitual.",
+    "Complete free {plan} setup": "Completar configuración gratuita de {plan}",
+    "Complete free setup": "Completar configuración gratuita",
+    "Pay setup · {price} including VAT": "Pagar configuración · {price} con IVA",
+    "Pay setup · {price}": "Pagar configuración · {price}",
+    "This offer cannot be combined with your saved discount.": "Esta oferta no se puede combinar con tu descuento guardado.",
+    "This first-month offer is only available before your first subscription.": "Esta oferta del primer mes solo está disponible antes de tu primera suscripción.",
+    "Your offer changed. Refresh payments before continuing.": "Tu oferta ha cambiado. Actualiza los pagos antes de continuar.",
+    "This offer does not apply to this charge.": "Esta oferta no se aplica a este cargo."
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -1947,7 +1973,20 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "Frais client annulés. Le coût du fournisseur reste inconnu ; la plateforme accepte toute facturation ultérieure.",
     "Manual business approval required": "Approbation manuelle de l’entreprise requise",
     "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "Votre entreprise doit être approuvée avant de souscrire ou d’acheter du crédit IA. Aucun paiement n’a été prélevé.",
-    "View or complete your application": "Consulter ou compléter votre demande"
+    "View or complete your application": "Consulter ou compléter votre demande",
+    "Offer saved. Review the setup and subscription amounts below. Existing invoices are unchanged.": "Offre enregistrée. Vérifiez les montants de configuration et d’abonnement ci-dessous. Les factures existantes restent inchangées.",
+    "Free setup and 50% off your first subscription month. Later months are charged at the normal plan price.": "Configuration offerte et 50 % de réduction sur le premier mois. Les mois suivants sont facturés au tarif normal du forfait.",
+    "Free setup saved. Your monthly subscription price is unchanged.": "Configuration offerte enregistrée. Le prix de votre abonnement mensuel reste inchangé.",
+    "AI credit is separate. Offers do not stack and paid setup is not refunded.": "Le crédit IA est séparé. Les offres ne se cumulent pas et les frais de configuration déjà payés ne sont pas remboursés.",
+    "First month {price}; normal monthly price applies afterwards.": "Premier mois : {price} ; le tarif mensuel normal s’applique ensuite.",
+    "Complete free {plan} setup": "Finaliser la configuration offerte de {plan}",
+    "Complete free setup": "Finaliser la configuration offerte",
+    "Pay setup · {price} including VAT": "Payer la configuration · {price} TTC",
+    "Pay setup · {price}": "Payer la configuration · {price}",
+    "This offer cannot be combined with your saved discount.": "Cette offre ne peut pas être cumulée avec votre remise enregistrée.",
+    "This first-month offer is only available before your first subscription.": "Cette offre du premier mois est disponible uniquement avant votre premier abonnement.",
+    "Your offer changed. Refresh payments before continuing.": "Votre offre a changé. Actualisez les paiements avant de continuer.",
+    "This offer does not apply to this charge.": "Cette offre ne s’applique pas à ces frais."
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -2597,6 +2636,19 @@
     "Client charge waived. Provider cost remains unknown; the platform accepts any eventual provider charge.": "تم إعفاء العميل من الرسوم. تظل تكلفة المزود غير معروفة وتتحمل المنصة أي رسوم لاحقة.",
     "Manual business approval required": "موافقة يدوية على النشاط التجاري مطلوبة",
     "Your business must be approved before starting a subscription or buying AI credit. No payment has been taken.": "يجب الموافقة على نشاطك التجاري قبل الاشتراك أو شراء رصيد الذكاء الاصطناعي. لم يتم تحصيل أي دفعة.",
-    "View or complete your application": "عرض طلبك أو إكماله"
+    "View or complete your application": "عرض طلبك أو إكماله",
+    "Offer saved. Review the setup and subscription amounts below. Existing invoices are unchanged.": "تم حفظ العرض. راجع مبالغ الإعداد والاشتراك أدناه. لا تتغير الفواتير الحالية.",
+    "Free setup and 50% off your first subscription month. Later months are charged at the normal plan price.": "إعداد مجاني وخصم 50% على الشهر الأول من الاشتراك. تُحتسب الأشهر التالية بالسعر المعتاد للخطة.",
+    "Free setup saved. Your monthly subscription price is unchanged.": "تم حفظ الإعداد المجاني. لا يتغير سعر الاشتراك الشهري.",
+    "AI credit is separate. Offers do not stack and paid setup is not refunded.": "رصيد الذكاء الاصطناعي منفصل. لا تُجمع العروض ولا تُسترد رسوم الإعداد المدفوعة.",
+    "First month {price}; normal monthly price applies afterwards.": "الشهر الأول {price}؛ ثم يُطبّق السعر الشهري المعتاد.",
+    "Complete free {plan} setup": "إكمال إعداد {plan} المجاني",
+    "Complete free setup": "إكمال الإعداد المجاني",
+    "Pay setup · {price} including VAT": "دفع الإعداد · {price} شامل الضريبة",
+    "Pay setup · {price}": "دفع الإعداد · {price}",
+    "This offer cannot be combined with your saved discount.": "لا يمكن جمع هذا العرض مع الخصم المحفوظ.",
+    "This first-month offer is only available before your first subscription.": "عرض الشهر الأول متاح فقط قبل اشتراكك الأول.",
+    "Your offer changed. Refresh payments before continuing.": "تغيّر العرض. حدّث المدفوعات قبل المتابعة.",
+    "This offer does not apply to this charge.": "لا ينطبق هذا العرض على هذه الرسوم."
   }
 }
