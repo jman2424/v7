@@ -33,7 +33,7 @@ setImmediate(()=>{
  assert.deepEqual(Array.from(h.searchableSections()).sort(),['account','conversations']);
  h.identity({email:'owner@synthetic.test',tenant:'CLIENT_B',roles:['business_owner'],permissions:['business_settings.read','view_costs','view_subscriptions']});
  const owner=Array.from(h.searchableSections());
- assert(owner.includes('usage')&&owner.includes('subscription'));
+ assert(owner.includes('budget')&&owner.includes('subscription')&&!owner.includes('usage')&&!owner.includes('provider-funding'));
  assert(!owner.includes('platform')&&!owner.includes('errors'));
 });
 """

@@ -170,7 +170,8 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         assert offer["url"] == ORIGIN + "/#pricing"
         assert offer["seller"]["@id"] == ORIGIN + "/#organization"
     assert "Exactly what your business gets" in visible
-    assert "No automatic extra charges" in visible
+    assert "Your AI Budget. Spending under your control." in visible
+    assert "explicit saved-card authorisation" in visible
     assert "calendar month in UTC" in visible
     assert "Message usage is measured by AI processing cost in GBP" in visible
     assert "does not include Meta, Twilio or phone number charges" in visible
@@ -208,7 +209,7 @@ def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_c
         assert f"£{plan['monthly_pence'] // 100}/month" in response.text
         assert f"£{plan['setup_pence'] // 100} one-time setup" in response.text
     assert "No AI credit is included in the monthly subscription" in response.text
-    assert "no automatic recharges or extra usage invoices" in response.text
+    assert "automatic recharge is off unless explicitly authorised and available on the platform" in response.text
     assert "Phone numbers are not included" in response.text
     assert "are not covered by prepaid AI credit" in response.text
     assert "WhatsApp usage is measured by AI processing cost rather than a fixed number of messages" in response.text

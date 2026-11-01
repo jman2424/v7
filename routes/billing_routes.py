@@ -273,6 +273,9 @@ def stripe_webhook():
         if not isinstance(event,dict) or not isinstance(event.get('data'),dict) or not isinstance(event['data'].get('object'),dict):
             raise ValueError('invalid_event')
         obj = event['data']['object']
+        from service.ai_budget_payments import handle_event as handle_budget_event
+        if handle_budget_event(event):
+            return jsonify(ok=True)
         from service.usage_payments import handle_usage_event
         if handle_usage_event(event):
             return jsonify(ok=True)

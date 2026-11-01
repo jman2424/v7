@@ -85,10 +85,13 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
         raise SpeechTranscriptionError("transcription_unavailable")
     model = setup["model"]
     from service import api_usage, subscriptions, usage_wallet, session_store
+    from service import ai_provider_funding
     from service.usage_pricing import snapshot
     if (not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant)
             or not isinstance(channel, str) or not channel or len(channel) > 64):
         raise SpeechTranscriptionError("transcription_unavailable")
+    if not ai_provider_funding.allow_request(tenant):
+        raise SpeechTranscriptionError('transcription_unavailable')
     try:
         pricing = snapshot()
     except ValueError:
@@ -143,7 +146,15 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
             model=model, file=(filename, data, media_type), response_format="json",
         )
         status = "completed"
+        try:
+            ai_provider_funding.record_success(tenant)
+        except Exception as exc:
+            logger.warning('Provider health update failed (%s)',type(exc).__name__)
     except OpenAIError as exc:
+        try:
+            ai_provider_funding.record_error(exc,tenant)
+        except Exception as monitoring_error:
+            logger.warning('Provider health update failed (%s)',type(monitoring_error).__name__)
         if api_usage.rejected_before_inference(exc):
             # An explicit pre-inference provider rejection releases the hold;
             # uncertain failures still retain funds for review.

@@ -34,6 +34,14 @@ from typing import Any, Dict, Optional, Tuple
 import urllib.parse
 import urllib.request
 import urllib.error
+import re
+
+
+class StripePaymentError(ValueError):
+    """Safe 402 reference for canonical reconciliation; never retains the body."""
+    def __init__(self, payment_intent_id=None):
+        super().__init__('stripe_payment_confirmation_failed')
+        self.payment_intent_id = payment_intent_id
 import math
 
 
@@ -232,6 +240,19 @@ class BillingClient:
         try:
             with urllib.request.urlopen(req, timeout=15) as response:
                 result = json.loads(response.read(2_000_000))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 402 and method == 'POST' and path == '/v1/payment_intents':
+                identifier = None
+                try:
+                    payload = json.loads(exc.read(65536))
+                    intent = payload.get('error',{}).get('payment_intent',{})
+                    candidate = intent.get('id') if isinstance(intent,dict) else intent
+                    if isinstance(candidate,str) and re.fullmatch(r'pi_[A-Za-z0-9_]{1,200}',candidate):
+                        identifier = candidate
+                except (ValueError,AttributeError,TypeError):
+                    pass
+                raise StripePaymentError(identifier) from None
+            raise ValueError('stripe_request_failed') from None
         except (OSError, ValueError) as exc:
             raise ValueError('stripe_request_failed') from exc
         if not isinstance(result, dict):

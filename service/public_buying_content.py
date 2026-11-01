@@ -19,7 +19,7 @@ def public_pricing() -> Solution:
             {'heading': 'How much does AI processing cost?', 'paragraphs': [
                 _prepaid_processing(),
                 'There is no guaranteed number of messages per top-up. Input includes business instructions and conversation context; output is the generated reply. A message may require more than one model call. Longer conversations, longer replies and the selected model change the cost. Applicable cached-token pricing is recorded separately from ordinary input pricing.',
-                'Your workspace shows available models, their prices, the usage ledger and the remaining balance. Paid model requests pause when credit cannot safely cover the next request or its cost is unknown. Saved business knowledge remains available. Purchased credit carries forward; there are no automatic recharges or usage overages.',
+                'Your workspace shows available models, their prices, the usage ledger and the remaining balance. Paid model requests pause when credit cannot safely cover the next request or its cost is unknown. Saved business knowledge remains available. Purchased credit carries forward; automatic recharge is optional and requires explicit authorisation and platform availability; no automatic overage charge is made.',
             ]},
             {'heading': 'What is separate from the monthly plan?', 'paragraphs': [
                 'Setup is a one-time payment shown separately from the monthly subscription. AI processing is funded separately with prepaid credit. WhatsApp needs a suitable business number and a configured provider connection; number rental and Meta or provider messaging fees are additional costs outside V7 credit.',
@@ -65,7 +65,7 @@ BUYING_GUIDE: Solution = {
         ]},
         {'heading': '5. Compare the complete cost', 'paragraphs': [
             'Compare the subscription and setup separately from usage. Ask whether usage is billed by messages, conversations or model tokens, whether context counts, which model is used and whether one customer turn can trigger several paid calls. Ask for the exact behaviour when the budget runs out.',
-            'For V7, AI processing uses separately purchased prepaid credit, with no fixed message cap and no automatic recharge. Website and WhatsApp share the credit balance. Phone numbers and WhatsApp provider fees are separate. Compare real conversations of different lengths rather than assuming that every message costs the same.',
+            'For V7, AI processing uses separately purchased prepaid credit, with no fixed message cap; automatic recharge requires explicit authorisation and platform availability. Website and WhatsApp share the credit balance. Phone numbers and WhatsApp provider fees are separate. Compare real conversations of different lengths rather than assuming that every message costs the same.',
         ]},
         {'heading': '6. Check the customer and team experience', 'paragraphs': [
             'Test the live widget on a phone and with a keyboard. Check that text remains readable, links have clear labels, buttons open the intended destination and error messages explain the next step. Verify that your team can update an answer without changing application code.',

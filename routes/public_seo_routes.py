@@ -103,6 +103,12 @@ def pricing_page():
                            canonical_url=site_origin + "/pricing")
 
 
+@bp.get('/ai-usage-pricing')
+def ai_usage_pricing_page():
+    from service.ai_budget_rates import public_rates
+    return render_template('ai_usage_pricing.html',rates=public_rates(),site_origin=_site_origin())
+
+
 @bp.get("/guides/choosing-a-website-chatbot")
 def buying_guide():
     site_origin = _site_origin()

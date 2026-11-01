@@ -39,10 +39,12 @@ def credit_get():
     tenant, user = _tenant()
     page = _page()
     requests = usage_payments.checkout_requests(tenant)
+    from service.ai_budget_store import settings as budget_settings
+    recharge=bool(budget_settings(tenant)['recharge_enabled'])
     return jsonify(tenant=tenant, configured=usage_payments.payments_ready(), currency='GBP',
                    packs=usage_payments.packs(), vat_percent=subscriptions.vat_percent(),
                    wallet=usage_wallet.report(tenant, offset=(page-1)*20, limit=20), page=page,
-                   policy={'mode':'prepaid', 'included_credit_pence':0, 'automatic_recharge':False},
+                   policy={'mode':'prepaid', 'included_credit_pence':0, 'automatic_recharge':recharge},
                    internal=subscriptions.internal_business(tenant), checkout_requests=requests,
                    pending_checkouts=[row for row in requests if row['status'] in {'preparing','pending'}],
                    usage_reviews=usage_wallet.unconfirmed_usage(tenant) if is_platform_admin(user) else [])

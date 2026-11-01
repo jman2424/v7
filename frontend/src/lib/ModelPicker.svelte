@@ -6,8 +6,9 @@
   export let csrf:string;
   export let apiPrefix='';
   export let enabled=true;
+  export let showProviderRates=false;
   type Option={id:string;input_usd_per_million:number|null;cached_usd_per_million:number|null;output_usd_per_million:number|null};
-  type Configuration={tenant:string;model:string;model_options:Option[];can_change_model:boolean};
+  type Configuration={tenant:string;model:string;model_options:Option[];can_change_model:boolean;v7_rates?:{available:boolean;models:{model:string;input:string;cached:string;output:string}[]}};
   let data:Configuration|null=null;
   let selected='';
   let busy=false;
@@ -19,6 +20,11 @@
   let disposed=false;
   let controller:AbortController|undefined;
   $: rate=(value:number|null)=>value==null?$t('Not available'):new Intl.NumberFormat(subscriptionLocales[$language],{style:'currency',currency:'USD',maximumFractionDigits:6}).format(value);
+  $: serviceRate=(model:string,kind:'input'|'cached'|'output',provider:number|null)=>{
+    if(showProviderRates)return rate(provider);
+    const value=data?.v7_rates?.models.find(row=>row.model===model)?.[kind];
+    return value==null?$t('Not available'):new Intl.NumberFormat(subscriptionLocales[$language],{style:'currency',currency:'GBP',maximumFractionDigits:6}).format(Number(value));
+  };
   function cancel(){step=0;token='';accepted=false;}
   async function run(action:'load'|'review'|'confirm'|'save') {
     if(busy||disposed||!enabled)return;
@@ -57,12 +63,12 @@
     {#if !data.can_change_model}<p>{$t('Model changes require business activation and owner permissions.')}</p>{/if}
     <p>{$t('Current AI model: {model}',{model:data.model})}</p>
     <p>{$t('One customer message can require multiple AI calls. Charges include input, conversation context, cached input and output tokens. There is no guaranteed number of messages per top-up.')}</p>
-    <p>{$t('Provider prices per million tokens in USD. Your usage ledger converts charges to GBP using the recorded exchange rate and agreed markup. Model access still depends on the central provider account.')}</p>
+    {#if showProviderRates}<p>{$t('Provider prices per million tokens in USD. Your usage ledger converts charges to GBP using the recorded exchange rate and agreed markup. Model access still depends on the central provider account.')}</p>{:else}<p>{$t('V7 processing prices in GBP per million text units (tokens). Your selected model and the amount processed determine usage.')} <a href="/ai-usage-pricing">{$t('View usage prices and payment terms')}</a></p>{/if}
     <details><summary>{$t('Compare all available models')}</summary>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this price table on small screens.) -->
-      <div class="scroll" role="region" aria-label={$t('AI model prices')} tabindex="0"><table><thead><tr><th>{$t('AI model')}</th><th>{$t('Input tokens')}</th><th>{$t('Cached input')}</th><th>{$t('Output tokens')}</th></tr></thead><tbody>{#each data.model_options as row}<tr class:current={row.id===data.model}><td><bdi>{row.id}</bdi></td><td><bdi>{rate(row.input_usd_per_million)}</bdi></td><td><bdi>{rate(row.cached_usd_per_million)}</bdi></td><td><bdi>{rate(row.output_usd_per_million)}</bdi></td></tr>{/each}</tbody></table></div></details>
+      <div class="scroll" role="region" aria-label={$t('AI model prices')} tabindex="0"><table><thead><tr><th>{$t('AI model')}</th><th>{$t('Input tokens')}</th><th>{$t('Cached input')}</th><th>{$t('Output tokens')}</th></tr></thead><tbody>{#each data.model_options as row}<tr class:current={row.id===data.model}><td><bdi>{row.id}</bdi></td><td><bdi>{serviceRate(row.id,'input',row.input_usd_per_million)}</bdi></td><td><bdi>{serviceRate(row.id,'cached',row.cached_usd_per_million)}</bdi></td><td><bdi>{serviceRate(row.id,'output',row.output_usd_per_million)}</bdi></td></tr>{/each}</tbody></table></div></details>
     {#if data.can_change_model}
-      <label>{$t('Choose an AI model')}<select bind:value={selected} disabled={busy||step>0}>{#if !data.model_options.some(row=>row.id===selected)}<option value={selected} disabled>{selected}</option>{/if}{#each data.model_options as row}<option value={row.id} disabled={row.input_usd_per_million==null||row.output_usd_per_million==null}>{row.id} · {rate(row.input_usd_per_million)} / {rate(row.output_usd_per_million)}</option>{/each}</select></label>
+      <label>{$t('Choose an AI model')}<select bind:value={selected} disabled={busy||step>0}>{#if !data.model_options.some(row=>row.id===selected)}<option value={selected} disabled>{selected}</option>{/if}{#each data.model_options as row}<option value={row.id} disabled={row.input_usd_per_million==null||row.output_usd_per_million==null}>{row.id} · {serviceRate(row.id,'input',row.input_usd_per_million)} / {serviceRate(row.id,'output',row.output_usd_per_million)}</option>{/each}</select></label>
       <p>{$t('Changing the model affects both AI planning and reply rewriting, including response quality, speed and credit consumption. This does not fund or activate the provider account.')}</p>
       {#if step===0}<button disabled={busy||selected===data.model} on:click={()=>run('review')}>{$t('Review model change')}</button>
       {:else if step===1}<label class="confirmation"><input type="checkbox" bind:checked={accepted} disabled={busy}/>{$t('I understand that this model changes response behaviour and usage-credit costs.')}</label><button disabled={busy||!accepted} on:click={()=>run('confirm')}>{$t('Confirm model choice')}</button>

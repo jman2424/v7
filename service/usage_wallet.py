@@ -161,11 +161,14 @@ def _locked_wallet(db, tenant):
     return dict(db.execute("SELECT * FROM usage_wallets WHERE tenant=?"+suffix,(tenant,)).fetchone())
 
 
-def _save(db, wallet):
+def _save(db, wallet, *, observe=False):
     db.execute("UPDATE usage_wallets SET balance_nano_gbp=?,reserved_nano_gbp=?,debt_nano_gbp=?,"
                "reconciliation_hold=?,pause_reason=?,updated_utc=? WHERE tenant=?",
                tuple(wallet[key] for key in ("balance_nano_gbp","reserved_nano_gbp","debt_nano_gbp",
                                              "reconciliation_hold","pause_reason"))+(_now(),wallet["tenant"]))
+    if observe:
+        from service.ai_budget import observe as observe_budget
+        observe_budget(db,wallet['tenant'],wallet)
 
 
 def _entry(db, before, wallet, kind, amount, key, *, metadata=None, payment_ref='', reservation_ref='',
@@ -252,6 +255,9 @@ def _reverse(db, wallet, payment, refunded_pence, disputed, event_id, dispute_st
                "reverse:"+payment["payment_id"]+":"+secrets.token_hex(12),payment_ref=payment["reference"],
                invoice_id=payment["invoice_id"],receipt_url=payment["receipt_url"],
                metadata={"refunded_pence":refunded,"disputed":disputed,"event_id":event_id})
+        if refunded>payment['refunded_pence'] or disputed and not payment['disputed']:
+            from service.ai_budget import pause_after_reversal
+            pause_after_reversal(db,wallet['tenant'],payment['payment_id'])
 
 
 def apply_payment(tenant,reference,payment_id,credit_pence,paid_pence,invoice_id='',receipt_url='',metadata=None,
@@ -282,7 +288,7 @@ def apply_payment(tenant,reference,payment_id,credit_pence,paid_pence,invoice_id
                    invoice_id=invoice_id,receipt_url=receipt_url,metadata={"paid_pence":paid,"credit_pence":credit_pence})
         _reverse(db,wallet,payment,refunded_pence,disputed,event_id,dispute_states)
         _refresh_pause(db,wallet)
-        _save(db,wallet)
+        _save(db,wallet,observe=True)
     return {"ok":True,"credited_pence":credit_pence,"payment_id":payment_id}
 
 
@@ -295,7 +301,7 @@ def reconcile_payment(tenant,payment_id,refunded_pence,disputed=False,event_id='
             raise ValueError("unknown_credit_payment")
         _reverse(db,wallet,dict(row),refunded_pence,disputed,event_id,dispute_states)
         _refresh_pause(db,wallet)
-        _save(db,wallet)
+        _save(db,wallet,observe=True)
     return {"ok":True}
 
 
@@ -418,7 +424,7 @@ def settle_usage(reservation,cost_nano_usd,metadata=None):
                     wallet["pause_reason"] = ''
             _entry(db,before,wallet,"usage",-charged,"settle:"+reservation.ref,reservation_ref=reservation.ref,metadata=details)
         _refresh_pause(db,wallet)
-        _save(db,wallet)
+        _save(db,wallet,observe=True)
 
 
 def unconfirmed_usage(tenant):
@@ -470,7 +476,7 @@ def waive_unconfirmed_usage(tenant,reference,reason,actor):
         _refresh_pause(db,wallet)
         _entry(db,before,wallet,"usage_waived",0,"waive:"+reference,reservation_ref=reference,
                reason=reason,actor=actor,metadata=details)
-        _save(db,wallet)
+        _save(db,wallet,observe=True)
         return {"duplicate":False}
 
 
@@ -498,7 +504,7 @@ def adjust(tenant,amount_pence,reason,actor,request_id):
             wallet["balance_nano_gbp"] += amount
         _refresh_pause(db,wallet)
         _entry(db,before,wallet,"adjustment",amount,key,reason=reason,actor=actor)
-        _save(db,wallet)
+        _save(db,wallet,observe=True)
     return {"ok":True,"duplicate":False}
 
 
