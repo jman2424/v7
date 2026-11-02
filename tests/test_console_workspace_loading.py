@@ -190,7 +190,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
    assert.equal(JSON.stringify(h.state()),before);assert.ok(calls.find(c=>c.path.includes('/catalog?')).signal.aborted);
  }
  await flush();assert.equal(timers.size,0);
-})().catch(error=>{console.error(error);process.exitCode=1;});
+})().then(()=>console.log('CONSOLE_SCENARIO_COMPLETE')).catch(error=>{console.error(error);process.exitCode=1;});
 """
 
 
@@ -205,3 +205,4 @@ def test_console_workspace_loads_only_current_authorized_resources(scenario):
     result = subprocess.run([NODE, '-e', SCRIPT, scenario], cwd=ROOT, capture_output=True,
                             text=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert 'CONSOLE_SCENARIO_COMPLETE' in result.stdout, 'The async scenario did not complete'

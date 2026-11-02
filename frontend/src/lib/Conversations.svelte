@@ -6,6 +6,8 @@
   export let tenant: string;
   export let apiPrefix = '';
   type View = 'messages' | 'leads' | 'questions';
+  export let initialView:View='messages';
+  export let showViewSwitcher=true;
   type Message = InboxMessage;
   let query='',channel='',selectedThread='',threadOpen=false;
   $: channels=[...new Set(messages.map(message=>message.channel))];
@@ -17,7 +19,7 @@
     { key: 'messages', title: 'Messages' }, { key: 'leads', title: 'Leads' },
     { key: 'questions', title: 'Common questions' }
   ];
-  let view: View = 'messages';
+  let view: View = initialView;
   let minutes = 1440;
   let messages: Message[] = [];
   let leads: Lead[] = [];
@@ -81,11 +83,11 @@
 
 <section class="surface" aria-label="Conversations and leads">
   <header>
-    <nav aria-label="Conversation views">
+    {#if showViewSwitcher}<nav aria-label="Conversation views">
       {#each views as item}
         <button type="button" class:active={view === item.key} aria-pressed={view === item.key} on:click={() => view = item.key}>{item.title}</button>
       {/each}
-    </nav>
+    </nav>{/if}
     <div class="tools">
       {#if view !== 'leads'}
         <label>Time period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>

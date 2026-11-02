@@ -23,7 +23,7 @@
   let cookiePreferencesOpen = false;
   let signupOpen = false;
   let passwordResetOpen = false;
-  export let section = 'pipeline';
+  export let section = 'home';
   export let workspace = '';
   export let workspaceView = '';
   export let workspacePanel = '';
@@ -371,6 +371,7 @@
   $: editorWritePermission=({catalog:'offerings.write',offers:'offers.write',faqs:'business_settings.write',profile:'business_settings.write',branches:'business_settings.write',delivery:'business_settings.write',agent:'business_settings.write'} as Record<string,string>)[section]||'';
   $: canEditCurrent=!editorWritePermission||Boolean(user?.permissions?.includes(editorWritePermission));
   let catalogQuery='',faqQuery='',salesQuery='',salesStage='all';
+  let commonQuestionsOpen=false,advancedAiOpen=false;
   let messagePanel='history',approvalsOpened=false;
   $: if(workspacePanel==='approvals'){messagePanel='approvals';approvalsOpened=true;}
   const matches=(query:string,...values:unknown[])=>!query.trim()||values.join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
@@ -389,6 +390,7 @@
   let branchesError = false;
   let agentStatus = '';
   let agentError = false;
+  let insightsAvailable=false,insightsBusy=false;
   let insights: Insights = {
     kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 },
     sales_funnel: { total: 0, active: 0, open: 0, contacted: 0, qualified: 0, won: 0, lost: 0, other: 0, handoffs: 0, contacts_captured: 0 },
@@ -719,7 +721,7 @@
     agentSettings = normalizeAgentSettings({}); snippet = ''; originText = '';
     accounts = []; selectedAccountId = ''; selectedAccountPassword = ''; accountPassword = ''; accountEmail = '';
     selectedAccountActive = true; selectedViewCosts = false; selectedViewSubscriptions = false;
-    insights = normalizeInsights({}); activityStatus = '';
+    insights = normalizeInsights({}); insightsAvailable=false;insightsBusy=false;activityStatus = '';
     formStatus = ''; createStatus = ''; accountStatus = ''; catalogStatus = ''; faqStatus = '';
     offersStatus = ''; deliveryStatus = ''; profileStatus = ''; branchesStatus = ''; agentStatus = '';
   }
@@ -742,7 +744,7 @@
     const next=params.get('next');
     const destination=next?resolveWorkspace(next,params.get('view')||'').section:'';
     if (destination && mayOpenScreen(destination)) return destination;
-    if (user?.roles.some(role => role === 'platform_admin' || role === 'admin') && window.location.pathname.replace(/\/$/, '') === base) return defaultWorkspaceScreen();
+    if (user && window.location.pathname.replace(/\/$/, '') === base) return defaultWorkspaceScreen();
     return mayOpenScreen(section) ? section : defaultWorkspaceScreen();
   }
 
@@ -936,19 +938,22 @@
   }
 
   async function loadInsights(selectedTenant = tenant, activeLoad = workspaceRequest()) {
+    if(insightsBusy||!isCurrentWorkspace(activeLoad))return false;
+    insightsBusy=true;insightsAvailable=false;
     insights = normalizeInsights({});
     activityStatus = 'Loading activity...';
     try {
-      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`, { credentials: 'same-origin' }, activeLoad);
+      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=50`, { credentials: 'same-origin' }, activeLoad);
       if (!isCurrentWorkspace(activeLoad)) return;
       if (!response.ok) { activityStatus = 'Sales activity is currently unavailable. Try refreshing.'; return false; }
       insights = normalizeInsights(data);
+      insightsAvailable=true;
       activityStatus = '';
       return true;
     } catch {
       if (isCurrentWorkspace(activeLoad)) activityStatus = 'Sales activity could not load. Check your connection and try refreshing.';
       return false;
-    }
+    } finally {if(isCurrentWorkspace(activeLoad))insightsBusy=false;}
   }
 
   async function updateLeadStatus(leadId: string, status: LeadStatus) {
@@ -963,7 +968,8 @@
       return;
     }
     insights = { ...insights, leads: insights.leads.map((lead) => lead.lead_id === leadId ? { ...lead, status } : lead) };
-    activityStatus = 'Lead updated.';
+    const refreshed=await loadInsights(tenant,result.activeLoad);
+    if(isCurrentWorkspace(result.activeLoad))activityStatus=refreshed?'Lead updated.':'Lead status was saved. Refresh sales activity to load the latest totals.';
   }
 
   async function restoreSession() {
@@ -1083,7 +1089,7 @@
     const next = params.get('next');
     const requested=next?resolveWorkspace(next,params.get('view')||'',params.get('panel')||''):null;
     let destination = requested && mayOpenScreen(requested.section) ? requested.section : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
-    if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
+    if (!destination && window.location.pathname.replace(/\/$/,'')===base) {
       destination = defaultWorkspaceScreen();
     }
     if (!destination) return;
@@ -1801,7 +1807,7 @@
       {#if !canEditCurrent}<p class="notice" role="status">You have view-only access. Ask your business owner for permission to edit this information.</p>{/if}
       {#if dirtyResources.includes(currentDraftKey)}<div class="draft-strip" role="status"><span>{$t('Unsaved changes · Your draft stays here while you move between business views.')}</span><button on:click={discardDraft}>Discard changes</button></div>{/if}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
-      {#if section === 'home'}{#key tenant}<WorkspaceHome {tenant} name={businessName} {activation} configured={tenants.find(item=>item.key===tenant)?.widget_configured??null} permissions={user.permissions||[]} {insights} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
+      {#if section === 'home'}{#key tenant}<WorkspaceHome {tenant} name={businessName} {activation} configured={tenants.find(item=>item.key===tenant)?.widget_configured??null} permissions={user.permissions||[]} {insights} activityReady={insightsAvailable} activityLoading={insightsBusy} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
       {#if section === 'billing-overview'}{#key tenant}<BillingOverview {tenant} {canViewCosts} {canViewSubscriptions} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
       {#if section === 'spending' && canViewCosts}{#key tenant}{#await import('./AIBudget.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAIBudget}<svelte:component this={loadedAIBudget.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} presentation="history" apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'cookies'}<section class="surface"><div class="surface-body"><h2>Make this workspace yours</h2><p>Essential cookies keep sign-in and security working. You choose whether to save language preferences and allow optional analytics.</p><button class="primary" on:click={(event)=>cookiePreferences?.showPreferences(event.currentTarget)}>Manage cookie preferences</button><p><a href="/cookies">Read the cookie policy</a></p></div></section>{/if}
@@ -1811,7 +1817,7 @@
       {#if section === 'application'}{#key tenant}{#await import('./BusinessApplication.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplication}<svelte:component this={loadedBusinessApplication.default} {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'applications' && isPlatform}{#await import('./BusinessApplications.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplications}<svelte:component this={loadedBusinessApplications.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/if}
       {#if section === 'agent'}{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
-      {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls"><summary>Advanced AI response settings</summary>{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
+      {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls" bind:open={advancedAiOpen}><summary>Advanced AI response settings</summary>{#if advancedAiOpen}{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#await import('./MemorySettings.svelte')}<p class="component-loading" role="status">Loading conversation controls…</p>{:then loadedMemory}<svelte:component this={loadedMemory.default} {tenant} {csrf} canEdit={Boolean(user.permissions?.includes(isPlatform?'models.write':'business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">Conversation controls could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}</details>{/if}
       {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
         {#if isPlatform}{#await import('./PlatformOverview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPlatformOverview}<svelte:component this={loadedPlatformOverview.default} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
@@ -1825,7 +1831,7 @@
 
       {#if section === 'conversations'}
         {#if mayOpenScreen('operations')}<div class="message-views" role="group" aria-label="Messages and follow-ups"><button class:active={messagePanel==='history'} aria-pressed={messagePanel==='history'} on:click={()=>messagePanel='history'}>Conversation inbox</button><button class:active={messagePanel==='approvals'} aria-pressed={messagePanel==='approvals'} on:click={()=>{messagePanel='approvals';approvalsOpened=true;}}>Approvals & follow-ups</button></div>{/if}
-        <div hidden={messagePanel!=='history'}><Conversations {tenant} apiPrefix={import.meta.env.DEV?'/api':''}/></div>
+        <div hidden={messagePanel!=='history'}><Conversations showViewSwitcher={false} {tenant} apiPrefix={import.meta.env.DEV?'/api':''}/></div>
         {#if approvalsOpened&&mayOpenScreen('operations')}<div hidden={messagePanel!=='approvals'}>{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation="activity" showRules={false} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</div>{/if}
       {/if}
       {#if section === 'usage'}
@@ -1870,7 +1876,8 @@
       {/if}
 
       {#if section === 'statistics'}
-        {#key tenant}{#await import('./Statistics.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedStatistics}<svelte:component this={loadedStatistics.default} {tenant} {businessName} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
+        {#key tenant}{#await import('./Statistics.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedStatistics}<svelte:component this={loadedStatistics.default} {tenant} {businessName} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}        <details class="customer-question-report" bind:open={commonQuestionsOpen}><summary>Frequently asked customer questions</summary>{#if commonQuestionsOpen}<Conversations {tenant} initialView="questions" showViewSwitcher={false} apiPrefix={import.meta.env.DEV?'/api':''}/>{/if}</details>
+
       {/if}
       {#if section === 'whatsapp-qr'}
         {#key tenant}{#await import('./WhatsAppQr.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWhatsAppQr}<svelte:component this={loadedWhatsAppQr.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
@@ -1890,8 +1897,8 @@
 
       {#if section === 'pipeline'}
       <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
-        <div class="surface-head pipeline-head"><div><p class="eyebrow">{$t("Sales pipeline")}</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>{$t("Refresh")}</button></div>
-        <div class="metric-grid" aria-label="Sales pipeline summary">
+        <div class="surface-head pipeline-head"><div><p class="eyebrow">{$t("Sales pipeline")}</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" disabled={insightsBusy} on:click={() => loadInsights(tenant)}>{$t("Refresh")}</button></div>
+        {#if insightsAvailable}<div class="metric-grid" aria-label="Sales pipeline summary">
           <div><span>Active leads</span><strong>{insights.sales_funnel.active}</strong><small>Current pipeline</small></div>
           <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong><small>Ready for follow-up</small></div>
           <div><span>Won</span><strong>{insights.sales_funnel.won}</strong><small>Recorded outcomes</small></div>
@@ -1906,10 +1913,10 @@
         </div>
         <div class="activity-details">
           <div class="activity-list">
-            <div class="workspace-toolbar"><label>Find a customer<input type="search" bind:value={salesQuery} placeholder="Name or phone…"/></label><label>Stage<select bind:value={salesStage}><option value="all">All stages</option>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select></label></div>
+            <div class="workspace-toolbar"><a class="secondary" href={(import.meta.env.DEV?'/api':'')+'/analytics/export.csv?tenant='+encodeURIComponent(tenant)}>Export leads</a><label>Find a customer<input type="search" bind:value={salesQuery} placeholder="Name or phone…"/></label><label>Stage<select bind:value={salesStage}><option value="all">All stages</option>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select></label></div>
             <div class="list-heading"><h3>Customer follow-ups</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
             {#each insights.leads as lead}
-              {#if (salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)}<div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : 'Customer enquiry'}</span></div><div><select value={lead.status} disabled={!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>{/if}
+              {#if (salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)}<div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : 'Customer enquiry'}</span></div><div><select value={lead.status} disabled={insightsBusy||!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>{/if}
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}
@@ -1924,6 +1931,7 @@
             {/each}
           </div>
         </div>
+        {:else}<div class="workspace-empty"><h3>{insightsBusy?'Loading sales activity…':'Sales activity unavailable'}</h3><p>Use Refresh to load your recorded activity. Unavailable totals are not shown as zero.</p></div>{/if}
         {#if activityStatus}<p class="activity-status" role="status">{activityStatus}</p>{/if}
       </section>
       {/if}
@@ -2523,4 +2531,5 @@
 
  .profile-group{border:0;border-bottom:1px solid var(--v7-line);margin:0;padding:0 0 26px;display:grid;gap:20px;min-width:0}.profile-group legend{font-size:15px;font-weight:600;margin:0 0 20px;padding:0;color:var(--v7-ink)}.profile-disclosure{padding:0;border:0}.profile-disclosure>summary{font-size:13px;min-height:44px;cursor:pointer;line-height:44px;color:var(--v7-accent);font-weight:600}.profile-disclosure[open]{padding-bottom:22px;border-bottom:1px solid var(--v7-line)}.profile-disclosure[open]>label,.profile-disclosure[open]>.two-fields{margin-top:18px}.profile-group .field-note{margin:0}.faq-editor{display:block}.faq-editor>summary{min-height:44px;line-height:1.7;display:flex;align-items:center;cursor:pointer;font-size:14px;font-weight:550;gap:16px}.faq-editor>summary::after{content:'⌄';margin-inline-start:auto;color:var(--v7-muted)}.faq-fields{display:grid;gap:16px;padding-top:18px}.advanced-controls{border:1px solid var(--v7-line);background:white;padding:18px 22px;border-radius:12px;margin-bottom:22px}.advanced-controls>summary{cursor:pointer;font-size:13px;line-height:1.5;min-height:30px;align-content:center;color:var(--v7-accent);font-weight:600}.advanced-controls[open]>summary{margin-bottom:20px}.workspace-business-link{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border:1px solid var(--v7-line);border-radius:12px;background:white;font-size:12px;margin-bottom:20px}.workspace-business-link a{color:var(--v7-accent);font-weight:600;text-decoration:none;min-height:44px;display:flex;align-items:center}.component-loading{border:1px solid var(--v7-line);border-radius:12px;background:white;padding:24px;color:var(--v7-muted);font-size:13px}
 .profile-form{grid-template-columns:minmax(0,1fr)}.profile-group{grid-column:1/-1}.editor-permission{border:0;margin:0;padding:0;min-width:0;display:contents}.editor-permission:disabled{opacity:.85}
+.customer-question-report{margin-top:24px;border:1px solid var(--v7-line);border-radius:12px;background:white;padding:18px}.customer-question-report>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--v7-accent)}.customer-question-report[open]>summary{margin-bottom:18px}.workspace-toolbar>a{display:flex;align-items:center;text-decoration:none;font-size:12px}
 </style>

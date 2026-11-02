@@ -29,7 +29,7 @@ for (const statement of [...ast.statements].reverse()) {
     source = source.slice(0, statement.pos) + source.slice(statement.end);
   }
 }
-source = source.replace('export let section', 'let section').replaceAll('import.meta.env.DEV', 'false');
+source = source.replaceAll('export let', 'let').replaceAll('import.meta.env.DEV', 'false');
 source += `
 globalThis.harness = {
   restoreSession, login, confirmMfa, providerLogin, logout, loadInsights, loadTenantWorkspace, loadWorkspaceSection, loadAccounts, loadTenants,
@@ -75,7 +75,10 @@ let releaseOld, announceOld;
 const oldStarted = new Promise(resolve => { announceOld = resolve; });
 const oldResponse = new Promise(resolve => { releaseOld = resolve; });
 const json = (status, value) => ({ok:status >= 200 && status < 300, status, json:async () => value});
+const architecture={exports:{},URLSearchParams,require:()=>JSON.parse(fs.readFileSync('service/console_navigation.json','utf8'))};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('frontend/src/lib/workspaceArchitecture.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,architecture);
 const context = vm.createContext({
+  ...architecture.exports,platformMode:false,dirtyResources:[],widgetDirty:false,hasUnsavedDrafts:()=>false,
   scenario,
   AbortController, setTimeout, clearTimeout, URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, onDestroy:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
   window:{location:{search:scenario.includes('configured-company') ? '' : scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP',
@@ -106,7 +109,7 @@ const context = vm.createContext({
       'stale-workspace-response':'/admin/api/widget?tenant=OLD',
       'stale-activation-response':'/admin/api/activation?tenant=OLD',
       'stale-accounts-response':'/admin/api/accounts?tenant=OLD',
-      'stale-insights-response':'/admin/api/insights?tenant=OLD&minutes=10080&limit=10',
+      'stale-insights-response':'/admin/api/insights?tenant=OLD&minutes=10080&limit=50',
       'stale-directory-response':'/admin/api/tenants',
     }[scenario];
     if (path === oldTarget) { announceOld(); return oldResponse; }
@@ -131,14 +134,14 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
   h.credentials();
   if (scenario.startsWith('navigation-')) {
     const subsets = {
-      'navigation-staff-no-grants':{roles:['business_staff'],permissions:[],allowed:['account'],fallback:'account'},
-      'navigation-staff-reads':{roles:['business_staff'],permissions:['analytics.read','conversations.read','offerings.read','offers.read','integrations.read'],allowed:['pipeline','statistics','conversations','catalog','offers','whatsapp-qr','account'],fallback:'pipeline'},
-      'navigation-owner-subset':{roles:['business_owner'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'website',models:true},
-      'navigation-operator-subset':{roles:['platform_admin'],permissions:['view_costs'],allowed:['companies','usage','account'],fallback:'usage'},
-      'navigation-composite':{roles:['business_owner'],permissions:['business_settings.read','customers.read','integrations.read','analytics.read','errors.read','users.read'],allowed:['companies','team','pipeline','statistics','test','agent','website','faqs','delivery','profile','branches','privacy','integrations','implementation','whatsapp-qr','errors','account'],fallback:'pipeline',models:true,conversion:true},
-      'navigation-mixed-owner':{roles:['business_owner','business_staff'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'website'},
-      'navigation-next-denied':{roles:['business_staff'],permissions:['conversations.read'],allowed:['conversations','account'],fallback:'conversations'},
-      'navigation-next-granted':{roles:['business_staff'],permissions:['analytics.read'],allowed:['pipeline','statistics','account'],fallback:'pipeline'},
+      'navigation-staff-no-grants':{roles:['business_staff'],permissions:[],allowed:['account'],fallback:'home'},
+      'navigation-staff-reads':{roles:['business_staff'],permissions:['analytics.read','conversations.read','offerings.read','offers.read','integrations.read'],allowed:['pipeline','statistics','conversations','catalog','offers','whatsapp-qr','account'],fallback:'home'},
+      'navigation-owner-subset':{roles:['business_owner'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'home',models:true},
+      'navigation-operator-subset':{roles:['platform_admin'],permissions:['view_costs'],allowed:['companies','usage','account'],fallback:'home'},
+      'navigation-composite':{roles:['business_owner'],permissions:['business_settings.read','customers.read','integrations.read','analytics.read','errors.read','users.read'],allowed:['companies','team','pipeline','statistics','test','agent','website','faqs','delivery','profile','branches','privacy','integrations','implementation','whatsapp-qr','errors','account'],fallback:'home',models:true,conversion:true},
+      'navigation-mixed-owner':{roles:['business_owner','business_staff'],permissions:['business_settings.read'],allowed:['companies','test','agent','website','faqs','delivery','profile','branches','privacy','account'],fallback:'home'},
+      'navigation-next-denied':{roles:['business_staff'],permissions:['conversations.read'],allowed:['conversations','account'],fallback:'home'},
+      'navigation-next-granted':{roles:['business_staff'],permissions:['analytics.read'],allowed:['pipeline','statistics','account'],fallback:'home'},
     };
     const subset=subsets[scenario];
     h.identity({...identity,roles:subset.roles,permissions:subset.permissions});
@@ -151,8 +154,12 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     if (scenario === 'navigation-next-denied' || scenario === 'navigation-next-granted') {
       context.window.location.search='?tenant=SHOP&next='+(scenario === 'navigation-next-denied' ? 'platform' : 'statistics');
       await h.openDefaultWorkspace();
-      assert.deepEqual(navigations,['/console/'+(scenario === 'navigation-next-denied' ? 'conversations' : 'statistics')+'?tenant=SHOP']);
+      assert.deepEqual(navigations,[scenario==='navigation-next-denied'?'/console/home?tenant=SHOP&view=overview':'/console/customers?tenant=SHOP&view=insights']);
     }
+    assert.equal(h.mayOpenScreen('home'),true);assert.equal(h.mayOpenScreen('cookies'),true);
+    assert.equal(h.mayOpenScreen('billing-overview'),subset.permissions.includes('view_costs')||subset.permissions.includes('view_subscriptions'));
+    const channels=subset.roles.some(role=>['platform_admin','business_owner'].includes(role))&&subset.permissions.includes('customers.read')&&subset.permissions.includes('integrations.read');
+    for(const channel of ['phone','email','operations'])assert.equal(h.mayOpenScreen(channel),channels);
     assert.equal(calls.length,0);
   } else if (scenario.startsWith('mount-session-')) {
     await mount();
@@ -216,7 +223,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     await h.loadInsights();
     assert.equal(h.state().insights.leads.length, 0);
   } else if (scenario === 'restricted-mfa' || scenario === 'workspace-network-error') {
-    if (scenario === 'workspace-network-error') identity.permissions = ['business_settings.read'];
+    if (scenario === 'workspace-network-error') identity.permissions = ['analytics.read'];
     await h.login();
     await h.confirmMfa();
     assert.ok(h.state().user);
@@ -230,12 +237,12 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
       assert.equal(h.state().workspaceError, '');
       assert.ok(!calls.some(call => /\/(widget|catalog|offers|insights)\?/.test(call.path)));
       assert.equal(h.state().tenant, 'SHOP');
-      assert.deepEqual(navigations,['/console/account?tenant=SHOP']);
+      assert.deepEqual(navigations,['/console/home?tenant=SHOP&view=overview']);
     } else {
       assert.equal(h.state().tenants.length, 0);
       assert.ok(h.state().workspaceError);
       assert.ok(!h.state().workspaceError.includes('private-provider-detail'));
-      assert.deepEqual(fullDocumentNavigations,[{method:'replace',path:'/console/website?tenant=SHOP'}]);
+      assert.deepEqual(fullDocumentNavigations,[]);assert.deepEqual(navigations,['/console/home?tenant=SHOP&view=overview']);
     }
   } else {
     await h.login();
@@ -246,7 +253,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     } else if (scenario === 'trusted-login') {
       assert.ok(h.state().user);
       assert.equal(h.state().loginError, '');
-      assert.deepEqual(navigations,['/console/account?tenant=SHOP']);
+      assert.deepEqual(navigations,['/console/home?tenant=SHOP&view=overview']);
     } else {
       assert.equal(h.state().user, null);
       assert.ok(h.state().mfa?.enrollment);
@@ -260,7 +267,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
       if (scenario === 'revoked-cookie') assert.equal(sessionReads, 2);
     }
   }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+})().then(()=>console.log('CONSOLE_SCENARIO_COMPLETE')).catch(error => { console.error(error); process.exitCode = 1; });
 """
 
 

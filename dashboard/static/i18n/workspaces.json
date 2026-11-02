@@ -121,7 +121,10 @@
     "No matching offerings.": "No matching offerings.",
     "Other saved references": "Other saved references",
     "These references are preserved. Remove one only if it should no longer be eligible.": "These references are preserved. Remove one only if it should no longer be eligible.",
-    "Unsaved changes · Your draft stays here while you move between business views.": "Unsaved changes · Your draft stays here while you move between business views."
+    "Unsaved changes · Your draft stays here while you move between business views.": "Unsaved changes · Your draft stays here while you move between business views.",
+    "Loading activity…": "Loading activity…",
+    "Activity is not available": "Activity is not available",
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero."
   },
   "es": {
     "Home": "Inicio",
@@ -245,7 +248,10 @@
     "No matching offerings.": "No hay coincidencias.",
     "Other saved references": "Otras referencias guardadas",
     "These references are preserved. Remove one only if it should no longer be eligible.": "Estas referencias se conservan. Elimínalas solo si dejan de ser válidas para la oferta.",
-    "Unsaved changes · Your draft stays here while you move between business views.": "Cambios sin guardar · Tu borrador se conserva al cambiar de vista."
+    "Unsaved changes · Your draft stays here while you move between business views.": "Cambios sin guardar · Tu borrador se conserva al cambiar de vista.",
+    "Loading activity…": "Cargando actividad…",
+    "Activity is not available": "La actividad no está disponible",
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "La actividad registrada aparecerá cuando el informe esté disponible. Los totales no disponibles no se muestran como cero."
   },
   "fr": {
     "Home": "Accueil",
@@ -369,7 +375,10 @@
     "No matching offerings.": "Aucune offre correspondante.",
     "Other saved references": "Autres références enregistrées",
     "These references are preserved. Remove one only if it should no longer be eligible.": "Ces références sont conservées. Supprimez-en une uniquement si elle ne doit plus être admissible.",
-    "Unsaved changes · Your draft stays here while you move between business views.": "Modifications non enregistrées · Votre brouillon est conservé entre les vues."
+    "Unsaved changes · Your draft stays here while you move between business views.": "Modifications non enregistrées · Votre brouillon est conservé entre les vues.",
+    "Loading activity…": "Chargement de l’activité…",
+    "Activity is not available": "Activité indisponible",
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "L’activité enregistrée apparaîtra lorsque le rapport sera disponible. Les totaux indisponibles ne sont pas affichés comme des zéros."
   },
   "ar": {
     "Home": "الرئيسية",
@@ -493,6 +502,9 @@
     "No matching offerings.": "لا توجد نتائج مطابقة.",
     "Other saved references": "مراجع أخرى محفوظة",
     "These references are preserved. Remove one only if it should no longer be eligible.": "هذه المراجع محفوظة. لا تُزل أيًا منها إلا إذا لم يعد مشمولًا بالعرض.",
-    "Unsaved changes · Your draft stays here while you move between business views.": "تغييرات غير محفوظة · تبقى مسودتك محفوظة أثناء التنقل بين عروض النشاط التجاري."
+    "Unsaved changes · Your draft stays here while you move between business views.": "تغييرات غير محفوظة · تبقى مسودتك محفوظة أثناء التنقل بين عروض النشاط التجاري.",
+    "Loading activity…": "جارٍ تحميل النشاط…",
+    "Activity is not available": "النشاط غير متاح",
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "سيظهر النشاط المسجل عند توفر التقرير. لا تُعرض الإجماليات غير المتاحة على أنها أصفار."
   }
 }
