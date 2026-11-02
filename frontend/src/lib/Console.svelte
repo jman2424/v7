@@ -16,6 +16,8 @@
   import KnowledgeReview from './KnowledgeReview.svelte';
   import ConversionSettings from './ConversionSettings.svelte';
   import ApiUsage from './ApiUsage.svelte';
+  import AIBudget from './AIBudget.svelte';
+  import ProviderFunding from './ProviderFunding.svelte';
   import Implementation from './Implementation.svelte';
   import ConnectionSettings from './ConnectionSettings.svelte';
   import BusinessHub from './BusinessHub.svelte';
@@ -39,7 +41,7 @@
   let signupOpen = false;
   let passwordResetOpen = false;
   export let section = 'pipeline';
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data',budget:'AI Budget','provider-funding':'AI Provider Funding'};
   $: pageTitle = sections[section] || 'Sales workspace';
   sections.operations = 'Business hub';
   sections.applications = 'Business Applications';
@@ -64,6 +66,8 @@
     implementation: 'Prepare your business information and install your assistant.',
     'whatsapp-qr': 'Connect your number, understand the costs and prepare your customer chat.',
     usage: 'Review recorded AI usage and estimated costs.',
+    budget: 'Manage your AI balance, funding, spending limits and alerts.',
+    'provider-funding': 'Review provider funding, payment costs and financial safeguards.',
     subscription: 'Manage subscriptions, payments and invoices.',
     team: 'Control who can access this business workspace.',
     errors: 'Review service health and issues that need attention.',
@@ -75,7 +79,7 @@
     { id: 'activity', label: 'Sales activity', keys: ['operations', 'pipeline', 'statistics', 'conversations', 'errors'] },
     { id: 'setup', label: 'Agent and channels', keys: ['agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
     { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
-    { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'usage'] },
+    { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'budget', 'usage', 'provider-funding'] },
     { id: 'account', label: 'Account and access', keys: ['team', 'account', 'privacy'] }
   ];
 
@@ -344,6 +348,8 @@
   let navigationOpen = false;
   const sectionKeywords:Record<string,string>={
     operations:'business hub email phone calls inbox approvals drafts workflows actions',
+    budget:'AI funds balance spending alerts automatic recharge credit',
+    'provider-funding':'provider finance reserve OpenAI costs margins',
     subscription:'billing plans payment invoices cancel change plan',usage:'API AI models memory tokens credit costs',
     website:'widget branding colours embed agent test',integrations:'MCP API OpenAI connections',
     faqs:'FAQ knowledge answers support',account:'login password authenticator 2FA security',
@@ -841,6 +847,9 @@
     const operator = user.roles.some(role => role === 'platform_admin' || role === 'admin');
     const owner = user.roles.includes('business_owner');
     if (key === 'platform') return operator && Boolean(user.permissions?.includes('platform.read'));
+    if (key === 'provider-funding') return operator;
+    if (key === 'budget') return Boolean(user.permissions?.includes('view_costs'));
+    if (key === 'usage' && !operator) return false;
     if (key === 'companies') return operator || owner;
     if (key === 'applications') return operator;
     if (key === 'application') return operator || owner;
@@ -1781,11 +1790,17 @@
         <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
       {/if}
       {#if section === 'usage'}
-        {#if canViewCosts}
+        {#if canViewCosts && isPlatform}
           {#key tenant}<ApiUsage {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
         {:else}
           <section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view API usage and costs.</p></div></section>
         {/if}
+      {/if}
+      {#if section === 'budget' && canViewCosts}
+        {#key tenant}<AIBudget {tenant} {csrf} {isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
+      {/if}
+      {#if section === 'provider-funding' && isPlatform}
+        <ProviderFunding {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
       {/if}
       {#if isWidgetSection(section)}
         <section class="widget-workspace" aria-label="Website widget workspace">

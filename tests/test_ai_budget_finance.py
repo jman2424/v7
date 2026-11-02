@@ -1,0 +1,97 @@
+"""Exact financial projections and published prices, with synthetic funds only."""
+from decimal import Decimal
+from datetime import date
+import pytest
+from tests.test_subscriptions import identity
+from service import usage_wallet, usage_currency
+from service.ai_budget_rates import public_rates
+
+
+def rate(monkeypatch):
+    data={'rate':.75,'date':date.today().isoformat(),'stale':False,'source':'synthetic'}
+    monkeypatch.setattr(usage_currency,'gbp_rate',lambda:dict(data))
+    monkeypatch.setattr(usage_currency,'cached_gbp_rate',lambda:dict(data))
+    monkeypatch.setenv('V7_USAGE_MARKUP_PERCENT','20')
+    return data
+
+
+def test_public_service_prices_match_the_billing_snapshot_without_exposing_margin(monkeypatch):
+    rate(monkeypatch)
+    data=public_rates()
+    row=next(r for r in data['models'] if r['model']=='gpt-4o-mini')
+    assert Decimal(row['input'])==Decimal('0.135000')
+    assert Decimal(row['output'])==Decimal('0.540000')
+    assert 'markup' not in str(data) and 'provider_cost' not in str(data)
+    assert all(isinstance(value,str) for key,value in row.items() if key in {'input','cached','output'})
+
+
+def test_unverified_exchange_rate_cannot_publish_zero_prices(monkeypatch):
+    values=rate(monkeypatch)
+    values['stale']=True
+    assert public_rates()=={'available':False,'currency':'GBP','models':[],'audio':[]}
+
+
+def test_only_platform_can_see_financial_observations_and_unknown_fees_stay_unknown(client,monkeypatch):
+    rate(monkeypatch)
+    usage_wallet.apply_payment('EXAMPLE','funding','pi_financetest',2500,2500)
+    held=usage_wallet.reserve_usage('EXAMPLE',100*usage_wallet.NANO_PER_PENNY,{'requested_model':'gpt-4o-mini'})
+    usage_wallet.settle_usage(held,100*usage_wallet.NANO_PER_PENNY)
+    identity(client,'business_owner')
+    assert client.get('/billing/ai-budget/provider-funding').status_code==403
+    identity(client)
+    response=client.get('/billing/ai-budget/provider-funding')
+    assert response.status_code==200,response.json
+    body=response.json
+    assert body['provider_balance'] is None
+    ops=body['operations']
+    assert ops['gross_payments_pence']==2500
+    assert ops['observed_stripe_fees_pence'] is None and ops['net_accounting_profit_gbp'] is None
+    assert ops['climate_expenditure_pence'] is None and not ops['reserve_is_verified']
+    assert 'payment_costs_incomplete' in ops['warnings']
+    assert Decimal(ops['prepaid_liability_gbp'])==Decimal('24.1')
+    assert ops['ledger_discrepancies']==0
+
+
+def test_reconciliation_detects_wallet_drift_without_rewriting_money(client):
+    from service import ai_budget_store
+    identity(client)
+    usage_wallet.apply_payment('EXAMPLE','funding','pi_driftcheck',2500,2500)
+    # Model corruption of the materialised wallet in a disposable test database;
+    # the immutable journal remains untouched and the report only raises a flag.
+    with ai_budget_store.connection('EXAMPLE',write=True) as db:
+        db.execute('UPDATE usage_wallets SET balance_nano_gbp=balance_nano_gbp+1 WHERE tenant=?',('EXAMPLE',))
+    result=client.get('/billing/ai-budget/provider-funding')
+    assert result.status_code==200,result.json
+    assert result.json['operations']['ledger_discrepancies']==1
+    assert 'wallet_ledger_reconciliation_mismatch' in result.json['operations']['warnings']
+    assert usage_wallet.report('EXAMPLE')['balance_nano_gbp']==2500*usage_wallet.NANO_PER_PENNY+1
+
+
+@pytest.mark.parametrize('payload',[{'stripe_percent_bps':-1},{'financial_review_completed':'true'},{'target_margin_bps':10000},{'usage_markup':100},{'reserve_target_pence':True}])
+def test_cost_configuration_cannot_change_customer_pricing_or_accept_invalid_units(client,payload):
+    identity(client)
+    response=client.post('/billing/ai-budget/provider-funding/settings',json=payload)
+    assert response.status_code==400
+    assert response.json=={'error':'invalid_provider_funding_settings'}
+
+
+def test_reviewed_assumptions_do_not_change_prices_or_bypass_release_gate(client,monkeypatch):
+    from service import ai_budget,ai_budget_store
+    identity(client)
+    monkeypatch.setenv('V7_USAGE_MARKUP_PERCENT','0')
+    policy={'stripe_percent_bps':150,'stripe_fixed_pence':24,'climate_bps':100,'fx_cost_bps':100,
+        'refund_dispute_risk_bps':100,'infrastructure_bps':100,'target_margin_bps':2000,
+        'financial_review_completed':True}
+    result=client.post('/billing/ai-budget/provider-funding/settings',json=policy)
+    assert result.status_code==200,result.json
+    monkeypatch.setattr('service.usage_payments._production',lambda:True)
+    monkeypatch.setenv('V7_AUTO_RECHARGE_LIVE_ENABLED','true')
+    with client.application.app_context():
+        assert not ai_budget.live_recharge_allowed()  # Reviewed but loss-making.
+    assert usage_wallet.markup_percent()==0
+    with client.application.app_context():
+        from service.ai_provider_funding import _platform_tenant
+        tenant=_platform_tenant()
+    with ai_budget_store.connection(tenant) as db:
+        events=list(db.execute("SELECT details FROM ai_budget_events WHERE tenant=? AND kind='provider_funding_assumptions_changed'",(tenant,)))
+    assert events  # Immutable control audit, no price write or mandate creation.

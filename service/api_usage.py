@@ -122,7 +122,8 @@ def rejected_before_inference(error) -> bool:
     body = _field(body, "error", body)
     code = _field(body, "code") or _field(body, "type")
     return (code == "invalid_api_key" and error.status_code == 401
-            or code == "insufficient_quota" and error.status_code == 429
+            or code in {"insufficient_quota","credit_balance_exhausted","usage_limit_reached",
+                        "organization_spend_limit_exceeded","project_spend_limit_exceeded"} and error.status_code == 429
             or code == "model_not_found" and error.status_code in {403, 404})
 
 
@@ -314,6 +315,10 @@ def tracked_completion(client, *, purpose: str, **kwargs):
     import time
     kwargs['timeout'] = provider_timeout(kwargs['timeout'])
     credit_started = time.monotonic()
+    from service import ai_provider_funding
+    if not ai_provider_funding.allow_request(context[0]):
+        emit('provider_skipped',outcome='provider_funding_unavailable')
+        raise AllowancePaused('provider_funding_unavailable')
     internal = subscriptions.internal_business(context[0])
     try:
         pricing = snapshot()
@@ -346,10 +351,19 @@ def tracked_completion(client, *, purpose: str, **kwargs):
             raise
         provider_started()
         emit('provider_started', purpose=purpose, model=kwargs['model'], timeout_seconds=kwargs['timeout'])
+        funding_started=time.time()
         response = create(client, kwargs)
+        try:
+            ai_provider_funding.record_success(context[0],started_at=funding_started)
+        except Exception as exc:
+            logger.warning('Provider health update failed (%s)',type(exc).__name__)
         status = "completed"
         return response
     except APIStatusError as exc:
+        try:
+            ai_provider_funding.record_error(exc,context[0])
+        except Exception as monitoring_error:
+            logger.warning('Provider health update failed (%s)',type(monitoring_error).__name__)
         emit('provider_failed', purpose=purpose, error_type=type(exc).__name__, status_code=exc.status_code)
         if rejected_before_inference(exc):
             response = rejected_usage(kwargs["model"])

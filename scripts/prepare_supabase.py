@@ -42,6 +42,9 @@ SECURITY_TABLES = {
     'billing_plan_events', 'billing_plan_reservations',
     'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
     'usage_wallet_entries', 'usage_checkout_requests',
+    'ai_budget_settings','ai_budget_authorisations','ai_budget_recharges',
+    'ai_budget_notifications','ai_budget_events','ai_budget_payment_costs',
+    'ai_provider_funding_settings','ai_provider_health','ai_provider_cost_snapshots','ai_provider_limit_snapshots',
 }
 ANALYTICS_TABLES = {
     'events', 'leads', 'api_usage', 'recorded_sales', 'inventory_history',
@@ -428,7 +431,7 @@ def import_bundle(conn, bundle):
                 sql.Identifier(table), sql.SQL(',').join(map(sql.Identifier, columns)),
                 sql.SQL(',').join(sql.Placeholder() for _ in columns))
             for row in rows:
-                values = [Jsonb(row[column]) if column == 'payload' and table != 'business_operations'
+                values = [Jsonb(row[column]) if column == 'payload' and table not in {'business_operations','ai_budget_notifications'}
                           else row[column] for column in columns]
                 conn.execute(query, values)
         # Queue ownership is derived metadata, not a new source of authority.

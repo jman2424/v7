@@ -174,7 +174,7 @@ def install_rate_limit(app, settings):
             key, rate, capacity = (ip, "public_chat"), 30, 40
         elif not login and request.path.startswith(("/analytics", "/admin/api/")) and request.method == "GET":
             key, rate, capacity = (ip, "analytics"), 30, 40
-        elif not login and request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.path.startswith(("/admin", "/files", "/business-applications")):
+        elif not login and request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.path.startswith(("/admin", "/files", "/business-applications", "/billing/ai-budget")):
             key, rate, capacity = (ip, "management_write"), 20, 25
         else:
             key = (ip, "login") if login else None

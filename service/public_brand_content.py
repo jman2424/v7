@@ -18,8 +18,8 @@ def _plan_prices() -> str:
 
 def _prepaid_processing() -> str:
     if not vat_percent():
-        return 'AI processing credit is purchased separately: pay £5, £20 or £50 for the same amount of credit. No AI credit is included in the monthly subscription.'
-    return "AI processing credit is purchased separately: £5, £20 or £50 before VAT (£6, £24 or £60 including 20% VAT, where applicable). No AI credit is included in the monthly subscription."
+        return 'AI processing credit is purchased separately: pay £10, £25 or £50 for the same amount of credit. No AI credit is included in the monthly subscription.'
+    return "AI processing credit is purchased separately: £10, £25 or £50 before VAT (£12, £30 or £60 including 20% VAT, where applicable). No AI credit is included in the monthly subscription."
 
 
 
@@ -88,7 +88,7 @@ ABOUT: Solution = {
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
             _plan_prices() + ". Prices are in GBP, with final payable totals also displayed. Every plan includes a website agent, a WhatsApp agent, no fixed message or conversation cap. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. Setup is paid separately and does not repeat with the monthly subscription.",
-            "Paid AI calls across website and WhatsApp pause when the available prepaid AI credit cannot safely cover a request or its cost is unknown; saved business knowledge remains available. Owners choose one-time prepaid top-ups; there are no automatic recharges or extra usage invoices. WhatsApp requires a configured provider connection. Phone numbers are not included: number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit. Review the homepage comparison and final checkout totals before purchasing.",
+            "Paid AI calls across website and WhatsApp pause when the available prepaid AI credit cannot safely cover a request or its cost is unknown; saved business knowledge remains available. Owners choose one-time prepaid top-ups; automatic recharge is off unless explicitly authorised and available on the platform; there are no automatic overage invoices. WhatsApp requires a configured provider connection. Phone numbers are not included: number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit. Review the homepage comparison and final checkout totals before purchasing.",
         ]},
         {"heading": "What should a business test before launch?", "paragraphs": [
             "Try a known product or service question, a policy question, an enquiry needing your team, a request outside your business knowledge, and a question with missing details. Check that the answers match your source information and that the next step is something your business can actually provide.",

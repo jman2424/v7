@@ -537,10 +537,33 @@ def verify_payment(tenant, reference, kind, *, db=None):
     raise ApplicationError('application_payment_not_authorized', 403)
 
 
+def bind_budget_payment(tenant, reference, payment_id):
+    """Bind only consent-backed intents; existing Checkout rules stay strict."""
+    if not isinstance(payment_id,str) or not re.fullmatch(r'pi_[A-Za-z0-9_]+',payment_id):
+        raise ApplicationError('application_checkout_binding_conflict',409)
+    with database(tenant,write=True) as db:
+        row = _one(_execute(db,'SELECT * FROM business_application_permits WHERE tenant=? AND reference=?',(tenant,reference)))
+        if (not row or row['kind'] != 'ai_budget_recharge' or row['state'] == 'expired'
+                or row['checkout'] and row['checkout'] != payment_id):
+            raise ApplicationError('application_checkout_binding_conflict',409)
+        _execute(db,"UPDATE business_application_permits SET checkout=?,state=CASE WHEN state='settled' THEN state ELSE 'issued' END WHERE tenant=? AND reference=?",(payment_id,tenant,reference))
+
+
 def settle_payment(tenant, reference):
     with database(tenant, write=True) as db:
         _execute(db, "UPDATE business_application_permits SET state='settled' WHERE tenant=? AND reference=? AND state!='expired'", (tenant, reference))
         _execute(db, 'UPDATE business_applications SET service_preserved=1 WHERE tenant=?', (tenant,))
+
+
+def expire_budget_permit(tenant, reference):
+    """Only a resolved/cancelled budget attempt can release an eligibility hold."""
+    from service import ai_budget_store as store
+    with store.connection(tenant) as db:
+        row = db.execute('SELECT status FROM ai_budget_recharges WHERE tenant=? AND reference=?',(tenant,reference)).fetchone()
+    if not row or row['status'] not in {'cancelled','failed'}:
+        raise ApplicationError('application_checkout_unresolved',409)
+    with database(tenant,write=True) as db:
+        _execute(db,"UPDATE business_application_permits SET state='expired' WHERE tenant=? AND reference=? AND kind='ai_budget_recharge' AND state IN('reserved','issued')",(tenant,reference))
 
 
 def close_payments(tenant):
@@ -549,6 +572,10 @@ def close_payments(tenant):
     with database(tenant) as db:
         rows = _rows(_execute(db, "SELECT * FROM business_application_permits WHERE tenant=? AND state IN ('reserved','issued')", (tenant,)))
     for row in rows:
+        if row['kind'] == 'ai_budget_recharge':
+            from service.ai_budget_payments import cancel_recharge
+            cancel_recharge(tenant,row['reference'])
+            continue
         checkout = row['checkout']
         if not checkout:
             with subscriptions.connection(tenant) as db:

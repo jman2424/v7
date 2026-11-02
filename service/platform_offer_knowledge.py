@@ -139,6 +139,6 @@ def automatic_plan_answer(question, knowledge, history=None):
     if not tax and re.search(r'\b(?:vat|tax|taxes)\b', question, re.I):
         tax = ' No VAT is added to the published prices.'
     lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
-                 'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overages or recharges.' + tax)
+                 'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overage charges. Optional £5 automatic recharge requires explicit authorisation, a monthly purchase cap and platform availability.' + tax)
     lines.append('Use code SETUP for free one-time setup. Monthly subscription prices are unchanged. Implementation support is included; your team or website developer installs the widget.')
     return '\n\n'.join(lines)

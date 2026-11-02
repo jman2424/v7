@@ -1449,6 +1449,11 @@ def api_insights():
         "leads": leads,
         "overview_daily": overview_daily,
     }
+    if has_permission(user,'view_costs'):
+        from service.ai_budget import customer_report
+        budget=customer_report(tenant)
+        payload['ai_budget']={key:budget[key] for key in ('available_pence','monthly_spent_pence','used_pence','month')}
+        payload['ai_budget']['recent_automatic_recharges']=[item for item in budget['automatic_recharge']['attempts'] if item['status']=='succeeded'][:3]
     return jsonify(payload)
 
 

@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from service import session_store, subscriptions, usage_wallet
 from service.plan_catalog import vat_percent
 
-_PACKS = {"gbp_5": 500, "gbp_20": 2000, "gbp_50": 5000}
+_PACKS = {"gbp_5": 500, "gbp_20": 2000, "gbp_50": 5000, "gbp_10": 1000, "gbp_25": 2500}
 _KIND = "ai_credit"
 _VERSION = "prepaid_v1"
 _REQUEST = re.compile(r"[A-Za-z0-9_-]{8,80}\Z")

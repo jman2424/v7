@@ -82,8 +82,10 @@ def model_get():
     user, tenant, storage = identity(write=False, require_activation=False)
     permission = 'models.write' if is_platform_admin(user) else 'business_settings.write'
     from service.tenant_access import activation
+    from service.ai_budget_rates import public_rates
     return jsonify(**model_settings.parameter_status(storage, tenant),
                    model_options=model_settings.options(),
+                   v7_rates=public_rates(),
                    can_change_model=has_permission(user, permission)
                    and (is_platform_admin(user) or activation(tenant)['active']))
 

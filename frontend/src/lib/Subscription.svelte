@@ -4,6 +4,7 @@
   import {onMount,onDestroy,createEventDispatcher} from 'svelte';
   import TrendChart from './TrendChart.svelte';
   import UsageCredits from './UsageCredits.svelte';
+  import AIBudget from './AIBudget.svelte';
   import Referrals from './Referrals.svelte';
   import ModelPicker from './ModelPicker.svelte';
   import WhatsAppConnection from './WhatsAppConnection.svelte';
@@ -38,6 +39,7 @@
   let invoicePage=1;
   let discountCode='';
   let reviewPlanId='';
+  let initialBudgetTotal=0;
   let controller:AbortController|undefined;
   let companyController:AbortController|undefined;
   let companyBusy=false;
@@ -132,7 +134,7 @@
     <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>{$t('Previous')}</button><span>{$t('Page {page}',{page:count(page)})}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>{$t('Next')}</button></div>
   </article>
   {/if}
-  <header><div><h2><bdi>{tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly billing in pounds, with a separate one-time setup. VAT-inclusive totals appear below each price and before payment.' : 'Monthly billing in pounds, with a separate one-time setup. No VAT is added to these prices.')}</p></div><div class="controls">{#if data}<a href="#cancel-subscription">{$t('Cancel subscription')}</a>{/if}{#if canViewCosts && (!data?.internal || isPlatform)}<a href="#ai-usage-credit">{$t('Top up AI credit')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
+  <header><div><h2><bdi>{tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly billing in pounds, with a separate one-time setup. VAT-inclusive totals appear below each price and before payment.' : 'Monthly billing in pounds, with a separate one-time setup. No VAT is added to these prices.')}</p></div><div class="controls">{#if data}<a href="#cancel-subscription">{$t('Cancel subscription')}</a>{/if}{#if canViewCosts && (!data?.internal || isPlatform)}<a href="#ai-budget">{$t('AI Budget')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
@@ -203,6 +205,7 @@
         <div class="notice"><p>{$t('An unpaid checkout is open for {plan}. Continue with this plan below.',{plan:selectedPlan?.name||$t('your selected plan')})}{#if !planLocked} {$t('Cancel the pending checkout before choosing another plan.')}{/if}{#if data.plan_state?.checkout_expires} {$t('It expires {date} (UTC).',{date:dateTime(data.plan_state.checkout_expires)})}{/if}</p>{#if canManageBilling}<button disabled={busy||!data.configured} on:click={()=>action('cancel-checkout',{})}>{$t('Cancel pending checkout')}</button>{/if}</div>
       {/if}
       {#if selectedPlan}
+        {#if !activePlan}<article class="panel"><h3>{$t('Your initial payment plan')}</h3><p>{$t('First subscription month, unpaid setup and selected AI funds: {total}',{total:money(firstMonthTotal(selectedPlan.monthly_pence)+(implementationPaid?0:setupTotal(setupPlan?.setup_pence||selectedPlan.setup_pence))+initialBudgetTotal)})}</p><p>{$t('Subscription, setup and AI funding use separate secure checkouts. Review each payable total before confirming. AI funds are added only after their own payment is verified.')}</p><p><a href="#ai-budget">{$t('Choose initial AI funding and alerts')}</a></p><p>{$t('Automatic recharge is optional. After activation, review its amount, limit and explicit card authorisation in AI Budget.')}</p></article>{/if}
         <div class="cards">
           <article class="panel"><h3>{$t('{plan} subscription',{plan:selectedPlan.name})}</h3><p>{$t(data?.vat_percent ? '{price} / month including {percent}% VAT' : '{price} / month — no VAT charged',{price:money(totalWithVat(selectedPlan.monthly_pence)),percent:count(data.vat_percent)})}</p><p>{$t('Status')}: <b>{status(baseContract?.status)}</b></p><p>{$t('Next payment')}: {baseContract?.cancel_at_end?$t('Renewal cancelled'):date(baseContract?.next_due)}</p>{#if !baseContract||['not_started','canceled','incomplete_expired'].includes(baseContract.status)}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'platform',plan_id:selectedPlan?.id})}>{$t('Subscribe to {plan}',{plan:selectedPlan.name})}</button>{/if}</article>
           <article class="panel"><h3>{$t('One-time setup')}</h3><p>{$t(data?.vat_percent ? '{price} setup including {percent}% VAT' : '{price} setup — no VAT charged',{price:money(setupTotal(setupPlan?.setup_pence||selectedPlan.setup_pence)),percent:count(data.vat_percent)})}</p><p>{$t('Separate checkout and invoice; setup does not repeat with renewals.')}</p>{#if implementationPaid}<p><b>{$t('Setup paid.')}</b></p>{:else}<button disabled={!canManageBilling||busy||!data.configured} on:click={()=>action('checkout',{kind:'implementation',plan_id:setupPlan?.id||selectedPlan?.id})}>{$t(setupPercent===100?'Complete free {plan} setup':'Pay {plan} setup',{plan:setupPlan?.name||selectedPlan.name})}</button>{/if}</article>
@@ -221,9 +224,10 @@
         <p>{$t(website.enforced===false?'Website and WhatsApp activity counts do not limit messages. Paid AI uses prepaid credit according to the model and tokens consumed. Credit carries forward; there are no automatic extra charges.':'Website allowances count distinct chat sessions; new sessions pause at the limit while existing sessions continue. Paid AI replies use separate prepaid credit. Low or insufficient credit creates an administrator alert; saved-knowledge replies remain available. There are no automatic extra charges.')}</p>
       </article>
     {/if}
-    {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix}/>{/key}{/if}
+    {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix} showProviderRates={isPlatform}/>{/key}{/if}
     {#if !data.internal || isPlatform}
-      {#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={Boolean(data.complimentary)||['active','trialing'].includes(baseContract?.status||'')} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}
+      {#key tenant}<AIBudget {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} showInitialBudgetChoice={!activePlan} on:initialbudget={(event)=>initialBudgetTotal=event.detail.total_pence} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)}/>{/key}
+      {#if isPlatform}<details class="panel"><summary>{$t('Technical usage audit')}</summary>{#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={false} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}</details>{/if}
     {/if}
     {#if canViewIntegrations}
       <details class="panel" bind:open={whatsappOpen}>

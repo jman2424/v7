@@ -128,7 +128,7 @@ def test_timeout_keeps_hold_and_blocks_next_chargeable_call(credit):
     assert "private timeout details" not in json.dumps(report)
 
 
-def test_explicit_provider_quota_rejection_releases_hold_without_charging(credit):
+def test_explicit_provider_quota_rejection_releases_hold_without_charging(credit,monkeypatch):
     client = provider()
     client.chat.completions.create.side_effect = RateLimitError("private provider detail",
         response=httpx.Response(429, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")),
@@ -139,7 +139,16 @@ def test_explicit_provider_quota_rejection_releases_hold_without_charging(credit
     assert report["balance_pence"] == 500 and report["reserved_nano_gbp"] == 0
     assert report["spent_nano_gbp"] == 0 and not report["reconciliation_hold"]
     assert "private provider detail" not in json.dumps(report)
-    request(provider())
+    recovery=provider()
+    with pytest.raises(plan_usage.AllowancePaused,match='provider_funding_unavailable'):
+        request(recovery)
+    recovery.chat.completions.create.assert_not_called()
+    # The new provider circuit preserves credit and admits a single normal
+    # recovery probe after its cooldown, rather than retrying a funding outage.
+    from service import ai_provider_funding
+    now=ai_provider_funding.time.time()
+    monkeypatch.setattr(ai_provider_funding.time,'time',lambda:now+31)
+    request(recovery)
     assert usage_wallet.report("EXAMPLE")["spent_nano_gbp"] == 525_000
 
 
