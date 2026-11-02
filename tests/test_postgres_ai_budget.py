@@ -6,6 +6,8 @@ import time
 import pytest
 
 from service import ai_budget as budget, ai_budget_store as store, ai_budget_payments as payments, usage_wallet, session_store
+from service import ai_budget_worker as worker
+from types import SimpleNamespace
 
 
 def seed(tenant,cap=2500):
@@ -79,3 +81,29 @@ def test_native_funding_settings_allow_only_a_live_operator_session(pg_runtime):
         with session_store.postgres_connection(tenant) as db:
             db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
             db.execute("INSERT INTO ai_provider_funding_settings VALUES(1,'{}',0) ON CONFLICT(id) DO UPDATE SET value=excluded.value")
+
+
+def test_native_worker_discovers_financial_tenants_without_an_admin_session(pg_runtime,monkeypatch):
+    tenant,other=pg_runtime['tenant'],pg_runtime['other']
+    for key in (tenant,other):
+        usage_wallet.apply_payment(key,'worker_discovery_'+key,'pi_worker'+key,100,100)
+    class NoInteractiveInventory:
+        def tenant_keys(self):
+            raise AssertionError('background worker must not use administrator inventory')
+    container=SimpleNamespace(storage=NoInteractiveInventory(),settings=SimpleNamespace(PLATFORM_MARKETING_TENANT=tenant))
+    monkeypatch.setattr(worker,'_tenant_cursor','')
+    found=set()
+    for _ in range(5):
+        page=worker._work_tenants(container)
+        assert len(page)<=25
+        found.update(page)
+    assert {tenant,other}<=found
+    with session_store.postgres_connection(other) as db:
+        assert not db.execute('SELECT tenant FROM ai_budget_settings WHERE tenant=%s',(tenant,)).fetchall()
+        assert not db.execute('SELECT * FROM usage_wallets WHERE tenant=%s',(tenant,)).fetchall()
+    with pytest.raises(RuntimeError):
+        with session_store.postgres_connection(other) as db:
+            db.execute('INSERT INTO ai_budget_work_tenants(tenant) VALUES(%s) ON CONFLICT DO NOTHING',(tenant,))
+    with pytest.raises(RuntimeError):
+        with session_store.postgres_connection(tenant) as db:
+            db.execute('DELETE FROM ai_budget_work_tenants WHERE tenant=%s',(tenant,))

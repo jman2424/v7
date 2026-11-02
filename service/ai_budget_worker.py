@@ -18,6 +18,7 @@ from service.account_service import AccountService
 
 _lock, _stop = Lock(), Event()
 _thread, _monitor_thread, _pid, _offset = None, None, None, 0
+_tenant_cursor = ''
 SUBJECTS = {'low_balance':'Your V7 AI balance is running low',
     'recharge_succeeded':'£5 added to your V7 AI balance',
     'recharge_cap':'Your V7 automatic recharge limit has been reached',
@@ -126,17 +127,35 @@ def capture_payment_cost(tenant):
     return True
 
 
+def _work_tenants(container):
+    """Background discovery never impersonates an interactive administrator.
+
+    PostgreSQL exposes only a bounded page of private work-queue tenant keys;
+    all financial reads/writes still use their own tenant-scoped transactions.
+    """
+    global _tenant_cursor
+    if not session_store._using_postgres():
+        return list(container.storage.tenant_keys())
+    with store.connection(container.settings.PLATFORM_MARKETING_TENANT) as db:
+        keys=[row['tenant'] for row in db.execute(
+            'SELECT tenant FROM ai_budget_work_tenants WHERE tenant>? ORDER BY tenant LIMIT 25',(_tenant_cursor,))]
+        if not keys and _tenant_cursor:
+            keys=[row['tenant'] for row in db.execute('SELECT tenant FROM ai_budget_work_tenants ORDER BY tenant LIMIT 25')]
+    _tenant_cursor=keys[-1] if keys else ''
+    return keys
+
+
 def run_once(container,tenants=None):
     global _offset
-    keys=list(container.storage.tenant_keys() if tenants is None else tenants)
+    keys=list(_work_tenants(container) if tenants is None else tenants)
     if not keys:
         return 0
     selected=(keys[_offset:]+keys[:_offset])[:25]
     _offset=(_offset+len(selected))%len(keys)
     processed=0
     for tenant in selected:
-        usage_wallet.report(tenant,include_costs=False)
         try:
+            usage_wallet.report(tenant,include_costs=False)
             # Finish dispatched payments even after opt-out. No eligibility check
             # is allowed to discard a verified payment already taken.
             with store.connection(tenant) as db:

@@ -73,3 +73,17 @@ def test_notification_template_escapes_tenant_and_contains_no_payment_action():
     assert 'tenant=A%26B' in text
     assert 'payment_failed' not in subject and '<script>' not in html
     assert 'card details' in text and 'Automatic recharge is paused' in text
+
+
+def test_one_unavailable_tenant_cannot_stop_other_budget_work(client,monkeypatch):
+    seen=[]
+    def report(tenant,**kwargs):
+        if tenant=='BROKEN':
+            raise RuntimeError('synthetic_database_failure')
+    monkeypatch.setattr(worker.usage_wallet,'report',report)
+    monkeypatch.setattr(worker.payments,'reserve_recharge',lambda tenant:None)
+    monkeypatch.setattr(worker,'notify_one',lambda container,tenant:seen.append(tenant) or False)
+    monkeypatch.setattr(worker.subscriptions,'configured',lambda:False)
+    with client.application.app_context():
+        worker.run_once(client.application.container,tenants=['BROKEN','EXAMPLE'])
+    assert 'EXAMPLE' in seen

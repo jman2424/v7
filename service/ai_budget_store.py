@@ -58,6 +58,9 @@ TENANT_TABLES = {
         PRIMARY KEY(tenant,payment_id), CHECK(gross_pence-fee_pence=net_pence))''',
 }
 PLATFORM_TABLES = {
+    # Private worker discovery metadata only. Financial rows remain tenant-scoped.
+    'ai_budget_work_tenants': '''CREATE TABLE IF NOT EXISTS ai_budget_work_tenants (
+        tenant TEXT PRIMARY KEY)''',
     'ai_provider_limit_snapshots': '''CREATE TABLE IF NOT EXISTS ai_provider_limit_snapshots (
         scope TEXT PRIMARY KEY, value TEXT NOT NULL, observed DOUBLE PRECISION NOT NULL)''',
     'ai_provider_funding_settings': '''CREATE TABLE IF NOT EXISTS ai_provider_funding_settings (
@@ -112,6 +115,7 @@ def ensure_settings(db, tenant):
     if row:
         return dict(row)
     db.execute('INSERT INTO ai_budget_settings(tenant,updated) VALUES (?,?) ON CONFLICT(tenant) DO NOTHING', (tenant,time.time()))
+    db.execute('INSERT INTO ai_budget_work_tenants(tenant) VALUES (?) ON CONFLICT(tenant) DO NOTHING',(tenant,))
     return dict(db.execute('SELECT * FROM ai_budget_settings WHERE tenant=?'+suffix, (tenant,)).fetchone())
 
 
