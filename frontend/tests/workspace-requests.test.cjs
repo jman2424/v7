@@ -201,3 +201,21 @@ test('an older subscription refresh cannot overwrite a newer billing overview', 
   requests[2].pending.resolve({ companies: [], total: 0, has_next: false });
   await new Promise(resolve => setImmediate(resolve));
 });
+
+
+test('removing then adding categories and locations never reuses a surviving reference', () => {
+  const scope = {crypto:require('node:crypto').webcrypto};
+  vm.runInNewContext(`
+    let catalog={categories:[{id:'category_1'},{id:'category_2'},{id:'category_3'}]};
+    let branches=[{id:'branch_1'},{id:'branch_2'},{id:'branch_3'}];
+    const emptyHours=()=>({});
+    ${functions('Console.svelte',['addCategory','removeCategory','addBranch','removeBranch'])}
+    removeCategory(0);addCategory();removeBranch(0);addBranch();
+    globalThis.categoryIds=catalog.categories.map(row=>row.id);
+    globalThis.branchIds=branches.map(row=>row.id);
+  `, scope);
+  assert.equal(new Set(scope.categoryIds).size,3);
+  assert.equal(new Set(scope.branchIds).size,3);
+  assert.deepEqual(Array.from(scope.categoryIds.slice(0,2)),['category_2','category_3']);
+  assert.deepEqual(Array.from(scope.branchIds.slice(0,2)),['branch_2','branch_3']);
+});

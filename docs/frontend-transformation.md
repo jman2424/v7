@@ -145,7 +145,7 @@ honestly; never advertise a connected Google/phone/email provider without eviden
 
 ### Checks completed (2 November 2026; final release review still pending)
 
-- Svelte check: zero errors and zero warnings. Frontend tests: 132 passed (including numeric privacy retention, conflict recovery and read-only/pending-save regression checks).
+- Svelte check: zero errors and zero warnings. Frontend tests: 133 passed (including numeric privacy retention, conflict recovery, read-only/pending-save and delete/add-reference regression checks).
 - Focused Python route/conversation/recovery checks: 110 passed. Public/SEO checks:
   121 passed. Console request/loading/search execution harness: 27 passed.
 - Ruff across the repository and `git diff --check`: passed.
@@ -244,3 +244,7 @@ available, not performed against real accounts here.
 - After screenshots are saved in the task's `outputs/frontend-redesign` folder:
   workspace desktop/mobile/tablet RTL, authentication desktop/mobile, homepage
   desktop/mobile. The live preview uses only clearly labelled synthetic records.
+
+- New categories and locations now receive unique references; deleting an earlier
+  entry then adding another cannot collide with a surviving entry. Existing saved
+  references remain unchanged. A regression executes the actual editor functions.

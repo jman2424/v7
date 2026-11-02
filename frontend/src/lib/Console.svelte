@@ -1362,7 +1362,7 @@
 
   function addCategory() {
     const number = catalog.categories.length + 1;
-    catalog = { ...catalog, categories: [...catalog.categories, { id: `category_${number}`, name: `New category ${number}`, items: [] }] };
+    catalog = { ...catalog, categories: [...catalog.categories, { id: `category_${crypto.randomUUID()}`, name: `New category ${number}`, items: [] }] };
   }
 
   function removeCategory(index: number) {
@@ -1574,7 +1574,7 @@
 
   function addBranch() {
     const number = branches.length + 1;
-    branches = [...branches, { source: {}, id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: null, lon: null, hours: emptyHours() }];
+    branches = [...branches, { source: {}, id: `branch_${crypto.randomUUID()}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: null, lon: null, hours: emptyHours() }];
   }
 
   function removeBranch(index: number) {
