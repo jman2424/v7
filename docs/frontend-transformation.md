@@ -76,14 +76,14 @@ cannot obtain platform access by changing workspace/view query parameters.
 
 - [x] Read complete brief and inspect route/permission/resource-loading architecture.
 - [x] Create isolated branch and route-to-workspace functional map.
-- [ ] Capture baseline desktop/mobile/auth/public screenshots and full component inventory.
+- [x] Capture workspace desktop/mobile baseline; record missing public/auth baseline; complete screen inventory.
 - [x] Build reusable visual tokens, workspace shell, compact mobile navigation and route compatibility.
 - [x] Implement real Home and consolidate customer workflows, preserving drafts/actions.
-- [ ] Refine each editor, inbox, sales/insights, channel and billing interaction.
-- [ ] Separate platform tools and refine administration, security/privacy and account screens.
-- [ ] Refine public site, authentication, application and onboarding.
-- [ ] Add navigation/permission/workflow tests; run existing frontend/backend/security checks.
-- [ ] Verify desktop/mobile/RTL, keyboard/reduced-motion, realistic industry flows and real production limitations.
+- [x] Refine editors, inbox, sales/insights, channels and billing; record browser/automated evidence by screen.
+- [x] Separate platform tools and review administration, security/privacy and account screens.
+- [x] Refine public site/authentication; preserve application/onboarding gates and explicitly pending providers.
+- [x] Add navigation/permission/workflow regressions and run frontend/backend/security checks; final head CI pending below.
+- [x] Verify Chromium desktop/mobile/tablet/RTL, keyboard and four industries; inspect reduced-motion CSS and document external/device limitations.
 - [ ] Produce measured before/after route/task/visual/verification report; release only validated work.
 
 ## Verification policy
@@ -218,3 +218,29 @@ not real provider connectivity, payment delivery, customer usability feedback or
 production load times. Security-sensitive credential enrolment, actual payments,
 external sends/calls and provider OAuth are verified by automated contracts where
 available, not performed against real accounts here.
+
+
+### Final review additions
+
+- The complete per-screen capability/verification inventory is in
+  [frontend-screen-audit.md](frontend-screen-audit.md). It distinguishes browser
+  writes, inspected states and automated contracts rather than claiming every
+  provider action was live-tested.
+- Short desktop administration keeps the account controls visible while its
+  longer navigation scrolls. Sign out completed successfully from desktop and
+  mobile after this correction.
+- Provider metadata no longer shares cancellable tenant-read controllers. The
+  new race regression proves a workspace refresh cannot remove Google's pending
+  status. The browser now shows Google disabled with Awaiting setup and no
+  Microsoft normal sign-in button. Linked-provider management remains intact.
+- Detailing, translation and professional-service fixtures were inspected in
+  addition to retail. Detailing saved a filtered vehicle-service price; service
+  units and optional inventory stayed intact. A hybrid remote/location service
+  no longer implies a delivery section in primary business tabs.
+- Final focused auth harness: 47 passed. Route/conversation checks after type
+  annotations: 99 passed, 1 native-only check skipped locally (native CI covers
+  that path). New presentation services pass strict mypy; broad Flask file checks
+  still expose missing-annotation debt and are not reported as clean.
+- After screenshots are saved in the task's `outputs/frontend-redesign` folder:
+  workspace desktop/mobile/tablet RTL, authentication desktop/mobile, homepage
+  desktop/mobile. The live preview uses only clearly labelled synthetic records.

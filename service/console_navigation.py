@@ -1,17 +1,40 @@
 """Shared presentation routes; existing API authentication remains authoritative."""
 import json
 from pathlib import Path
+from typing import TypedDict
 
-CONFIG=json.loads(Path(__file__).with_suffix('.json').read_text(encoding='utf-8'))
+
+class Location(TypedDict, total=False):
+    workspace: str
+    view: str
+    panel: str
+
+
+class View(TypedDict):
+    id: str
+    section: str
+
+
+class Workspace(TypedDict):
+    id: str
+    views: list[View]
+
+
+class Configuration(TypedDict):
+    workspaces: list[Workspace]
+    platform: Workspace
+    aliases: dict[str, Location]
+
+CONFIG: Configuration=json.loads(Path(__file__).with_suffix('.json').read_text(encoding='utf-8'))
 WORKSPACES={row['id']:row for row in [*CONFIG['workspaces'],CONFIG['platform']]}
 ALIASES=CONFIG['aliases']
 
 
-def legacy_location(section):
+def legacy_location(section: str) -> Location:
     if section=='platform':
         return {'workspace':'platform','view':'overview'}
     if section in ALIASES:
-        return dict(ALIASES[section])
+        return ALIASES[section].copy()
     for workspace in CONFIG['workspaces']:
         for view in workspace['views']:
             if view['section']==section:
@@ -21,7 +44,7 @@ def legacy_location(section):
     return {'workspace':'home','view':'overview'}
 
 
-def effective_section(workspace,view=''):
+def effective_section(workspace: str, view: str = '') -> str:
     if workspace=='home' and view=='application':
         return 'application'
     definition=WORKSPACES.get(workspace)

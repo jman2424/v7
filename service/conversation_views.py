@@ -2,9 +2,12 @@
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping
+from sqlite3 import Row
+from typing import Any
 
 
-def conversation_message(row, tenant, secret):
+def conversation_message(row: Mapping[str, Any] | Row, tenant: str, secret: str | bytes) -> dict[str, Any]:
     message = dict(row)
     session = message.pop('session_id', None)
     message['conversation_ref'] = None
