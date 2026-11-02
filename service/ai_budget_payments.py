@@ -347,8 +347,13 @@ def reconcile_payment(tenant,reference,payment_id,*,event_id='',canonical_disput
     usage_payments._require_payment_mode(bool(row['livemode']))
     metadata = payment.get('metadata') or {}
     expected = {'tenant':tenant,'kind':RECHARGE_KIND,'budget_ref':reference,'budget_authorisation':row['authorisation'],'budget_version':VERSION}
+    # Stripe can clear the method after a decline or cancellation. Those states
+    # cannot grant funds; retain strict method matching for every payable state.
+    method_matches=payment.get('payment_method')==row['payment_method']
+    cleared_method=(payment.get('payment_method') is None
+        and payment.get('status') in {'requires_payment_method','canceled'})
     if (any(metadata.get(key) != value for key,value in expected.items())
-            or payment.get('customer') != row['customer'] or payment.get('payment_method') != row['payment_method']
+            or payment.get('customer') != row['customer'] or not (method_matches or cleared_method)
             or payment.get('amount') != 500 or type(payment.get('amount')) is not int):
         raise budget.BudgetError('budget_payment_mismatch')
     if payment.get('status')=='canceled' and row['status']=='cancelled' and row['payment_id']==payment_id:

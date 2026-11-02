@@ -291,3 +291,32 @@ def test_cap_change_requires_fresh_consent_and_reuses_business_customer(client,c
     assert client.post('/billing/ai-budget/automatic-recharge/confirm',json={}).json['status']=='active'
     assert client.get('/billing/ai-budget').json['automatic_recharge']['cap_pence']==5000
     assert sum(r[0]=='POST' and r[1]=='/v1/customers' for r in card['requests'])==1
+
+
+def test_decline_with_cleared_method_pauses_and_can_be_cancelled(client,card):
+    ref=reserve(client)
+    card['uncertain']=True
+    with pytest.raises(ValueError):
+        process(client,ref)
+    payment=next(o for p,o in card['objects'].items() if p.startswith('/v1/payment_intents/'))
+    payment.update(status='requires_payment_method',payment_method=None,amount_received=0)
+    with client.application.app_context():
+        assert not payments.reconcile_payment('EXAMPLE',ref,payment['id'])
+        assert payments.reserve_recharge('EXAMPLE') is None
+        assert payments.cancel_recharge('EXAMPLE',ref)
+    assert usage_wallet.report('EXAMPLE')['balance_pence']==0
+    assert card['creates']==1
+
+
+@pytest.mark.parametrize('method',[None,'pm_wrongmethod'])
+def test_success_still_requires_the_exact_authorised_method(client,card,method):
+    ref=reserve(client)
+    card['uncertain']=True
+    with pytest.raises(ValueError):
+        process(client,ref)
+    payment=next(o for p,o in card['objects'].items() if p.startswith('/v1/payment_intents/'))
+    payment['payment_method']=method
+    with client.application.app_context():
+        with pytest.raises(budget.BudgetError,match='mismatch'):
+            payments.reconcile_payment('EXAMPLE',ref,payment['id'])
+    assert usage_wallet.report('EXAMPLE')['balance_pence']==0
