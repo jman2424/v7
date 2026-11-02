@@ -81,7 +81,8 @@ The existing business-approval/intake hold remains in effect.
 - [x] Customer and operator UI plus guided separate onboarding checkouts.
 - [x] Channel inventory and synthetic payment, provider, concurrency and security coverage.
 - [x] Customer alert persistence, owner/operator boundaries and mobile/RTL browser checks.
-- [ ] Final-head hosted PostgreSQL and complete regression checks.
+- [x] Original release: 4,098 backend tests, 247 native runtime tests and 34 migration tests passed; 90 environment-specific full-suite skips.
+- [ ] Follow-up native worker-discovery regression and deployment verification.
 - [ ] Final financial review and controlled release.
 
 ## Implemented boundaries
@@ -216,6 +217,14 @@ Official interfaces: [OpenAI costs](https://developers.openai.com/api/reference/
 There is no assumed provider prepaid-balance or credit-purchase API.
 
 ## Recovery and known operational limits
+
+Production verification found that background jobs cannot call the interactive
+administrator inventory. The follow-up `20261102035654_ai_budget_worker_discovery.sql`
+adds private queue-ownership metadata, following the existing telemetry pattern.
+It backfills financial tenants without modifying wallets, permits own-tenant
+enqueue and bounded backend discovery, and leaves the administrator inventory
+guard and all financial RLS unchanged. The worker reads at most 25 keys per page
+without impersonating a user; a failed tenant cannot prevent other work.
 
 First disable the live recharge switch, then disable the budget worker if needed.
 Do not delete new tables, outstanding authorisations/attempts, notices or ledger

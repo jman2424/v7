@@ -42,7 +42,7 @@ SECURITY_TABLES = {
     'billing_plan_events', 'billing_plan_reservations',
     'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
     'usage_wallet_entries', 'usage_checkout_requests',
-    'ai_budget_settings','ai_budget_authorisations','ai_budget_recharges',
+    'ai_budget_settings','ai_budget_authorisations','ai_budget_recharges','ai_budget_work_tenants',
     'ai_budget_notifications','ai_budget_events','ai_budget_payment_costs',
     'ai_provider_funding_settings','ai_provider_health','ai_provider_cost_snapshots','ai_provider_limit_snapshots',
 }
