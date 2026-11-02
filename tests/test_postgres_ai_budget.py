@@ -68,7 +68,14 @@ def test_native_funding_settings_allow_only_a_live_operator_session(pg_runtime):
         db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
         db.execute("INSERT INTO ai_provider_funding_settings VALUES(1,'{}',0) ON CONFLICT(id) DO UPDATE SET value=excluded.value")
     session_store.revoke(token)
+    with session_store.postgres_connection(tenant) as db:
+        db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
+        # RLS hides rows from an unauthorised UPDATE, so PostgreSQL reports zero
+        # affected rows rather than raising. Verify both the denial and the data.
+        result=db.execute("UPDATE ai_provider_funding_settings SET value='{\"unauthorised\":true}' WHERE id=1")
+        assert result.rowcount==0
+        assert db.execute('SELECT value FROM ai_provider_funding_settings WHERE id=1').fetchone()[0]=='{}'
     with pytest.raises(RuntimeError):
         with session_store.postgres_connection(tenant) as db:
             db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
-            db.execute("UPDATE ai_provider_funding_settings SET value='{}' WHERE id=1")
+            db.execute("INSERT INTO ai_provider_funding_settings VALUES(1,'{}',0) ON CONFLICT(id) DO UPDATE SET value=excluded.value")
