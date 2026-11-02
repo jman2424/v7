@@ -2,6 +2,7 @@
   export let section: string;
 
   const paths: Record<string, string[]> = {
+    home: ['M3 11l9-8 9 8 M5 9v12h5v-7h4v7h5V9'],
     platform: ['M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z'],
     companies: ['M4 21V5l8-2v18 M12 9h8v12 M7 8h2 M7 12h2 M7 16h2 M15 13h2 M15 17h2 M2 21h20'],
     pipeline: ['M4 4h16l-6 7v7l-4 2v-9z'],

@@ -1,0 +1,286 @@
+{
+  "workspaces": [
+    {
+      "id": "home",
+      "label": "Home",
+      "description": "A clear view of your business today.",
+      "icon": "home",
+      "views": [
+        {
+          "id": "overview",
+          "label": "Overview",
+          "section": "home"
+        },
+        {
+          "id": "application",
+          "label": "Your application",
+          "section": "application",
+          "hidden": true,
+          "parent": "overview"
+        }
+      ]
+    },
+    {
+      "id": "business",
+      "label": "My Business",
+      "description": "Everything your assistant should know about your business.",
+      "icon": "profile",
+      "views": [
+        {
+          "id": "profile",
+          "label": "Business Profile",
+          "section": "profile"
+        },
+        {
+          "id": "products",
+          "label": "Products & Services",
+          "section": "catalog"
+        },
+        {
+          "id": "offers",
+          "label": "Offers",
+          "section": "offers"
+        },
+        {
+          "id": "answers",
+          "label": "Questions & Answers",
+          "section": "faqs"
+        },
+        {
+          "id": "locations",
+          "label": "Locations & Hours",
+          "section": "branches"
+        },
+        {
+          "id": "delivery",
+          "label": "Delivery",
+          "section": "delivery"
+        },
+        {
+          "id": "rules",
+          "label": "Assistant Rules",
+          "section": "agent"
+        }
+      ]
+    },
+    {
+      "id": "customers",
+      "label": "Sales & Customers",
+      "description": "Conversations, opportunities and the next steps that matter.",
+      "icon": "conversations",
+      "views": [
+        {
+          "id": "messages",
+          "label": "Messages",
+          "section": "conversations"
+        },
+        {
+          "id": "sales",
+          "label": "Sales",
+          "section": "pipeline"
+        },
+        {
+          "id": "insights",
+          "label": "Insights",
+          "section": "statistics"
+        },
+        {
+          "id": "approvals",
+          "label": "Approvals & follow-ups",
+          "section": "operations",
+          "hidden": true,
+          "parent": "messages"
+        }
+      ]
+    },
+    {
+      "id": "channels",
+      "label": "Channels",
+      "description": "Connect your assistant to the places customers reach you.",
+      "icon": "integrations",
+      "views": [
+        {
+          "id": "website",
+          "label": "Website",
+          "section": "website"
+        },
+        {
+          "id": "whatsapp",
+          "label": "WhatsApp",
+          "section": "whatsapp-qr"
+        },
+        {
+          "id": "phone",
+          "label": "Phone",
+          "section": "phone"
+        },
+        {
+          "id": "email",
+          "label": "Email",
+          "section": "email"
+        }
+      ]
+    },
+    {
+      "id": "billing",
+      "label": "Billing",
+      "description": "Your plan, AI balance and payments, together.",
+      "icon": "subscription",
+      "views": [
+        {
+          "id": "overview",
+          "label": "Overview",
+          "section": "billing-overview"
+        },
+        {
+          "id": "subscription",
+          "label": "Subscription",
+          "section": "subscription"
+        },
+        {
+          "id": "budget",
+          "label": "AI Budget",
+          "section": "budget"
+        },
+        {
+          "id": "spending",
+          "label": "AI Spending",
+          "section": "spending"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "description": "Your team, account and preferences.",
+      "icon": "account",
+      "views": [
+        {
+          "id": "apps",
+          "label": "Connected Apps",
+          "section": "integrations"
+        },
+        {
+          "id": "team",
+          "label": "Team & Permissions",
+          "section": "team"
+        },
+        {
+          "id": "security",
+          "label": "Account & Security",
+          "section": "account"
+        },
+        {
+          "id": "privacy",
+          "label": "Privacy & Data",
+          "section": "privacy"
+        },
+        {
+          "id": "cookies",
+          "label": "Cookie Preferences",
+          "section": "cookies"
+        },
+        {
+          "id": "advanced",
+          "label": "Advanced",
+          "section": "errors"
+        },
+        {
+          "id": "businesses",
+          "label": "Your businesses",
+          "section": "companies",
+          "hidden": true,
+          "parent": "security"
+        }
+      ]
+    }
+  ],
+  "platform": {
+    "id": "platform",
+    "label": "Platform administration",
+    "description": "Manage Vertex Seven businesses, approvals and operations.",
+    "icon": "platform",
+    "views": [
+      {
+        "id": "overview",
+        "label": "Overview",
+        "section": "platform"
+      },
+      {
+        "id": "applications",
+        "label": "Applications",
+        "section": "applications"
+      },
+      {
+        "id": "companies",
+        "label": "Businesses",
+        "section": "companies"
+      },
+      {
+        "id": "billing",
+        "label": "Billing Operations",
+        "section": "subscription"
+      },
+      {
+        "id": "funding",
+        "label": "Provider Funding",
+        "section": "provider-funding"
+      },
+      {
+        "id": "health",
+        "label": "System Health",
+        "section": "errors"
+      },
+      {
+        "id": "usage",
+        "label": "Usage Audit",
+        "section": "usage"
+      },
+      {
+        "id": "security",
+        "label": "Account & Security",
+        "section": "account"
+      },
+      {
+        "id": "channel-access",
+        "label": "Business Channel Access",
+        "section": "operations",
+        "hidden": true,
+        "parent": "companies"
+      }
+    ]
+  },
+  "aliases": {
+    "test": {
+      "workspace": "channels",
+      "view": "website",
+      "panel": "test"
+    },
+    "implementation": {
+      "workspace": "channels",
+      "view": "website",
+      "panel": "install"
+    },
+    "operations": {
+      "workspace": "customers",
+      "view": "approvals",
+      "panel": "approvals"
+    },
+    "companies": {
+      "workspace": "settings",
+      "view": "businesses"
+    },
+    "applications": {
+      "workspace": "platform",
+      "view": "applications"
+    },
+    "provider-funding": {
+      "workspace": "platform",
+      "view": "funding"
+    },
+    "usage": {
+      "workspace": "platform",
+      "view": "usage"
+    }
+  }
+}

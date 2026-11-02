@@ -2,6 +2,8 @@
   import { t } from './i18n';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { base } from './consoleBase';
+  import {workspaceHref} from './workspaceArchitecture';
+  export let tenant='';
   export let apiPrefix = '';
   type Company = {tenant:string;name:string;mode:string;status:string;knowledge_files:number;knowledge_files_expected:number;issues:string[];analytics_available:boolean;kpis:{inbound:number;outbound:number;sessions:number;errors:number}|null;errors:{error_code?:string;error_type?:string;count:number}[]};
   type Report = {company_count:number;page:number;page_size:number;has_next:boolean;generated_at:string;companies:Company[]};
@@ -51,7 +53,7 @@
 <section class="platform" aria-label="Platform management overview" aria-busy={busy}>
   <article class="intro">
     <div class="intro-copy"><p class="eyebrow">Platform management</p><h2>Business overview</h2><p>Review customer activity and company setup, then open a workspace to take action.</p></div>
-    <div class="intro-action"><span class="access-label"><span></span>Platform administrator</span><a href={base + '/companies'}><span>Add a company</span><span aria-hidden="true">↗</span></a></div>
+    <div class="intro-action"><span class="access-label"><span></span>Platform administrator</span><a href={workspaceHref(base,'platform','companies',tenant)}><span>Add a company</span><span aria-hidden="true">↗</span></a></div>
   </article>
 
   {#if report && !error}
@@ -79,7 +81,7 @@
         <dl><div><dt>Customer messages</dt><dd>{count(company.kpis?.inbound)}</dd></div><div><dt>Agent replies</dt><dd>{count(company.kpis?.outbound)}</dd></div><div><dt>{$t("Conversations")}</dt><dd>{count(company.kpis?.sessions)}</dd></div><div><dt>Recorded errors</dt><dd>{count(company.kpis?.errors)}</dd></div></dl>
         <div class="knowledge"><div><span>Readable knowledge files</span><strong>{company.knowledge_files}<span> / {company.knowledge_files_expected}</span></strong></div><div class="knowledge-track" aria-hidden="true"><span style:width={(company.knowledge_files_expected ? Math.min(100,company.knowledge_files/company.knowledge_files_expected*100) : 0) + '%'}></span></div></div>
         {#if company.issues.length}<ul class="issues">{#each company.issues as issue}<li>{issue}</li>{/each}</ul>{/if}
-        <div class="actions"><button class="open-workspace" on:click={() => dispatch('open',{tenant:company.tenant,section:'pipeline'})}>Open workspace <span aria-hidden="true">↗</span></button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'team'})}>Owner &amp; staff accounts</button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'statistics'})}>{$t("Statistics")}</button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'errors'})}>{$t("Errors & health")}</button></div>
+        <div class="actions"><button class="open-workspace" on:click={() => dispatch('open',{tenant:company.tenant,section:'pipeline'})}>Open workspace <span aria-hidden="true">↗</span></button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'operations'})}>Channel permissions</button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'team'})}>Owner &amp; staff accounts</button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'statistics'})}>{$t("Statistics")}</button><button on:click={() => dispatch('open',{tenant:company.tenant,section:'errors'})}>{$t("Errors & health")}</button></div>
       </article>
     {:else}<article class="empty"><span class="empty-symbol" aria-hidden="true">⌕</span><h3>{report.company_count ? 'No businesses match these filters' : 'Your first workspace starts here'}</h3><p>{report.company_count ? 'Clear the filters or check another page to find a business.' : 'Add a company to start building its knowledge and reviewing customer activity.'}</p></article>{/each}</div>
     <footer><nav class="pagination" aria-label="Business pages"><button disabled={busy || page === 1} on:click={() => page -= 1}>Previous</button><span>Page {report.page} of {Math.max(1,Math.ceil(report.company_count/report.page_size))}</span><button disabled={busy || !report.has_next} on:click={() => page += 1}>Next</button></nav><p>Recorded activity and configuration checks. Last checked <time datetime={report.generated_at}>{new Date(report.generated_at).toLocaleString()}</time></p></footer>

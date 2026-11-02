@@ -1,8 +1,10 @@
 import { error } from '@sveltejs/kit';
+import { workspaceDefinitions } from '../../lib/workspaceArchitecture';
 const sections = ['subscription','platform','pipeline','statistics','test','implementation','whatsapp-qr','usage','conversations','agent','website','integrations','catalog','offers','faqs','delivery','profile','branches','team','companies','errors','account','privacy'];
 sections.push('operations');
 sections.push('applications','application');
 sections.push('budget','provider-funding');
+sections.push(...workspaceDefinitions.map(item=>item.id).filter(id=>!sections.includes(id)));
 export function entries() { return sections.map(section => ({section})); }
 export function load({ params }: { params: { section: string } }) {
   if (!sections.includes(params.section)) error(404, 'Page not found');

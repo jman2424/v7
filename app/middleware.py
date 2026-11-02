@@ -104,6 +104,8 @@ def install_request_id(app):
         elif request.path == "/chat_ui":
             origins = g.get("chat_origins", [])
             response.headers["Content-Security-Policy"] += "; frame-ancestors 'self' " + " ".join(origins)
+        if g.get("console_immutable_asset") and response.status_code in {200, 304}:
+            response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
         return response

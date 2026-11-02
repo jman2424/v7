@@ -1,4 +1,10 @@
 <script lang="ts">
+  import {base} from './consoleBase';
+  import {sectionHref} from './workspaceArchitecture';
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import {onMount,onDestroy} from 'svelte';
   export let tenant:string;
   export let csrf:string;
@@ -9,6 +15,7 @@
   export let onSaved:()=>void=()=>{};
   type Module={id:string;label:string;granted:boolean;enabled:boolean;available:boolean;blocked_by:string;approval:string};
   let modules:Module[]=[],grants:Record<string,boolean>={},enabled:Record<string,boolean>={};
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({grants,enabled}));
   let revision='',initialized=false,loading=true,busy=false,disposed=false,message='',error=false;
   const controllers=new Set<AbortController>();
   const reasons:Record<string,string>={platform_disabled:'Paused by platform-wide policy.',plan_not_allowed:'Unavailable under the operator’s plan policy.',
@@ -34,10 +41,12 @@
     modules=data.modules;revision=data.revision;initialized=data.initialized;
     grants=Object.fromEntries(modules.map(row=>[row.id,row.granted]));
     enabled=Object.fromEntries(modules.map(row=>[row.id,row.enabled&&row.granted]));
+    savedDraft=JSON.stringify({grants,enabled});
     onReady(initialized);
   }
   async function load() {
     if(busy||disposed)return;
+    if(dirty&&!await draftConfirmation.ask())return;
     busy=true;message='';error=false;
     try {const data=await request();if(!disposed)apply(data);}
     catch(err){if(!disposed){error=true;message=err instanceof Error?err.message:'Module controls are unavailable.';}}
@@ -53,6 +62,7 @@
   onMount(load);
   onDestroy(()=>{disposed=true;for(const controller of controllers)controller.abort();});
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section class="modules" aria-labelledby="agent-module-title">
   <div class="heading"><h3 id="agent-module-title">What your agent is allowed to do</h3><button type="button" on:click={load} disabled={busy}>Refresh module controls</button></div>
@@ -67,7 +77,7 @@
         <p class="hint">{row.id==='booking_management'?'Changes need the customer’s private appointment receipt and confirmation. External calendars are separate.':
           ['consultation','quote','callback'].includes(row.id)?'Uses the existing customer-confirmed request form. A quote request is not a final quote; only a reserved V7 slot is a confirmed booking.':
           'Uses the channel’s existing review/automatic mode, verified provider connection and configured privacy settings.'}</p>
-        <a href={row.id==='email'||row.id==='phone'?`/console/operations?tenant=${encodeURIComponent(tenant)}#channel-settings`:`/console/agent?tenant=${encodeURIComponent(tenant)}`}>Open service settings</a>
+        <a href={sectionHref(base,row.id==='email'||row.id==='phone'?row.id:'website',tenant)+(row.id==='email'||row.id==='phone'?'#channel-settings':'#conversion-settings')}>Open service settings</a>
       </fieldset>{/each}</div>
       <button type="submit" disabled={!initialized||!canManage||busy}>Save business module switches</button>
     </form>
@@ -76,7 +86,7 @@
       {#each modules as row}<label><input type="checkbox" bind:checked={grants[row.id]} disabled={busy}/>{row.label} permitted</label>{/each}
       <button type="submit" disabled={busy}>{initialized?'Save module grants':'Initialize module controls'}</button>
     </form>{/if}
-    <p class="hint">Platform-wide kill switches and plan restrictions use operator deployment configuration in this phase. A module switch stops future execution; it does not undo completed actions or remove existing customer records.</p>
+    <p class="hint">{#if isPlatform}Platform-wide kill switches and plan restrictions use operator deployment configuration in this phase. {/if}A module switch stops future execution; it does not undo completed actions or remove existing customer records.</p>
   {/if}
   {#if message}<p role="status" class:error>{message}</p>{/if}
 </section>

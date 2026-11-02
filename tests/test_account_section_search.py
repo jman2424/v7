@@ -30,7 +30,7 @@ def test_section_search_reuses_live_permission_rules():
     script += r"""
 setImmediate(()=>{
  h.identity({email:'staff@synthetic.test',tenant:'CLIENT_A',roles:['business_staff'],permissions:['conversations.read']});
- assert.deepEqual(Array.from(h.searchableSections()).sort(),['account','conversations']);
+ assert.deepEqual(Array.from(h.searchableSections()).sort(),['account','conversations','cookies','home']);
  h.identity({email:'owner@synthetic.test',tenant:'CLIENT_B',roles:['business_owner'],permissions:['business_settings.read','view_costs','view_subscriptions']});
  const owner=Array.from(h.searchableSections());
  assert(owner.includes('budget')&&owner.includes('subscription')&&!owner.includes('usage')&&!owner.includes('provider-funding'));

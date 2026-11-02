@@ -5,6 +5,7 @@ import pytest
 from urllib.parse import parse_qs, urlsplit
 
 from routes.owner_console_routes import SECTIONS
+from service.console_navigation import legacy_location
 from service import session_store
 from service.account_service import AccountService
 from service.tenant_service import TenantService
@@ -56,7 +57,13 @@ def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_
     assert client.get('/console/index.html').status_code == 200
     assert asset.status_code == 200
     assert asset.get_data(as_text=True) == "console.log('console');"
+    assert asset.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+    conditional = client.get("/console/_app/immutable/app.js", headers={"If-None-Match": asset.headers["ETag"]})
+    assert conditional.status_code == 304
+    assert conditional.headers["Cache-Control"] == asset.headers["Cache-Control"]
     assert missing.status_code == 404
+    assert missing.headers["Cache-Control"] == "no-store"
+    assert client.get("/console/_app/immutable/missing.js").headers["Cache-Control"] == "no-store"
 
 
 @pytest.mark.parametrize("section", ["errors", "subscription", "platform", "catalog", "conversations", "test", "usage", "implementation", "whatsapp-qr", "statistics"])
@@ -64,9 +71,11 @@ def test_console_deep_links_keep_nonce_protected_bootstrap(client, app, tmp_path
     sign_in(client, 'platform_admin')
     build_dir = tmp_path / "console-pages"
     build_dir.mkdir()
+    canonical=legacy_location(section)["workspace"]
+    (build_dir / f"{canonical}.html").write_text('<main>Console</main><script>start()</script>', encoding="utf-8")
     (build_dir / f"{section}.html").write_text('<main>Console</main><script>start()</script>', encoding="utf-8")
     app.config["OWNER_CONSOLE_DIR"] = str(build_dir)
-    response = client.get(f"/console/{section}")
+    response = client.get(f"/console/{section}", follow_redirects=True)
     assert response.status_code == 200
     nonce = re.search(r'<script nonce="([^"]+)"', response.text).group(1)
     assert "'nonce-" + nonce + "'" in response.headers["Content-Security-Policy"]
@@ -118,7 +127,7 @@ def test_plan_review_hint_never_selects_or_changes_saved_subscription(client, co
     subscriptions.select_plan('EXAMPLE', 'business')
     before = subscriptions.plan_state('EXAMPLE')
     sign_in(client)
-    assert client.get('/console/subscription?plan=starter').status_code == 200
+    assert client.get('/console/subscription?plan=starter',follow_redirects=True).status_code == 200
     assert subscriptions.plan_state('EXAMPLE') == before
 
 
@@ -151,31 +160,32 @@ def test_team_and_company_sections_require_owner_or_operator(client, compiled_co
     sign_in(client, 'business_staff')
     assert client.get('/console/'+section).status_code == 403
     sign_in(client, 'business_owner')
-    assert client.get('/console/'+section).status_code == 200
+    assert client.get('/console/'+section,follow_redirects=True).status_code == 200
     sign_in(client, 'platform_admin')
-    assert client.get('/console/'+section).status_code == 200
+    assert client.get('/console/'+section,follow_redirects=True).status_code == 200
 
 
 @pytest.mark.parametrize('permissions', [[], ['view_costs'], ['view_subscriptions'], ['view_costs', 'view_subscriptions']])
 def test_staff_console_sections_follow_current_account_permissions(client, compiled_console, permissions):
     sign_in(client, 'business_staff', permissions=permissions)
-    assert client.get('/console/usage').status_code == (200 if 'view_costs' in permissions else 403)
-    assert client.get('/console/subscription.html').status_code == (200 if 'view_subscriptions' in permissions else 403)
-    assert client.get('/console/pipeline').status_code == 200
-    assert client.get('/console/account').status_code == 200
-    assert client.get('/console/privacy.html').status_code == 200
+    assert client.get('/console/usage').status_code == 403
+    assert client.get('/console/billing?view=spending').status_code == (200 if 'view_costs' in permissions else 403)
+    assert client.get('/console/subscription.html',follow_redirects=True).status_code == (200 if 'view_subscriptions' in permissions else 403)
+    assert client.get('/console/pipeline',follow_redirects=True).status_code == 403
+    assert client.get('/console/account',follow_redirects=True).status_code == 200
+    assert client.get('/console/privacy.html',follow_redirects=True).status_code == 403
 
 
 def test_console_tenant_selection_uses_the_authenticated_assignment(client, compiled_console):
     TenantService(client.application.container.storage).create_tenant('OTHER', 'Inactive other test business')
     sign_in(client, tenant='OTHER')
     # No URL tenant chooses the signed account's home, not the app default.
-    assert client.get('/console/catalog').status_code == 200
-    assert client.get('/console/privacy?tenant=other').status_code == 200
+    assert client.get('/console/catalog',follow_redirects=True).status_code == 200
+    assert client.get('/console/privacy?tenant=other',follow_redirects=True).status_code == 200
     assert client.get('/console/account?tenant=EXAMPLE').status_code == 403
     assert client.get('/console/catalog?tenant=EXAMPLE').status_code == 403
     sign_in(client, 'platform_admin')
-    assert client.get('/console/catalog?tenant=OTHER').status_code == 200
+    assert client.get('/console/catalog?tenant=OTHER',follow_redirects=True).status_code == 200
     assert client.get('/console/account?tenant=MissingCo').status_code == 404
 
 
@@ -184,3 +194,68 @@ def test_revoked_console_session_redirects_to_sign_in(client, compiled_console):
     with client.session_transaction() as state:
         session_store.revoke(state['management_token'])
     assert client.get('/console/account.html').status_code == 303
+
+
+@pytest.mark.parametrize('workspace,view,section', [
+    ('home','overview','home'),('business','products','catalog'),
+    ('customers','messages','conversations'),('channels','website','website'),
+    ('billing','budget','budget'),('settings','security','account'),
+])
+def test_canonical_workspaces_serve_authorised_views(client, compiled_console, workspace, view, section):
+    sign_in(client)
+    response=client.get('/console/'+workspace+'?view='+view+'&tenant=EXAMPLE')
+    assert response.status_code==200
+    assert '<script nonce=' in response.text
+    assert response.headers['Cache-Control']=='no-store'
+
+
+@pytest.mark.parametrize('view',['overview','companies','funding','security','channel-access'])
+def test_platform_views_cannot_be_obtained_via_customer_query(client, compiled_console, view):
+    sign_in(client)
+    assert client.get('/console/platform?view='+view).status_code==403
+
+
+@pytest.mark.parametrize('url',[
+    '/console/business?view=channel-access','/console/billing?view=funding',
+    '/console/settings?view=applications','/console/home?view=https://external.example',
+])
+def test_unknown_or_cross_workspace_views_are_rejected(client, compiled_console, url):
+    sign_in(client)
+    assert client.get(url).status_code==400
+
+
+def test_legacy_install_and_plan_links_preserve_context_without_selecting_plan(client, compiled_console):
+    sign_in(client)
+    response=client.get('/console/implementation?tenant=EXAMPLE')
+    assert response.status_code==308
+    destination=urlsplit(response.headers['Location'])
+    assert destination.path=='/console/channels'
+    assert parse_qs(destination.query)=={'tenant':['EXAMPLE'],'view':['website'],'panel':['install']}
+    response=client.get('/console/subscription?tenant=EXAMPLE&plan=business')
+    assert parse_qs(urlsplit(response.headers['Location']).query)=={'tenant':['EXAMPLE'],'view':['subscription'],'plan':['business']}
+
+
+@pytest.mark.parametrize('workspace,view',[
+    ('business','profile'),('customers','messages'),('channels','email'),
+    ('billing','budget'),('settings','security'),('platform','companies'),
+])
+def test_canonical_links_reject_cross_tenant_access(client, compiled_console, workspace, view):
+    TenantService(client.application.container.storage).create_tenant('OTHER','Other test business')
+    sign_in(client)
+    assert client.get('/console/'+workspace+'?view='+view+'&tenant=OTHER').status_code==403
+
+
+def test_default_workspace_selects_first_permitted_view(client, compiled_console):
+    sign_in(client,'business_staff',permissions=['view_costs'])
+    response=client.get('/console/billing?tenant=EXAMPLE')
+    assert response.status_code==303
+    assert parse_qs(urlsplit(response.headers['Location']).query)['view']==['overview']
+    assert client.get('/console/billing?view=subscription').status_code==403
+    assert client.get('/console/billing?view=budget').status_code==200
+
+
+def test_channel_microphone_policy_only_applies_to_website_view(client, compiled_console):
+    sign_in(client)
+    assert 'microphone=(self)' in client.get('/console/channels?view=website').headers['Permissions-Policy']
+    for view in ['email','phone','whatsapp']:
+        assert 'microphone=()' in client.get('/console/channels?view='+view).headers['Permissions-Policy']

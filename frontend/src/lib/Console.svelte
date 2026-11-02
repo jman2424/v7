@@ -3,49 +3,50 @@
   import { base } from './consoleBase';
   import { goto } from '$app/navigation';
   import SectionSearch from './SectionSearch.svelte';
-  import PlatformOverview from './PlatformOverview.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
-  import Subscription from './Subscription.svelte';
-  import Referrals from './Referrals.svelte';
   import {subscriptionCreditAlerts} from './subscription-format';
   import Conversations from './Conversations.svelte';
-  import AgentTest from './AgentTest.svelte';
-  import WidgetDesigner from './WidgetDesigner.svelte';
   import type { Widget, PreviewTheme } from './widgetAppearance';
-  import WebsiteKnowledge from './WebsiteKnowledge.svelte';
-  import KnowledgeReview from './KnowledgeReview.svelte';
-  import ConversionSettings from './ConversionSettings.svelte';
-  import ApiUsage from './ApiUsage.svelte';
-  import AIBudget from './AIBudget.svelte';
-  import ProviderFunding from './ProviderFunding.svelte';
-  import Implementation from './Implementation.svelte';
-  import ConnectionSettings from './ConnectionSettings.svelte';
-  import BusinessHub from './BusinessHub.svelte';
-  import WhatsAppQr from './WhatsAppQr.svelte';
-  import Statistics from './Statistics.svelte';
-  import ErrorsHealth from './ErrorsHealth.svelte';
-  import Registration from './Registration.svelte';
-  import BusinessApplication from './BusinessApplication.svelte';
-  import BusinessApplications from './BusinessApplications.svelte';
-  import JoinRequests from './JoinRequests.svelte';
-  import AccountSecurity from './AccountSecurity.svelte';
-  import PasswordManagement from './PasswordManagement.svelte';
-  import PrivacySettings from './PrivacySettings.svelte';
-  import AiParameters from './AiParameters.svelte';
   import LanguagePicker from './LanguagePicker.svelte';
   import CookiePreferences from './CookiePreferences.svelte';
   import NavigationIcon from './NavigationIcon.svelte';
+  import WorkspaceNav from './WorkspaceNav.svelte';
+  import WorkspaceHome from './WorkspaceHome.svelte';
+  import OfferingPicker from './OfferingPicker.svelte';
+  import DraftGuard from './DraftGuard.svelte';
+  import {hasUnsavedDrafts} from './draftNavigation';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  import BillingOverview from './BillingOverview.svelte';
+  import {workspaces,platformWorkspace,workspaceDefinitions,legacyLocation,resolveWorkspace,workspaceAllowed,workspaceHref,sectionHref,type Workspace} from './workspaceArchitecture';
   import { initialiseLanguage, t } from './i18n';
   let cookiePreferences: CookiePreferences | undefined;
   let cookiePreferencesOpen = false;
   let signupOpen = false;
   let passwordResetOpen = false;
-  export let section = 'pipeline';
+  export let section = 'home';
+  export let workspace = '';
+  export let workspaceView = '';
+  export let workspacePanel = '';
+  let navigationCollapsed=false;
+  let primaryWorkspaces:Workspace[]=[];
+  $: activeWorkspace=workspace||legacyLocation(section).workspace;
+  $: activeView=workspaceView||legacyLocation(section).view;
+  $: platformMode=activeWorkspace==='platform'&&isPlatform;
+  $: workspaceDefinition=workspaceDefinitions.find(item=>item.id===activeWorkspace)||workspaces[0];
+  $: viewDefinition=workspaceDefinition.views.find(item=>item.id===activeView)||workspaceDefinition.views[0];
+  $: deliveryVisible=agentSettings.playbook.offering_type!=='services'||['delivery','collection'].includes(agentSettings.playbook.fulfilment_mode);
+  $: availableViews=user?workspaceDefinition.views.filter(item=>mayOpenScreen(item.section)&&(item.section!=='delivery'||deliveryVisible)):[];
+  $: primaryWorkspaces=!user?[]:platformMode
+    ? platformWorkspace.views.filter(item=>!item.hidden&&mayOpenScreen(item.section)).map(item=>({id:item.id,label:item.label,description:'',icon:item.section,views:[item]}))
+    : workspaces.map(item=>({...item,views:item.views.filter(view=>mayOpenScreen(view.section))})).filter(item=>item.views.some(view=>!view.hidden));
+  $: businessName=tenants.find(item=>item.key===tenant)?.name||profile.name||$t('Your business');
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data',budget:'AI Budget','provider-funding':'AI Provider Funding'};
   $: pageTitle = sections[section] || 'Sales workspace';
   sections.operations = 'Business hub';
   sections.applications = 'Business Applications';
   sections.application = 'My application';
+  sections.home='Home';sections.phone='Phone';sections.email='Email';sections.cookies='Cookie Preferences';
+  sections['billing-overview']='Billing';sections.spending='AI Spending';
   const pageDescriptions: Record<string, string> = {
     operations: 'Manage email and phone handling, review replies and confirm business actions.',
     platform: 'A clear view of your businesses, activity and setup.',
@@ -74,16 +75,6 @@
     account: 'Manage your sign-in and account security.',
     privacy: 'Manage business data and privacy preferences.'
   };
-  const navigationGroups: { id: string; label: string; keys: string[] }[] = [
-    { id: 'businesses', label: 'Businesses', keys: ['platform', 'applications', 'companies', 'application'] },
-    { id: 'activity', label: 'Sales activity', keys: ['operations', 'pipeline', 'statistics', 'conversations', 'errors'] },
-    { id: 'setup', label: 'Agent and channels', keys: ['agent', 'website', 'integrations', 'implementation', 'whatsapp-qr'] },
-    { id: 'knowledge', label: 'Business knowledge', keys: ['catalog', 'offers', 'faqs', 'delivery', 'profile', 'branches'] },
-    { id: 'billing', label: 'Billing and usage', keys: ['subscription', 'budget', 'usage', 'provider-funding'] },
-    { id: 'account', label: 'Account and access', keys: ['team', 'account', 'privacy'] }
-  ];
-
-
   type User = {
     permissions?: string[];
     email: string;
@@ -93,6 +84,7 @@
 
   const isWidgetSection = (screen: string) => screen === 'website' || screen === 'test';
   let widgetView: 'appearance' | 'test' | 'install' = section === 'test' ? 'test' : 'appearance';
+  $: if(workspacePanel==='test'||workspacePanel==='install')widgetView=workspacePanel;
   let widgetSaving = false;
   let widgetSaveSequence = 0;
   let savedWidgetFingerprint = '';
@@ -322,6 +314,7 @@
   let password = '';
   let showPassword = false;
   let rememberDevice = false;
+  let providerController:AbortController|undefined;
   let providers: {id: 'google'|'microsoft'; name:string; configured:boolean}[] = [];
   let oidcNotice = '';
   let totp = '';
@@ -345,7 +338,6 @@
   let formStatus = '';
   let formError = false;
   let loading = true;
-  let navigationOpen = false;
   const sectionKeywords:Record<string,string>={
     operations:'business hub email phone calls inbox approvals drafts workflows actions',
     budget:'AI funds balance spending alerts automatic recharge credit',
@@ -357,12 +349,13 @@
     branches:'locations opening times hours',conversations:'chat history messages customers',
     implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
   };
-  function searchableSections(){return navigationGroups.flatMap(group=>group.keys).filter(mayOpenScreen);}
+  function searchableSections(){return [...new Set((platformMode?[platformWorkspace]:workspaces).flatMap(group=>group.views.map(view=>view.section)))].filter(mayOpenScreen);}
   $: sectionSearchItems=user?searchableSections().map(key=>({
     key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:sectionKeywords[key]||'',
-    href:base+'/'+key+'?tenant='+encodeURIComponent(tenant),reload:isWidgetSection(key)||isWidgetSection(section)
+    href:platformMode?workspaceHref(base,'platform',platformWorkspace.views.find(view=>view.section===key)?.id||'overview',tenant):sectionHref(base,key,tenant),reload:isWidgetSection(key)
   })):[];
 
+  let companyQuery='';
   let newTenantKey = '';
   let newTenantName = '';
   let createStatus = '';
@@ -376,6 +369,14 @@
   let accountStatus = '';
   let referralSaved = false;
   let accountError = false;
+  $: editorWritePermission=({catalog:'offerings.write',offers:'offers.write',faqs:'business_settings.write',profile:'business_settings.write',branches:'business_settings.write',delivery:'business_settings.write',agent:'business_settings.write'} as Record<string,string>)[section]||'';
+  $: canEditCurrent=!editorWritePermission||Boolean(user?.permissions?.includes(editorWritePermission));
+  let catalogQuery='',faqQuery='',salesQuery='',salesStage='all';
+  let commonQuestionsOpen=false,advancedAiOpen=false;
+  let messagePanel='history',approvalsOpened=false;
+  $: if(workspacePanel==='approvals'){messagePanel='approvals';approvalsOpened=true;}
+  const matches=(query:string,...values:unknown[])=>!query.trim()||values.join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+  $: visibleLeadCount=insights.leads.filter(lead=>(salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)).length;
   let catalogStatus = '';
   let catalogError = false;
   let faqStatus = '';
@@ -390,6 +391,7 @@
   let branchesError = false;
   let agentStatus = '';
   let agentError = false;
+  let insightsAvailable=false,insightsBusy=false;
   let insights: Insights = {
     kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 },
     sales_funnel: { total: 0, active: 0, open: 0, contacted: 0, qualified: 0, won: 0, lost: 0, other: 0, handoffs: 0, contacts_captured: 0 },
@@ -407,6 +409,17 @@
   let accountViewSubscriptions=false;
   let selectedViewCosts=false;
   let selectedViewSubscriptions=false;
+  let draftConfirmation:ConfirmDialog;
+  let savedBusinessDrafts:Record<string,string>={};
+  $: businessDrafts={catalog,faq:faqs,offers,delivery,profile,branches,'agent-settings':agentSettings};
+  $: dirtyResources=Object.entries(businessDrafts).filter(([key,value])=>savedBusinessDrafts[key]&&savedBusinessDrafts[key]!==JSON.stringify(value)).map(([key])=>key);
+  $: currentDraftKey=({catalog:'catalog',faqs:'faq',offers:'offers',delivery:'delivery',profile:'profile',branches:'branches',agent:'agent-settings'} as Record<string,string>)[section]||'';
+  function rememberDraft(key:string,value:unknown){savedBusinessDrafts={...savedBusinessDrafts,[key]:JSON.stringify(value)};}
+  async function discardDraft(){
+    if(!savedBusinessDrafts[currentDraftKey]||!await draftConfirmation.ask())return;
+    const value=JSON.parse(savedBusinessDrafts[currentDraftKey]);
+    switch(currentDraftKey){case 'catalog':catalog=value;break;case 'faq':faqs=value;break;case 'offers':offers=value;break;case 'delivery':delivery=value;break;case 'profile':profile=value;break;case 'branches':branches=value;break;case 'agent-settings':agentSettings=value;break;}
+  }
   let activation:{active:boolean;status:string;usage_credit_alerts?:{code:string;message:string}[]}|null=null;
   $: usageCreditAlerts=subscriptionCreditAlerts(activation?.usage_credit_alerts||[]);
   $: usageCreditWarning=(code:string)=>$t(code==='low_credit'?'Your available AI credit is low. Top up to keep paid AI responses available.':code==='financial_review_required'?'Paid AI is paused pending a credit or usage review. Contact your platform administrator. Saved business knowledge remains available.':code==='pricing_unavailable'?'Paid AI is paused because model pricing or the exchange rate cannot be verified safely. Contact your platform administrator.':'Paid AI is paused until sufficient usage credit is available. Saved business knowledge remains available.');
@@ -694,6 +707,7 @@
     for (const controller of workspaceControllers) controller.abort();
     workspaceControllers.clear();
     loadedWorkspaceResources.clear();
+    savedBusinessDrafts={};
     pendingWorkspaceResources.clear();
     pendingWorkspaceMutations.clear();
     workspaceBusy = false;
@@ -708,7 +722,7 @@
     agentSettings = normalizeAgentSettings({}); snippet = ''; originText = '';
     accounts = []; selectedAccountId = ''; selectedAccountPassword = ''; accountPassword = ''; accountEmail = '';
     selectedAccountActive = true; selectedViewCosts = false; selectedViewSubscriptions = false;
-    insights = normalizeInsights({}); activityStatus = '';
+    insights = normalizeInsights({}); insightsAvailable=false;insightsBusy=false;activityStatus = '';
     formStatus = ''; createStatus = ''; accountStatus = ''; catalogStatus = ''; faqStatus = '';
     offersStatus = ''; deliveryStatus = ''; profileStatus = ''; branchesStatus = ''; agentStatus = '';
   }
@@ -727,18 +741,20 @@
   }
 
   function initialWorkspaceSection() {
-    const next = new URLSearchParams(window.location.search).get('next');
-    if (next && mayOpenScreen(next)) return next;
-    if (user?.roles.some(role => role === 'platform_admin' || role === 'admin') && window.location.pathname.replace(/\/$/, '') === base) return defaultWorkspaceScreen();
+    const params=new URLSearchParams(window.location.search);
+    const next=params.get('next');
+    const destination=next?resolveWorkspace(next,params.get('view')||'').section:'';
+    if (destination && mayOpenScreen(destination)) return destination;
+    if (user && window.location.pathname.replace(/\/$/, '') === base) return defaultWorkspaceScreen();
     return mayOpenScreen(section) ? section : defaultWorkspaceScreen();
   }
 
   function sectionResources(screen: string, identity: User | null): WorkspaceResource[] {
     const resources: Partial<Record<string, WorkspaceResource[]>> = {
-      pipeline: ['insights'], team: ['accounts'], catalog: ['catalog', 'agent-settings'],
+      home: ['insights'], pipeline: ['insights'], team: ['accounts'], catalog: ['catalog', 'agent-settings'],
       test: ['widget', 'profile'], website: ['widget', 'profile'], integrations: ['widget'],
-      agent: ['agent-settings'], offers: ['offers'], faqs: ['faq'], delivery: ['delivery'],
-      profile: ['profile'], branches: ['branches']
+      agent: ['agent-settings'], offers: ['offers','catalog'], faqs: ['faq'], delivery: ['delivery'],
+      profile: ['profile','agent-settings'], branches: ['branches']
     };
     const permissions: Partial<Record<WorkspaceResource, string>> = {
       widget: 'business_settings.read', catalog: 'offerings.read', faq: 'business_settings.read',
@@ -772,13 +788,13 @@
             originText = widget.allowed_origins.join('\n'); snippet = data.embed?.snippet || '';
             iframeSnippet = data.embed?.iframe_snippet || ''; widgetChatUrl = data.embed?.chat_url || '';
             savedWidgetFingerprint = JSON.stringify(widget); break;
-          case 'catalog': catalog = normalizeCatalog(data); break;
-          case 'faq': faqs = normalizeFaqs(data); break;
-          case 'offers': offers = normalizeOffers(data); break;
-          case 'delivery': delivery = normalizeDelivery(data); break;
-          case 'profile': profile = normalizeProfile(data); break;
-          case 'branches': branches = normalizeBranches(data); break;
-          case 'agent-settings': agentSettings = normalizeAgentSettings(data); break;
+          case 'catalog': catalog = normalizeCatalog(data); rememberDraft('catalog',catalog); break;
+          case 'faq': faqs = normalizeFaqs(data); rememberDraft('faq',faqs); break;
+          case 'offers': offers = normalizeOffers(data); rememberDraft('offers',offers); break;
+          case 'delivery': delivery = normalizeDelivery(data); rememberDraft('delivery',delivery); break;
+          case 'profile': profile = normalizeProfile(data); rememberDraft('profile',profile); break;
+          case 'branches': branches = normalizeBranches(data); rememberDraft('branches',branches); break;
+          case 'agent-settings': agentSettings = normalizeAgentSettings(data); rememberDraft('agent-settings',agentSettings); break;
         }
       }
       if (isCurrentWorkspace(activeLoad)) loadedWorkspaceResources.add(resource);
@@ -846,6 +862,10 @@
     if (!user || !Object.hasOwn(sections, key)) return false;
     const operator = user.roles.some(role => role === 'platform_admin' || role === 'admin');
     const owner = user.roles.includes('business_owner');
+    if(key==='home'||key==='cookies')return true;
+    if(key==='billing-overview')return Boolean(user.permissions?.includes('view_costs')||user.permissions?.includes('view_subscriptions'));
+    if(key==='spending')return Boolean(user.permissions?.includes('view_costs'));
+    if(key==='phone'||key==='email')return (operator||owner)&&Boolean(user.permissions?.includes('customers.read')&&user.permissions?.includes('integrations.read'));
     if (key === 'platform') return operator && Boolean(user.permissions?.includes('platform.read'));
     if (key === 'provider-funding') return operator;
     if (key === 'budget') return Boolean(user.permissions?.includes('view_costs'));
@@ -882,7 +902,7 @@
   }
 
   function defaultWorkspaceScreen() {
-    return ['platform', 'pipeline', 'statistics', 'conversations', 'catalog', 'offers', 'website', 'integrations', 'implementation', 'whatsapp-qr', 'usage', 'subscription', 'account'].find(mayOpenScreen) || 'account';
+    return (isPlatform?['platform','home']:['home','account']).find(mayOpenScreen)||'account';
   }
 
   async function loadAccounts(selectedTenant = tenant, activeLoad = workspaceRequest()) {
@@ -919,19 +939,22 @@
   }
 
   async function loadInsights(selectedTenant = tenant, activeLoad = workspaceRequest()) {
+    if(insightsBusy||!isCurrentWorkspace(activeLoad))return false;
+    insightsBusy=true;insightsAvailable=false;
     insights = normalizeInsights({});
     activityStatus = 'Loading activity...';
     try {
-      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=10`, { credentials: 'same-origin' }, activeLoad);
+      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=50`, { credentials: 'same-origin' }, activeLoad);
       if (!isCurrentWorkspace(activeLoad)) return;
       if (!response.ok) { activityStatus = 'Sales activity is currently unavailable. Try refreshing.'; return false; }
       insights = normalizeInsights(data);
+      insightsAvailable=true;
       activityStatus = '';
       return true;
     } catch {
       if (isCurrentWorkspace(activeLoad)) activityStatus = 'Sales activity could not load. Check your connection and try refreshing.';
       return false;
-    }
+    } finally {if(isCurrentWorkspace(activeLoad))insightsBusy=false;}
   }
 
   async function updateLeadStatus(leadId: string, status: LeadStatus) {
@@ -946,7 +969,8 @@
       return;
     }
     insights = { ...insights, leads: insights.leads.map((lead) => lead.lead_id === leadId ? { ...lead, status } : lead) };
-    activityStatus = 'Lead updated.';
+    const refreshed=await loadInsights(tenant,result.activeLoad);
+    if(isCurrentWorkspace(result.activeLoad))activityStatus=refreshed?'Lead updated.':'Lead status was saved. Refresh sales activity to load the latest totals.';
   }
 
   async function restoreSession() {
@@ -1064,25 +1088,36 @@
     const referral = params.get('ref') || '';
     referralSaved = /^V7-[A-Fa-f0-9]{32}$/.test(referral);
     const next = params.get('next');
-    let destination = next && mayOpenScreen(next) ? next : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
-    if (!destination && user.roles.some(role=>role==='platform_admin'||role==='admin') && window.location.pathname.replace(/\/$/,'')===base) {
+    const requested=next?resolveWorkspace(next,params.get('view')||'',params.get('panel')||''):null;
+    let destination = requested && mayOpenScreen(requested.section) ? requested.section : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
+    if (!destination && window.location.pathname.replace(/\/$/,'')===base) {
       destination = defaultWorkspaceScreen();
     }
     if (!destination) return;
     params.delete('next'); params.delete('oidc'); params.delete('provider');
     params.set('tenant', tenant);
-    const target = base+'/'+destination+'?'+params.toString();
+    const location=requested&&requested.section===destination?requested:legacyLocation(destination);
+    params.set('view',location.view);
+    if(location.panel)params.set('panel',location.panel);else params.delete('panel');
+    const target = base+'/'+location.workspace+'?'+params.toString();
     // A full document load applies the widget page's microphone policy.
     if (isWidgetSection(destination) || isWidgetSection(section)) window.location.replace(target);
     else await goto(target, {replaceState:true});
   }
 
   async function loadProviders() {
+    // Provider metadata is global, not part of the current tenant's draft/read lifecycle.
+    providerController?.abort();
+    const controller=new AbortController();providerController=controller;
+    const timeout=setTimeout(()=>controller.abort(),20000);
     try {
-      const { response, data } = await requestJson('/auth/oidc/providers', {credentials:'same-origin'});
-      if (!response.ok) return;
-      providers = Array.isArray(data.providers) ? data.providers.filter((item: {id?:string}) => item.id === 'google' || item.id === 'microsoft') : [];
-    } catch { providers = []; }
+      const response=await fetch(apiPath('/auth/oidc/providers'),{credentials:'same-origin',signal:controller.signal});
+      if(!response.ok||controller.signal.aborted)return;
+      const data=await response.json();
+      if(controller.signal.aborted)return;
+      providers=Array.isArray(data.providers)?data.providers.filter((item:{id?:string})=>item.id==='google'):[];
+    } catch { if(!controller.signal.aborted)providers=[]; }
+    finally {clearTimeout(timeout);}
   }
 
   async function providerLogin(provider: 'google'|'microsoft') {
@@ -1111,12 +1146,14 @@
 
   async function openCompanyWorkspace(company: string, screen: string) {
     await selectTenant(company);
-    const target = base+'/'+screen+'?tenant='+encodeURIComponent(company);
+    if(tenant!==company)return;
+    const target = platformMode&&screen==='operations'?workspaceHref(base,'platform','channel-access',company):sectionHref(base,screen,company);
     if (isWidgetSection(screen) || isWidgetSection(section)) window.location.assign(target);
     else await goto(target);
   }
 
   async function logout() {
+    if((dirtyResources.length||widgetDirty||hasUnsavedDrafts())&&!await draftConfirmation.ask())return;
     clearTenantWorkspace();
     try {
       const { response } = await requestJson('/auth/logout', {
@@ -1298,6 +1335,8 @@
   }
 
   async function selectTenant(nextTenant: string) {
+    if(nextTenant===tenant)return;
+    if((dirtyResources.length||widgetDirty||hasUnsavedDrafts())&&!await draftConfirmation.ask())return;
     formStatus = '';
     catalogStatus = '';
     faqStatus = '';
@@ -1323,7 +1362,7 @@
 
   function addCategory() {
     const number = catalog.categories.length + 1;
-    catalog = { ...catalog, categories: [...catalog.categories, { id: `category_${number}`, name: `New category ${number}`, items: [] }] };
+    catalog = { ...catalog, categories: [...catalog.categories, { id: `category_${crypto.randomUUID()}`, name: `New category ${number}`, items: [] }] };
   }
 
   function removeCategory(index: number) {
@@ -1333,7 +1372,7 @@
   function addProduct(categoryIndex: number) {
     const categories = catalog.categories.map((category, index) => index === categoryIndex ? {
       ...category,
-      items: [...category.items, { sku: 'NEW_OFFERING', name: 'New offering', price: 0, unit: 'each', tags: [], in_stock: true }]
+      items: [...category.items, { sku: 'OFFER_'+crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase(), name: 'New offering', price: 0, unit: 'each', tags: [], in_stock: true }]
     } : category);
     catalog = { ...catalog, categories };
   }
@@ -1428,8 +1467,10 @@
       catalogError = true;
       return;
     }
+    rememberDraft('catalog',JSON.parse(submitted));
     if (submitted === JSON.stringify(catalog)) {
       catalog = { ...catalog, categories };
+      rememberDraft('catalog',catalog);
       catalogStatus = 'Catalogue saved. New conversations use these offerings.';
     } else catalogStatus = 'Submitted catalogue saved. You have unsaved edits.';
   }
@@ -1454,8 +1495,10 @@
       faqError = true;
       return;
     }
+    rememberDraft('faq',JSON.parse(submitted));
     if (submitted === JSON.stringify(faqs)) {
       faqs = payload;
+      rememberDraft('faq',faqs);
       faqStatus = 'FAQs saved. The assistant can use the new answers now.';
     } else faqStatus = 'Submitted FAQs saved. You have unsaved edits.';
   }
@@ -1487,13 +1530,16 @@
       offersError = true;
       return;
     }
+    rememberDraft('offers',JSON.parse(submitted));
     if (submitted === JSON.stringify(offers)) {
       offers = normalizeOffers(payload);
+      rememberDraft('offers',offers);
       offersStatus = 'Offers saved. The assistant now uses the active offers only.';
     } else offersStatus = 'Submitted offers saved. You have unsaved edits.';
   }
 
   async function saveDelivery() {
+    const submitted = JSON.stringify(delivery);
     deliveryStatus = 'Saving...';
     deliveryError = false;
     const rules = delivery.rules.map((rule) => ({ ...rule, area: rule.area.trim(), fee: Number(rule.fee), min_order: Number(rule.min_order), eta_hours: rule.eta_hours.trim(), eta_min: Number(rule.eta_min) }));
@@ -1522,12 +1568,13 @@
       deliveryError = true;
       return;
     }
+    rememberDraft('delivery',JSON.parse(submitted));
     deliveryStatus = 'Delivery settings saved. New conversations use these rules.';
   }
 
   function addBranch() {
     const number = branches.length + 1;
-    branches = [...branches, { source: {}, id: `branch_${number}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: null, lon: null, hours: emptyHours() }];
+    branches = [...branches, { source: {}, id: `branch_${crypto.randomUUID()}`, name: `New branch ${number}`, address: '', postcode: '', phone: '', lat: null, lon: null, hours: emptyHours() }];
   }
 
   function removeBranch(index: number) {
@@ -1559,8 +1606,10 @@
       profileError = true;
       return;
     }
+    rememberDraft('profile',JSON.parse(submitted));
     if (submitted === JSON.stringify(profile)) {
       profile = { ...profile, ...payload };
+      rememberDraft('profile',profile);
       profileStatus = 'Business profile saved.';
     } else profileStatus = 'Submitted business profile saved. You have unsaved edits.';
   }
@@ -1589,8 +1638,10 @@
       branchesError = true;
       return;
     }
+    rememberDraft('branches',JSON.parse(submitted));
     if (submitted === JSON.stringify(branches)) {
       branches = normalizeBranches(payload);
+      rememberDraft('branches',branches);
       branchesStatus = 'Branches and opening hours saved.';
     } else branchesStatus = 'Submitted branches saved. You have unsaved edits.';
   }
@@ -1609,8 +1660,10 @@
       agentError = true;
       return;
     }
+    rememberDraft('agent-settings',JSON.parse(submitted));
     if (submitted === JSON.stringify(agentSettings)) {
       agentSettings = normalizeAgentSettings(data);
+      rememberDraft('agent-settings',agentSettings);
       agentStatus = 'Agent playbook saved. New conversations use these settings.';
     } else agentStatus = 'Submitted agent playbook saved. You have unsaved edits.';
   }
@@ -1639,12 +1692,12 @@
       loading = false;
     }
   });
-  onDestroy(() => { workspaceGeneration++; for (const controller of workspaceControllers) controller.abort(); });
+  onDestroy(() => { providerController?.abort(); workspaceGeneration++; for (const controller of workspaceControllers) controller.abort(); });
 </script>
 
 <svelte:head>
   <title>{$t(pageTitle)} · V7</title>
-  <meta name="description" content="Tenant widget configuration for the V7 AI sales agent." />
+  <meta name="description" content="Manage your business, customer channels and assistant from your secure Vertex Seven workspace." />
   <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg?v=20261019svg" />
   <link rel="icon" type="image/png" sizes="96x96" href="/static/img/favicon-96.png?v=20261019svg" />
   <link rel="shortcut icon" href="/favicon.ico?v=20261019svg" />
@@ -1652,7 +1705,7 @@
 </svelte:head>
 
 {#if loading}
-  <main class="loading" aria-live="polite">Loading owner console...</main>
+  <main class="loading" aria-live="polite">Loading your workspace…</main>
 {:else if !user}
   <main class="login-shell">
     <section class="login-intro" aria-labelledby="welcome-title">
@@ -1666,9 +1719,9 @@
     <div class="login-content">
     <div class="login-tools"><LanguagePicker /></div>
     {#if passwordResetOpen && !mfa}
-      <div><PasswordManagement recovery {csrf} {tenant} {email} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:done={() => window.location.reload()}/><button class="secondary" type="button" on:click={() => window.location.reload()}>{$t('Back to sign in')}</button></div>
+      <div>{#await import('./PasswordManagement.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPasswordManagement}<svelte:component this={loadedPasswordManagement.default} recovery {csrf} {tenant} {email} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:done={() => window.location.reload()}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}<button class="secondary" type="button" on:click={() => window.location.reload()}>{$t('Back to sign in')}</button></div>
     {:else if signupOpen && !mfa}
-      <div><Registration {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/><button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
+      <div>{#await import('./Registration.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedRegistration}<svelte:component this={loadedRegistration.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}<button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
       <div class="login-logo"><PlatformLogo horizontal size={180} label="Vertex Seven" /></div>
@@ -1695,8 +1748,8 @@
       <button disabled={signingIn} class="primary" type="submit">{$t(signingIn ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Continue')}</button>
       {#if !mfa && providers.length}
         <div class="provider-divider"><span>{$t('Or use a linked account')}</span></div>
-        <div class="provider-buttons">{#each providers as provider}<button class="secondary" type="button" disabled={signingIn || !provider.configured} on:click={() => providerLogin(provider.id)}>{provider.name}</button>{/each}</div>
-        <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
+        <div class="provider-buttons">{#each providers as provider}<button class="secondary" type="button" disabled={signingIn || !provider.configured} on:click={() => providerLogin(provider.id)}>{provider.name}{!provider.configured?' · Awaiting setup':''}</button>{/each}</div>
+        <p class="provider-help">{$t('Link Google in Account & security after signing in. Previously used another provider? Choose Forgot password to add a password securely using your account email.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
       {/if}
       {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>{$t("Create an account or request to join")}</button>{/if}
       <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a> · <button class="cookie-login-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button></p>
@@ -1705,45 +1758,35 @@
     </div>
   </main>
 {:else}
+  <DraftGuard dirty={dirtyResources.length>0||widgetDirty} preserveOnSoftNavigation/>
+  <ConfirmDialog bind:this={draftConfirmation}/>
   <a class="skip-link" href="#workspace">{$t('Skip to workspace')}</a>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="side-brand"><PlatformLogo horizontal size={184} label="Vertex Seven" /><small>{isPlatform ? 'Platform workspace' : 'Business workspace'}</small></div>
-      <button class="secondary menu-toggle" type="button" aria-expanded={navigationOpen} aria-controls="console-navigation" on:click={() => navigationOpen = !navigationOpen}>{$t("Menu")}</button>
-      <nav id="console-navigation" class:open={navigationOpen} aria-label="Owner console navigation">
-        {#each navigationGroups as group}
-          {#if group.keys.some(mayOpenScreen)}
-            <div class="nav-section" role="group" aria-labelledby={`console-nav-${group.id}`}>
-              <h2 class="nav-group" id={`console-nav-${group.id}`}>{$t(isPlatform && group.id === 'businesses' ? 'Platform management' : group.label)}</h2>
-              {#each group.keys as key}
-                {#if mayOpenScreen(key)}
-                  <a class:active={section === key || (key === 'website' && isWidgetSection(section))} aria-current={section === key || (key === 'website' && isWidgetSection(section)) ? 'page' : undefined} href={base+'/'+key+'?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload={isWidgetSection(key) || isWidgetSection(section) ? true : undefined} on:click={() => navigationOpen = false}><NavigationIcon section={key}/><span>{$t(sections[key])}</span></a>
-                {/if}
-              {/each}
-              {#if group.id === 'account'}
-                <button class="cookie-nav-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}><NavigationIcon section="privacy"/><span>{$t('Cookie preferences')}</span></button>
-              {/if}
-            </div>
-          {/if}
-        {/each}
-      </nav>
-      <div class="account"><span class="account-avatar" aria-hidden="true">{user.email.charAt(0).toUpperCase() || 'V'}</span><div><strong>{user.email}</strong><span>{isPlatform ? 'Platform operator' : user.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span></div></div>
-    </aside>
+  <div class="app-shell" class:nav-collapsed={navigationCollapsed} class:platform-mode={platformMode}>
+    <WorkspaceNav items={primaryWorkspaces} active={platformMode ? (viewDefinition.parent || activeView) : activeWorkspace}
+      {tenant} {base} platform={platformMode} administrator={isPlatform} email={user.email}
+      bind:collapsed={navigationCollapsed} onSignOut={logout}/>
 
     <main id="workspace" class="workspace" tabindex="-1">
       <header class="workspace-head">
-        <div class="workspace-title"><p class="eyebrow">{$t(isPlatform ? 'Platform workspace' : 'Business workspace')}</p><h1>{$t(pageTitle)}</h1>{#if pageDescriptions[section]}<p class="page-description">{$t(pageDescriptions[section])}</p>{/if}</div>
+        <div class="workspace-title">
+          <div class="workspace-breadcrumb"><span class="mobile-brand"><PlatformLogo size={26}/></span><span>{businessName}</span><span aria-hidden="true">/</span><span>{$t(workspaceDefinition.label)}</span></div>
+          <h1>{$t(viewDefinition.label === 'Overview' ? workspaceDefinition.label : viewDefinition.label)}</h1>
+        </div>
         <div class="workspace-actions">
-          <SectionSearch items={sectionSearchItems} label={$t('Find account sections')} placeholder={$t('Search sections…')} empty={$t('No matching sections available to your account.')} />
+          <SectionSearch items={sectionSearchItems} label={$t('Find anything')} placeholder={$t('Search your workspace…')} empty={$t('No matching sections available to your account.')} />
           <LanguagePicker />
-        {#if (isPlatform || isOwner) && tenants.length > 0 && !['platform','companies'].includes(section)}
-          <label class="tenant-picker">{$t("Company")}<select value={tenant} on:change={(event) => selectTenant(event.currentTarget.value)}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
-        {:else if !isPlatform}
-          <div class="company-scope"><span>{$t("Company")}</span><strong>{tenant}</strong><small>Your account is restricted to this company.</small></div>
-        {/if}
-          <button class="secondary sign-out" type="button" on:click={logout}>{$t("Sign out")}</button>
+          {#if (isPlatform || isOwner) && tenants.length > 1}
+            <label class="tenant-picker">{$t('Business')}<select aria-label={$t('Business')} value={tenant} on:change={async(event)=>{const picker=event.currentTarget;await selectTenant(picker.value);picker.value=tenant;}}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
+          {/if}
         </div>
       </header>
+      {#if activeWorkspace!=='platform' && availableViews.filter(item=>!item.hidden).length > 1}
+        <nav class="workspace-tabs" aria-label={$t(workspaceDefinition.label)+' views'}>
+          {#each availableViews.filter(item=>!item.hidden) as view}
+            <a class:active={view.id===(viewDefinition.parent || activeView)} aria-current={view.id===(viewDefinition.parent || activeView)?'page':undefined} href={workspaceHref(base,activeWorkspace,view.id,tenant)} data-sveltekit-reload={activeWorkspace==='channels'&&(section==='website'||view.section==='website')||undefined}>{$t(view.label)}</a>
+          {/each}
+        </nav>
+      {/if}
 
       {#if tenantDirectoryError}
         <div class="workspace-retry notice error"><p role="alert">{tenantDirectoryError}</p><button class="secondary" type="button" disabled={tenantDirectoryBusy} on:click={retryTenantDirectory}>{$t(tenantDirectoryBusy ? 'Please wait…' : 'Retry company list')}</button></div>
@@ -1757,54 +1800,64 @@
 
       <fieldset class="workspace-content" disabled={workspaceBusy || Boolean(workspaceError)} aria-busy={workspaceBusy}>
       <legend class="sr-only">{$t(pageTitle)}</legend>
-      {#each usageCreditAlerts as alert}
-        <section class="activation-notice" aria-label={$t('AI usage credit')}><div><strong>{$t('AI usage credit')}</strong><p role="alert">{usageCreditWarning(alert.code)}</p></div>{#if canViewSubscriptions}<a href={base+'/subscription?tenant='+encodeURIComponent(tenant)}>{$t('View usage credit and top up')} <span aria-hidden="true">↗</span></a>{/if}</section>
+      {#each (['home','budget','spending','billing-overview'].includes(section)?[]:usageCreditAlerts) as alert}
+        <section class="activation-notice" aria-label={$t('AI Budget')}><div><strong>{$t('AI Budget')}</strong><p role="alert">{usageCreditWarning(alert.code)}</p></div>{#if canViewCosts}<a href={sectionHref(base,'budget',tenant)}>{$t('Open AI Budget')} <span aria-hidden="true">↗</span></a>{/if}</section>
       {/each}
-      {#if activation && !activation.active}
-        <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>{activation.status==='awaiting_business_approval'?'Business application required':'Business awaiting activation'}</strong><p>{activation.status==='awaiting_business_approval'?'Manual approval is required before payment and agent activation. View your application to check its status or supply business details.':'Business data editing and the agent unlock after Stripe confirms the required subscription and implementation payment.'}</p></div><a href={base+'/'+(activation.status==='awaiting_business_approval'?'application':'subscription')+'?tenant='+encodeURIComponent(tenant)}>{activation.status==='awaiting_business_approval'?'View application':'Open subscriptions'} <span aria-hidden="true">↗</span></a></section>
+      {#if activation && !activation.active && section!=='home'}
+        <section class="activation-notice" aria-label="Business activation"><span class="activation-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg></span><div><strong>{activation.status==='awaiting_business_approval'?'Business application required':'Business awaiting activation'}</strong><p>{activation.status==='awaiting_business_approval'?'Manual approval is required before payment and agent activation. View your application to check its status or supply business details.':'Business data editing and the agent unlock after Stripe confirms the required subscription and one-time setup payment.'}</p></div><a href={base+'/'+(activation.status==='awaiting_business_approval'?'application':'subscription')+'?tenant='+encodeURIComponent(tenant)}>{activation.status==='awaiting_business_approval'?'View application':'Open subscriptions'} <span aria-hidden="true">↗</span></a></section>
       {/if}
 
-      {#if !mayOpenScreen(section)}
+      {#if !mayOpenScreen(section)||!workspaceAllowed(activeWorkspace,isPlatform)}
         <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/'+defaultWorkspaceScreen()+'?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
-      {:else if !isPlatform && activation && !activation.active && !['subscription','companies','account','privacy','application'].includes(section)}
+      {:else if !isPlatform && activation && !activation.active && !['home','billing-overview','budget','spending','subscription','companies','account','cookies','privacy','application'].includes(section)}
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
+      {#if !canEditCurrent}<p class="notice" role="status">You have view-only access. Ask your business owner for permission to edit this information.</p>{/if}
+      {#if dirtyResources.includes(currentDraftKey)}<div class="draft-strip" role="status"><span>{$t('Unsaved changes · Your draft stays here while you move between business views.')}</span><button on:click={discardDraft}>Discard changes</button></div>{/if}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
-      {#if section === 'account'}<AccountSecurity {tenant} {csrf} teamUrl={canManageAccounts ? base+'/team?tenant='+encodeURIComponent(tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{#if isPlatform||isOwner}{#key tenant}<Referrals {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}{/if}
-      {#if section === 'privacy'}{#key tenant}<PrivacySettings {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
-      {#if section === 'application'}{#key tenant}<BusinessApplication {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
-      {#if section === 'applications' && isPlatform}<BusinessApplications {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
-      {#if section === 'agent' && mayReadModelParameters()}{#key tenant}<AiParameters {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
-      {#if section === 'operations'}{#key tenant}<BusinessHub {tenant} {csrf} isPlatform={isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}{/if}
+      {#if section === 'home'}{#key tenant}<WorkspaceHome {tenant} name={businessName} {activation} configured={tenants.find(item=>item.key===tenant)?.widget_configured??null} permissions={user.permissions||[]} {insights} activityReady={insightsAvailable} activityLoading={insightsBusy} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
+      {#if section === 'billing-overview'}{#key tenant}<BillingOverview {tenant} {canViewCosts} {canViewSubscriptions} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
+      {#if section === 'spending' && canViewCosts}{#key tenant}{#await import('./AIBudget.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAIBudget}<svelte:component this={loadedAIBudget.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} presentation="history" apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'cookies'}<section class="surface"><div class="surface-body"><h2>Make this workspace yours</h2><p>Essential cookies keep sign-in and security working. You choose whether to save language preferences and allow optional analytics.</p><button class="primary" on:click={(event)=>cookiePreferences?.showPreferences(event.currentTarget)}>Manage cookie preferences</button><p><a href="/cookies">Read the cookie policy</a></p></div></section>{/if}
+      {#if section === 'phone' || section === 'email'}{#key tenant+section}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} channel={section} showRules={false} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'account'}{#if isOwner||isPlatform}<section class="workspace-business-link"><span>Manage the businesses linked to this account.</span><a href={sectionHref(base,'companies',tenant)}>Your businesses →</a></section>{/if}{#await import('./AccountSecurity.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAccountSecurity}<svelte:component this={loadedAccountSecurity.default} {tenant} {csrf} teamUrl={canManageAccounts ? sectionHref(base,'team',tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#if isPlatform||isOwner}{#key tenant}{#await import('./Referrals.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedReferrals}<svelte:component this={loadedReferrals.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}{/if}
+      {#if section === 'privacy'}{#key tenant}{#await import('./PrivacySettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPrivacySettings}<svelte:component this={loadedPrivacySettings.default} {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'application'}{#key tenant}{#await import('./BusinessApplication.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplication}<svelte:component this={loadedBusinessApplication.default} {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'applications' && isPlatform}{#await import('./BusinessApplications.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplications}<svelte:component this={loadedBusinessApplications.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/if}
+      {#if section === 'agent'}<details class="advanced-controls"><summary>{$t('Business actions & permissions')}</summary>{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
+      {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls" bind:open={advancedAiOpen}><summary>Advanced AI response settings</summary>{#if advancedAiOpen}{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#await import('./MemorySettings.svelte')}<p class="component-loading" role="status">Loading conversation controls…</p>{:then loadedMemory}<svelte:component this={loadedMemory.default} {tenant} {csrf} canEdit={Boolean(user.permissions?.includes(isPlatform?'models.write':'business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">Conversation controls could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}</details>{/if}
+      {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
-        {#if isPlatform}<PlatformOverview apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>
+        {#if isPlatform}{#await import('./PlatformOverview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPlatformOverview}<svelte:component this={loadedPlatformOverview.default} {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
       {/if}
 
       {#if section === 'subscription'}
-        {#if canViewSubscriptions}{#key tenant}<Subscription {tenant} {csrf} {isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} canViewIntegrations={Boolean(user?.permissions?.includes('integrations.read'))} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)} on:creditstatus={(event)=>{if(activation&&event.detail.tenant===tenant)activation={...activation,usage_credit_alerts:event.detail.alerts};}}/>{/key}
+        {#if canViewSubscriptions}{#key tenant}{#await import('./Subscription.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedSubscription}<svelte:component this={loadedSubscription.default} showBudget={false} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManageBilling={isPlatform||isOwner} {canViewCosts} canViewIntegrations={Boolean(user?.permissions?.includes('integrations.read'))} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:company={(event)=>selectTenant(event.detail)} on:creditstatus={(event)=>{if(activation&&event.detail.tenant===tenant)activation={...activation,usage_credit_alerts:event.detail.alerts};}}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
         {:else}<section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view subscriptions.</p></div></section>{/if}
       {/if}
 
       {#if section === 'conversations'}
-        <Conversations {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />
+        {#if mayOpenScreen('operations')}<div class="message-views" role="group" aria-label="Messages and follow-ups"><button class:active={messagePanel==='history'} aria-pressed={messagePanel==='history'} on:click={()=>messagePanel='history'}>Conversation inbox</button><button class:active={messagePanel==='approvals'} aria-pressed={messagePanel==='approvals'} on:click={()=>{messagePanel='approvals';approvalsOpened=true;}}>Approvals & follow-ups</button></div>{/if}
+        <div hidden={messagePanel!=='history'}><Conversations showViewSwitcher={false} {tenant} apiPrefix={import.meta.env.DEV?'/api':''}/></div>
+        {#if approvalsOpened&&mayOpenScreen('operations')}<div hidden={messagePanel!=='approvals'}>{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation="activity" showRules={false} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</div>{/if}
       {/if}
       {#if section === 'usage'}
         {#if canViewCosts && isPlatform}
-          {#key tenant}<ApiUsage {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+          {#key tenant}{#await import('./ApiUsage.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedApiUsage}<svelte:component this={loadedApiUsage.default} {tenant} {csrf} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
         {:else}
           <section class="surface"><div class="surface-body"><p>Your business owner must grant permission to view API usage and costs.</p></div></section>
         {/if}
       {/if}
       {#if section === 'budget' && canViewCosts}
-        {#key tenant}<AIBudget {tenant} {csrf} {isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
+        {#key tenant}{#await import('./AIBudget.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAIBudget}<svelte:component this={loadedAIBudget.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       {/if}
       {#if section === 'provider-funding' && isPlatform}
-        <ProviderFunding {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
+        {#await import('./ProviderFunding.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedProviderFunding}<svelte:component this={loadedProviderFunding.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
       {/if}
       {#if isWidgetSection(section)}
         <section class="widget-workspace" aria-label="Website widget workspace">
-          <div class="widget-workspace-intro"><div><p class="eyebrow">Customer experience</p><h2>One place to build, test and install</h2><p>Shape your chat for {tenant}, check your agent's answers and connect your website.</p></div><a href={'/chat_ui?tenant='+encodeURIComponent(tenant)} target="_blank" rel="noopener noreferrer">Open saved widget ↗</a></div>
+          <div class="widget-workspace-intro"><div><p class="eyebrow">Customer experience</p><h2>One place to build, test and install</h2><p>Shape your chat for {businessName}, check your agent's answers and connect your website.</p></div><a href={'/chat_ui?tenant='+encodeURIComponent(tenant)} target="_blank" rel="noopener noreferrer">Open saved widget ↗</a></div>
           <div class="widget-workspace-tabs" role="group" aria-label="Widget workspace views">
             <button class:active={widgetView === 'appearance'} aria-pressed={widgetView === 'appearance'} on:click={() => widgetView = 'appearance'}>Appearance</button>
             <button class:active={widgetView === 'test'} aria-pressed={widgetView === 'test'} on:click={() => widgetView = 'test'}>Test conversation</button>
@@ -1812,38 +1865,39 @@
             {#if widgetDirty}<span>Unsaved widget changes</span>{/if}
           </div>
           {#if widgetView === 'appearance'}
-            {#key tenant}<WidgetDesigner {tenant} {previewTheme} bind:widget saving={widgetSaving} canEdit={canEditWidget} dirty={widgetDirty} status={formStatus} error={formError} on:save={saveWidget}/>{/key}
+            {#key tenant}{#await import('./WidgetDesigner.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWidgetDesigner}<svelte:component this={loadedWidgetDesigner.default} {tenant} {previewTheme} bind:widget saving={widgetSaving} canEdit={canEditWidget} dirty={widgetDirty} status={formStatus} error={formError} on:save={saveWidget}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
           {:else if widgetView === 'test'}
             {#if widgetDirty}<p class="widget-save-notice">Your appearance changes are not saved yet. The agent test uses saved business information. <button on:click={() => widgetView = 'appearance'}>Review appearance</button></p>{/if}
-            {#key tenant}<AgentTest {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
-            <details class="widget-extra"><summary>Website knowledge</summary>{#key tenant}<WebsiteKnowledge {tenant} {csrf} canEdit={canEditWidget} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}</details>
-            {#if mayReadConversionSettings()}<details class="widget-extra"><summary>Booking, quote and payment paths</summary>{#key tenant}<ConversionSettings {tenant} {csrf} canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}</details>{/if}
+            {#key tenant}{#await import('./AgentTest.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentTest}<svelte:component this={loadedAgentTest.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
+            <details class="widget-extra"><summary>Website knowledge</summary>{#key tenant}{#await import('./WebsiteKnowledge.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWebsiteKnowledge}<svelte:component this={loadedWebsiteKnowledge.default} {tenant} {csrf} canEdit={canEditWidget} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>
+            {#if mayReadConversionSettings()}<details class="widget-extra" id="conversion-settings"><summary>Booking, quote and payment paths</summary>{#key tenant}{#await import('./ConversionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConversionSettings}<svelte:component this={loadedConversionSettings.default} {tenant} {csrf} canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
           {:else}
             <div class="widget-install-grid">
               <section class="surface"><div class="surface-head"><div><p class="eyebrow">Website access</p><h2>Approve your websites</h2><p>Only approved website origins can host this company's chat.</p></div></div><form class="settings-form" on:submit|preventDefault={saveWidget}><label>Approved website origins<textarea bind:value={originText} class="origins" rows="5" disabled={!canEditWidget || widgetSaving} spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>One exact origin per line. HTTPS is required except for local development. Include www and other subdomains separately. Leave blank to block external embedding.</small></label><div class="form-footer"><span class:error={formError} class="form-status" role={formError ? 'alert' : 'status'}>{formStatus}</span><button class="primary" type="submit" disabled={!canEditWidget || widgetSaving}>{widgetSaving ? 'Saving…' : 'Save widget & websites'}</button></div></form></section>
-              <section class="surface"><div class="surface-head"><div><p class="eyebrow">Ready to install</p><h2>Add chat to your site</h2><p>Use the saved settings for {tenant}.</p></div></div><div class="surface-body widget-install-tools"><label>Installation type<select bind:value={installationFormat}><option value="floating">Floating chat button</option><option value="panel">Embedded chat panel</option><option value="link">Direct chat link</option></select></label><label>Company installation code<textarea class="code" readonly value={installationCode} rows="6" spellcheck="false"></textarea></label><button class="secondary" on:click={() => copyWidgetCode(installationCode,installationFormat === 'link' ? 'Chat link' : 'Installation code')} disabled={!installationCode}>Copy {installationFormat === 'link' ? 'link' : 'code'}</button><p>{installationFormat === 'floating' ? 'Add this script once before the closing body tag.' : installationFormat === 'panel' ? 'Place this iframe in the part of your page where chat should appear.' : 'Use this URL for a chat button or share it directly with customers.'} Save changes, then reload the installed widget to check them.</p>{#if widgetDirty}<p class="widget-save-notice">Save your widget changes before checking the installed appearance.</p>{/if}{#if mayOpenScreen('implementation')}<a href={base+'/implementation?tenant='+encodeURIComponent(tenant)} data-sveltekit-reload>Website builder instructions and launch checklist ↗</a>{/if}<p class="field-note">Microphone use needs HTTPS, customer permission and a supported browser. Embedded chat also follows the host website's microphone policy. Public chat tests count as customer activity.</p></div></section>
+              {#if mayOpenScreen('implementation')}{#key tenant}{#await import('./Implementation.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedImplementation}<svelte:component this={loadedImplementation.default} {tenant} apiPrefix={import.meta.env.DEV?'/api':''} savedSetup={{widget,embed:{snippet,iframe_snippet:iframeSnippet,chat_url:widgetChatUrl}}} embedded/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{:else}<section class="surface"><div class="surface-body"><p>Your business owner can provide website installation access.</p></div></section>{/if}
             </div>
           {/if}
         </section>
       {/if}
       {#if section === 'implementation'}
-        {#key tenant}<Implementation {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#key tenant}{#await import('./Implementation.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedImplementation}<svelte:component this={loadedImplementation.default} {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       {/if}
 
       {#if section === 'statistics'}
-        {#key tenant}<Statistics {tenant} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#key tenant}{#await import('./Statistics.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedStatistics}<svelte:component this={loadedStatistics.default} {tenant} {businessName} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}        <details class="customer-question-report" bind:open={commonQuestionsOpen}><summary>Frequently asked customer questions</summary>{#if commonQuestionsOpen}<Conversations {tenant} initialView="questions" showViewSwitcher={false} apiPrefix={import.meta.env.DEV?'/api':''}/>{/if}</details>
+
       {/if}
       {#if section === 'whatsapp-qr'}
-        {#key tenant}<WhatsAppQr {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{/key}
+        {#key tenant}{#await import('./WhatsAppQr.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWhatsAppQr}<svelte:component this={loadedWhatsAppQr.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       {/if}
 
       {#if section === 'companies' && (isPlatform || isOwner)}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
-          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Fill in its information and configure the agent before launch. Each new business activates automatically after its subscription and implementation are paid. It starts with empty business knowledge and no approved websites. Add only information belonging to this business.</p></div>
+          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Add its information and configure the assistant before launch. Approval and verified subscription/setup requirements still apply. It starts with empty business knowledge and no approved websites. Add only information belonging to this business.</p></div>
           <form class="tenant-form" on:submit|preventDefault={createTenant}>
-            <label>Tenant key<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /></label>
             <label>Business name<input bind:value={newTenantName} placeholder="Northstar Homewares" required /></label>
-            <button class="primary" type="submit">Create tenant</button>
+            <label>Business reference<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /><small>A unique short reference used in this business’s website installation code.</small></label>
+            <button class="primary" type="submit" disabled={createStatus==='Creating tenant...'}>Add business</button>
           </form>
           {#if createStatus}<p class="form-status">{createStatus}</p>{/if}
         </section>
@@ -1851,8 +1905,8 @@
 
       {#if section === 'pipeline'}
       <section id="activity" class="surface workspace-section activity" aria-labelledby="activity-heading">
-        <div class="surface-head pipeline-head"><div><p class="eyebrow">{$t("Sales pipeline")}</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" on:click={() => loadInsights(tenant)}>{$t("Refresh")}</button></div>
-        <div class="metric-grid" aria-label="Sales pipeline summary">
+        <div class="surface-head pipeline-head"><div><p class="eyebrow">{$t("Sales pipeline")}</p><h2 id="activity-heading">Follow-up queue</h2></div><button class="secondary" type="button" disabled={insightsBusy} on:click={() => loadInsights(tenant)}>{$t("Refresh")}</button></div>
+        {#if insightsAvailable}<div class="metric-grid" aria-label="Sales pipeline summary">
           <div><span>Active leads</span><strong>{insights.sales_funnel.active}</strong><small>Current pipeline</small></div>
           <div><span>Qualified</span><strong>{insights.sales_funnel.qualified}</strong><small>Ready for follow-up</small></div>
           <div><span>Won</span><strong>{insights.sales_funnel.won}</strong><small>Recorded outcomes</small></div>
@@ -1867,12 +1921,14 @@
         </div>
         <div class="activity-details">
           <div class="activity-list">
-            <div class="list-heading"><h3>Recent leads</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
+            <div class="workspace-toolbar"><a class="secondary" href={(import.meta.env.DEV?'/api':'')+'/analytics/export.csv?tenant='+encodeURIComponent(tenant)}>Export leads</a><label>Find a customer<input type="search" bind:value={salesQuery} placeholder="Name or phone…"/></label><label>Stage<select bind:value={salesStage}><option value="all">All stages</option>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select></label></div>
+            <div class="list-heading"><h3>Customer follow-ups</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
             {#each insights.leads as lead}
-              <div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : `Conversation ${lead.lead_id.slice(-8) || 'pending'}`}</span></div><div><select value={lead.status} disabled={!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>
+              {#if (salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)}<div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : 'Customer enquiry'}</span></div><div><select value={lead.status} disabled={insightsBusy||!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>{/if}
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}
+            {#if insights.leads.length&&!visibleLeadCount}<p class="empty-state">No matching leads. Try a different search or stage.</p>{/if}
           </div>
           <div class="activity-list">
             <div class="list-heading"><h3>Conversation topics</h3><span>Last 7 days</span></div>
@@ -1883,13 +1939,14 @@
             {/each}
           </div>
         </div>
+        {:else}<div class="workspace-empty"><h3>{insightsBusy?'Loading sales activity…':'Sales activity unavailable'}</h3><p>Use Refresh to load your recorded activity. Unavailable totals are not shown as zero.</p></div>{/if}
         {#if activityStatus}<p class="activity-status" role="status">{activityStatus}</p>{/if}
       </section>
       {/if}
 
       {#if canManageAccounts}
         {#if section === 'team'}
-      {#key tenant}<JoinRequests {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
+      {#key tenant}{#await import('./JoinRequests.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedJoinRequests}<svelte:component this={loadedJoinRequests.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
           <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
@@ -1930,69 +1987,51 @@
 
       <div class="content-grid">
         {#if section === 'integrations'}
-      {#key tenant}<ConnectionSettings {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/key}
-      <section id="install" class="surface install" aria-labelledby="install-heading">
-          <div class="surface-head"><div><p class="eyebrow">Website integration</p><h2 id="install-heading">Install script</h2></div><button class="secondary" type="button" on:click={copySnippet} disabled={!snippet}>Copy</button></div>
-          <div class="surface-body">
-          <p><a href={base+'/implementation'}>Open the step-by-step Implementation guide</a> for your website builder, installation code and launch checks.</p>
-          <p>Place this once before the closing body tag on an approved website.</p>
-          <p><a href={`${base}/whatsapp-qr?tenant=${encodeURIComponent(tenant)}`}>WhatsApp setup, numbers and costs</a>. Web chat works while WhatsApp is awaiting setup.</p>
-          <textarea class="code" readonly value={snippet} aria-label="Website install script"></textarea>
-          {#if formStatus}<p role="status" class:error={formError}>{formStatus}</p>{/if}
-          <div class="allowlist"><h3>Approved origins</h3>{#if widget.allowed_origins.length}{#each widget.allowed_origins as origin}<code>{origin}</code>{/each}{:else}<p>No website is approved yet.</p>{/if}</div>
-          </div>
-        </section>
+      {#key tenant}{#await import('./ConnectionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConnectionSettings}<svelte:component this={loadedConnectionSettings.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
+      <section class="surface"><div class="surface-body"><h2>Looking for a customer channel?</h2><p>Set up your website, WhatsApp, email and phone together in Channels. Keep API and business app connections here.</p><a href={sectionHref(base,'website',tenant)}>Open Channels →</a></div></section>
       {/if}
       </div>
 
       {#if section === 'catalog'}
       <section id="catalog" class="surface workspace-section" aria-labelledby="catalog-heading">
-        <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="catalog-heading">{$t("Catalogue")}</h2></div><span class="count-label">{catalog.categories.length} categories</span></div>
-        <div class="catalog-toolbar">
-          <label>Currency<input class="currency" bind:value={catalog.currency} maxlength="3" aria-label="Catalog currency" /></label>
-          <button class="secondary" type="button" on:click={addCategory}>Add category</button>
-        </div>
-        {#each catalog.categories as category, categoryIndex}
-          <section class="editor-group" aria-label={`Category ${category.name || categoryIndex + 1}`}>
-            <div class="group-heading">
-              <div class="category-fields"><label>Category name<input bind:value={category.name} required /></label><label>Category key<input bind:value={category.id} required /></label></div>
-              <button class="icon-button danger" type="button" title="Remove category" aria-label={`Remove ${category.name || 'category'}`} on:click={() => removeCategory(categoryIndex)}>{$t("Remove")}</button>
-            </div>
-            <div class="product-table" role="region" aria-label={`${category.name || 'Category'} offerings`}>
-              <div class="product-table-head" aria-hidden="true"><span>Offering</span><span>Reference</span><span>{$t("Price")}</span><span>Unit</span><span>Tags</span><span>Availability</span><span></span></div>
-              {#each category.items as item, itemIndex}
-                <div class="product-row">
-                  <input bind:value={item.name} aria-label="Offering name" required />
-                  <input bind:value={item.sku} aria-label="Offering reference" required />
-                  <input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required />
-                  <input bind:value={item.unit} aria-label="Offering unit" required />
-                  <input value={item.tags.join(', ')} on:input={(event) => (item.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} aria-label="Offering tags" placeholder="gift, summer" />
-                  <label class="stock-toggle"><input checked={item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0} on:change={(event)=>item.in_stock=event.currentTarget.checked} disabled={item.stock_quantity != null} type="checkbox" /><span>{(item.stock_quantity == null ? item.in_stock : item.stock_quantity > 0) ? (agentSettings.playbook.offering_type === 'products' ? 'In stock' : 'Available') : (agentSettings.playbook.offering_type === 'products' ? 'Out' : 'Unavailable')}</span></label>
-                  <button class="icon-button danger" type="button" title="Remove offering" aria-label={`Remove ${item.name || 'offering'}`} on:click={() => removeProduct(categoryIndex, itemIndex)}>{$t("Remove")}</button>
-                </div>
-                <div class="inventory-fields">
-                  <label>Stock quantity · {item.name}<input bind:value={item.stock_quantity} type="number" min="0" max="1000000000" step="any" placeholder="Not counted" /></label>
-                  <label>Low-stock alert at<input bind:value={item.low_stock_threshold} type="number" min="0" max="1000000000" step="any" placeholder="5" /></label>
-                  <p>Use {item.unit || 'catalogue'} units. Leave quantity blank if untracked. A saved quantity of zero marks this offering unavailable.</p>
-                </div>
-              {/each}
-            </div>
-            <button class="add-row" type="button" on:click={() => addProduct(categoryIndex)}>Add offering</button>
-          </section>
-        {/each}
-        <div class="section-footer"><span class:error={catalogError} class="form-status">{catalogStatus}</span><button class="primary" type="button" on:click={saveCatalog}>{$t("Save catalog")}</button></div>
+        <div class="surface-head"><div><p class="eyebrow">My Business</p><h2 id="catalog-heading">Products & services</h2><p class="field-note">Keep names, prices and availability clear. Save your changes to update what your assistant recommends.</p></div><button class="secondary" disabled={!canEditCurrent} on:click={addCategory}>Add category</button></div>
+        <div class="editor-search"><label>Find a product or service<input type="search" bind:value={catalogQuery} placeholder="Search names, categories or references…"/></label><label class="currency">Currency<input disabled={!canEditCurrent} bind:value={catalog.currency} maxlength="3" aria-label="Catalog currency"/></label><span class="editor-count">{catalog.categories.reduce((sum,category)=>sum+category.items.length,0)} offerings</span></div>
+        <fieldset class="editor-permission" disabled={!canEditCurrent}>
+        {#each catalog.categories as category,categoryIndex}
+          {#if !catalogQuery.trim()||category.items.some(item=>matches(catalogQuery,category.name,item.name,item.sku,...item.tags))||matches(catalogQuery,category.name)}
+          <details class="catalog-category" open={catalog.categories.length<=3||Boolean(catalogQuery.trim())}>
+            <summary><span>{category.name||'New category'}</span><small>{category.items.length} offerings</small></summary>
+            <div class="category-settings"><label>Category name<input bind:value={category.name} required/></label><details class="editor-advanced"><summary>Category reference</summary><label>Category key<input bind:value={category.id} required/></label><p class="field-note">Keep existing references unchanged when other systems use them.</p></details><button class="icon-button danger" on:click={()=>removeCategory(categoryIndex)} aria-label={'Remove '+(category.name||'category')}>Remove category</button></div>
+            <div class="offering-cards">
+            {#each category.items as item,itemIndex}
+              {#if matches(catalogQuery,category.name,item.name,item.sku,...item.tags)}
+              <article class="offering-card">
+                <div class="offering-main"><label class="offering-name">Name<input bind:value={item.name} aria-label="Offering name" required placeholder="Product, service or package name"/></label><label>Price<input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required/></label><label>Per<input bind:value={item.unit} aria-label="Offering unit" required placeholder="each, hour, vehicle…"/></label><label class="stock-toggle"><input checked={item.stock_quantity==null?item.in_stock:item.stock_quantity>0} on:change={(event)=>item.in_stock=event.currentTarget.checked} disabled={item.stock_quantity!=null} type="checkbox"/><span>{(item.stock_quantity==null?item.in_stock:item.stock_quantity>0)?(agentSettings.playbook.offering_type==='products'?'In stock':'Available'):'Unavailable'}</span></label></div>
+                <details class="editor-advanced"><summary>{agentSettings.playbook.offering_type==='products'||item.stock_quantity!=null?'References, topics & inventory':'References, topics & optional inventory'}</summary><div class="offering-advanced"><label>Reference<input bind:value={item.sku} aria-label="Offering reference" required/></label><label>Topics<input value={item.tags.join(', ')} on:input={(event)=>item.tags=event.currentTarget.value.split(',').map(tag=>tag.trim()).filter(Boolean)} aria-label="Offering tags" placeholder="Comma-separated topics"/></label><label>Stock quantity<input bind:value={item.stock_quantity} type="number" min="0" max="1000000000" step="any" placeholder="Not counted"/></label><label>Low-stock alert at<input bind:value={item.low_stock_threshold} type="number" min="0" max="1000000000" step="any" placeholder="5"/></label></div><p class="field-note">Leave quantity blank for untracked products and services. A saved quantity of zero marks this offering unavailable.</p></details>
+                <div class="offering-footer"><small>{item.stock_quantity!=null?`${item.stock_quantity} ${item.unit||'units'} available`:'Availability managed manually'}</small><button class="icon-button danger" title="Remove offering" aria-label={'Remove '+(item.name||'offering')} on:click={()=>removeProduct(categoryIndex,itemIndex)}>Remove</button></div>
+              </article>
+              {/if}
+            {/each}
+            </div><button class="add-row" on:click={()=>{catalogQuery='';addProduct(categoryIndex);}}>Add product or service</button>
+          </details>
+          {/if}
+        {:else}<div class="workspace-empty"><h3>What can customers buy from you?</h3><p>Add a category, then your products, services or packages and their prices.</p><button class="secondary" disabled={!canEditCurrent} on:click={addCategory}>Add your first category</button></div>{/each}
+        {#if catalogQuery.trim()&&!catalog.categories.some(category=>matches(catalogQuery,category.name)||category.items.some(item=>matches(catalogQuery,item.name,item.sku,...item.tags)))}<div class="workspace-empty"><p>No matching products or services.</p><button class="secondary" on:click={()=>catalogQuery=''}>Clear search</button></div>{/if}
+        <div class="section-footer"><span class:error={catalogError} class="form-status" role={catalogError?'alert':'status'}>{catalogStatus||'Changes apply after saving.'}</span><button class="primary" type="button" on:click={saveCatalog} disabled={!canEditCurrent||catalogStatus==='Saving...'}>Save products & services</button></div>
+        </fieldset>
       </section>
       {/if}
 
       {#if section === 'offers'}
       <section id="offers" class="surface workspace-section" aria-labelledby="offers-heading">
-        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Current offers</h2></div><button class="secondary" type="button" on:click={addOffer}>Add offer</button></div>
+        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Current offers</h2></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addOffer}>Add offer</button></div>
+        <fieldset class="editor-permission" disabled={!canEditCurrent}>
         <div class="offers-list">
           {#each offers as offer, index}
             {#if !previousOffer(offer)}
             <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
               <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Archive offer" aria-label={`Archive ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Archive</button></div>
-              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label>Deal type<select bind:value={offer.deal_type} on:change={(event) => changeOfferType(offer, event.currentTarget.value as Offer['deal_type'])}><option value="custom">Custom promotion</option><option value="buy_one_get_one">Buy 1 get 1 free</option><option value="minimum_spend">Minimum-spend deal</option><option value="signup_discount">{$t("Signup discount")}</option></select></label>
+              <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><details class="editor-advanced"><summary>Offer reference</summary><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label></details><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label>Deal type<select bind:value={offer.deal_type} on:change={(event) => changeOfferType(offer, event.currentTarget.value as Offer['deal_type'])}><option value="custom">Custom promotion</option><option value="buy_one_get_one">Buy 1 get 1 free</option><option value="minimum_spend">Minimum-spend deal</option><option value="signup_discount">{$t("Signup discount")}</option></select></label>
                 {#if offer.deal_type === 'buy_one_get_one'}<p class="wide-field">Buy one eligible item and receive one of the same item free. Select the eligible catalogue references below.</p>{/if}
                 {#if offer.deal_type === 'minimum_spend'}<label>Minimum spend (GBP)<input type="number" min="0.01" max="1000000" step="0.01" bind:value={offer.minimum_spend}/></label><label>Reward<select bind:value={offer.discount_type}><option value="percentage">Percentage off</option><option value="fixed">GBP off</option></select></label><label>Discount value<input type="number" min="0.01" max={offer.discount_type === 'percentage' ? 100 : offer.minimum_spend} step="0.01" bind:value={offer.discount_value}/></label><p class="wide-field">The minimum spend and discount apply to the eligible items, or the whole order when no references are selected.</p>{/if}
                 {#if offer.deal_type === 'signup_discount'}
@@ -2001,7 +2040,7 @@
                   <p class="wide-field">{$t("Optional: turn on Offer is active when you are ready to promote this signup discount.")}</p>
                   <p class="wide-field">{$t("Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.")}</p>
                 {/if}
-                <label class="wide-field">Eligible catalogue references<input value={offer.product_skus.join(', ')} on:input={(event) => (offer.product_skus = event.currentTarget.value.split(',').map((sku) => sku.trim()).filter(Boolean))} placeholder="Leave blank when the offer applies to all offerings" /></label><label class="wide-field">{offer.deal_type === 'signup_discount' ? $t("Signup steps and eligibility") : 'Customer-facing details'}<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
+                <div class="wide-field"><h4>Eligible products & services</h4><OfferingPicker options={catalog.categories.flatMap(category=>category.items.map(item=>({sku:item.sku,name:item.name})))} bind:selected={offer.product_skus}/></div><label class="wide-field">{offer.deal_type === 'signup_discount' ? $t("Signup steps and eligibility") : 'Customer-facing details'}<textarea bind:value={offer.description} maxlength="600" required></textarea></label></div>
             </section>
             {/if}
           {:else}
@@ -2009,34 +2048,39 @@
           {/each}
         </div>
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>
-          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
+          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.map(reference=>catalog.categories.flatMap(category=>category.items).find(item=>item.sku===reference)?.name||reference).join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
         </div>
-        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>{$t("Save offers")}</button></div>
+        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers} disabled={!canEditCurrent||offersStatus==='Saving...'}>{$t("Save offers")}</button></div>
+        </fieldset>
       </section>
       {/if}
 
       <div class="management-grid">
         {#if section === 'faqs'}
       <section id="faqs" class="surface workspace-section" aria-labelledby="faq-heading">
-          <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="faq-heading">Frequently asked questions</h2></div><button class="secondary" type="button" on:click={addFaq}>Add FAQ</button></div>
+          <div class="surface-head"><div><p class="eyebrow">Sales knowledge</p><h2 id="faq-heading">Frequently asked questions</h2></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addFaq}>Add FAQ</button></div>
+          <div class="editor-search"><label>Find an answer<input type="search" bind:value={faqQuery} placeholder="Search questions, answers or topics…"/></label><span class="editor-count">{faqs.length} answers</span></div>
+        <fieldset class="editor-permission" disabled={!canEditCurrent}>
           <div class="faq-list">
             {#each faqs as faq, index}
-              <div class="faq-editor">
+              {#if matches(faqQuery,faq.q,faq.a,...faq.tags)}<details class="faq-editor" open={faqs.length<4||Boolean(faqQuery)||!faq.q}><summary>{faq.q||'New answer'}</summary><div class="faq-fields">
                 <label>Question<input bind:value={faq.q} required /></label>
                 <label>Answer<textarea bind:value={faq.a} required></textarea></label>
                 <div class="row-actions"><label>Topics<input value={faq.tags.join(', ')} on:input={(event) => (faq.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="delivery, opening hours" /></label><button class="icon-button danger" type="button" title="Remove FAQ" aria-label={`Remove FAQ ${index + 1}`} on:click={() => removeFaq(index)}>{$t("Remove")}</button></div>
-              </div>
+              </div></details>{/if}
             {:else}
               <p class="empty-state">No FAQs yet. Add the answers customers ask for most.</p>
             {/each}
           </div>
-          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs}>{$t("Save FAQs")}</button></div>
+          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs} disabled={!canEditCurrent||faqStatus==='Saving...'}>{$t("Save FAQs")}</button></div>
+        </fieldset>
         </section>
       {/if}
 
         {#if section === 'delivery'}
       <section id="delivery" class="surface workspace-section" aria-labelledby="delivery-heading">
-          <div class="surface-head"><div><p class="eyebrow">Sales fulfillment</p><h2 id="delivery-heading">Delivery settings</h2></div><button class="secondary" type="button" on:click={addDeliveryRule}>Add delivery area</button></div>
+          <div class="surface-head"><div><p class="eyebrow">Sales fulfillment</p><h2 id="delivery-heading">Delivery settings</h2></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addDeliveryRule}>Add delivery area</button></div>
+        <fieldset class="editor-permission" disabled={!canEditCurrent}>
           <div class="delivery-content">
             <label>Delivery notes<textarea bind:value={delivery.notes} placeholder="Tell customers about free delivery, ordering cutoffs, or collection."></textarea></label>
             <label class="collection-toggle"><input bind:checked={delivery.click_and_collect} type="checkbox" /><span>Click and collect is available</span></label>
@@ -2064,8 +2108,9 @@
               <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message{#if exception.source.postcode}<small>Applies to {String(exception.source.postcode)}</small>{/if}<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>{$t("Remove")}</button></div>
             {/each}
           </div>
-          <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
-        </section>
+          <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery} disabled={!canEditCurrent||deliveryStatus==='Saving...'}>Save delivery settings</button></div>
+          </fieldset>
+      </section>
       {/if}
       </div>
 
@@ -2073,28 +2118,28 @@
         {#if section === 'profile'}
       <section id="profile" class="surface workspace-section" aria-labelledby="profile-heading">
           <div class="surface-head"><div><p class="eyebrow">Business knowledge</p><h2 id="profile-heading">{$t("Business profile")}</h2></div></div>
-          <form class="profile-form" on:submit|preventDefault={saveProfile}>
-            <label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
+          <form class="profile-form" on:submit|preventDefault={saveProfile}><fieldset class="editor-permission" disabled={!canEditCurrent}>
+            <fieldset class="profile-group"><legend>About your business</legend><label class="profile-wide">Business name<input bind:value={profile.name} maxlength="120" required /></label>
             <label class="profile-wide">About the business<textarea bind:value={profile.about} maxlength="1200" placeholder="What does your business do, and how do you help customers?"></textarea></label>
-            <div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>{$t("Phone")}<input bind:value={profile.phone} type="tel" /></label></div>
+            </fieldset><fieldset class="profile-group"><legend>Customer contact details</legend><p class="field-note">Use the details your assistant can share with customers.</p><div class="two-fields"><label>Customer email<input bind:value={profile.email} type="email" /></label><label>{$t("Phone")}<input bind:value={profile.phone} type="tel" /></label></div>
             <label>{$t("Website")}<input bind:value={profile.website} type="url" placeholder="https://www.yourcompany.com" /><small>Save this URL, then import its public pages in Website widget → Test conversation. Add prices, availability and other critical facts to your offerings and business settings.</small></label>
-            <label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
+            </fieldset><details class="profile-group profile-disclosure"><summary>Social profiles & certifications</summary><p class="field-note">Optional public links and qualifications your assistant can share.</p><label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
             <div class="two-fields"><label>TikTok<input bind:value={profile.social.tiktok} type="url" placeholder="https://www.tiktok.com/@yourcompany" /></label><label>Linktree<input bind:value={profile.social.linktree} type="url" placeholder="https://linktr.ee/yourcompany" /></label></div>
-            <div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">{$t("Save profile")}</button></div>
-          </form>
+            </details><div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit" disabled={!canEditCurrent||profileStatus==='Saving...'}>{$t("Save profile")}</button></div>
+          </fieldset></form>
         </section>
       {/if}
 
         {#if section === 'agent'}
           {#if user?.permissions?.includes('offerings.read')}
             {#key tenant}
-              <KnowledgeReview endpoint={apiPath(`/admin/api/knowledge-review?tenant=${encodeURIComponent(tenant)}`)} {tenant} consoleBase={base} accessibleSections={Object.keys(sections).filter(mayOpenScreen)} />
+              {#await import('./KnowledgeReview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedKnowledgeReview}<svelte:component this={loadedKnowledgeReview.default} endpoint={apiPath(`/admin/api/knowledge-review?tenant=${encodeURIComponent(tenant)}`)} {tenant} consoleBase={base} accessibleSections={Object.keys(sections).filter(mayOpenScreen)} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
             {/key}
           {/if}
       <section id="agent" class="surface workspace-section" aria-labelledby="agent-heading">
           <div class="surface-head"><div><p class="eyebrow">Agent behavior</p><h2 id="agent-heading">Sales playbook</h2></div></div>
-          <form class="agent-form" on:submit|preventDefault={saveAgentSettings}>
+          <form class="agent-form" on:submit|preventDefault={saveAgentSettings}><fieldset class="editor-permission" disabled={!canEditCurrent}>
             <div class="agent-starter">
               <div><h3>Start with your business model</h3><p>Apply a starter, then tailor every setting. It sets the model, catalogue type, goal and fulfilment. Your written details and guidance stay unchanged; questions are added only when none exist.</p></div>
               <div class="agent-starter-controls"><label>Starter profile<select bind:value={selectedAgentStarter}>{#each Object.entries(agentStarters) as [key, starter]}<option value={key}>{starter.label}</option>{/each}</select></label><button class="secondary" type="button" on:click={applyAgentStarter}>Apply starter</button></div>
@@ -2129,37 +2174,40 @@
               {/each}
             </div>
             <label>Handoff message<textarea bind:value={agentSettings.playbook.handoff_message} maxlength="360" placeholder="What should the assistant say before it asks for contact details?"></textarea></label>
-            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save playbook</button></div>
-          </form>
+            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit" disabled={!canEditCurrent||agentStatus==='Saving...'}>Save playbook</button></div>
+          </fieldset></form>
         </section>
       {/if}
       </div>
 
       {#if section === 'branches'}
       <section id="branches" class="surface workspace-section" aria-labelledby="branches-heading">
-        <div class="surface-head"><div><p class="eyebrow">Locations and handoff</p><h2 id="branches-heading">Branches and opening hours</h2></div><button class="secondary" type="button" on:click={addBranch}>Add branch</button></div>
+        <div class="surface-head"><div><p class="eyebrow">Locations and handoff</p><h2 id="branches-heading">Locations & opening hours</h2><p class="field-note">Keep customer locations and local opening hours clear. Mobile or online-only? Explain your service areas and availability in Business Profile and Q&A; location entries require a postcode.</p></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addBranch}>Add branch</button></div>
+        <fieldset class="editor-permission" disabled={!canEditCurrent}>
         <div class="branches-list">
           {#each branches as branch, branchIndex}
             <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
               <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>{$t("Remove")}</button></div>
-              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Branch key<input bind:value={branch.id} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>{$t("Phone")}<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div>
-              <div class="hours-grid"><h4>{$t("Opening hours")}</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00-18:00" /></label>{/each}</div>
+              <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>{$t("Phone")}<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label></div>
+              <details class="editor-advanced"><summary>Location reference & map coordinates</summary><div class="two-fields"><label>Branch key<input bind:value={branch.id} required /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div></details>
+              <div class="hours-grid"><h4>{$t("Opening hours")}</h4>{#each ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as day}<label>{day.toUpperCase()}<input bind:value={branch.hours[day as keyof BranchHours]} placeholder="09:00–18:00, Closed or By appointment" /></label>{/each}</div>
             </section>
           {:else}
             <p class="empty-state branches-empty">No branches yet. Add a location so the assistant can direct customers to the right place.</p>
           {/each}
         </div>
-        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>{$t("Save branches")}</button></div>
+        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches} disabled={!canEditCurrent||branchesStatus==='Saving...'}>{$t("Save branches")}</button></div>
+        </fieldset>
       </section>
       {/if}
 
       {#if section === 'companies' && (isPlatform || isOwner)}
-        <section class="surface workspace-section"><div class="surface-head"><h2>Your companies</h2></div>
-          {#each tenants as company}<div class="company-row"><strong>{company.name}</strong><span>{company.activation?.active?'Active':'Awaiting subscription and implementation payments'}</span><button class="secondary" type="button" on:click={() => openCompanyWorkspace(company.key,'profile')}>Manage {company.key}</button></div>{/each}
+        <section class="surface workspace-section"><div class="surface-head"><div><h2>Your businesses</h2><p class="field-note">Switch between the businesses this account is authorised to manage.</p></div></div><div class="editor-search"><label>Find a business<input type="search" bind:value={companyQuery} placeholder="Search business names…"/></label></div>
+          {#each tenants.filter(company=>matches(companyQuery,company.name,platformMode?company.key:'')) as company}<div class="company-row"><strong>{company.name}</strong><span>{company.activation?.active?'Active':'Activation pending'}</span><button class="secondary" type="button" on:click={() => openCompanyWorkspace(company.key,'profile')}>Open business</button>{#if platformMode}<button class="secondary" on:click={()=>openCompanyWorkspace(company.key,'operations')}>Channel permissions</button>{/if}</div>{:else}<p class="empty-state">No businesses match your search.</p>{/each}
         </section>
       {/if}
       {#if section === 'errors'}
-        <ErrorsHealth {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>
+        {#await import('./ErrorsHealth.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedErrorsHealth}<svelte:component this={loadedErrorsHealth.default} {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
       {/if}
       {/if}
       </fieldset>
@@ -2170,21 +2218,16 @@
 <CookiePreferences bind:this={cookiePreferences} bind:open={cookiePreferencesOpen} />
 
 <style>
-  .sidebar,.login-intro {--v7-focus:var(--v7-tint-line)}
+  .login-intro {--v7-focus:var(--v7-tint-line)}
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:white}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .activation-notice {display:flex;align-items:center;gap:14px;padding:16px 20px;margin-bottom:20px;border:1px solid var(--v7-tint-line);border-radius:16px;background:var(--v7-tint);color:var(--v7-brand)}
   .activation-notice>div {flex:1;min-width:0}.activation-notice strong {font-size:12px;font-weight:700}.activation-notice p {margin:5px 0 0;font-size:11px;line-height:1.6;color:var(--v7-muted)}
   .activation-icon {display:grid;place-items:center;width:35px;height:35px;border:1px solid var(--v7-tint-line);border-radius:10px;background:var(--v7-tint);flex:none}.activation-icon svg {width:19px;height:19px;fill:none;stroke:var(--v7-brand);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
   .activation-notice a {display:flex;align-items:center;gap:10px;padding:10px 12px;min-height:44px;border:1px solid var(--v7-tint-line);border-radius:10px;font-size:11px;font-weight:700;color:var(--v7-brand);text-decoration:none;flex:none;background:#fff}.activation-notice a:hover {background:var(--v7-tint)}.activation-notice a:focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
   @media(max-width:650px){.activation-notice{flex-wrap:wrap;align-items:flex-start;padding:15px}.activation-notice>div{flex-basis:calc(100% - 50px)}.activation-notice a{margin-inline-start:49px;min-height:40px}}
-  .nav-section { display:grid; gap:4px; min-width:0; }
-  .nav-group { margin:18px 12px 6px; font-size:10px; font-weight:750; letter-spacing:.11em; text-transform:uppercase; color:var(--v7-control-line); grid-column:1/-1; }
-  .nav-section:first-child .nav-group { margin-top:0; }
-  .cookie-nav-trigger {width:100%;min-height:44px;border:0;border-radius:10px;padding:10px 12px;background:transparent;color:var(--v7-line);text-align:start;font:inherit;font-size:14px;cursor:pointer}
-  .cookie-nav-trigger:hover {background:#ffffff14;color:#fff}
   .cookie-login-trigger {min-height:44px;padding:0;border:0;background:transparent;color:var(--v7-accent);font:inherit;cursor:pointer}
   .cookie-login-trigger:hover {text-decoration:underline;text-underline-offset:3px}
-  .cookie-nav-trigger:focus-visible,.cookie-login-trigger:focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
+  .cookie-login-trigger:focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
   .workspace-content { min-width:0; padding:0; margin:0; border:0; }
   .workspace-progress,.workspace-retry { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:20px; padding:14px 18px; border:1px solid var(--v7-line); border-radius:12px; }
   .workspace-progress { justify-content:flex-start; color:var(--v7-brand); background:var(--v7-soft); font-size:13px; }
@@ -2193,8 +2236,6 @@
   .loading-indicator { width:16px; height:16px; flex-shrink:0; border:2px solid var(--v7-tint-line); border-top-color:var(--v7-accent); border-radius:50%; animation:workspace-spin .8s linear infinite; }
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
   @keyframes workspace-spin { to { transform:rotate(360deg); } }
-  .company-scope{display:grid;gap:4px;max-width:100%;overflow-wrap:anywhere}.company-scope span{font-size:12px;color:var(--v7-muted)}.company-scope small{font-size:12px;color:var(--v7-muted)}
-  .inventory-fields{display:flex;flex-wrap:wrap;gap:16px;padding:12px 16px 20px;border-bottom:1px solid var(--v7-line);align-items:end}.inventory-fields label{flex:1 1 180px;min-width:0}.inventory-fields p{flex:2 1 250px;font-size:13px;color:var(--v7-muted);margin:0;line-height:1.5}
 
   :global(body) { background: var(--v7-canvas); }
   .loading, .login-shell { min-height: 100vh; display: grid; place-items: center; color: var(--v7-muted); }
@@ -2216,20 +2257,10 @@
   .notice { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
   .error { color: #b42318; background: #fff2f0; }
   .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
-  .sidebar { position: sticky; top: 0; height: 100dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; padding: 24px 16px; background: var(--v7-brand); color: var(--v7-canvas); }
-  .menu-toggle { display: none; }
-  .side-brand { display: grid; gap: 6px; padding: 0 10px 18px; border-bottom: 1px solid var(--v7-line); }
-  .side-brand small { color: var(--v7-control-line); font-size: 12px; font-weight: 500; }
-  nav { display: grid; gap: 4px; }
-  nav a { width: 100%; border: 0; border-radius: 6px; padding: 10px; color: var(--v7-line); background: transparent; text-align: left; text-decoration: none; font-size: 14px; }
-  nav a:hover, nav a.active { color: #fff; background: var(--v7-charcoal); }
-  .account { display: grid; gap: 4px; margin-top: auto; padding: 14px 10px 0; border-top: 1px solid var(--v7-line); font-size: 12px; overflow-wrap: anywhere; }
-  .account span { color: var(--v7-control-line); }
   .workspace { min-width: 0; width: 100%; padding: 28px clamp(16px, 3vw, 48px) 48px; }
   .workspace-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
   .workspace-head h1 { margin-bottom: 0; font-size: 30px; letter-spacing: 0; }
   .workspace-actions { display: flex; flex-wrap: wrap; max-width: 100%; align-items: end; gap: 10px; }
-  .sign-out { white-space: nowrap; }
   .eyebrow { margin-bottom: 7px; color: var(--v7-accent); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
   .tenant-picker { min-width: 220px; }
   .operator-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); gap: 24px; padding: 20px; margin-bottom: 20px; background: var(--v7-tint); border: 1px solid var(--v7-tint-line); border-radius: 8px; }
@@ -2255,12 +2286,6 @@
   .form-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 38px; }
   .form-status { color: var(--v7-muted); font-size: 13px; line-height: 1.4; }
   .form-status.error { color: #b42318; }
-  .install .surface-body > p { margin: 0 0 16px; color: var(--v7-muted); font-size: 14px; line-height: 1.5; }
-  .code { min-height: 132px; margin: 0; width: 100%; background: var(--v7-charcoal); color: var(--v7-tint); border: 0; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-  .allowlist { padding: 20px 0 0; }
-  .allowlist h3 { margin-bottom: 12px; font-size: 14px; }
-  .allowlist p { margin-bottom: 0; color: var(--v7-muted); font-size: 13px; }
-  .allowlist code { display: block; margin: 7px 0; padding: 8px; border-left: 3px solid var(--v7-accent); background: var(--v7-tint); color: var(--v7-ink); font-size: 12px; overflow-wrap: anywhere; }
   .workspace-section { scroll-margin-top: 18px; }
   .pipeline-head { background: var(--v7-canvas); }
   .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--v7-line); }
@@ -2289,16 +2314,7 @@
   .intent-row strong { color: var(--v7-ink); }
   .activity-status { margin: 0; padding: 0 20px 20px; color: var(--v7-muted); font-size: 13px; }
   .count-label { padding: 5px 8px; color: var(--v7-muted); background: var(--v7-soft); border: 1px solid var(--v7-line); border-radius: 99px; font-size: 12px; font-weight: 700; white-space: nowrap; }
-  .catalog-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid var(--v7-line); }
-  .catalog-toolbar label { max-width: 112px; }
   .currency { text-transform: uppercase; }
-  .editor-group { padding: 20px; border-bottom: 1px solid var(--v7-line); }
-  .group-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-  .category-fields { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, .55fr); gap: 12px; width: min(100%, 580px); }
-  .product-table { overflow-x: auto; border: 1px solid var(--v7-line); border-radius: 6px; }
-  .product-table-head, .product-row { display: grid; grid-template-columns: minmax(190px, 1.4fr) minmax(150px, 1fr) 96px 92px minmax(170px, 1fr) 86px 76px; gap: 8px; align-items: center; min-width: 880px; padding: 9px 10px; }
-  .product-table-head { color: var(--v7-muted); background: var(--v7-canvas); border-bottom: 1px solid var(--v7-line); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-  .product-row input { min-width: 0; }
   .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: var(--v7-ink); font-size: 12px; white-space: nowrap; }
   .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: var(--v7-accent); }
   .icon-button { min-height: 34px; padding: 0 8px; border: 1px solid var(--v7-control-line); border-radius: 6px; background: #fff; color: var(--v7-muted); font-size: 12px; font-weight: 700; }
@@ -2335,7 +2351,7 @@
   .exception-row { display: grid; grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr) auto; align-items: end; gap: 10px; }
   .profile-form, .agent-form { display: grid; gap: 16px; padding: 20px; }
   .profile-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .profile-wide, .profile-form > .two-fields, .profile-footer { grid-column: 1 / -1; }
+  .profile-wide, .profile-footer { grid-column: 1 / -1; }
   .agent-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .agent-starter { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--v7-tint-line); border-radius: 14px; background: var(--v7-tint); }
   .agent-starter h3 { margin: 0; color: var(--v7-brand); font-size: 16px; }
@@ -2365,17 +2381,13 @@
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }
   @media (max-width: 900px) { .content-grid, .operator-panel, .activity-details { grid-template-columns: 1fr; } .tenant-form, .team-form, .account-control-form { grid-template-columns: 1fr; } .activity-list + .activity-list { border-top: 1px solid var(--v7-line); border-left: 0; } }
-  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { min-height: auto; gap: 16px; padding: 14px; } .side-brand { grid-template-columns: auto 1fr; align-items: baseline; padding-bottom: 0; border-bottom: 0; } .side-brand small { grid-column: 2; } nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .account { display: none; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .group-heading, .qualification-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .catalog-toolbar { align-items: stretch; flex-direction: column; } .catalog-toolbar label { max-width: none; } .category-fields, .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row, .agent-settings-grid, .qualification-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--v7-line); } .metric-grid > div:nth-child(4) { border-top: 1px solid var(--v7-line); } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button, .qualification-row .icon-button { width: fit-content; } }
+  @media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .workspace { padding: 24px 16px 40px; } .workspace-head { align-items: start; flex-direction: column; } .workspace-actions { width: 100%; align-items: end; } .tenant-picker { flex: 1; min-width: 0; width: auto; } .form-footer, .section-footer, .qualification-heading { align-items: stretch; flex-direction: column; } .form-footer .primary, .section-footer .primary { width: 100%; } .row-actions, .exception-row, .two-fields, .branch-fields, .offer-fields, .account-row, .agent-settings-grid, .qualification-row { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .metric-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--v7-line); } .metric-grid > div:nth-child(4) { border-top: 1px solid var(--v7-line); } .funnel-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; } .funnel-strip > div:nth-child(odd) { border-left: 0; } .funnel-strip > div:last-child { grid-column: span 2; } .lead-row { align-items: start; flex-direction: column; } .lead-row > div:last-child { text-align: left; } .wide-field { grid-column: auto; } .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .row-actions .icon-button, .exception-row .icon-button, .branch-heading .icon-button, .offer-heading .icon-button, .qualification-row .icon-button { width: fit-content; } }
   @media (max-width: 1180px) {
     .team-form, .account-control-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .hours-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
   @media (max-width: 720px) {
     .app-shell { grid-template-rows: auto 1fr; }
-    .sidebar { position: static; height: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
-    .menu-toggle { display: block; align-self: center; }
-    nav { display: none; grid-column: 1 / -1; }
-    nav.open { display: grid; }
     .profile-form, .team-form, .account-control-form { grid-template-columns: minmax(0, 1fr); }
     .hours-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .surface-head, .exception-heading, .branch-heading, .offer-heading { flex-wrap: wrap; }
@@ -2388,7 +2400,7 @@
   .widget-workspace-intro h2 {margin:6px 0 8px;font-size:20px;letter-spacing:-.025em}
   .widget-workspace-intro p {margin:0;font-size:12px;color:var(--v7-muted);line-height:1.6}
   .widget-workspace-intro .eyebrow {font-size:10px;color:var(--v7-accent);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-  .widget-workspace-intro a,.widget-install-tools a {display:inline-flex;align-items:center;min-height:44px;font-size:12px;color:var(--v7-accent);text-underline-offset:3px}
+  .widget-workspace-intro a {display:inline-flex;align-items:center;min-height:44px;font-size:12px;color:var(--v7-accent);text-underline-offset:3px}
   .widget-workspace-tabs {display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px;border:1px solid var(--v7-line);border-radius:10px;background:#fff}
   .widget-workspace-tabs button {min-height:44px;border:1px solid transparent;border-radius:7px;background:transparent;padding:10px 15px;font-size:12px;font-weight:600;color:var(--v7-muted)}
   .widget-workspace-tabs button.active {color:var(--v7-accent);background:var(--v7-soft);border-color:var(--v7-line)}
@@ -2398,7 +2410,6 @@
   .widget-extra :global(section) {margin-bottom:10px}
   .widget-install-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start;min-width:0}
   .widget-install-grid .surface {min-width:0}.widget-install-grid .surface-head p:last-child {margin:7px 0 0;font-size:12px;color:var(--v7-muted);line-height:1.6}
-  .widget-install-tools {display:grid;gap:18px}.widget-install-tools p {margin:0;font-size:12px;line-height:1.65;color:var(--v7-muted)}.widget-install-tools .code {width:100%;min-height:150px}
   .widget-save-notice {display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0;padding:12px 16px;border:1px solid var(--v7-line);border-radius:8px;background:var(--v7-soft);font-size:12px;line-height:1.6}
   .widget-save-notice button {padding:8px 10px;min-height:44px;border:1px solid var(--v7-control-line);background:#fff;border-radius:7px;font-size:11px}
   @media(max-width:900px){.widget-install-grid {grid-template-columns:1fr}}
@@ -2433,33 +2444,15 @@
   .login .provider-help,.login .login-policy {font-size:11px;line-height:1.5}
   .login-policy a {color:var(--v7-accent)}
   .app-shell {grid-template-columns:238px minmax(0,1fr)}
-  .sidebar {background:var(--v7-brand);padding:22px 14px 16px;gap:20px;overflow:hidden}
-  .side-brand {display:flex;flex-direction:column;align-items:flex-start;gap:7px;flex:none;padding:0 10px 20px;border-color:#ffffff19}
-  .side-brand small {color:var(--v7-control-line);font-size:11px;letter-spacing:0}
-  nav {flex:1;min-height:0;overflow-y:auto;align-content:start;gap:18px;padding:0 3px;scrollbar-width:thin;scrollbar-color:#ffffff2b transparent}
-  .nav-section {gap:2px}
-  .nav-group {margin:0 10px 6px;color:var(--v7-control-line);font-size:10px;font-weight:650;letter-spacing:.08em}
-  nav a,.cookie-nav-trigger {display:flex;align-items:center;gap:11px;border-radius:7px;padding:10px;color:var(--v7-line);min-height:40px;font-size:12px;line-height:1.4;transition:background-color .15s}
-  nav a span,.cookie-nav-trigger span {min-width:0}
-  nav a:hover,.cookie-nav-trigger:hover {background:#ffffff0d;color:white}
-  nav a.active {background:#ffffff12;color:#fff;font-weight:650;box-shadow:inset 3px 0 var(--v7-tint-line)}
-  .account {display:flex;align-items:center;gap:10px;flex:none;margin-top:0;padding:16px 10px 0;border-color:#ffffff19}
-  .account-avatar {display:grid;place-items:center;width:32px;height:32px;flex:none;border-radius:8px;background:#ffffff12;color:var(--v7-tint-line);font-size:12px;font-weight:650}
-  .account > div {display:grid;gap:3px;min-width:0}
-  .account strong {font-size:11px;font-weight:600;color:var(--v7-soft)}
-  .account > div span {color:var(--v7-control-line);font-size:10px}
   .workspace {padding:28px clamp(20px,2.6vw,40px) 48px;background:var(--v7-canvas);min-width:0}
   .workspace-head {align-items:center;padding-bottom:22px;border-bottom:1px solid var(--v7-line);margin-bottom:24px;gap:18px}
   .workspace-title {min-width:0;flex:1 1 340px}
   .workspace-head h1 {font-size:28px;line-height:1.2;letter-spacing:-.035em;color:var(--v7-ink);font-weight:650}
-  .workspace-head .eyebrow {color:var(--v7-muted);letter-spacing:.08em;font-size:10px;font-weight:650;margin-bottom:8px}
-  .page-description {margin:8px 0 0;color:var(--v7-muted);font-size:13px;line-height:1.55;max-width:620px}
   .workspace-actions {flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:12px}
   .workspace-actions :global(.language-picker) {display:grid;gap:5px;align-items:start;color:var(--v7-muted);font-size:11px;line-height:1.5;font-weight:600}
   .workspace-actions :global(.language-picker select) {border-color:var(--v7-control-line);border-radius:7px;min-height:40px;font-size:12px;color:var(--v7-ink);padding:8px 10px}
   .tenant-picker {min-width:160px;font-size:11px;color:var(--v7-muted);gap:5px;font-weight:600}
   .tenant-picker select {min-height:40px;font-size:12px}
-  .sign-out {margin-top:21px;min-height:40px;font-size:12px}
   .surface {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:var(--v7-card-shadow);margin-bottom:20px}
   .workspace :global(.panel) {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:var(--v7-card-shadow)}
   .surface-head {background:#fff;padding:20px 22px;border-color:var(--v7-line);border-radius:var(--v7-radius) var(--v7-radius) 0 0}
@@ -2493,10 +2486,7 @@
   .company-row:last-child {border-bottom:0;border-radius:0 0 var(--v7-radius) var(--v7-radius)}
   .company-row strong {flex:1 1 180px}
   .company-row span {color:var(--v7-muted);font-size:13px}
-  .editor-group,.offer-editor,.branch-editor {padding:22px}
-  .product-table {border-radius:8px;border-color:var(--v7-line)}
-  .product-table-head {background:var(--v7-canvas);color:var(--v7-muted);padding:12px}
-  .inventory-fields {background:var(--v7-soft)}
+  .offer-editor,.branch-editor {padding:22px}
   .icon-button,.add-row {min-height:44px}
   .section-footer {padding:18px 22px;background:var(--v7-soft);border-radius:0 0 var(--v7-radius) var(--v7-radius)}
   .profile-footer {padding:0;background:transparent}
@@ -2518,7 +2508,36 @@
   :global(body) {background:var(--v7-canvas)}
   @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{order:2;padding:28px}.login-brand{margin-bottom:40px}.login-intro h2{font-size:28px;max-width:650px}.login-intro> a:last-child{display:none}.login-content{order:1;padding:28px;max-width:600px}}
   @media(max-width:1100px){.workspace-title{flex-basis:100%}.workspace-actions{justify-content:flex-start}}
-  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0;position:relative;height:auto;overflow:visible;padding:16px}.side-brand{padding:0;border:0;gap:10px;grid-template-columns:none}.side-brand small{grid-column:auto}.menu-toggle{justify-self:end;margin-top:0;color:var(--v7-soft);background:#ffffff10;border-color:#ffffff26;border-radius:7px;min-height:44px}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.sign-out{margin-top:0}.page-description{font-size:12px}.login{padding:24px}.account{display:none}}
-  @media(max-width:720px){.surface-head,.editor-group,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:18px}.metric-grid{padding:0;gap:0}.metric-grid>div{min-height:112px;padding:18px}.metric-grid strong{font-size:29px}.metric-grid>div:nth-child(3){border-inline-start:0;border-top:1px solid var(--v7-line)}.metric-grid>div:nth-child(4){border-top:1px solid var(--v7-line)}.funnel-strip{margin:16px 18px 0}.workspace-actions .sign-out{margin-inline-start:auto}.section-footer{padding:18px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
-  @media(max-width:720px){nav{grid-column:1/-1;flex:none;overflow:visible;gap:14px;padding:0}nav.open{grid-template-columns:1fr;margin-top:16px}.nav-section{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.nav-group{margin:4px 8px}.nav-section:first-child .nav-group{margin-top:4px}.nav-section a,.cookie-nav-trigger{min-height:44px;font-size:12px;gap:8px}.workspace-retry{align-items:flex-start;flex-direction:column}}
+  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:25px}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.login{padding:24px}}
+  @media(max-width:720px){.surface-head,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:18px}.metric-grid{padding:0;gap:0}.metric-grid>div{min-height:112px;padding:18px}.metric-grid strong{font-size:29px}.metric-grid>div:nth-child(3){border-inline-start:0;border-top:1px solid var(--v7-line)}.metric-grid>div:nth-child(4){border-top:1px solid var(--v7-line)}.funnel-strip{margin:16px 18px 0}.section-footer{padding:18px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
+  @media(max-width:720px){.workspace-retry{align-items:flex-start;flex-direction:column}}
+
+  /* Six-workspace shell. Editors retain their existing scoped layout. */
+  .app-shell{grid-template-columns:240px minmax(0,1fr);min-height:100dvh;align-items:start}
+  .app-shell.nav-collapsed{grid-template-columns:80px minmax(0,1fr)}
+  .workspace{padding:30px clamp(24px,3.2vw,56px) 64px;min-width:0;max-width:1800px;margin-inline:auto}
+  .workspace-head{align-items:center;gap:24px;margin-bottom:24px;padding-bottom:24px}
+  .workspace-title{flex:1 1 220px;min-width:0}.workspace-head h1{font-size:27px;font-weight:600;letter-spacing:-.04em;margin:9px 0 0;line-height:1.25}
+  .workspace-breadcrumb{display:flex;align-items:center;gap:10px;font-size:11px;line-height:1.6;color:var(--v7-muted)}
+  .workspace-breadcrumb>span:first-of-type:not(.mobile-brand){max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-brand{display:none}
+  .workspace-actions{gap:14px;flex:0 1 auto}.tenant-picker{min-width:150px;max-width:220px;font-size:11px}
+  .workspace-tabs{display:flex;flex:none;align-items:center;overflow-x:auto;scrollbar-width:thin;gap:8px;border-bottom:1px solid var(--v7-line);padding:0 0 12px;margin-bottom:28px;max-width:100%}
+  .workspace-tabs a{display:flex;align-items:center;justify-content:center;flex:none;width:auto;min-height:42px;padding:10px 13px;border-radius:8px;border:1px solid transparent;color:var(--v7-muted);background:none;box-shadow:none;font-size:12px;font-weight:500;white-space:nowrap;text-decoration:none}
+  .workspace-tabs a:hover{color:var(--v7-ink);background:#eaf0e8}.workspace-tabs a.active{color:var(--v7-accent);background:white;border-color:var(--v7-line);font-weight:650;box-shadow:0 1px 2px #153a2b05}
+  .primary,.secondary{min-height:44px;border-radius:8px;font-weight:600}.surface{border-radius:14px}.surface-head{padding:24px}.surface-body{padding:24px}.section-footer{padding:18px 24px;gap:14px;position:sticky;bottom:0;background:#fffffff5;z-index:5;border-radius:0 0 14px 14px}.workspace-retry{border-radius:12px}.provider-buttons{grid-template-columns:1fr}
+  .editor-search{padding:0 24px 20px;display:flex;align-items:center;flex-wrap:wrap;gap:12px}.editor-search label{flex:1;min-width:180px}.editor-search input{max-width:520px}.editor-advanced{margin:10px 0;border:1px solid var(--v7-line);padding:12px 15px;border-radius:9px}.editor-advanced summary{cursor:pointer;font-size:12px;min-height:25px;line-height:25px;color:var(--v7-muted)}.editor-advanced[open]>summary{margin-bottom:14px}.draft-strip{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid #decfa9;background:#fffaf0;padding:13px 17px;border-radius:10px;margin-bottom:20px;font-size:12px;color:#64501e}.draft-strip button{min-height:44px;border:1px solid #d9cdaa;padding:8px 13px;background:white;border-radius:8px;font:inherit;color:inherit}.editor-count{color:var(--v7-muted);font-size:11px}
+  @media(max-width:1100px){.workspace-actions{flex-basis:100%;justify-content:flex-start}.workspace-head{gap:18px}.workspace-actions :global(.section-search){flex:1;max-width:480px}}
+  @media(max-width:850px){.app-shell,.app-shell.nav-collapsed{display:block}.workspace{padding:22px 20px calc(100px + env(safe-area-inset-bottom));max-width:100%}.workspace-head{padding-bottom:20px;margin-bottom:22px}.workspace-head h1{font-size:25px}.workspace-title{flex-basis:100%}.mobile-brand{display:flex;align-items:center;margin-inline-end:2px}.workspace-actions{gap:12px;width:100%;align-items:flex-end}.workspace-actions :global(.section-search){flex:1 1 180px;min-width:0}.workspace-tabs{gap:5px;margin-bottom:22px;padding-bottom:10px}.workspace-tabs a{min-height:44px;font-size:11px;padding:10px 12px}.section-footer{bottom:calc(69px + env(safe-area-inset-bottom))}.surface-head,.surface-body{padding:20px}.editor-search{padding:0 20px 20px}.tenant-picker{min-width:125px;flex:1 1 125px}.draft-strip{align-items:flex-start}}
+
+ .catalog-category{margin:0 24px 20px;border:1px solid var(--v7-line);border-radius:12px;background:var(--v7-canvas);overflow:hidden}.catalog-category>summary{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:17px 19px;min-height:54px;cursor:pointer;font-size:14px;font-weight:600;list-style:none}.catalog-category>summary::after{content:'⌄';font-size:17px;color:var(--v7-muted)}.catalog-category>summary small{margin-inline-start:auto;font-size:10px;color:var(--v7-muted);font-weight:400}.category-settings{padding:0 18px 18px;display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px}.category-settings>label{flex:1;min-width:180px}.category-settings>.editor-advanced{flex:1;min-width:180px;margin:0;background:white}.category-settings>.danger{min-height:44px}.offering-cards{display:grid;grid-template-columns:1fr;gap:12px;padding:0 18px}.offering-card{background:white;padding:20px;border:1px solid var(--v7-line);border-radius:10px}.offering-main{display:grid;grid-template-columns:minmax(0,2fr) minmax(100px,.6fr) minmax(90px,.7fr) auto;gap:14px;align-items:end}.offering-main .stock-toggle{min-height:44px;padding:8px}.offering-advanced{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.offering-footer{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px}.offering-footer small{font-size:10px;color:var(--v7-muted)}.catalog-category>.add-row{margin:12px 18px 18px;width:calc(100% - 36px)}.catalog-category .editor-advanced{background:var(--v7-canvas)}.workspace-toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:20px}.workspace-toolbar>label:first-child{flex:1;min-width:160px}.workspace-toolbar select{min-width:120px}
+ @media(max-width:1100px){.offering-main{grid-template-columns:repeat(2,minmax(0,1fr))}.offering-name{grid-column:1/-1}.offering-main .stock-toggle{grid-column:1/-1;justify-self:start}}
+ @media(max-width:600px){.catalog-category{margin:0 16px 16px}.category-settings{padding:0 14px 14px}.offering-cards{padding:0 12px}.offering-card{padding:16px}.offering-advanced{grid-template-columns:1fr}.category-settings>.editor-advanced{flex-basis:100%}}
+.message-views{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.message-views button{min-height:44px;border:1px solid var(--v7-line);background:white;color:var(--v7-muted);padding:10px 14px;border-radius:8px;font:inherit;font-size:12px}.message-views button.active{background:var(--v7-tint);border-color:var(--v7-tint-line);color:var(--v7-accent)}
+
+ .login-shell{min-height:100dvh;grid-template-columns:minmax(330px,.9fr) minmax(0,1.1fr);background:var(--v7-canvas)}.login-intro{background:var(--v7-brand);border-radius:0;padding:70px clamp(35px,5vw,90px);display:flex;flex-direction:column;justify-content:center}.login-intro h2{font-size:clamp(34px,3.5vw,50px);line-height:1.15;letter-spacing:-.05em;font-weight:550;max-width:430px}.login-intro>p:not(.eyebrow){font-size:14px;line-height:1.85;max-width:390px;color:#c5d9cb}.intro-features{display:flex;flex-direction:column;align-items:flex-start;gap:16px;margin-top:35px}.intro-features>span{border:0;background:none;padding:0;font-size:12px;color:#d0e0d2}.intro-features>span::before{content:'✓';margin-inline-end:13px;color:#a9c5ad}.login-content{padding:35px clamp(25px,5vw,80px);min-width:0;display:flex;flex-direction:column;justify-content:center}.login{max-width:450px;border:1px solid var(--v7-line);box-shadow:none;border-radius:16px;padding:36px;background:white}.login h1{font-size:26px;font-weight:600;letter-spacing:-.04em}.login label{font-size:12px}.login input{min-height:47px;border-radius:8px}.login .primary{min-height:47px}.login .remember-choice input{min-height:17px}.login-logo{margin-bottom:12px}.login-tools{margin-bottom:25px}.login .provider-help{font-size:11px;line-height:1.8}.login-intro>a{margin-top:40px;color:#b6d0bd}.login :global(.password-management){max-width:100%}
+ @media(max-width:850px){.login-shell{display:flex;flex-direction:column}.login-intro{padding:30px 26px;display:block;min-height:0}.login-intro h2{font-size:29px;max-width:500px}.login-intro>p:not(.eyebrow){font-size:12px;margin-top:12px}.intro-features{display:none}.login-intro>a{display:none}.login-content{padding:25px 20px 40px;align-items:center}.login-tools{align-self:flex-end;margin-bottom:18px}.login{padding:27px 23px;width:100%;max-width:460px}.login h1{font-size:24px}}
+
+ .profile-group{border:0;border-bottom:1px solid var(--v7-line);margin:0;padding:0 0 26px;display:grid;gap:20px;min-width:0}.profile-group legend{font-size:15px;font-weight:600;margin:0 0 20px;padding:0;color:var(--v7-ink)}.profile-disclosure{padding:0;border:0}.profile-disclosure>summary{font-size:13px;min-height:44px;cursor:pointer;line-height:44px;color:var(--v7-accent);font-weight:600}.profile-disclosure[open]{padding-bottom:22px;border-bottom:1px solid var(--v7-line)}.profile-disclosure[open]>label,.profile-disclosure[open]>.two-fields{margin-top:18px}.profile-group .field-note{margin:0}.faq-editor{display:block}.faq-editor>summary{min-height:44px;line-height:1.7;display:flex;align-items:center;cursor:pointer;font-size:14px;font-weight:550;gap:16px}.faq-editor>summary::after{content:'⌄';margin-inline-start:auto;color:var(--v7-muted)}.faq-fields{display:grid;gap:16px;padding-top:18px}.advanced-controls{border:1px solid var(--v7-line);background:white;padding:18px 22px;border-radius:12px;margin-bottom:22px}.advanced-controls>summary{cursor:pointer;font-size:13px;line-height:1.5;min-height:30px;align-content:center;color:var(--v7-accent);font-weight:600}.advanced-controls[open]>summary{margin-bottom:20px}.workspace-business-link{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border:1px solid var(--v7-line);border-radius:12px;background:white;font-size:12px;margin-bottom:20px}.workspace-business-link a{color:var(--v7-accent);font-weight:600;text-decoration:none;min-height:44px;display:flex;align-items:center}.component-loading{border:1px solid var(--v7-line);border-radius:12px;background:white;padding:24px;color:var(--v7-muted);font-size:13px}
+.profile-form{grid-template-columns:minmax(0,1fr)}.profile-group{grid-column:1/-1}.editor-permission{border:0;margin:0;padding:0;min-width:0;display:contents}.editor-permission:disabled{opacity:.85}
+.customer-question-report{margin-top:24px;border:1px solid var(--v7-line);border-radius:12px;background:white;padding:18px}.customer-question-report>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--v7-accent)}.customer-question-report[open]>summary{margin-bottom:18px}.workspace-toolbar>a{display:flex;align-items:center;text-decoration:none;font-size:12px}
 </style>

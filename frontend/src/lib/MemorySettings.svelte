@@ -1,44 +1,51 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let confirmation:ConfirmDialog;
+  let savedDraft='';
   import {onMount, onDestroy} from 'svelte';
   export let tenant:string;
   export let csrf='';
   export let apiPrefix='';
+  export let canEdit=true;
   type Settings={enabled:boolean;history_messages:number;history_tokens:number;retention_minutes:number};
   type Configuration={settings:Settings;revision:string;model:string;scope:string;storage:string;cost:{price_version:string;input_usd_per_million:number|null;history_usd_per_1000_replies:number|null}};
   let configuration:Configuration|null=null;
   let settings:Settings={enabled:true,history_messages:12,history_tokens:2048,retention_minutes:60};
   let busy=false,error='',message='',confirmClear=false;
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify(settings))||confirmClear;
   const controller=new AbortController();
   $: estimated=configuration?.cost.input_usd_per_million==null?null:(settings.enabled?settings.history_tokens:0)*configuration.cost.input_usd_per_million/1000;
   const dollars=(value:number|null)=>value===null?'Unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:6}).format(value);
   onMount(()=>{void load();});
   onDestroy(()=>controller.abort());
-  async function load(){busy=true;error='';try{
+  async function load(){if(dirty&&!await confirmation.ask())return;busy=true;error='';try{
     const result=await fetch(apiPrefix+'/admin/api/ai-model/memory?tenant='+encodeURIComponent(tenant),{credentials:'same-origin',signal:controller.signal});
-    if(!result.ok)throw new Error();configuration=await result.json();if(!configuration)throw new Error();settings={...configuration.settings};
+    if(!result.ok)throw new Error();configuration=await result.json();if(!configuration)throw new Error();settings={...configuration.settings};savedDraft=JSON.stringify(settings);
   }catch{if(!controller.signal.aborted)error='Could not load conversation memory settings.';}finally{busy=false;}}
-  async function save(clear=false){if(busy||!configuration||(clear&&!confirmClear))return;busy=true;error='';message='';try{
+  async function save(clear=false){if(!canEdit||busy||!configuration||(clear&&!confirmClear))return;busy=true;error='';message='';try{
     const result=await fetch(apiPrefix+'/admin/api/ai-model/memory?tenant='+encodeURIComponent(tenant),{method:clear?'DELETE':'PUT',credentials:'same-origin',signal:controller.signal,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({settings,revision:configuration.revision})});
     if(result.status===409){error='Settings changed in another session. Refresh before saving.';return;}if(!result.ok)throw new Error();
-    configuration=await result.json();if(!configuration)throw new Error();settings={...configuration.settings};confirmClear=false;message=clear?'Active conversation memory cleared.':'Conversation memory settings saved.';
+    configuration=await result.json();if(!configuration)throw new Error();settings={...configuration.settings};savedDraft=JSON.stringify(settings);confirmClear=false;message=clear?'Active conversation memory cleared.':'Conversation memory settings saved.';
   }catch{if(!controller.signal.aborted)error='Could not save memory settings. Check the values or sign in again.';}finally{busy=false;}}
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={confirmation}/>
 
 <section class="memory" aria-labelledby="memory-title" aria-busy={busy}>
   <header><div><p class="eyebrow">Conversation controls</p><h2 id="memory-title">AI memory</h2></div><button disabled={busy} on:click={load}>Refresh</button></header>
   <p>Remember the current conversation’s recent messages, choices and stated needs. Each conversation stays separate; returning customers are not matched across conversations.</p>
   {#if configuration}
     <form on:submit|preventDefault={()=>save()}>
-      <label class="toggle"><input type="checkbox" bind:checked={settings.enabled} disabled={busy}/> Enable conversation memory</label>
+      <label class="toggle"><input type="checkbox" bind:checked={settings.enabled} disabled={!canEdit||busy}/> Enable conversation memory</label>
       <div class="fields">
-        <label>Recent messages<input type="number" min="2" max="40" step="1" bind:value={settings.history_messages} required disabled={busy||!settings.enabled}/><small>Individual customer and agent messages, not pairs.</small></label>
-        <label>Transcript token budget<input type="number" min="256" max="16384" step="1" bind:value={settings.history_tokens} required disabled={busy||!settings.enabled}/><small>A conservative byte-based limit. Recent messages are preferred; messages too large to fit are omitted. Verified task facts are kept separately.</small></label>
-        <label>Memory lifetime (minutes)<input type="number" min="5" max="10080" step="1" bind:value={settings.retention_minutes} required disabled={busy||!settings.enabled}/><small>Expires each remembered item after its last update. Expired rows are cleaned up during subsequent activity.</small></label>
+        <label>Recent messages<input type="number" min="2" max="40" step="1" bind:value={settings.history_messages} required disabled={!canEdit||busy||!settings.enabled}/><small>Individual customer and agent messages, not pairs.</small></label>
+        <label>Transcript token budget<input type="number" min="256" max="16384" step="1" bind:value={settings.history_tokens} required disabled={!canEdit||busy||!settings.enabled}/><small>A conservative byte-based limit. Recent messages are preferred; messages too large to fit are omitted. Verified task facts are kept separately.</small></label>
+        <label>Memory lifetime (minutes)<input type="number" min="5" max="10080" step="1" bind:value={settings.retention_minutes} required disabled={!canEdit||busy||!settings.enabled}/><small>Expires each remembered item after its last update. Expired rows are cleaned up during subsequent activity.</small></label>
       </div>
       <aside><strong>Estimated transcript input cost: up to {dollars(estimated)} per 1,000 replies</strong><p>Uses {configuration.model} and the server’s configured uncached input rate. More history can increase cost and response time. Shorter history can reduce recall. No extra summarization AI call is added.</p><p>This estimate covers only the recent transcript. Business knowledge, verified task facts, new messages, outputs and reasoning add cost. Caching can reduce input charges; actual provider usage, exchange rates and wallet pricing determine your charge.</p></aside>
-      <button class="primary" disabled={busy}>{busy?'Saving…':'Save memory settings'}</button>
+      <button class="primary" disabled={!canEdit||busy}>{busy?'Saving…':'Save memory settings'}</button>
     </form>
-    <details><summary>Clear active memory</summary><p>This forgets active AI context for this business’s conversations. It does not delete conversation records, leads or billing history.</p><label class="toggle"><input type="checkbox" bind:checked={confirmClear} disabled={busy}/> Clear active memory for this business</label><button type="button" disabled={busy||!confirmClear} on:click={()=>save(true)}>Clear memory</button></details>
+    <details><summary>Clear active memory</summary><p>This forgets active AI context for this business’s conversations. It does not delete conversation records, leads or billing history.</p><label class="toggle"><input type="checkbox" bind:checked={confirmClear} disabled={!canEdit||busy}/> Clear active memory for this business</label><button type="button" disabled={!canEdit||busy||!confirmClear} on:click={()=>save(true)}>Clear memory</button></details>
   {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if message}<p role="status">{message}</p>{/if}

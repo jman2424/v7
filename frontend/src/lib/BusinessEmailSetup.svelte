@@ -1,4 +1,8 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import {onMount,onDestroy} from 'svelte';
   export let tenant:string;
   export let csrf:string;
@@ -8,6 +12,7 @@
   let storageAvailable=false,cleanupCounts:Record<string,number>|null=null;
   let forwardTo:string[]=[];
   let message='',error=false;
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({address,provider}));
   const controllers=new Set<AbortController>();
   const states:Record<string,string>={not_started:'Not set up',requested:'Awaiting mailbox verification and routing',routing_configured:'Mailbox routing configured'};
   async function request(method='GET') {
@@ -27,8 +32,10 @@
     address=data.settings.address;provider=data.settings.provider;revision=data.revision;state=data.state;
     storageAvailable=data.storage_available;cleanupCounts=data.cleanup_counts;
     forwardTo=data.forward_to||[];
+    savedDraft=JSON.stringify({address,provider});
   }
   async function load() {
+    if(dirty&&!await draftConfirmation.ask())return;
     try {const data=await request();if(!disposed)apply(data);}
     catch(err){if(!disposed){error=true;message=err instanceof Error?err.message:'Email setup is unavailable.';}}
     finally{if(!disposed)loading=false;}
@@ -45,6 +52,7 @@
   onMount(load);
   onDestroy(()=>{disposed=true;for(const controller of controllers)controller.abort();});
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section aria-labelledby="client-email-title" class="setup">
   <h3 id="client-email-title">Set up your company’s support email</h3>

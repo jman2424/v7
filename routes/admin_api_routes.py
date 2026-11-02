@@ -1587,6 +1587,7 @@ def api_lead_status_put(lead_id: str):
 def api_conversations():
     from service.analytics_db import _conn, _ensure_ready, _since, _norm_tenant
     from service import session_store
+    from service.conversation_views import conversation_message
     tenant = _norm_tenant(_tenant())
     since = _since(_int_arg("minutes", 1440, maximum=43200))
     try:
@@ -1602,23 +1603,23 @@ def api_conversations():
             with db.cursor(row_factory=dict_row) as cursor:
                 rows = cursor.execute(
                     "WITH tenant_messages AS ("
-                    "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
+                    "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
                     "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out','navigation_click')) "
-                    "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
+                    "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
                     "WHERE id<%s AND ts_utc>=%s ORDER BY id DESC LIMIT 51",
                     (tenant, before, since),
                 ).fetchall()
-        return jsonify(messages=rows[:50], has_more=len(rows) > 50,
+        return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
                        next_before=rows[49]["id"] if len(rows) > 50 else None)
     with _conn() as db:
         rows = db.execute(
             "WITH tenant_messages AS ("
-            "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text "
+            "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
             "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out','navigation_click')) "
-            "SELECT id, ts_utc, channel, event_type, text FROM tenant_messages "
+            "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
             "WHERE id<? AND ts_utc>=? ORDER BY id DESC LIMIT 51", (tenant, before, since)
         ).fetchall()
-    return jsonify(messages=[dict(row) for row in rows[:50]], has_more=len(rows) > 50,
+    return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
                    next_before=rows[49]["id"] if len(rows) > 50 else None)
 
 

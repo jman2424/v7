@@ -7,6 +7,7 @@ from flask import Blueprint, abort, current_app, g, make_response, redirect, req
 from werkzeug.exceptions import Unauthorized
 
 from retrieval.storage import Storage
+from service.console_navigation import WORKSPACES, effective_section, legacy_location
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ SECTIONS = {"subscription", "platform", "pipeline", "statistics", "test", "imple
 SECTIONS.add('operations')
 SECTIONS.update({'applications', 'application'})
 SECTIONS.update({'budget','provider-funding'})
+SECTIONS.update(WORKSPACES)
 
 bp = Blueprint("owner_console", __name__)
 
@@ -24,9 +26,40 @@ def _build_dir() -> Path:
     return Path(configured) if configured else DEFAULT_BUILD_DIR
 
 
+def _section_permitted(section, user):
+    from service.security import has_permission, is_platform_admin
+    operator=is_platform_admin(user)
+    owner='business_owner' in user.get('roles',[])
+    if section in {'platform','applications','provider-funding','usage'} and not operator:
+        return False
+    if section in {'companies','team','operations','phone','email','application'} and not (operator or owner):
+        return False
+    if section=='billing-overview':
+        return has_permission(user,'view_costs') or has_permission(user,'view_subscriptions')
+    permissions={
+        'platform':['platform.read'],'pipeline':['analytics.read'],'statistics':['analytics.read'],
+        'conversations':['conversations.read'],'catalog':['offerings.read'],'offers':['offers.read'],
+        'test':['business_settings.read'],'website':['business_settings.read'],'agent':['business_settings.read'],
+        'faqs':['business_settings.read'],'delivery':['business_settings.read'],'profile':['business_settings.read'],
+        'branches':['business_settings.read'],'privacy':['business_settings.read'],'team':['users.read'],
+        'integrations':['business_settings.read','integrations.read'],'implementation':['business_settings.read','integrations.read'],
+        'whatsapp-qr':['integrations.read'],'errors':['errors.read','analytics.read'],
+        'budget':['view_costs'],'spending':['view_costs'],'usage':['view_costs'],'subscription':['view_subscriptions'],
+        'operations':['customers.read','integrations.read'],'phone':['customers.read','integrations.read'],
+        'email':['customers.read','integrations.read'],
+    }
+    return all(has_permission(user,permission) for permission in permissions.get(section,[]))
+
+
 def _authorize_section(section):
-    from service.security import authorized_tenant, is_platform_admin, management_user, require_permission
+    from service.security import authorized_tenant, is_platform_admin, management_user
     container = current_app.container
+    requested_section=section
+    if section in WORKSPACES:
+        try:
+            section=effective_section(section,request.args.get('view',''))
+        except ValueError:
+            abort(400,description='invalid_console_view')
     try:
         tenant = container.storage.canonical_tenant_key(Storage.validate_tenant_key(
             request.args['tenant'])) if request.args.get('tenant') else None
@@ -37,7 +70,10 @@ def _authorize_section(section):
     except Unauthorized:
         if tenant is None:
             tenant = container.storage.canonical_tenant_key(Storage.validate_tenant_key(container.settings.BUSINESS_KEY))
-        destination = {'next': section, 'tenant': tenant}
+        destination = {'next': requested_section, 'tenant': tenant}
+        for key in ('view','panel'):
+            if request.args.get(key):
+                destination[key]=request.args[key]
         if section == 'subscription':
             from service.plan_catalog import PLANS
             plan = request.args.get('plan')
@@ -48,17 +84,17 @@ def _authorize_section(section):
     tenant = container.storage.canonical_tenant_key(tenant)
     if not container.storage.tenant_exists(tenant):
         abort(404, description='unknown_tenant')
-    if section in {'platform', 'applications', 'provider-funding'} and not is_platform_admin(user):
+    if requested_section=='platform' and not is_platform_admin(user):
         abort(403, description='platform_admin_required')
-    if section in {'team', 'companies', 'operations'} and not is_platform_admin(user) and 'business_owner' not in user['roles']:
-        abort(403, description='company_owner_required')
-    if section == 'operations':
-        require_permission('customers.read')
-        require_permission('integrations.read')
-    if section in {'usage','budget'}:
-        require_permission('view_costs')
-    if section == 'subscription':
-        require_permission('view_subscriptions')
+    if requested_section in WORKSPACES and not request.args.get('view'):
+        permitted=next((view for view in WORKSPACES[requested_section]['views']
+            if not view.get('hidden') and _section_permitted(view['section'],user)),None)
+        if permitted:
+            section=permitted['section']
+            query=request.args.to_dict();query['view']=permitted['id'];query['tenant']=tenant
+            return redirect('/console/'+requested_section+'?'+urlencode(query),code=303)
+    if not _section_permitted(section,user):
+        abort(403,description='permission_required')
     return None
 
 
@@ -87,6 +123,11 @@ def _serve_console(asset_path: str = ""):
             denied = _authorize_section(section)
             if denied is not None:
                 return denied
+            if section not in WORKSPACES:
+                destination=legacy_location(section)
+                query=request.args.to_dict()
+                query.update({key:value for key,value in destination.items() if key!='workspace'})
+                return redirect('/console/'+destination['workspace']+'?'+urlencode(query),code=308)
 
     if not candidate.is_file():
         abort(404)
@@ -98,6 +139,9 @@ def _serve_console(asset_path: str = ""):
         response.headers["Cache-Control"] = "no-store"
     else:
         response = send_from_directory(build_dir, requested)
+        # Only successful compiled assets; never HTML, private data or errors.
+        if relative.parts[:2] == ("_app", "immutable"):
+            g.console_immutable_asset = True
     return response
 
 

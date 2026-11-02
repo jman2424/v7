@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from './i18n';
   import { base } from './consoleBase';
+  import {sectionHref} from './workspaceArchitecture';
   import {createEventDispatcher,onDestroy} from 'svelte';
   import TrendChart from './TrendChart.svelte';
   import type {Commerce,Product} from './statisticsTypes';
@@ -96,7 +97,7 @@
       <div class="scroll" role="region" aria-label="Latest recorded sales" tabindex="0"><table><thead><tr><th scope="col">Date (UTC)</th><th scope="col">Product</th><th scope="col">Quantity</th><th scope="col">GBP</th><th scope="col">Channel</th>{#if canRecord}<th scope="col">Correction</th>{/if}</tr></thead><tbody>{#each data.recent_sales as sale}<tr><td>{new Date(sale.occurred_utc).toLocaleString('en-GB',{timeZone:'UTC'})}</td><td>{sale.name}</td><td>{format(sale.quantity)}</td><td>{money(sale.amount_pence)}</td><td>{sale.channel}</td>{#if canRecord}<td>{#if confirmVoid===sale.id}<button disabled={busy} on:click={()=>voidSale(sale.id)}>Confirm void</button><button on:click={()=>confirmVoid=''}>{$t("Cancel")}</button>{:else}<button on:click={()=>confirmVoid=sale.id}>Void entry</button>{/if}</td>{/if}</tr>{:else}<tr><td colspan="6">No sales recorded for this period and channel.</td></tr>{/each}</tbody></table></div></article>
   {:else}
     {#if selected}<TrendChart title={'Stock history · '+matching[0]?.name} labels={days} series={[{name:'Last recorded daily quantity',color:'#087f5b',values:inventory}]}/>{:else}<article><h3>Choose a product to see its stock history</h3><p>Separate product timelines avoid adding incompatible units together.</p></article>{/if}
-    <p class="hint">Stock history starts when catalogue quantities are saved. Gaps mean unknown stock; known values carry forward until the next recorded update. Current levels include changes after the report period. Sales entries do not automatically deduct stock.</p><a href={base+'/catalog'}>Update quantities and low-stock thresholds in Catalogue</a>
+    <p class="hint">Stock history starts when catalogue quantities are saved. Gaps mean unknown stock; known values carry forward until the next recorded update. Current levels include changes after the report period. Sales entries do not automatically deduct stock.</p><a href={sectionHref(base,'catalog',tenant)}>Update quantities and low-stock thresholds in Catalogue</a>
   {/if}
 </div>
 <style>

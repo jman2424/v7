@@ -200,7 +200,11 @@ def test_owner_cannot_grant_channel_or_access_another_business(client, configure
     assert client.put('/admin/api/business-channel-grants?tenant=EXAMPLE',json={'email':True,'phone':True}).status_code==403
     assert client.put('/files/raw/business_channel_grants.json?tenant=EXAMPLE',json={'email':True,'phone':True}).status_code==404
     assert client.get('/admin/api/business-operations?tenant=OTHER').status_code==403
-    assert client.get('/console/operations?tenant=EXAMPLE').status_code==200
+    response=client.get('/console/operations?tenant=EXAMPLE')
+    assert response.status_code==308
+    target=urlparse(response.headers['Location'])
+    assert target.path=='/console/customers'
+    assert parse_qs(target.query)=={'tenant':['EXAMPLE'],'view':['approvals'],'panel':['approvals']}
 
 
 def owner(client):

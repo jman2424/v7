@@ -183,7 +183,8 @@
     "Signup discount": "Descuento por registrarse",
     "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Opcional: activa Oferta activa cuando quieras promocionar este descuento por registrarse.",
     "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Explica cómo se registran los clientes en tu negocio, quién reúne los requisitos y cómo canjean el descuento. El asistente explica estas condiciones; no crea cuentas, verifica registros ni aplica descuentos en el pago.",
-    "Signup steps and eligibility": "Pasos para registrarse y requisitos"
+    "Signup steps and eligibility": "Pasos para registrarse y requisitos",
+    "On this page": "En esta página"
   },
   "fr": {
     "Language": "Langue",
@@ -369,7 +370,8 @@
     "Signup discount": "Réduction à l’inscription",
     "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Facultatif : activez Offre active lorsque vous souhaitez promouvoir cette réduction à l’inscription.",
     "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Expliquez comment les clients s’inscrivent auprès de votre entreprise, les critères d’éligibilité et comment utiliser la réduction. L’assistant explique ces conditions ; il ne crée pas de comptes, ne vérifie pas les inscriptions et n’applique pas de réductions au paiement.",
-    "Signup steps and eligibility": "Étapes d’inscription et critères d’éligibilité"
+    "Signup steps and eligibility": "Étapes d’inscription et critères d’éligibilité",
+    "On this page": "Sur cette page"
   },
   "ar": {
     "Language": "اللغة",
@@ -555,13 +557,16 @@
     "Signup discount": "خصم التسجيل",
     "Optional: turn on Offer is active when you are ready to promote this signup discount.": "اختياري: فعّل «العرض نشط» عندما تكون مستعدًا للترويج لخصم التسجيل.",
     "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "وضّح كيفية تسجيل العملاء لدى نشاطك التجاري، وشروط الأهلية وكيفية استخدام الخصم. يشرح المساعد هذه الشروط؛ ولا ينشئ حسابات أو يتحقق من التسجيل أو يطبّق خصومات عند الدفع.",
-    "Signup steps and eligibility": "خطوات التسجيل وشروط الأهلية"
+    "Signup steps and eligibility": "خطوات التسجيل وشروط الأهلية",
+    "On this page": "في هذه الصفحة"
   },
   "en": {
     "Add as Preferred Source": "Add as Preferred Source",
     "Signup discount": "Signup discount",
     "Optional: turn on Offer is active when you are ready to promote this signup discount.": "Optional: turn on Offer is active when you are ready to promote this signup discount.",
     "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.": "Explain how customers sign up with your business, who qualifies and how they redeem the discount. The assistant explains these terms; it does not create accounts, verify signup or apply checkout discounts.",
-    "Signup steps and eligibility": "Signup steps and eligibility"
+    "Signup steps and eligibility": "Signup steps and eligibility",
+    "Menu": "Menu",
+    "On this page": "On this page"
   }
 }

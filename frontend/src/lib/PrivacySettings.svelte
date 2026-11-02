@@ -1,4 +1,8 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import { onMount, onDestroy } from 'svelte';
   import { t } from './i18n';
   export let tenant: string;
@@ -9,7 +13,8 @@
   type ResponseData = {settings:Policy;revision:string;draft:boolean;missing_details:string[];write_allowed:boolean;state?:string};
   let data: ResponseData|null = null;
   let settings: Policy = {controller_name:'',contact_email:'',retention_days:null,retention_criteria:'',lawful_basis:''};
-  let retention = '';
+  let retention: string|number = '';
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({settings,retention}));
   let busy = false;
   let error = '';
   let status = '';
@@ -20,8 +25,10 @@
   function accept(value:ResponseData) {
     data = value; settings = {...value.settings};
     retention = settings.retention_days === null ? '' : String(settings.retention_days);
+    savedDraft=JSON.stringify({settings,retention});
   }
   async function load() {
+    if(dirty&&!await draftConfirmation.ask())return;
     busy = true; error = '';
     try {
       const response = await fetch(apiPrefix+'/admin/api/privacy?tenant='+encodeURIComponent(tenant), {credentials:'same-origin',signal:controller.signal});
@@ -34,7 +41,7 @@
     if (busy || !data || !canEdit || !data.write_allowed) return;
     busy = true; error = ''; status = '';
     try {
-      const response = await fetch(apiPrefix+'/admin/api/privacy?tenant='+encodeURIComponent(tenant), {method:'PUT',credentials:'same-origin',signal:controller.signal,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({settings:{...settings,retention_days:retention.trim()?Number(retention):null},revision:data.revision})});
+      const response = await fetch(apiPrefix+'/admin/api/privacy?tenant='+encodeURIComponent(tenant), {method:'PUT',credentials:'same-origin',signal:controller.signal,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({settings:{...settings,retention_days:String(retention ?? '').trim()?Number(retention):null},revision:data.revision})});
       if (response.status === 409) { error = 'These settings changed in another session. Refresh before saving.'; return; }
       if (!response.ok) { error = 'Could not save privacy settings. Check the fields or sign in again.'; return; }
       accept(await response.json()); status = 'Privacy settings saved.';
@@ -42,6 +49,7 @@
     finally { busy = false; }
   }
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section class="privacy" aria-labelledby="privacy-settings-title">
   <header><div><p class="eyebrow">{$t('Data protection')}</p><h2 id="privacy-settings-title">{$t('Privacy & data')}</h2></div><button type="button" disabled={busy} on:click={load}>{$t('Refresh')}</button></header>

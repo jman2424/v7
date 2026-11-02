@@ -21,7 +21,7 @@ const ast=ts.createSourceFile('Console.ts',source,ts.ScriptTarget.Latest,true);
 for(const statement of [...ast.statements].reverse()) {
   if(ts.isImportDeclaration(statement)||ts.isLabeledStatement(statement)) source=source.slice(0,statement.pos)+source.slice(statement.end);
 }
-source=source.replace('export let section','let section').replaceAll('import.meta.env.DEV','false');
+source=source.replaceAll('export let','let').replaceAll('import.meta.env.DEV','false');
 source+=`globalThis.h={loadSignedInWorkspace,loadWorkspaceSection,selectTenant,retryWorkspace,retryTenantDirectory,saveWidget,openCompanyWorkspace,openDefaultWorkspace,logout,
  identity:(value)=>{user=value;tenant=value.tenant;csrf='synthetic-csrf';},
  screen:(value)=>{section=value;}, permissions:(value)=>{user={...user,permissions:value};},
@@ -35,7 +35,9 @@ const response=(data,status=200)=>({ok:status===200,status,json:async()=>data});
 const widgetPayload=company=>({widget:{assistant_name:company+' assistant',chat_title:'Business support',greeting:'How can we help?',avatar:'',company_logo_url:'',style:'midnight',accent_color:'#3EEA8C',background_color:'',surface_color:'',text_color:'',bubble_color:'',allowed_origins:['https://'+company.toLowerCase()+'.synthetic.test']},embed:{snippet:'script-'+company,iframe_snippet:'panel-'+company,chat_url:'/chat_ui?tenant='+company}});
 const location={search:'?tenant=OLD',pathname:'/console/pipeline',href:'http://localhost/console/pipeline?tenant=OLD',
  assign:target=>navigation.push({method:'assign',target}),replace:target=>navigation.push({method:'replace',target})};
-const context=vm.createContext({AbortController,URL,URLSearchParams,Date,Intl,
+const architecture={exports:{},URLSearchParams,require:()=>JSON.parse(fs.readFileSync('service/console_navigation.json','utf8'))};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('frontend/src/lib/workspaceArchitecture.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,architecture);
+const context=vm.createContext({...architecture.exports,platformMode:false,dirtyResources:[],widgetDirty:false,hasUnsavedDrafts:()=>false,AbortController,URL,URLSearchParams,Date,Intl,
  onMount:()=>{},onDestroy:callback=>{destroy=callback;},initialiseLanguage:()=>{},base:'/console',goto:async target=>{navigation.push({method:'goto',target});},
  window:{location,history:{replaceState:()=>{}}},
  setTimeout:(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
@@ -158,19 +160,19 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
  } else if(scenario==='widget-navigation-enter') {
    for(const screen of ['website','test']) {
      h.screen('pipeline');await h.openCompanyWorkspace('NEW',screen);
-     assert.equal(navigation.at(-1).method,'assign');assert.equal(navigation.at(-1).target,'/console/'+screen+'?tenant=NEW');
+     assert.equal(navigation.at(-1).method,'assign');assert.equal(navigation.at(-1).target,'/console/channels?tenant=NEW&view=website'+(screen==='test'?'&panel=test':''));
    }
    assert.ok(!navigation.some(item=>item.method==='goto'));
  } else if(scenario==='widget-navigation-leave') {
    for(const screen of ['website','test']) {
      h.screen(screen);await h.openCompanyWorkspace('NEW','profile');
-     assert.equal(navigation.at(-1).method,'assign');assert.equal(navigation.at(-1).target,'/console/profile?tenant=NEW');
+     assert.equal(navigation.at(-1).method,'assign');assert.equal(navigation.at(-1).target,'/console/business?tenant=NEW&view=profile');
    }
    assert.ok(!navigation.some(item=>item.method==='goto'));
  } else if(scenario==='widget-login-next') {
    for(const screen of ['website','test']) {
      h.screen('pipeline');location.search='?tenant=OLD&next='+screen;await h.openDefaultWorkspace();
-     assert.equal(navigation.at(-1).method,'replace');assert.equal(navigation.at(-1).target,'/console/'+screen+'?tenant=OLD');
+     assert.equal(navigation.at(-1).method,'replace');assert.equal(navigation.at(-1).target,'/console/channels?tenant=OLD&view=website'+(screen==='test'?'&panel=test':''));
    }
    assert.ok(!navigation.some(item=>item.method==='goto'));assert.equal(calls.length,0);
  } else if(scenario==='widget-logout') {
@@ -181,14 +183,14 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
    assert.ok(!navigation.some(item=>item.method==='goto'));
  } else if(scenario==='ordinary-navigation') {
    h.screen('pipeline');await h.openCompanyWorkspace('NEW','profile');
-   assert.equal(navigation.at(-1).method,'goto');assert.equal(navigation.at(-1).target,'/console/profile?tenant=NEW');
+   assert.equal(navigation.at(-1).method,'goto');assert.equal(navigation.at(-1).target,'/console/business?tenant=NEW&view=profile');
  } else {
    const old=h.loadWorkspaceSection('catalog');await flush();const before=JSON.stringify(h.state());destroy();
    heldResolve(response({version:1,categories:[{id:'old',name:'Private old company',items:[]}]}));await old;
    assert.equal(JSON.stringify(h.state()),before);assert.ok(calls.find(c=>c.path.includes('/catalog?')).signal.aborted);
  }
  await flush();assert.equal(timers.size,0);
-})().catch(error=>{console.error(error);process.exitCode=1;});
+})().then(()=>console.log('CONSOLE_SCENARIO_COMPLETE')).catch(error=>{console.error(error);process.exitCode=1;});
 """
 
 
@@ -203,3 +205,4 @@ def test_console_workspace_loads_only_current_authorized_resources(scenario):
     result = subprocess.run([NODE, '-e', SCRIPT, scenario], cwd=ROOT, capture_output=True,
                             text=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert 'CONSOLE_SCENARIO_COMPLETE' in result.stdout, 'The async scenario did not complete'

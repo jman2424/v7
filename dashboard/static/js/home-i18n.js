@@ -42,7 +42,7 @@
     }
   };
   window.addEventListener('v7-language-changed', apply);
-  fetch(new URL('../i18n/home.json?v=20261025', script.src), {credentials:'omit'})
+  fetch(new URL('../i18n/home.json?v=20261102', script.src), {credentials:'omit'})
     .then(response => response.ok ? response.json() : {})
     .then(value => { messages = value && typeof value === 'object' ? value : {}; apply(); })
     .catch(() => {});
