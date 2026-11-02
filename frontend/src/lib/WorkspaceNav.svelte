@@ -63,6 +63,13 @@
 <style>
   .primary-sidebar{position:sticky;top:0;height:100dvh;min-height:0;display:flex;flex-direction:column;padding:28px 16px 14px;background:var(--v7-brand);color:#e8f0e9;min-width:0;z-index:20}
   .primary-sidebar>nav{flex:1;min-height:0;overflow-y:auto;align-content:start;overscroll-behavior:contain}.primary-sidebar>.brand,.primary-sidebar>.workspace-switch,.sidebar-bottom{flex-shrink:0}
+  .primary-sidebar>nav{color-scheme:dark;scrollbar-width:thin;scrollbar-color:#7da18d transparent}
+  .primary-sidebar>nav::-webkit-scrollbar{width:6px}
+  .primary-sidebar>nav::-webkit-scrollbar-track{background:transparent}
+  .primary-sidebar>nav::-webkit-scrollbar-thumb{background:#7da18d;border-radius:999px}
+  .primary-sidebar>nav::-webkit-scrollbar-thumb:hover{background:#a0bda9}
+  .primary-sidebar>nav::-webkit-scrollbar-button{display:none}
+  @media(forced-colors:active){.primary-sidebar>nav{scrollbar-color:auto;scrollbar-width:auto}}
   .brand{display:flex;align-items:center;min-height:46px;align-self:flex-start;padding:8px 10px;border-radius:10px;background:white;margin:0 8px 25px;text-decoration:none}
   .workspace-switch{display:flex;align-items:center;gap:10px;color:#d4e6d9;border:1px solid #ffffff24;padding:11px 12px;margin:0 0 25px;border-radius:9px;font-size:12px;line-height:1.4;text-decoration:none;min-height:44px}
   .switch-mark{font-size:20px}.nav-caption{margin:0 13px 12px;color:#a9c3b4;text-transform:uppercase;font-size:10px;font-weight:650;letter-spacing:.12em}
