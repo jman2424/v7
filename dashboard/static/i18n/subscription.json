@@ -752,7 +752,9 @@
     "AI Provider Funding": "AI Provider Funding",
     "Manage your AI balance, funding, spending limits and alerts.": "Manage your AI balance, funding, spending limits and alerts.",
     "Review provider funding, payment costs and financial safeguards.": "Review provider funding, payment costs and financial safeguards.",
-    "Review payment authorisation": "Review payment authorisation"
+    "Review payment authorisation": "Review payment authorisation",
+    "Change spending limit": "Change spending limit",
+    "Cancel pending card setup": "Cancel pending card setup"
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1507,7 +1509,9 @@
     "AI Provider Funding": "Financiación del proveedor de IA",
     "Manage your AI balance, funding, spending limits and alerts.": "Gestiona tu saldo de IA, fondos, límites y avisos.",
     "Review provider funding, payment costs and financial safeguards.": "Revisa fondos del proveedor, costes de pago y protecciones financieras.",
-    "Review payment authorisation": "Revisar autorización de pago"
+    "Review payment authorisation": "Revisar autorización de pago",
+    "Change spending limit": "Cambiar límite de gasto",
+    "Cancel pending card setup": "Cancelar configuración de tarjeta pendiente"
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -2262,7 +2266,9 @@
     "AI Provider Funding": "Financement du fournisseur IA",
     "Manage your AI balance, funding, spending limits and alerts.": "Gérez votre solde IA, vos fonds, plafonds et alertes.",
     "Review provider funding, payment costs and financial safeguards.": "Vérifiez le financement du fournisseur, les frais de paiement et les protections financières.",
-    "Review payment authorisation": "Vérifier l’autorisation de paiement"
+    "Review payment authorisation": "Vérifier l’autorisation de paiement",
+    "Change spending limit": "Modifier le plafond de dépenses",
+    "Cancel pending card setup": "Annuler la configuration de carte en attente"
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -3017,6 +3023,8 @@
     "AI Provider Funding": "تمويل مزود الذكاء الاصطناعي",
     "Manage your AI balance, funding, spending limits and alerts.": "أدر رصيد الذكاء الاصطناعي والتمويل وحدود الإنفاق والتنبيهات.",
     "Review provider funding, payment costs and financial safeguards.": "راجع تمويل المزود وتكاليف الدفع والضمانات المالية.",
-    "Review payment authorisation": "مراجعة تفويض الدفع"
+    "Review payment authorisation": "مراجعة تفويض الدفع",
+    "Change spending limit": "تغيير حد الإنفاق",
+    "Cancel pending card setup": "إلغاء إعداد البطاقة المعلق"
   }
 }

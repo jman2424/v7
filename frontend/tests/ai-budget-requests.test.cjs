@@ -37,6 +37,12 @@ test('server pending checkout is resumed across views instead of another purchas
   assert.equal(subject.requestId('funds:gbp_25'),'legacy_request_123');
 });
 
+test('a verified purchase clears its persisted key so another intentional top-up is possible',()=>{
+  const storage=new Map([['v7-budget-request:FIRST:funds:gbp_25','legacy_request_123']]);
+  const {subject}=harness(storage);subject.syncRequests({...report(),checkout_requests:[{pack_id:'gbp_25',request_id:'legacy_request_123',status:'paid'}]});
+  assert.notEqual(subject.requestId('funds:gbp_25'),'legacy_request_123');
+});
+
 test('leaving a tenant prevents a late payment redirect or stale balance',async()=>{
   const {subject,requests,redirects}=harness();const work=subject.action('/checkout',{pack_id:'gbp_25',request_id:'request_001'});subject.dispose();assert.equal(requests[0].options.signal.aborted,true);requests[0].resolve({url:'https://checkout.stripe.com/c/pay/synthetic'});await work;assert.equal(redirects.length,0);
 });

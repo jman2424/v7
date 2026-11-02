@@ -351,9 +351,10 @@ def tracked_completion(client, *, purpose: str, **kwargs):
             raise
         provider_started()
         emit('provider_started', purpose=purpose, model=kwargs['model'], timeout_seconds=kwargs['timeout'])
+        funding_started=time.time()
         response = create(client, kwargs)
         try:
-            ai_provider_funding.record_success(context[0])
+            ai_provider_funding.record_success(context[0],started_at=funding_started)
         except Exception as exc:
             logger.warning('Provider health update failed (%s)',type(exc).__name__)
         status = "completed"

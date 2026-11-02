@@ -31,11 +31,13 @@ def card(client,monkeypatch):
             return {'id':'cus_budget'}
         if method == 'POST' and path == '/v1/checkout/sessions':
             metadata = {k[9:-1]:v for k,v in data.items() if k.startswith('metadata[')}
+            checkout_id='cs_'+metadata['budget_authorisation']
+            setup_id='seti_'+metadata['budget_authorisation']
             common = {'customer':data['customer'],'livemode':False,'metadata':metadata}
-            checkout = {**common,'id':'cs_budget','status':'complete','mode':'setup','setup_intent':'seti_budget',
+            checkout = {**common,'id':checkout_id,'status':'complete','mode':'setup','setup_intent':setup_id,
                         'url':'https://checkout.stripe.com/c/pay/budget'}
-            state['objects'].update({'/v1/checkout/sessions/cs_budget':checkout,
-                '/v1/setup_intents/seti_budget':{**common,'id':'seti_budget','status':'succeeded','usage':'off_session','payment_method':'pm_budget'},
+            state['objects'].update({'/v1/checkout/sessions/'+checkout_id:checkout,
+                '/v1/setup_intents/'+setup_id:{**common,'id':setup_id,'status':'succeeded','usage':'off_session','payment_method':'pm_budget'},
                 '/v1/payment_methods/pm_budget':{'id':'pm_budget','customer':data['customer'],'type':'card','livemode':False}})
             return deepcopy(checkout)
         if method == 'POST' and path == '/v1/payment_intents':
@@ -279,3 +281,13 @@ def test_interrupted_finalisation_recovers_credit_without_another_charge(client,
     monkeypatch.setattr(store,'notify',notify)
     assert process(client,ref)
     assert usage_wallet.report('EXAMPLE')['balance_pence']==500 and card['creates']==1
+
+
+def test_cap_change_requires_fresh_consent_and_reuses_business_customer(client,card):
+    response=client.post('/billing/ai-budget/automatic-recharge/authorise',json={'accepted_terms':True,'cap_pence':5000,'request_id':'synthetic-consent-002'})
+    assert response.status_code==200,response.json
+    report=client.get('/billing/ai-budget').json
+    assert not report['automatic_recharge']['enabled']
+    assert client.post('/billing/ai-budget/automatic-recharge/confirm',json={}).json['status']=='active'
+    assert client.get('/billing/ai-budget').json['automatic_recharge']['cap_pence']==5000
+    assert sum(r[0]=='POST' and r[1]=='/v1/customers' for r in card['requests'])==1

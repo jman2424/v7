@@ -61,10 +61,10 @@ def authorise(tenant, data, actor, base_url):
             row = dict(db.execute('SELECT * FROM ai_budget_authorisations WHERE tenant=? AND id=?',(tenant,identifier)).fetchone())
     if row['status'] != 'pending':
         return {'ok':True,'status':row['status']}
-    if row['checkout']:
-        return {'url':row['checkout_url'],'status':'pending'}
     if row['created'] < time.time()-23*3600:
         raise budget.BudgetError('budget_authorisation_needs_review',409)
+    if row['checkout']:
+        return {'url':row['checkout_url'],'status':'pending'}
     stripe = subscriptions.client()
     usage_payments._require_payment_mode(bool(row['livemode']))
     if not subscriptions.configured():
@@ -76,8 +76,13 @@ def authorise(tenant, data, actor, base_url):
         if saved and saved['customer']:
             customer = usage_payments._id(saved['customer'],'cus')
         else:
-            result = stripe.stripe_request('POST','/v1/customers',{'metadata[tenant]':tenant,'metadata[kind]':'v7_billing'},idempotency_key='v7-budget-customer-'+row['id'])
-            customer = usage_payments._id(result.get('id'),'cus')
+            with store.connection(tenant) as db:
+                previous=db.execute("SELECT customer FROM ai_budget_authorisations WHERE tenant=? AND id!=? AND customer!='' ORDER BY created DESC LIMIT 1",(tenant,row['id'])).fetchone()
+            if previous:
+                customer=usage_payments._id(previous['customer'],'cus')
+            else:
+                result = stripe.stripe_request('POST','/v1/customers',{'metadata[tenant]':tenant,'metadata[kind]':'v7_billing'},idempotency_key='v7-budget-customer-'+row['id'])
+                customer = usage_payments._id(result.get('id'),'cus')
         with store.connection(tenant,write=True) as db:
             db.execute('UPDATE ai_budget_authorisations SET customer=? WHERE tenant=? AND id=? AND customer=?',(customer,tenant,row['id'],''))
     return_url = base_url.rstrip('/')+'/console/budget?'+urlencode({'tenant':tenant})

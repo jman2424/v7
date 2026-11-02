@@ -67,7 +67,7 @@ def save_preferences(tenant, data, actor):
         merged={**current,**data}
         db.execute('UPDATE ai_budget_settings SET alerts_enabled=?,email_alerts=?,alert_threshold_pence=?,initial_pack=? WHERE tenant=?',
             (int(merged['alerts_enabled']),int(merged['email_alerts']),merged['alert_threshold_pence'],merged['initial_pack'],tenant))
-        db.execute('UPDATE ai_budget_settings SET revision=revision+1,low_state=CASE WHEN ? THEN 0 ELSE low_state END,alert_epoch=alert_epoch+?,updated=? WHERE tenant=?',
+        db.execute('UPDATE ai_budget_settings SET revision=revision+1,low_state=CASE WHEN ?=1 THEN 0 ELSE low_state END,alert_epoch=alert_epoch+?,updated=? WHERE tenant=?',
                    (int(reset),int(reset),time.time(),tenant))
         store.audit(db,tenant,'preferences_changed',actor,data)
         wallet = db.execute('SELECT * FROM usage_wallets WHERE tenant=?', (tenant,)).fetchone()

@@ -54,6 +54,14 @@ def test_rate_limit_or_unknown_error_not_mislabelled_as_funding(ledger):
     assert funding.classify(ValueError('credit_balance_exhausted')) is None
 
 
+def test_older_inflight_success_cannot_clear_a_new_funding_failure(ledger):
+    import time
+    started=time.time()-10
+    funding.record_error(quota(),'ALPHA')
+    funding.record_success('ALPHA',started_at=started)
+    assert not funding.allow_request('ALPHA')
+
+
 def test_costs_are_decimal_delayed_and_failed_pagination_never_partially_writes(ledger,monkeypatch):
     end=datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0)
     start=int((end-timedelta(days=1)).timestamp())

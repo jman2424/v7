@@ -234,13 +234,14 @@ def record_error(error,tenant):
     _invalidate_health()
 
 
-def record_success(tenant):
+def record_success(tenant,*,started_at=None):
     if health(tenant,cached=True)['status'] == 'available':
         return
     with store.connection(tenant,write=True) as db:
         # A successful paid API response demonstrates recovery, not a verified
         # balance, successful recharge, or remaining organisation spend limit.
-        db.execute("INSERT INTO ai_provider_health VALUES (1,'available','',?,0) ON CONFLICT(id) DO UPDATE SET status='available',error_code='',observed=excluded.observed,retry_after=0 WHERE ai_provider_health.status!='available'",(time.time(),))
+        now=time.time()
+        db.execute("INSERT INTO ai_provider_health VALUES (1,'available','',?,0) ON CONFLICT(id) DO UPDATE SET status='available',error_code='',observed=excluded.observed,retry_after=0 WHERE ai_provider_health.status!='available' AND ai_provider_health.observed<=?",(now,now if started_at is None else started_at))
     _invalidate_health()
 
 

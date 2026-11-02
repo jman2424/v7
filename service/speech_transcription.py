@@ -142,12 +142,14 @@ def transcribe_audio(data: bytes, mime_type: str, *, tenant: str | None = None,
     result = None
     status = "failed"
     try:
+        import time
+        funding_started=time.time()
         result = OpenAI(api_key=api_key, timeout=30.0, max_retries=0).audio.transcriptions.create(
             model=model, file=(filename, data, media_type), response_format="json",
         )
         status = "completed"
         try:
-            ai_provider_funding.record_success(tenant)
+            ai_provider_funding.record_success(tenant,started_at=funding_started)
         except Exception as exc:
             logger.warning('Provider health update failed (%s)',type(exc).__name__)
     except OpenAIError as exc:

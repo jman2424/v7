@@ -59,3 +59,16 @@ def test_native_provider_configuration_requires_live_operator_session(pg_runtime
     with pytest.raises(RuntimeError):
         with store.connection(pg_runtime['tenant'],write=True) as db:
             db.execute('INSERT INTO ai_provider_funding_settings VALUES(1,?,0)',(json.dumps({'financial_review_completed':True}),))
+
+
+def test_native_funding_settings_allow_only_a_live_operator_session(pg_runtime):
+    tenant=pg_runtime['tenant']
+    token=session_store.create({'id':'operator','email':'reviewer@example.test','roles':['platform_admin']},'synthetic-revision')
+    with session_store.postgres_connection(tenant) as db:
+        db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
+        db.execute("INSERT INTO ai_provider_funding_settings VALUES(1,'{}',0) ON CONFLICT(id) DO UPDATE SET value=excluded.value")
+    session_store.revoke(token)
+    with pytest.raises(RuntimeError):
+        with session_store.postgres_connection(tenant) as db:
+            db.execute("SELECT set_config('v7.application_session',%s,true)",(session_store._digest(token),))
+            db.execute("UPDATE ai_provider_funding_settings SET value='{}' WHERE id=1")

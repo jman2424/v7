@@ -57,3 +57,25 @@ def test_cost_configuration_cannot_change_customer_pricing_or_accept_invalid_uni
     response=client.post('/billing/ai-budget/provider-funding/settings',json=payload)
     assert response.status_code==400
     assert response.json=={'error':'invalid_provider_funding_settings'}
+
+
+def test_reviewed_assumptions_do_not_change_prices_or_bypass_release_gate(client,monkeypatch):
+    from service import ai_budget,ai_budget_store
+    identity(client)
+    monkeypatch.setenv('V7_USAGE_MARKUP_PERCENT','0')
+    policy={'stripe_percent_bps':150,'stripe_fixed_pence':24,'climate_bps':100,'fx_cost_bps':100,
+        'refund_dispute_risk_bps':100,'infrastructure_bps':100,'target_margin_bps':2000,
+        'financial_review_completed':True}
+    result=client.post('/billing/ai-budget/provider-funding/settings',json=policy)
+    assert result.status_code==200,result.json
+    monkeypatch.setattr('service.usage_payments._production',lambda:True)
+    monkeypatch.setenv('V7_AUTO_RECHARGE_LIVE_ENABLED','true')
+    with client.application.app_context():
+        assert not ai_budget.live_recharge_allowed()  # Reviewed but loss-making.
+    assert usage_wallet.markup_percent()==0
+    with client.application.app_context():
+        from service.ai_provider_funding import _platform_tenant
+        tenant=_platform_tenant()
+    with ai_budget_store.connection(tenant) as db:
+        events=list(db.execute("SELECT details FROM ai_budget_events WHERE tenant=? AND kind='provider_funding_assumptions_changed'",(tenant,)))
+    assert events  # Immutable control audit, no price write or mandate creation.

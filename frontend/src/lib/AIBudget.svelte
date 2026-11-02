@@ -31,8 +31,9 @@
   function clearId(key:string){requestIds.delete(key);try{sessionStorage.removeItem('v7-budget-request:'+tenant+':'+key);}catch{/* Optional storage. */}}
   function syncRequests(result:Budget){
     for(const pack of result.packs){const key='funds:'+pack.id;const rows=result.checkout_requests||[];const pending=rows.find(row=>row.pack_id===pack.id&&!['paid','expired','cancelled','failed'].includes(row.status));
+      let previous=requestIds.get(key);try{previous=previous||sessionStorage.getItem('v7-budget-request:'+tenant+':'+key)||undefined;}catch{/* Optional storage. */}
       if(pending){requestIds.set(key,pending.request_id);try{sessionStorage.setItem('v7-budget-request:'+tenant+':'+key,pending.request_id);}catch{/* Optional storage. */}}
-      else if(rows.some(row=>row.pack_id===pack.id&&row.request_id===requestIds.get(key))){clearId(key);}
+      else if(rows.some(row=>row.pack_id===pack.id&&row.request_id===previous)){clearId(key);}
     }
   }
   function safeError(code:string){
@@ -57,6 +58,7 @@
     return result;
   }
   function apply(result:Budget){
+    if(result.automatic_recharge.enabled){for(const choice of result.automatic_recharge.cap_choices)clearId('authorise:'+choice);}
     data=result;syncRequests(result);initialPack=result.initial_pack||'';dispatch('initialbudget',{total_pence:result.packs.find(pack=>pack.id===initialPack)?.total_pence||0});alertsEnabled=result.alerts.enabled;emailEnabled=result.alerts.email_enabled;
     alertThreshold=result.alerts.threshold_pence;cap=result.automatic_recharge.cap_pence;
     const alerts=result.internal?[]:result.review_required?[{code:'financial_review_required',message:'Your AI balance needs a review.'}]:result.paused?[{code:'insufficient_credit',message:'Add AI funds to resume paid responses.'}]:[];
@@ -78,6 +80,7 @@
       const result=await read(path,body,request.signal);
       if(disposed||controller!==request||request.signal.aborted)return;
       if(result.url){const destination=new URL(result.url);if(destination.protocol!=='https:'||destination.hostname!=='checkout.stripe.com')throw new Error('');window.location.assign(result.url);return;}
+      if(path==='/checkout'&&['paid','expired','failed'].includes(result.status)&&typeof body.pack_id==='string')clearId('funds:'+body.pack_id);
       if(path==='/automatic-recharge/disable'||path==='/automatic-recharge/confirm'){for(const choice of data?.automatic_recharge.cap_choices||[])clearId('authorise:'+choice);}
       reviewRecharge=false;accepted=false;message='AI Budget settings saved.';
       const report=await read('?page='+page,undefined,request.signal);
@@ -106,11 +109,12 @@
         <article class="panel"><h3>{$t('Monthly spending')}</h3><p class="figure"><bdi>{money(data.monthly_spent_pence)}</bdi></p><p>{$t('Actual AI usage this calendar month (UTC). Adding funds is not usage spending.')}</p><p>{$t('Automatic purchases: {spent} of {cap}',{spent:money(data.automatic_recharge.spent_this_month_pence),cap:money(data.automatic_recharge.cap_pence)})}</p>{#if data.automatic_recharge.pending_this_month_pence}<p>{$t('{amount} of the limit is awaiting payment confirmation.',{amount:money(data.automatic_recharge.pending_this_month_pence)})}</p>{/if}</article>
         <article class="panel"><h3>{$t('Automatic £5 recharge')}</h3><p>{$t('Automatically add £5 when your settled AI balance falls below £2.')}</p><strong>{$t(data.automatic_recharge.enabled?(data.automatic_recharge.blocked_reason?'Paused':'Enabled'):'Disabled')}</strong><p>{$t('Monthly automatic purchase limit: {amount}',{amount:money(data.automatic_recharge.cap_pence)})}</p><p class="small">{$t('This limit covers automatic purchases only. It does not limit manual top-ups, AI usage spending or subscription payments. It resets each calendar month in UTC.')}</p>
           {#if data.automatic_recharge.blocked_reason}<p class="notice">{$t('Automatic recharge needs attention. Add funds manually or review your payment authorisation.')}</p>{/if}
-          {#if data.automatic_recharge.enabled}<button class="secondary" disabled={busy||!canManageBilling} on:click={()=>action('/automatic-recharge/disable',{})}>{$t('Disable automatic recharge')}</button>
+          {#if data.automatic_recharge.enabled}<button class="secondary" disabled={busy||!canManageBilling} on:click={()=>action('/automatic-recharge/disable',{})}>{$t('Disable automatic recharge')}</button><button class="secondary" disabled={busy||!canManageBilling} on:click={()=>reviewRecharge=!reviewRecharge}>{$t('Change spending limit')}</button>
           {:else if data.automatic_recharge.live_available}<button disabled={busy||!canManageBilling} on:click={()=>reviewRecharge=!reviewRecharge}>{$t('Set up automatic recharge')}</button>
           {:else}<p class="small">{$t('Automatic recharge is awaiting platform activation. You can add funds manually.')}</p>{/if}
           {#if data.automatic_recharge.attempts.some(attempt=>['reserved','requires_action','unknown','processing'].includes(attempt.status))}<button class="secondary" disabled={busy||!canManageBilling} on:click={()=>action('/automatic-recharge/resolve',{})}>{$t('Review or cancel pending payment')}</button>{/if}
           {#if data.automatic_recharge.blocked_reason&&!data.automatic_recharge.attempts.some(attempt=>['reserved','dispatching','requires_action','unknown','processing'].includes(attempt.status))}<button class="secondary" disabled={busy||!canManageBilling} on:click={()=>reviewRecharge=!reviewRecharge}>{$t('Review payment authorisation')}</button>{/if}
+          {#if !data.automatic_recharge.enabled&&data.automatic_recharge.blocked_reason==='authorisation_pending'}<button class="secondary" disabled={busy||!canManageBilling} on:click={()=>action('/automatic-recharge/disable',{})}>{$t('Cancel pending card setup')}</button>{/if}
           {#if reviewRecharge}<form on:submit|preventDefault={()=>action('/automatic-recharge/authorise',{cap_pence:Number(cap),accepted_terms:accepted,request_id:requestId('authorise:'+cap)})}><label>{$t('Monthly automatic purchase limit')}<select bind:value={cap}>{#each data.automatic_recharge.cap_choices as choice}<option value={choice}>{money(choice)}</option>{/each}</select></label><p>{$t('Authorise future £5 card payments when your settled balance is below £2, up to {cap} each calendar month (UTC).',{cap:money(Number(cap))})}</p><p class="small">{$t('You can disable future recharges at any time. An already-started payment may complete. Each £5 payment adds £5 of V7 AI balance and includes any applicable VAT.')}</p><label class="check"><input type="checkbox" bind:checked={accepted} required/><span>{$t('I authorise these automatic payments and accept the displayed amount and monthly limit.')}</span></label><button disabled={busy||!accepted}>{$t('Authorise securely with Stripe')}</button></form>{/if}
         </article>
         <article class="panel"><h3>{$t('Low-balance alerts')}</h3><p>{$t('Alerts work independently from automatic recharge.')}</p><form on:submit|preventDefault={()=>action('/preferences',{alerts_enabled:alertsEnabled,email_alerts:emailEnabled,alert_threshold_pence:Number(alertThreshold)})}><label class="check"><input type="checkbox" bind:checked={alertsEnabled} disabled={!canManageBilling||busy}/><span>{$t('Show low-balance alerts')}</span></label><label class="check"><input type="checkbox" bind:checked={emailEnabled} disabled={!canManageBilling||busy}/><span>{$t('Email me low-balance alerts')}</span></label><label>{$t('Notify below')}<select bind:value={alertThreshold} disabled={!canManageBilling||busy}>{#each data.alerts.threshold_choices as threshold}<option value={threshold}>{money(threshold)}</option>{/each}</select></label><p class="small">{$t('We notify you when your balance crosses the threshold and avoid repeated alerts for the same low balance.')}</p><button disabled={busy||!canManageBilling}>{$t('Save alert settings')}</button></form></article>
