@@ -10,7 +10,7 @@ def operations(storage):
     management_user(platform_only=True)
     totals={key:0 for key in ('balance_nano_gbp','reserved_nano_gbp','debt_nano_gbp','usage_deductions_nano_gbp',
         'gross_received_pence','refunded_pence','fees_pence','payments','costed_payments','unknown_usage',
-        'pending_topups','failed_topups','open_disputes','reconciliation_holds')}
+        'pending_topups','failed_topups','open_disputes','reconciliation_holds','ledger_discrepancies')}
     provider_gbp=Decimal(0)
     provider_usd=0
     models={}
@@ -21,11 +21,23 @@ def operations(storage):
         # Every read runs with the existing scoped backend transaction and RLS.
         usage_wallet.report(tenant,include_costs=False)
         with store.connection(tenant) as db:
-            wallet=db.execute('SELECT * FROM usage_wallets WHERE tenant=?',(tenant,)).fetchone()
-            if wallet:
-                for key in ('balance_nano_gbp','reserved_nano_gbp','debt_nano_gbp'):
-                    totals[key]+=wallet[key]
-                totals['reconciliation_holds']+=int(bool(wallet['reconciliation_hold']))
+            # One statement gives the journal and materialised balance the same
+            # PostgreSQL snapshot; concurrent usage cannot cause a false alarm.
+            wallet=db.execute('SELECT COALESCE(w.balance_nano_gbp,0) balance_nano_gbp, '
+                'COALESCE(w.reserved_nano_gbp,0) reserved_nano_gbp, '
+                'COALESCE(w.debt_nano_gbp,0) debt_nano_gbp, '
+                'COALESCE(w.reconciliation_hold,0) reconciliation_hold, ledger.* FROM ('
+                'SELECT COALESCE(SUM(balance_delta_nano_gbp),0) balance, '
+                'COALESCE(SUM(reserved_delta_nano_gbp),0) reserved, '
+                'COALESCE(SUM(debt_delta_nano_gbp),0) debt '
+                'FROM usage_wallet_entries WHERE tenant=?) ledger '
+                'LEFT JOIN usage_wallets w ON w.tenant=?',(tenant,tenant)).fetchone()
+            for key in ('balance_nano_gbp','reserved_nano_gbp','debt_nano_gbp'):
+                totals[key]+=wallet[key]
+            totals['reconciliation_holds']+=int(bool(wallet['reconciliation_hold']))
+            if any(wallet[key] != wallet[field] for key,field in (
+                    ('balance','balance_nano_gbp'),('reserved','reserved_nano_gbp'),('debt','debt_nano_gbp'))):
+                totals['ledger_discrepancies']+=1
             rows=db.execute('SELECT status,cost_nano_usd,fx_rate,charged_nano_gbp,metadata_json,created_utc FROM usage_wallet_reservations WHERE tenant=?',(tenant,)).fetchall()
             for row in rows:
                 if row['cost_nano_usd'] is None:
@@ -67,6 +79,8 @@ def operations(storage):
     warnings=[]
     if totals['unknown_usage'] or totals['reconciliation_holds']:
         warnings.append('unconfirmed_usage_requires_reconciliation')
+    if totals['ledger_discrepancies']:
+        warnings.append('wallet_ledger_reconciliation_mismatch')
     if totals['open_disputes']:
         warnings.append('payment_disputes_open')
     fees_complete=totals['payments']==totals['costed_payments']
@@ -108,6 +122,7 @@ def operations(storage):
         'net_accounting_profit_gbp':None,'available_stripe_cash_pence':None,
         'owner_reported_reserve_pence':declared,'reserve_target_pence':target,'reserve_is_verified':False,
         'unknown_usage':totals['unknown_usage'],'pending_topups':totals['pending_topups'],'failed_topups':totals['failed_topups'],
+        'ledger_discrepancies':totals['ledger_discrepancies'],
         'recent_24h_provider_cost_gbp':str(recent/10**9),'prior_seven_day_daily_average_gbp':str(previous/7/10**9),
         'models':model_rows,'warnings':sorted(set(warnings)),
         'limits':'Usage FX is the request snapshot, not verified card FX. Stripe settlement fees are delayed. Climate, actual FX, tax allocations, refunds/dispute fees and infrastructure must be reconciled separately; no net-profit claim is made.'}

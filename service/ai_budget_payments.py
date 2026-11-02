@@ -186,7 +186,6 @@ def disable(tenant, actor):
     for reference in cancelled:
         applications.expire_budget_permit(tenant,reference)
     return {'ok':True,'status':'disabled'}
-    return {'ok':True,'enabled':False}
 
 
 def _actor_valid(row):

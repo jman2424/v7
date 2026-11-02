@@ -79,7 +79,9 @@ The existing business-approval/intake hold remains in effect.
 - [x] Core settings/state machines/additive migration (production apply pending).
 - [x] Alerts/outbox/provider monitoring/financial reports.
 - [x] Customer and operator UI plus guided separate onboarding checkouts.
-- [ ] Channel coverage, regression/security/concurrency and browser verification.
+- [x] Channel inventory and synthetic payment, provider, concurrency and security coverage.
+- [x] Customer alert persistence, owner/operator boundaries and mobile/RTL browser checks.
+- [ ] Final-head hosted PostgreSQL and complete regression checks.
 - [ ] Final financial review and controlled release.
 
 ## Implemented boundaries
@@ -89,7 +91,9 @@ remain integer nano-GBP; no legacy units are converted. The ten new private
 tables hold preferences, explicit card authorisations, fixed-value payment
 attempts, immutable control events, notification deliveries, settlement costs
 and operator funding observations. Every tenant table has forced tenant RLS.
-The four platform tables are denied to public Supabase roles; changes to funding
+The operator report compares wallet balance, held funds and debt with immutable
+ledger deltas in a single database snapshot and flags discrepancies without
+rewriting money. The four platform tables are denied to public Supabase roles; changes to funding
 assumptions additionally require a live, verified operator session.
 
 Manual purchases retain the original canonical Checkout/intent/charge/invoice

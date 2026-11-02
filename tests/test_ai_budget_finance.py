@@ -49,6 +49,22 @@ def test_only_platform_can_see_financial_observations_and_unknown_fees_stay_unkn
     assert ops['climate_expenditure_pence'] is None and not ops['reserve_is_verified']
     assert 'payment_costs_incomplete' in ops['warnings']
     assert Decimal(ops['prepaid_liability_gbp'])==Decimal('24.1')
+    assert ops['ledger_discrepancies']==0
+
+
+def test_reconciliation_detects_wallet_drift_without_rewriting_money(client):
+    from service import ai_budget_store
+    identity(client)
+    usage_wallet.apply_payment('EXAMPLE','funding','pi_driftcheck',2500,2500)
+    # Model corruption of the materialised wallet in a disposable test database;
+    # the immutable journal remains untouched and the report only raises a flag.
+    with ai_budget_store.connection('EXAMPLE',write=True) as db:
+        db.execute('UPDATE usage_wallets SET balance_nano_gbp=balance_nano_gbp+1 WHERE tenant=?',('EXAMPLE',))
+    result=client.get('/billing/ai-budget/provider-funding')
+    assert result.status_code==200,result.json
+    assert result.json['operations']['ledger_discrepancies']==1
+    assert 'wallet_ledger_reconciliation_mismatch' in result.json['operations']['warnings']
+    assert usage_wallet.report('EXAMPLE')['balance_nano_gbp']==2500*usage_wallet.NANO_PER_PENNY+1
 
 
 @pytest.mark.parametrize('payload',[{'stripe_percent_bps':-1},{'financial_review_completed':'true'},{'target_margin_bps':10000},{'usage_markup':100},{'reserve_target_pence':True}])
