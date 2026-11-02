@@ -754,7 +754,13 @@
     "Review provider funding, payment costs and financial safeguards.": "Review provider funding, payment costs and financial safeguards.",
     "Review payment authorisation": "Review payment authorisation",
     "Change spending limit": "Change spending limit",
-    "Cancel pending card setup": "Cancel pending card setup"
+    "Cancel pending card setup": "Cancel pending card setup",
+    "Your usage and balance history": "Your usage and balance history",
+    "Review recorded usage and purchases, with receipts where available.": "Review recorded usage and purchases, with receipts where available.",
+    "Optional initial funding, separate from your subscription.": "Optional initial funding, separate from your subscription.",
+    "AI model and processing prices": "AI model and processing prices",
+    "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.",
+    "Open WhatsApp setup": "Open WhatsApp setup"
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1511,7 +1517,13 @@
     "Review provider funding, payment costs and financial safeguards.": "Revisa fondos del proveedor, costes de pago y protecciones financieras.",
     "Review payment authorisation": "Revisar autorización de pago",
     "Change spending limit": "Cambiar límite de gasto",
-    "Cancel pending card setup": "Cancelar configuración de tarjeta pendiente"
+    "Cancel pending card setup": "Cancelar configuración de tarjeta pendiente",
+    "Your usage and balance history": "Historial de uso y saldo",
+    "Review recorded usage and purchases, with receipts where available.": "Revisa el uso y las compras registrados, con recibos cuando estén disponibles.",
+    "Optional initial funding, separate from your subscription.": "Fondos iniciales opcionales, separados de tu suscripción.",
+    "AI model and processing prices": "Modelo de IA y precios de procesamiento",
+    "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "El saldo de IA paga los tokens del modelo; Meta o Twilio factura la mensajería por separado. V7 no puede recopilar ni mostrar tus datos de pago de Meta.",
+    "Open WhatsApp setup": "Abrir configuración de WhatsApp"
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -2268,7 +2280,13 @@
     "Review provider funding, payment costs and financial safeguards.": "Vérifiez le financement du fournisseur, les frais de paiement et les protections financières.",
     "Review payment authorisation": "Vérifier l’autorisation de paiement",
     "Change spending limit": "Modifier le plafond de dépenses",
-    "Cancel pending card setup": "Annuler la configuration de carte en attente"
+    "Cancel pending card setup": "Annuler la configuration de carte en attente",
+    "Your usage and balance history": "Historique d’utilisation et de solde",
+    "Review recorded usage and purchases, with receipts where available.": "Consultez l’utilisation et les achats enregistrés, avec les reçus disponibles.",
+    "Optional initial funding, separate from your subscription.": "Financement initial facultatif, distinct de votre abonnement.",
+    "AI model and processing prices": "Modèle IA et tarifs de traitement",
+    "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "Le crédit IA paie les jetons du modèle ; Meta ou Twilio facture la messagerie séparément. V7 ne peut ni recueillir ni afficher vos informations de paiement Meta.",
+    "Open WhatsApp setup": "Ouvrir la configuration WhatsApp"
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -3025,6 +3043,12 @@
     "Review provider funding, payment costs and financial safeguards.": "راجع تمويل المزود وتكاليف الدفع والضمانات المالية.",
     "Review payment authorisation": "مراجعة تفويض الدفع",
     "Change spending limit": "تغيير حد الإنفاق",
-    "Cancel pending card setup": "إلغاء إعداد البطاقة المعلق"
+    "Cancel pending card setup": "إلغاء إعداد البطاقة المعلق",
+    "Your usage and balance history": "سجل الاستخدام والرصيد",
+    "Review recorded usage and purchases, with receipts where available.": "راجع الاستخدام والمشتريات المسجلة، مع الإيصالات عند توفرها.",
+    "Optional initial funding, separate from your subscription.": "رصيد أولي اختياري، منفصل عن اشتراكك.",
+    "AI model and processing prices": "نموذج الذكاء الاصطناعي وأسعار المعالجة",
+    "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "يدفع رصيد الذكاء الاصطناعي تكلفة رموز النموذج؛ وتُصدر Meta أو Twilio فواتير الرسائل بشكل منفصل. لا يستطيع V7 جمع بيانات الدفع الخاصة بك لدى Meta أو عرضها.",
+    "Open WhatsApp setup": "فتح إعداد واتساب"
   }
 }

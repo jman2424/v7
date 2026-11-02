@@ -16,6 +16,28 @@ NEW = 'Replacement-password-456!'
 EMAIL = 'owner@example.test'
 
 
+def test_provider_only_account_can_add_password_without_losing_mfa_or_permissions(client, app, account):
+    from service.account_service import ACCOUNT_FILE
+    assert login(client).status_code == 200
+    with app.app_context():
+        rows=app.container.storage.read_json('EXAMPLE',ACCOUNT_FILE)
+        row=next(row for row in rows if row['id']==account[0]['id'])
+        before={key:row.get(key) for key in ['id','roles','permissions','totp_secret','totp_enabled','active']}
+        row['password_hash']=''
+        app.container.storage.write_json('EXAMPLE',ACCOUNT_FILE,rows)
+    recovery=app.test_client()
+    assert begin(recovery).status_code==202
+    assert complete(recovery,account[1][0][1]).status_code==200
+    with app.app_context():
+        updated=AccountService(app.container.storage).get_account('EXAMPLE',account[0]['id'])
+        assert {key:updated.get(key) for key in before}==before
+        assert verify_password(NEW,updated['password_hash'])
+    assert client.get('/auth/account').status_code==401
+    result=recovery.post('/auth/login',json={'email':EMAIL,'password':NEW})
+    assert result.status_code==202
+    assert result.json['mfa']['enrollment'] is False
+
+
 @pytest.fixture
 def account(app, monkeypatch):
     with app.app_context():

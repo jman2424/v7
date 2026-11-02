@@ -260,7 +260,7 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     def _security_headers(response):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        speech_page = request.path in {
+        speech_page = (request.path.rstrip('/').removesuffix('.html') == '/console/channels' and request.args.get('view', 'website') == 'website') or request.path in {
             "/chat_ui", "/console/test", "/console/test/", "/console/test.html",
             "/console/website", "/console/website/", "/console/website.html",
         }

@@ -7,7 +7,8 @@
   import AIBudget from './AIBudget.svelte';
   import Referrals from './Referrals.svelte';
   import ModelPicker from './ModelPicker.svelte';
-  import WhatsAppConnection from './WhatsAppConnection.svelte';
+  import {base} from './consoleBase';
+  import {sectionHref} from './workspaceArchitecture';
   export let tenant:string;
   export let csrf:string;
   export let isPlatform=false;
@@ -15,6 +16,7 @@
   export let canViewCosts=true;
   export let canViewIntegrations=false;
   export let apiPrefix='';
+  export let showBudget=true;
   type Contract={kind:string;status:string;next_due:number|null;paused:number;cancel_at_end:number;implementation_paid:number};
   type Invoice={id:string;kind:string;month:string;issued:number;due:number|null;total:number;paid:number;remaining:number;status:string;url:string|null;lines:{description:string;amount:number}[]};
   type Plan={id:string;name:string;audience:string;monthly_pence:number;setup_pence:number;website_conversations:number;whatsapp_messages:number;message_usage_model?:string;locations:number;staff:number;analytics:string;api_access:string;onboarding:string};
@@ -34,7 +36,6 @@
   let busy=false;
   let error='';
   let message='';
-  let whatsappOpen=false;
   let invoiceKind='all';
   let invoicePage=1;
   let discountCode='';
@@ -224,17 +225,13 @@
         <p>{$t(website.enforced===false?'Website and WhatsApp activity counts do not limit messages. Paid AI uses prepaid credit according to the model and tokens consumed. Credit carries forward; there are no automatic extra charges.':'Website allowances count distinct chat sessions; new sessions pause at the limit while existing sessions continue. Paid AI replies use separate prepaid credit. Low or insufficient credit creates an administrator alert; saved-knowledge replies remain available. There are no automatic extra charges.')}</p>
       </article>
     {/if}
-    {#if canManageBilling}{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix} showProviderRates={isPlatform}/>{/key}{/if}
+    {#if canManageBilling}<details class="panel"><summary>{$t('AI model and processing prices')}</summary>{#key tenant}<ModelPicker {tenant} {csrf} {apiPrefix} showProviderRates={isPlatform}/>{/key}</details>{/if}
     {#if !data.internal || isPlatform}
-      {#key tenant}<AIBudget {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} showInitialBudgetChoice={!activePlan} on:initialbudget={(event)=>initialBudgetTotal=event.detail.total_pence} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)}/>{/key}
+      {#if showBudget || !activePlan}{#key tenant}<AIBudget presentation={showBudget?'full':'initial'} {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} showInitialBudgetChoice={!activePlan} on:initialbudget={(event)=>initialBudgetTotal=event.detail.total_pence} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)}/>{/key}{/if}
       {#if isPlatform}<details class="panel"><summary>{$t('Technical usage audit')}</summary>{#key tenant}<UsageCredits {tenant} {csrf} {apiPrefix} {canManageBilling} {canViewCosts} {isPlatform} canTopUp={false} on:creditstatus={(event)=>dispatch('creditstatus',event.detail)} />{/key}</details>{/if}
     {/if}
     {#if canViewIntegrations}
-      <details class="panel" bind:open={whatsappOpen}>
-        <summary>{$t('WhatsApp connection and Meta billing')}</summary>
-        <p>{$t('Manage your number, webhook and provider setup here. AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.')}</p>
-        {#if whatsappOpen}{#key tenant}<WhatsAppConnection {tenant} {apiPrefix}/>{/key}{/if}
-      </details>
+      <article class="panel"><h3>{$t('WhatsApp connection and Meta billing')}</h3><p>{$t('AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.')}</p><a href={sectionHref(base,'whatsapp-qr',tenant)}>{$t('Open WhatsApp setup')} →</a></article>
     {/if}
     {#if legacyBilling}
     <p class="notice">{$t('Existing subscription pricing. Your recorded contract and invoices keep their original terms; the new plans do not automatically change them.')}</p>

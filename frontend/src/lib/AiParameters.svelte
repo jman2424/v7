@@ -1,4 +1,8 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import { onMount, onDestroy } from 'svelte';
   import { t } from './i18n';
   export let tenant: string;
@@ -9,6 +13,7 @@
   let configuration: Configuration|null = null;
   let parameters: Parameters = {temperature:.2,max_output_tokens:1024,reasoning_effort:'low',timeout_seconds:30};
   $: temperatureSupported = Boolean(configuration && (configuration.capabilities.reasoning_efforts.length ? parameters.reasoning_effort === 'none' : configuration.capabilities.temperature));
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify(parameters));
   let busy = false;
   let error = '';
   let status = '';
@@ -16,6 +21,7 @@
   onMount(() => { void load(); });
   onDestroy(() => controller.abort());
   async function load() {
+    if(dirty&&!await draftConfirmation.ask())return;
     busy = true; error = '';
     try {
       const response = await fetch(apiPrefix+'/admin/api/ai-model/parameters?tenant='+encodeURIComponent(tenant), {credentials:'same-origin',signal:controller.signal});
@@ -23,6 +29,7 @@
       configuration = await response.json();
       if (!configuration) throw new Error();
       parameters = {...configuration.parameters};
+      savedDraft=JSON.stringify(parameters);
     } catch { if (!controller.signal.aborted) error = 'Could not load AI settings. Refresh or sign in again.'; }
     finally { busy = false; }
   }
@@ -35,11 +42,13 @@
       if (!response.ok) { error = 'Could not save AI settings. Check the values or sign in again.'; return; }
       configuration = await response.json();
       if (!configuration) throw new Error();
-      parameters = {...configuration.parameters}; status = 'AI parameters saved.';
+      parameters = {...configuration.parameters};
+      savedDraft=JSON.stringify(parameters); status = 'AI parameters saved.';
     } catch { if (!controller.signal.aborted) error = 'Could not save AI settings. Try again.'; }
     finally { busy = false; }
   }
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section class="parameters" aria-labelledby="parameters-title">
   <header><div><p class="eyebrow">{$t('Response controls')}</p><h2 id="parameters-title">{$t('AI parameters')}</h2></div><button type="button" disabled={busy} on:click={load}>{$t('Refresh')}</button></header>

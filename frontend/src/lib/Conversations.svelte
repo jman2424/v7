@@ -1,11 +1,16 @@
 <script lang="ts">
   import { t } from './i18n';
+  import {conversationThreads,type InboxMessage} from './conversationInbox';
   import { onMount, onDestroy } from 'svelte';
 
   export let tenant: string;
   export let apiPrefix = '';
   type View = 'messages' | 'leads' | 'questions';
-  type Message = { id: number; ts_utc: string; channel: string; event_type: string; text: string };
+  type Message = InboxMessage;
+  let query='',channel='',selectedThread='',threadOpen=false;
+  $: channels=[...new Set(messages.map(message=>message.channel))];
+  $: threads=conversationThreads(messages,channel,query);
+  $: currentThread=threads.find(thread=>thread.key===selectedThread)||threads[0];
   type Lead = { lead_id: string; name?: string; phone?: string; status?: string; updated_utc: string };
   type Question = { question: string; count: number };
   const views: { key: View; title: string }[] = [
@@ -43,7 +48,7 @@
       messages = [];
       leads = [];
       questions = [];
-      nextBefore = null;
+      nextBefore = null;selectedThread='';threadOpen=false;
     }
     const query = new URLSearchParams({ tenant: company, minutes: String(period) });
     const endpoint = selectedView === 'messages' ? 'conversations' : selectedView;
@@ -101,13 +106,17 @@
     {#if busy}<p class="loading" role="status">{view === 'messages' && messages.length ? 'Loading older messages…' : view === 'messages' ? 'Loading messages…' : view === 'leads' ? 'Loading leads…' : 'Loading common questions…'}</p>{/if}
     {#if !busy || (view === 'messages' && messages.length)}
     {#if !error && view === 'messages'}
-      {#each messages as message (message.id)}
-        <article class="message" class:agent={message.event_type === 'msg_out'} class:activity={message.event_type === 'navigation_click'}>
-          <div class="message-meta"><strong>{message.event_type === 'navigation_click' ? 'Customer clicked a button' : message.event_type === 'msg_in' ? 'Customer' : 'Agent'}</strong><span>{message.channel}</span><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div>
-          <p>{message.text}</p>
-        </article>
-      {:else}<div class="empty"><strong>No messages recorded</strong><p>Try a longer time period to find earlier customer conversations.</p></div>{/each}
-      {#if nextBefore}<button type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes, nextBefore ?? undefined)}>Load older messages</button>{/if}
+      <div class="inbox-filters"><label>Search loaded messages<input type="search" bind:value={query} placeholder="Find a conversation…"/></label><label>Channel<select bind:value={channel}><option value="">All channels</option>{#each channels as value}<option value={value}>{value}</option>{/each}</select></label></div>
+      <div class="inbox" class:thread-open={threadOpen}>
+        <div class="thread-list" role="region" aria-label="Customer conversations">
+          {#each threads as thread}<button class="thread" class:selected={currentThread?.key===thread.key} aria-pressed={currentThread?.key===thread.key} on:click={()=>{selectedThread=thread.key;threadOpen=true;}}><span class="thread-top"><strong>{thread.channel}</strong><time datetime={thread.latest.ts_utc}>{new Date(thread.latest.ts_utc).toLocaleDateString()}</time></span><span class="thread-title">{thread.title}</span><span class="thread-preview">{thread.latest.text}</span><span class="thread-count">{thread.messages.length} loaded messages</span></button>{:else}<div class="empty"><strong>{messages.length?'No matching conversations':'No messages recorded'}</strong><p>{messages.length?'Try another search or channel.':'Choose a longer time period to find earlier conversations.'}</p></div>{/each}
+        </div>
+        <div class="thread-content" role="region" aria-label="Selected conversation">
+          {#if currentThread}<div class="thread-heading"><button class="back-to-inbox" on:click={()=>threadOpen=false}>← Conversations</button><div><h3>Customer conversation</h3><p>{currentThread.channel} · Loaded history in the selected period</p></div></div><div class="message-bubbles">{#each currentThread.messages as message (message.id)}<article class="bubble" class:agent={message.event_type==='msg_out'} class:activity={message.event_type==='navigation_click'}><div class="message-meta"><strong>{message.event_type==='navigation_click'?'Customer clicked a button':message.event_type==='msg_in'?'Customer':'AI assistant'}</strong><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div><p>{message.text}</p></article>{/each}</div>{:else}<div class="thread-placeholder"><strong>Your customer conversations, together</strong><p>Select a conversation to read its available history.</p></div>{/if}
+        </div>
+      </div>
+      {#if nextBefore}<button class="load-older" type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes, nextBefore ?? undefined)}>Load older messages</button>{/if}
+      <p class="hint inbox-note">Only loaded messages are searched. Load older messages to see more history. A button click does not confirm a completed booking or purchase.</p>
     {:else if !error && view === 'leads'}
       {#each leads as lead (lead.lead_id)}
         <article class="lead"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong>{#if lead.name && lead.phone}<span>{lead.phone}</span>{/if}</div><span class="status">{lead.status || 'Open'}</span><time datetime={lead.updated_utc}>{dateLabel(lead.updated_utc)}</time></article>
@@ -144,14 +153,11 @@
   .empty strong { color:var(--v7-ink); font-size:14px; }
   .empty p { margin:6px 0 0; }
   .loading { margin:0 0 16px; padding:12px 14px; background:var(--v7-soft,#edf6f1); border-radius:8px; font-size:13px; color:var(--v7-accent); }
-  .message,.lead,.question { padding:16px 0; border-top:1px solid var(--v7-line); }
+  .lead,.question { padding:16px 0; border-top:1px solid var(--v7-line); }
   .message-meta { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:13px; }
   .message-meta strong { color:var(--v7-ink); }
-  .message.agent .message-meta strong { color:var(--v7-accent); }
-  .message-meta span,time { color:var(--v7-muted); font-size:12px; }
-  .message-meta span { padding:3px 7px; background:var(--v7-canvas,#f5f7f7); border-radius:5px; }
+  time { color:var(--v7-muted); font-size:12px; }
   .message-meta time { margin-left:auto; }
-  .message p { max-width:85ch; margin:10px 0 0; white-space:pre-wrap; line-height:1.7; font-size:14px; }
   .lead { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:16px; align-items:center; font-size:14px; }
   .lead>div { display:grid; gap:6px; min-width:0; }
   .lead>div>span { color:var(--v7-muted); font-size:13px; }
@@ -161,4 +167,7 @@
   .error { color:#b42318; padding:12px 14px; background:#fff2f0; border-radius:8px; font-size:13px; }
   @media(max-width:720px) { .lead { grid-template-columns:minmax(0,1fr) auto; } .lead time { grid-column:1 / -1; } .message-meta time { width:100%; margin-left:0; } }
   @media(max-width:520px) { header,.content { padding:16px; } nav { width:100%; } nav button { flex:1 1 120px; } .tools { width:100%; } .tools label { flex:1; } }
+
+ .inbox-filters{display:flex;align-items:end;gap:12px;margin:0 0 20px}.inbox-filters>label:first-child{flex:1}.inbox-filters input{width:100%;min-height:44px;border:1px solid var(--v7-control-line);border-radius:8px;padding:10px 12px;background:white;color:var(--v7-ink);font:inherit}.inbox{display:grid;grid-template-columns:minmax(210px,.8fr) minmax(0,1.6fr);border:1px solid var(--v7-line);border-radius:12px;min-height:440px;overflow:hidden;background:var(--v7-canvas)}.thread-list{background:white;border-inline-end:1px solid var(--v7-line);max-height:650px;overflow-y:auto}.thread{width:100%;display:flex;align-items:stretch;flex-direction:column;gap:9px;text-align:start;border:0;border-radius:0;border-bottom:1px solid var(--v7-line);padding:18px;font-weight:400;background:white;color:var(--v7-ink)}.thread.selected{background:var(--v7-soft);box-shadow:inset 3px 0 var(--v7-accent)}.thread-top{display:flex;justify-content:space-between;gap:12px;align-items:center}.thread-top strong{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--v7-accent)}.thread-top time{font-size:9px}.thread-title,.thread-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;max-width:100%}.thread-title{font-size:12px;font-weight:600}.thread-preview{color:var(--v7-muted);font-size:11px}.thread-count{color:var(--v7-muted);font-size:9px}.thread-content{min-width:0}.thread-heading{border-bottom:1px solid var(--v7-line);background:white;padding:20px}.thread-heading h3{font-size:14px;margin:0 0 5px}.thread-heading p{font-size:10px;color:var(--v7-muted);margin:0}.message-bubbles{display:flex;flex-direction:column;gap:16px;padding:24px;max-height:565px;overflow-y:auto}.bubble{align-self:flex-start;max-width:92%;padding:16px;border:1px solid var(--v7-line);border-radius:12px 12px 12px 3px;background:white}.bubble.agent{align-self:flex-end;background:#e9f2eb;border-color:#d2e2d6;border-radius:12px 12px 3px 12px}.bubble.activity{background:none;border-style:dashed;align-self:center}.bubble p{white-space:pre-wrap;font-size:13px;line-height:1.8;margin:12px 0 0}.bubble .message-meta{gap:8px;font-size:10px}.bubble .message-meta time{font-size:9px}.thread-placeholder{min-height:400px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:30px;color:var(--v7-muted);font-size:13px}.thread-placeholder strong{color:var(--v7-ink)}.thread-placeholder p{line-height:1.7}.back-to-inbox{display:none}.load-older{margin-top:18px}.inbox-note{margin:15px 0 0}input:focus-visible{outline:3px solid var(--v7-accent);outline-offset:3px}
+ @media(max-width:650px){.inbox-filters{align-items:stretch;flex-direction:column}.inbox{grid-template-columns:1fr;min-height:360px}.thread-content{display:none}.thread-open .thread-list{display:none}.thread-open .thread-content{display:block}.thread-list{border:0}.back-to-inbox{display:inline-flex;margin-bottom:15px;border:0;padding:0;min-height:44px;color:var(--v7-accent)}.message-bubbles{padding:16px}.bubble{max-width:96%;padding:14px}.thread-heading{padding:15px}}
 </style>

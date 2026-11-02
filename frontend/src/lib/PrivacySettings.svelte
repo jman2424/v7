@@ -1,4 +1,8 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import { onMount, onDestroy } from 'svelte';
   import { t } from './i18n';
   export let tenant: string;
@@ -10,6 +14,7 @@
   let data: ResponseData|null = null;
   let settings: Policy = {controller_name:'',contact_email:'',retention_days:null,retention_criteria:'',lawful_basis:''};
   let retention = '';
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({settings,retention}));
   let busy = false;
   let error = '';
   let status = '';
@@ -20,8 +25,10 @@
   function accept(value:ResponseData) {
     data = value; settings = {...value.settings};
     retention = settings.retention_days === null ? '' : String(settings.retention_days);
+    savedDraft=JSON.stringify({settings,retention});
   }
   async function load() {
+    if(dirty&&!await draftConfirmation.ask())return;
     busy = true; error = '';
     try {
       const response = await fetch(apiPrefix+'/admin/api/privacy?tenant='+encodeURIComponent(tenant), {credentials:'same-origin',signal:controller.signal});
@@ -42,6 +49,7 @@
     finally { busy = false; }
   }
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section class="privacy" aria-labelledby="privacy-settings-title">
   <header><div><p class="eyebrow">{$t('Data protection')}</p><h2 id="privacy-settings-title">{$t('Privacy & data')}</h2></div><button type="button" disabled={busy} on:click={load}>{$t('Refresh')}</button></header>

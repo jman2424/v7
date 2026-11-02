@@ -26,6 +26,7 @@ function loadModule(filename, imports = {}) {
 const format = loadModule('subscription-format.ts');
 const i18n = loadModule('i18n.ts', {
   'svelte/store': stores,
+  '../../../dashboard/static/i18n/workspaces.json': require('../../dashboard/static/i18n/workspaces.json'),
   '../../../dashboard/static/i18n/ui.json': require('../../dashboard/static/i18n/ui.json'),
   '../../../dashboard/static/i18n/features.json': require('../../dashboard/static/i18n/features.json'),
   '../../../dashboard/static/i18n/subscription.json': dictionary,

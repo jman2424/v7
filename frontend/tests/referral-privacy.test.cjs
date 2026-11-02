@@ -30,6 +30,7 @@ test('workspace redirect preserves a validated referral URL without any storage 
   const navigations = [];
   const scope = vm.createContext({URLSearchParams, referralCodeFromSearch:codeFromSearch,
     window:{location:{search:'?next=subscription&ref=V7-' + 'a'.repeat(32),pathname:'/console/'}},
+    resolveWorkspace:()=>({section:'subscription',workspace:'billing',view:'subscription'}),legacyLocation:()=>({workspace:'billing',view:'subscription'}),
     mayOpenScreen:()=>true, defaultWorkspaceScreen:()=> 'subscription', isWidgetSection:()=>false,
     goto:async target=>navigations.push(target)});
   vm.runInContext(`let user={roles:['business_owner']},tenant='EXAMPLE',base='/console',section='pipeline',referralSaved=false; ${definition}; this.run=openDefaultWorkspace;`, scope);

@@ -52,6 +52,8 @@
     {% endfor %}]
   }</script>
   {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/premium.css', v='20261102') }}">
+  <script defer src="{{ url_for('static', filename='js/page-navigation.js', v='20261102') }}"></script>
 </head>
 <body class="solution-page">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -59,6 +61,7 @@
     {% include 'platform_brand.html' %}
     <nav aria-label="Main navigation"><a href="/">Home</a><a href="/#platform">Platform</a><a href="/guides/choosing-a-website-chatbot">Buying guide</a><a href="/pricing">Pricing</a><a href="/faqs">FAQs</a></nav>
     <div class="header-actions"><a class="button button-small button-dark" href="/console/">Sign in <span aria-hidden="true">↗</span></a></div>
+  {% include 'platform_mobile_menu.html' %}
   </header>
   <main id="main" class="wrap">
     <nav class="solution-breadcrumb" aria-label="Breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span>{% if not brand_page %}<a href="/#solutions">Solutions</a><span aria-hidden="true">/</span>{% endif %}<span aria-current="page">{{ solution.label }}</span></nav>

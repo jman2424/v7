@@ -13,7 +13,7 @@ function harness(){
   const context=vm.createContext({AbortController,fetch(url,options){
     let resolve;const promise=new Promise(yes=>resolve=yes);requests.push({url,options,resolve});return promise;
   }});
-  vm.runInContext(`let tenant='ONE',csrf='synthetic-csrf',isPlatform=false,canManage=true,apiPrefix='';
+  vm.runInContext(`let dirty=false,savedDraft='';let tenant='ONE',csrf='synthetic-csrf',isPlatform=false,canManage=true,apiPrefix='';
     const onReady=()=>{},onSaved=()=>{};
     let modules=[],grants={},enabled={},revision='',initialized=false,loading=true,busy=false,disposed=false,message='',error=false;
     const controllers=new Set();${constants}${functions}

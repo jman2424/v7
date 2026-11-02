@@ -1,4 +1,8 @@
 <script lang="ts">
+  import DraftGuard from './DraftGuard.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
+  let draftConfirmation:ConfirmDialog;
+  let savedDraft='';
   import {onMount,onDestroy} from 'svelte';
   export let tenant:string;
   export let csrf:string;
@@ -9,6 +13,7 @@
   export let onSaved:()=>void=()=>{};
   type Module={id:string;label:string;granted:boolean;enabled:boolean;available:boolean;blocked_by:string;approval:string};
   let modules:Module[]=[],grants:Record<string,boolean>={},enabled:Record<string,boolean>={};
+  $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({grants,enabled}));
   let revision='',initialized=false,loading=true,busy=false,disposed=false,message='',error=false;
   const controllers=new Set<AbortController>();
   const reasons:Record<string,string>={platform_disabled:'Paused by platform-wide policy.',plan_not_allowed:'Unavailable under the operator’s plan policy.',
@@ -34,10 +39,12 @@
     modules=data.modules;revision=data.revision;initialized=data.initialized;
     grants=Object.fromEntries(modules.map(row=>[row.id,row.granted]));
     enabled=Object.fromEntries(modules.map(row=>[row.id,row.enabled&&row.granted]));
+    savedDraft=JSON.stringify({grants,enabled});
     onReady(initialized);
   }
   async function load() {
     if(busy||disposed)return;
+    if(dirty&&!await draftConfirmation.ask())return;
     busy=true;message='';error=false;
     try {const data=await request();if(!disposed)apply(data);}
     catch(err){if(!disposed){error=true;message=err instanceof Error?err.message:'Module controls are unavailable.';}}
@@ -53,6 +60,7 @@
   onMount(load);
   onDestroy(()=>{disposed=true;for(const controller of controllers)controller.abort();});
 </script>
+<DraftGuard {dirty}/><ConfirmDialog bind:this={draftConfirmation}/>
 
 <section class="modules" aria-labelledby="agent-module-title">
   <div class="heading"><h3 id="agent-module-title">What your agent is allowed to do</h3><button type="button" on:click={load} disabled={busy}>Refresh module controls</button></div>

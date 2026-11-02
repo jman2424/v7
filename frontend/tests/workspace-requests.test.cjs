@@ -29,6 +29,7 @@ function consoleHarness() {
     requestJson(path, options) { dispatched.push({ path, options }); return pending.promise; }
   });
   vm.runInContext(`
+    function rememberDraft(){}
     let tenant='FIRST', workspaceGeneration=0, user={id:'operator'};
     const pendingWorkspaceMutations=new Map();
     let profile={name:'First business',about:'Original description',email:'',phone:'',website:'',certifications:[],social:{}};

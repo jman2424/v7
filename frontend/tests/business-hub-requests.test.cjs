@@ -15,7 +15,8 @@ function harness(){
     let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});
     requests.push({url,options,resolve,reject});return promise;
   }});
-  vm.runInContext(`let tenant='FIRST',csrf='csrf-test',apiPrefix='',isPlatform=false,canManage=true;
+  vm.runInContext(`let dirty=false,savedSettings='',savedDrafts='';
+    let tenant='FIRST',csrf='csrf-test',apiPrefix='',isPlatform=false,canManage=true;
     let settings=null,grants={},readiness={},workerEnabled=false,operations=[],drafts={},status='',error=false,loading=false,saving=false,busyId='',disposed=false,generation=0;
     let actionFor='',actionType='callback',actionName='',actionContact='',actionDetails='',actionSlot='',actionConsent=false;
     const controllers=new Set();${constants}${functions}

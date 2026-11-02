@@ -16,7 +16,7 @@ function harness() {
     compilerOptions: { target: ts.ScriptTarget.ES2022 }
   }).outputText;
   const requests = [];
-  const context = vm.createContext({ crypto: { randomUUID: () => 'test-copy' },
+  const context = vm.createContext({rememberDraft(){}, crypto: { randomUUID: () => 'test-copy' },
     mutateWorkspace: async (url, options) => {
       requests.push({ url, options });
       return { response: { ok: true }, data: {}, activeLoad: 'current' };
