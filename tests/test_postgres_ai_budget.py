@@ -86,7 +86,7 @@ def test_native_funding_settings_allow_only_a_live_operator_session(pg_runtime):
 def test_native_worker_discovers_financial_tenants_without_an_admin_session(pg_runtime,monkeypatch):
     tenant,other=pg_runtime['tenant'],pg_runtime['other']
     for key in (tenant,other):
-        usage_wallet.apply_payment(key,'worker_discovery','pi_worker'+key,100,100)
+        usage_wallet.apply_payment(key,'worker_discovery_'+key,'pi_worker'+key,100,100)
     class NoInteractiveInventory:
         def tenant_keys(self):
             raise AssertionError('background worker must not use administrator inventory')
