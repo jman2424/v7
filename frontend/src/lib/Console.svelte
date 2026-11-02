@@ -34,7 +34,7 @@
   $: platformMode=activeWorkspace==='platform'&&isPlatform;
   $: workspaceDefinition=workspaceDefinitions.find(item=>item.id===activeWorkspace)||workspaces[0];
   $: viewDefinition=workspaceDefinition.views.find(item=>item.id===activeView)||workspaceDefinition.views[0];
-  $: deliveryVisible=agentSettings.playbook.offering_type!=='services'||['delivery','collection','hybrid'].includes(agentSettings.playbook.fulfilment_mode);
+  $: deliveryVisible=agentSettings.playbook.offering_type!=='services'||['delivery','collection'].includes(agentSettings.playbook.fulfilment_mode);
   $: availableViews=user?workspaceDefinition.views.filter(item=>mayOpenScreen(item.section)&&(item.section!=='delivery'||deliveryVisible)):[];
   $: primaryWorkspaces=!user?[]:platformMode
     ? platformWorkspace.views.filter(item=>!item.hidden&&mayOpenScreen(item.section)).map(item=>({id:item.id,label:item.label,description:'',icon:item.section,views:[item]}))
@@ -314,6 +314,7 @@
   let password = '';
   let showPassword = false;
   let rememberDevice = false;
+  let providerController:AbortController|undefined;
   let providers: {id: 'google'|'microsoft'; name:string; configured:boolean}[] = [];
   let oidcNotice = '';
   let totp = '';
@@ -1105,11 +1106,18 @@
   }
 
   async function loadProviders() {
+    // Provider metadata is global, not part of the current tenant's draft/read lifecycle.
+    providerController?.abort();
+    const controller=new AbortController();providerController=controller;
+    const timeout=setTimeout(()=>controller.abort(),20000);
     try {
-      const { response, data } = await requestJson('/auth/oidc/providers', {credentials:'same-origin'});
-      if (!response.ok) return;
-      providers = Array.isArray(data.providers) ? data.providers.filter((item: {id?:string}) => item.id === 'google') : [];
-    } catch { providers = []; }
+      const response=await fetch(apiPath('/auth/oidc/providers'),{credentials:'same-origin',signal:controller.signal});
+      if(!response.ok||controller.signal.aborted)return;
+      const data=await response.json();
+      if(controller.signal.aborted)return;
+      providers=Array.isArray(data.providers)?data.providers.filter((item:{id?:string})=>item.id==='google'):[];
+    } catch { if(!controller.signal.aborted)providers=[]; }
+    finally {clearTimeout(timeout);}
   }
 
   async function providerLogin(provider: 'google'|'microsoft') {
@@ -1684,7 +1692,7 @@
       loading = false;
     }
   });
-  onDestroy(() => { workspaceGeneration++; for (const controller of workspaceControllers) controller.abort(); });
+  onDestroy(() => { providerController?.abort(); workspaceGeneration++; for (const controller of workspaceControllers) controller.abort(); });
 </script>
 
 <svelte:head>
@@ -1820,7 +1828,7 @@
       {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls" bind:open={advancedAiOpen}><summary>Advanced AI response settings</summary>{#if advancedAiOpen}{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#await import('./MemorySettings.svelte')}<p class="component-loading" role="status">Loading conversation controls…</p>{:then loadedMemory}<svelte:component this={loadedMemory.default} {tenant} {csrf} canEdit={Boolean(user.permissions?.includes(isPlatform?'models.write':'business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">Conversation controls could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}</details>{/if}
       {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
-        {#if isPlatform}{#await import('./PlatformOverview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPlatformOverview}<svelte:component this={loadedPlatformOverview.default} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
+        {#if isPlatform}{#await import('./PlatformOverview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPlatformOverview}<svelte:component this={loadedPlatformOverview.default} {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
         {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
       {/if}
 
@@ -1885,11 +1893,11 @@
 
       {#if section === 'companies' && (isPlatform || isOwner)}
         <section class="operator-panel" aria-labelledby="tenant-create-heading">
-          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Fill in its information and configure the agent before launch. Each new business activates automatically after its subscription and implementation are paid. It starts with empty business knowledge and no approved websites. Add only information belonging to this business.</p></div>
+          <div><p class="eyebrow">Business onboarding</p><h2 id="tenant-create-heading">Add a business</h2><p>Add its information and configure the assistant before launch. Approval and verified subscription/setup requirements still apply. It starts with empty business knowledge and no approved websites. Add only information belonging to this business.</p></div>
           <form class="tenant-form" on:submit|preventDefault={createTenant}>
-            <label>Tenant key<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /></label>
             <label>Business name<input bind:value={newTenantName} placeholder="Northstar Homewares" required /></label>
-            <button class="primary" type="submit">Create tenant</button>
+            <label>Business reference<input bind:value={newTenantKey} placeholder="NORTHSTAR" pattern={'[A-Za-z0-9_-]{1,64}'} required /><small>A unique short reference used in this business’s website installation code.</small></label>
+            <button class="primary" type="submit" disabled={createStatus==='Creating tenant...'}>Add business</button>
           </form>
           {#if createStatus}<p class="form-status">{createStatus}</p>{/if}
         </section>

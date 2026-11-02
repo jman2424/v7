@@ -2,6 +2,8 @@
   import { t } from './i18n';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { base } from './consoleBase';
+  import {workspaceHref} from './workspaceArchitecture';
+  export let tenant='';
   export let apiPrefix = '';
   type Company = {tenant:string;name:string;mode:string;status:string;knowledge_files:number;knowledge_files_expected:number;issues:string[];analytics_available:boolean;kpis:{inbound:number;outbound:number;sessions:number;errors:number}|null;errors:{error_code?:string;error_type?:string;count:number}[]};
   type Report = {company_count:number;page:number;page_size:number;has_next:boolean;generated_at:string;companies:Company[]};
@@ -51,7 +53,7 @@
 <section class="platform" aria-label="Platform management overview" aria-busy={busy}>
   <article class="intro">
     <div class="intro-copy"><p class="eyebrow">Platform management</p><h2>Business overview</h2><p>Review customer activity and company setup, then open a workspace to take action.</p></div>
-    <div class="intro-action"><span class="access-label"><span></span>Platform administrator</span><a href={base + '/companies'}><span>Add a company</span><span aria-hidden="true">↗</span></a></div>
+    <div class="intro-action"><span class="access-label"><span></span>Platform administrator</span><a href={workspaceHref(base,'platform','companies',tenant)}><span>Add a company</span><span aria-hidden="true">↗</span></a></div>
   </article>
 
   {#if report && !error}

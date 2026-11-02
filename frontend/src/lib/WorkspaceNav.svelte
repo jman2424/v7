@@ -61,13 +61,14 @@
 </nav>
 
 <style>
-  .primary-sidebar{position:sticky;top:0;height:100dvh;min-height:600px;display:flex;flex-direction:column;padding:28px 16px 14px;background:var(--v7-brand);color:#e8f0e9;min-width:0;z-index:20}
+  .primary-sidebar{position:sticky;top:0;height:100dvh;min-height:0;display:flex;flex-direction:column;padding:28px 16px 14px;background:var(--v7-brand);color:#e8f0e9;min-width:0;z-index:20}
+  .primary-sidebar>nav{flex:1;min-height:0;overflow-y:auto;align-content:start;overscroll-behavior:contain}.primary-sidebar>.brand,.primary-sidebar>.workspace-switch,.sidebar-bottom{flex-shrink:0}
   .brand{display:flex;align-items:center;min-height:46px;align-self:flex-start;padding:8px 10px;border-radius:10px;background:white;margin:0 8px 25px;text-decoration:none}
   .workspace-switch{display:flex;align-items:center;gap:10px;color:#d4e6d9;border:1px solid #ffffff24;padding:11px 12px;margin:0 0 25px;border-radius:9px;font-size:12px;line-height:1.4;text-decoration:none;min-height:44px}
   .switch-mark{font-size:20px}.nav-caption{margin:0 13px 12px;color:#a9c3b4;text-transform:uppercase;font-size:10px;font-weight:650;letter-spacing:.12em}
   nav{display:grid;gap:6px}nav>a{display:flex;align-items:center;gap:12px;min-height:47px;padding:12px 14px;border-radius:10px;color:#d2e0d7;text-decoration:none;font-weight:500;font-size:13px;white-space:nowrap;position:relative}
   nav>a:hover{background:#ffffff0c;color:white}nav>a.active{background:#eaf3ed;color:#153f2e;font-weight:650}.active-dot{margin-inline-start:auto;width:5px;height:5px;border-radius:50%;background:#206b4e}
-  .sidebar-bottom{margin-top:auto;padding-top:30px}.collapse-control{display:flex;align-items:center;gap:12px;width:100%;padding:12px;color:#afc8b8;background:none;border:0;font:inherit;font-size:11px;text-align:start;min-height:44px}
+  .sidebar-bottom{margin-top:auto;padding-top:18px}.collapse-control{display:flex;align-items:center;gap:12px;width:100%;padding:12px;color:#afc8b8;background:none;border:0;font:inherit;font-size:11px;text-align:start;min-height:44px}
   .account-strip{border-top:1px solid #ffffff1c;padding:17px 2px 0;margin-top:8px;display:flex;align-items:center;gap:10px;min-width:0}.avatar{width:33px;height:33px;border-radius:10px;display:grid;place-items:center;background:#ffffff14;color:#d2e5d8;font-weight:650;flex:none}.account-strip>div{min-width:0;display:grid;gap:3px}.account-strip strong{font-size:11px;font-weight:600}.account-strip small{max-width:132px;overflow:hidden;text-overflow:ellipsis;font-size:10px;color:#a9c3b4}.account-strip button{margin-inline-start:auto;min-width:30px;min-height:40px;background:none;border:0;color:#c9ddce;font:inherit;font-size:19px}
   .collapsed{padding-inline:11px}.collapsed .brand{padding:7px;margin-inline:5px}.collapsed :is(nav>a>span,.nav-caption,.workspace-switch>span:not(.switch-mark),.collapse-control>span+span,.account-strip>div,.account-strip>button){display:none}.collapsed nav>a{justify-content:center;padding-inline:0}.collapsed .workspace-switch{justify-content:center}.collapsed .account-strip{justify-content:center}.collapsed .collapse-control{justify-content:center}
   a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #a4d7b7;outline-offset:3px}.mobile-navigation{display:none}

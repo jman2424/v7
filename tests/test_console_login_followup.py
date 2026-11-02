@@ -32,7 +32,7 @@ for (const statement of [...ast.statements].reverse()) {
 source = source.replaceAll('export let', 'let').replaceAll('import.meta.env.DEV', 'false');
 source += `
 globalThis.harness = {
-  restoreSession, login, confirmMfa, providerLogin, logout, loadInsights, loadTenantWorkspace, loadWorkspaceSection, loadAccounts, loadTenants,
+  restoreSession, login, confirmMfa, providerLogin, loadProviders, logout, loadInsights, loadTenantWorkspace, loadWorkspaceSection, loadAccounts, loadTenants,
   mayOpenScreen, defaultWorkspaceScreen, mayReadModelParameters, mayReadConversionSettings, openDefaultWorkspace,
   identity: (value) => { user = value; tenant = value.tenant; },
     credentials: () => { email = scenario === 'username-sign-in' ? 'legacy-admin' : 'synthetic@example.test'; password = 'Synthetic-fixture-password-123'; csrf = 'stale'; totp = '123456';
@@ -40,7 +40,7 @@ globalThis.harness = {
     tenants = [{key:'OLD',name:'Old company',valid:true,widget_configured:false,activation:{active:true,status:'active'}}];
     insights.leads = [{lead_id:'old',name:null,phone:null,status:'Open',updated_utc:''}]; },
   state: () => ({user, csrf, tenant, mfa, loginError, signingIn, loading, passwordCleared: password === '', catalog,
-    profile, accounts, insights, tenants,
+    profile, accounts, insights, tenants, providers,
     workspaceError: typeof workspaceError === 'undefined' ? '' : workspaceError}),
 };`;
 const identity = {email:'synthetic@example.test', roles:['business_staff'], tenant:'SHOP', permissions:[]};
@@ -86,6 +86,7 @@ const context = vm.createContext({
     replace:path=>{navigations.push(path);fullDocumentNavigations.push({method:'replace',path});}}, history:{replaceState:()=>{}}},
   fetch:async (path, options={}) => {
     calls.push({path, options});
+    if (path === '/auth/oidc/providers' && scenario === 'provider-metadata-survives-workspace-refresh') { announceOld(); return oldResponse; }
     if (path === '/auth/session') {
       sessionReads++;
       if (scenario === 'mount-session-network-error') throw Error('private-provider-detail');
@@ -212,6 +213,17 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     assert.equal(h.state().catalog.categories.length, 1);
     assert.equal(h.state().profile.name, '');
     assert.ok(calls.some(call => call.path === '/admin/api/catalog?tenant=SHOP'));
+  } else if (scenario === 'provider-metadata-survives-workspace-refresh') {
+    h.identity(identity);
+    const pending=h.loadProviders();
+    await oldStarted;
+    await h.loadTenantWorkspace('SHOP');
+    releaseOld(json(200,{providers:[{id:'google',name:'Google',configured:false},{id:'microsoft',name:'Microsoft',configured:false}]}));
+    await pending;
+    assert.equal(calls.find(call=>call.path==='/auth/oidc/providers').options.signal.aborted,false);
+    assert.equal(h.state().providers.length,1);
+    assert.equal(h.state().providers[0].id,'google');
+    assert.equal(h.state().providers[0].configured,false);
   } else if (scenario === 'logout-clears-workspace') {
     await h.logout();
     assert.equal(h.state().catalog.categories.length, 0);
@@ -282,7 +294,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     'password-invalid', 'password-company', 'password-csrf', 'password-rate-limit',
     'password-global-rate-limit', 'password-private-error', 'mfa-expired', 'mfa-reused',
     'mfa-csrf', 'mfa-rate-limit', 'mfa-invalid-rate-limit', 'mfa-private-error',
-    'provider-unconfigured', 'provider-company', 'provider-rate-limit',
+    'provider-unconfigured', 'provider-company', 'provider-rate-limit', 'provider-metadata-survives-workspace-refresh',
     'mount-session-network-error', 'mount-session-service-error',
     'navigation-staff-no-grants', 'navigation-staff-reads', 'navigation-owner-subset',
     'navigation-operator-subset', 'navigation-composite', 'navigation-mixed-owner',
