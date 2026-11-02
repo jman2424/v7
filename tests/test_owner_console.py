@@ -57,7 +57,13 @@ def test_owner_console_serves_compiled_assets_from_same_origin(client, app, tmp_
     assert client.get('/console/index.html').status_code == 200
     assert asset.status_code == 200
     assert asset.get_data(as_text=True) == "console.log('console');"
+    assert asset.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+    conditional = client.get("/console/_app/immutable/app.js", headers={"If-None-Match": asset.headers["ETag"]})
+    assert conditional.status_code == 304
+    assert conditional.headers["Cache-Control"] == asset.headers["Cache-Control"]
     assert missing.status_code == 404
+    assert missing.headers["Cache-Control"] == "no-store"
+    assert client.get("/console/_app/immutable/missing.js").headers["Cache-Control"] == "no-store"
 
 
 @pytest.mark.parametrize("section", ["errors", "subscription", "platform", "catalog", "conversations", "test", "usage", "implementation", "whatsapp-qr", "statistics"])

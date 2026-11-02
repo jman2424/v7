@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {base} from './consoleBase';
+  import {sectionHref} from './workspaceArchitecture';
   import DraftGuard from './DraftGuard.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   let draftConfirmation:ConfirmDialog;
@@ -75,7 +77,7 @@
         <p class="hint">{row.id==='booking_management'?'Changes need the customer’s private appointment receipt and confirmation. External calendars are separate.':
           ['consultation','quote','callback'].includes(row.id)?'Uses the existing customer-confirmed request form. A quote request is not a final quote; only a reserved V7 slot is a confirmed booking.':
           'Uses the channel’s existing review/automatic mode, verified provider connection and configured privacy settings.'}</p>
-        <a href={row.id==='email'||row.id==='phone'?`/console/operations?tenant=${encodeURIComponent(tenant)}#channel-settings`:`/console/agent?tenant=${encodeURIComponent(tenant)}`}>Open service settings</a>
+        <a href={sectionHref(base,row.id==='email'||row.id==='phone'?row.id:'website',tenant)+(row.id==='email'||row.id==='phone'?'#channel-settings':'#conversion-settings')}>Open service settings</a>
       </fieldset>{/each}</div>
       <button type="submit" disabled={!initialized||!canManage||busy}>Save business module switches</button>
     </form>
@@ -84,7 +86,7 @@
       {#each modules as row}<label><input type="checkbox" bind:checked={grants[row.id]} disabled={busy}/>{row.label} permitted</label>{/each}
       <button type="submit" disabled={busy}>{initialized?'Save module grants':'Initialize module controls'}</button>
     </form>{/if}
-    <p class="hint">Platform-wide kill switches and plan restrictions use operator deployment configuration in this phase. A module switch stops future execution; it does not undo completed actions or remove existing customer records.</p>
+    <p class="hint">{#if isPlatform}Platform-wide kill switches and plan restrictions use operator deployment configuration in this phase. {/if}A module switch stops future execution; it does not undo completed actions or remove existing customer records.</p>
   {/if}
   {#if message}<p role="status" class:error>{message}</p>{/if}
 </section>

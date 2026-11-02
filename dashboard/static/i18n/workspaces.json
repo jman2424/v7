@@ -124,7 +124,8 @@
     "Unsaved changes · Your draft stays here while you move between business views.": "Unsaved changes · Your draft stays here while you move between business views.",
     "Loading activity…": "Loading activity…",
     "Activity is not available": "Activity is not available",
-    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero."
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.",
+    "Business actions & permissions": "Business actions & permissions"
   },
   "es": {
     "Home": "Inicio",
@@ -251,7 +252,8 @@
     "Unsaved changes · Your draft stays here while you move between business views.": "Cambios sin guardar · Tu borrador se conserva al cambiar de vista.",
     "Loading activity…": "Cargando actividad…",
     "Activity is not available": "La actividad no está disponible",
-    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "La actividad registrada aparecerá cuando el informe esté disponible. Los totales no disponibles no se muestran como cero."
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "La actividad registrada aparecerá cuando el informe esté disponible. Los totales no disponibles no se muestran como cero.",
+    "Business actions & permissions": "Acciones y permisos del negocio"
   },
   "fr": {
     "Home": "Accueil",
@@ -378,7 +380,8 @@
     "Unsaved changes · Your draft stays here while you move between business views.": "Modifications non enregistrées · Votre brouillon est conservé entre les vues.",
     "Loading activity…": "Chargement de l’activité…",
     "Activity is not available": "Activité indisponible",
-    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "L’activité enregistrée apparaîtra lorsque le rapport sera disponible. Les totaux indisponibles ne sont pas affichés comme des zéros."
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "L’activité enregistrée apparaîtra lorsque le rapport sera disponible. Les totaux indisponibles ne sont pas affichés comme des zéros.",
+    "Business actions & permissions": "Actions et autorisations de l’entreprise"
   },
   "ar": {
     "Home": "الرئيسية",
@@ -505,6 +508,7 @@
     "Unsaved changes · Your draft stays here while you move between business views.": "تغييرات غير محفوظة · تبقى مسودتك محفوظة أثناء التنقل بين عروض النشاط التجاري.",
     "Loading activity…": "جارٍ تحميل النشاط…",
     "Activity is not available": "النشاط غير متاح",
-    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "سيظهر النشاط المسجل عند توفر التقرير. لا تُعرض الإجماليات غير المتاحة على أنها أصفار."
+    "Recorded activity will appear when the report is available. Unavailable totals are not shown as zero.": "سيظهر النشاط المسجل عند توفر التقرير. لا تُعرض الإجماليات غير المتاحة على أنها أصفار.",
+    "Business actions & permissions": "إجراءات النشاط التجاري والأذونات"
   }
 }

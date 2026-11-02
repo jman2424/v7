@@ -1816,7 +1816,7 @@
       {#if section === 'privacy'}{#key tenant}{#await import('./PrivacySettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPrivacySettings}<svelte:component this={loadedPrivacySettings.default} {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'application'}{#key tenant}{#await import('./BusinessApplication.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplication}<svelte:component this={loadedBusinessApplication.default} {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'applications' && isPlatform}{#await import('./BusinessApplications.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplications}<svelte:component this={loadedBusinessApplications.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/if}
-      {#if section === 'agent'}{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'agent'}<details class="advanced-controls"><summary>{$t('Business actions & permissions')}</summary>{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
       {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls" bind:open={advancedAiOpen}><summary>Advanced AI response settings</summary>{#if advancedAiOpen}{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#await import('./MemorySettings.svelte')}<p class="component-loading" role="status">Loading conversation controls…</p>{:then loadedMemory}<svelte:component this={loadedMemory.default} {tenant} {csrf} canEdit={Boolean(user.permissions?.includes(isPlatform?'models.write':'business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">Conversation controls could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}</details>{/if}
       {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
@@ -1862,7 +1862,7 @@
             {#if widgetDirty}<p class="widget-save-notice">Your appearance changes are not saved yet. The agent test uses saved business information. <button on:click={() => widgetView = 'appearance'}>Review appearance</button></p>{/if}
             {#key tenant}{#await import('./AgentTest.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentTest}<svelte:component this={loadedAgentTest.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
             <details class="widget-extra"><summary>Website knowledge</summary>{#key tenant}{#await import('./WebsiteKnowledge.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWebsiteKnowledge}<svelte:component this={loadedWebsiteKnowledge.default} {tenant} {csrf} canEdit={canEditWidget} profileWebsite={profile.website} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>
-            {#if mayReadConversionSettings()}<details class="widget-extra"><summary>Booking, quote and payment paths</summary>{#key tenant}{#await import('./ConversionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConversionSettings}<svelte:component this={loadedConversionSettings.default} {tenant} {csrf} canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
+            {#if mayReadConversionSettings()}<details class="widget-extra" id="conversion-settings"><summary>Booking, quote and payment paths</summary>{#key tenant}{#await import('./ConversionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConversionSettings}<svelte:component this={loadedConversionSettings.default} {tenant} {csrf} canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
           {:else}
             <div class="widget-install-grid">
               <section class="surface"><div class="surface-head"><div><p class="eyebrow">Website access</p><h2>Approve your websites</h2><p>Only approved website origins can host this company's chat.</p></div></div><form class="settings-form" on:submit|preventDefault={saveWidget}><label>Approved website origins<textarea bind:value={originText} class="origins" rows="5" disabled={!canEditWidget || widgetSaving} spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>One exact origin per line. HTTPS is required except for local development. Include www and other subdomains separately. Leave blank to block external embedding.</small></label><div class="form-footer"><span class:error={formError} class="form-status" role={formError ? 'alert' : 'status'}>{formStatus}</span><button class="primary" type="submit" disabled={!canEditWidget || widgetSaving}>{widgetSaving ? 'Saving…' : 'Save widget & websites'}</button></div></form></section>
@@ -1979,7 +1979,7 @@
 
       <div class="content-grid">
         {#if section === 'integrations'}
-      {#key tenant}{#await import('./ConnectionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConnectionSettings}<svelte:component this={loadedConnectionSettings.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
+      {#key tenant}{#await import('./ConnectionSettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedConnectionSettings}<svelte:component this={loadedConnectionSettings.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       <section class="surface"><div class="surface-body"><h2>Looking for a customer channel?</h2><p>Set up your website, WhatsApp, email and phone together in Channels. Keep API and business app connections here.</p><a href={sectionHref(base,'website',tenant)}>Open Channels →</a></div></section>
       {/if}
       </div>
@@ -2009,7 +2009,7 @@
           {/if}
         {:else}<div class="workspace-empty"><h3>What can customers buy from you?</h3><p>Add a category, then your products, services or packages and their prices.</p><button class="secondary" disabled={!canEditCurrent} on:click={addCategory}>Add your first category</button></div>{/each}
         {#if catalogQuery.trim()&&!catalog.categories.some(category=>matches(catalogQuery,category.name)||category.items.some(item=>matches(catalogQuery,item.name,item.sku,...item.tags)))}<div class="workspace-empty"><p>No matching products or services.</p><button class="secondary" on:click={()=>catalogQuery=''}>Clear search</button></div>{/if}
-        <div class="section-footer"><span class:error={catalogError} class="form-status" role={catalogError?'alert':'status'}>{catalogStatus||'Changes apply after saving.'}</span><button class="primary" type="button" on:click={saveCatalog}>Save products & services</button></div>
+        <div class="section-footer"><span class:error={catalogError} class="form-status" role={catalogError?'alert':'status'}>{catalogStatus||'Changes apply after saving.'}</span><button class="primary" type="button" on:click={saveCatalog} disabled={!canEditCurrent||catalogStatus==='Saving...'}>Save products & services</button></div>
         </fieldset>
       </section>
       {/if}
@@ -2040,9 +2040,9 @@
           {/each}
         </div>
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>
-          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
+          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.map(reference=>catalog.categories.flatMap(category=>category.items).find(item=>item.sku===reference)?.name||reference).join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
         </div>
-        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers}>{$t("Save offers")}</button></div>
+        <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers} disabled={!canEditCurrent||offersStatus==='Saving...'}>{$t("Save offers")}</button></div>
         </fieldset>
       </section>
       {/if}
@@ -2064,7 +2064,7 @@
               <p class="empty-state">No FAQs yet. Add the answers customers ask for most.</p>
             {/each}
           </div>
-          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs}>{$t("Save FAQs")}</button></div>
+          <div class="section-footer"><span class:error={faqError} class="form-status">{faqStatus}</span><button class="primary" type="button" on:click={saveFaqs} disabled={!canEditCurrent||faqStatus==='Saving...'}>{$t("Save FAQs")}</button></div>
         </fieldset>
         </section>
       {/if}
@@ -2100,7 +2100,7 @@
               <div class="exception-row"><label>Date<input bind:value={exception.date} type="date" required /></label><label>Customer message{#if exception.source.postcode}<small>Applies to {String(exception.source.postcode)}</small>{/if}<input bind:value={exception.note} required /></label><button class="icon-button danger" type="button" title="Remove exception" aria-label={`Remove exception ${index + 1}`} on:click={() => removeException(index)}>{$t("Remove")}</button></div>
             {/each}
           </div>
-          <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery}>Save delivery settings</button></div>
+          <div class="section-footer"><span class:error={deliveryError} class="form-status">{deliveryStatus}</span><button class="primary" type="button" on:click={saveDelivery} disabled={!canEditCurrent||deliveryStatus==='Saving...'}>Save delivery settings</button></div>
           </fieldset>
       </section>
       {/if}
@@ -2118,7 +2118,7 @@
             </fieldset><details class="profile-group profile-disclosure"><summary>Social profiles & certifications</summary><p class="field-note">Optional public links and qualifications your assistant can share.</p><label>Certifications<input value={profile.certifications.join(', ')} on:input={(event) => (profile.certifications = event.currentTarget.value.split(',').map((item) => item.trim()).filter(Boolean))} placeholder="B Corp, ISO 9001" /></label>
             <div class="two-fields"><label>Instagram<input bind:value={profile.social.instagram} type="url" placeholder="https://instagram.com/yourcompany" /></label><label>Facebook<input bind:value={profile.social.facebook} type="url" placeholder="https://facebook.com/yourcompany" /></label></div>
             <div class="two-fields"><label>TikTok<input bind:value={profile.social.tiktok} type="url" placeholder="https://www.tiktok.com/@yourcompany" /></label><label>Linktree<input bind:value={profile.social.linktree} type="url" placeholder="https://linktr.ee/yourcompany" /></label></div>
-            </details><div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit">{$t("Save profile")}</button></div>
+            </details><div class="section-footer profile-footer"><span class:error={profileError} class="form-status">{profileStatus}</span><button class="primary" type="submit" disabled={!canEditCurrent||profileStatus==='Saving...'}>{$t("Save profile")}</button></div>
           </fieldset></form>
         </section>
       {/if}
@@ -2166,7 +2166,7 @@
               {/each}
             </div>
             <label>Handoff message<textarea bind:value={agentSettings.playbook.handoff_message} maxlength="360" placeholder="What should the assistant say before it asks for contact details?"></textarea></label>
-            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit">Save playbook</button></div>
+            <div class="section-footer profile-footer"><span class:error={agentError} class="form-status">{agentStatus}</span><button class="primary" type="submit" disabled={!canEditCurrent||agentStatus==='Saving...'}>Save playbook</button></div>
           </fieldset></form>
         </section>
       {/if}
@@ -2188,7 +2188,7 @@
             <p class="empty-state branches-empty">No branches yet. Add a location so the assistant can direct customers to the right place.</p>
           {/each}
         </div>
-        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches}>{$t("Save branches")}</button></div>
+        <div class="section-footer"><span class:error={branchesError} class="form-status">{branchesStatus}</span><button class="primary" type="button" on:click={saveBranches} disabled={!canEditCurrent||branchesStatus==='Saving...'}>{$t("Save branches")}</button></div>
         </fieldset>
       </section>
       {/if}

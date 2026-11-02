@@ -145,7 +145,7 @@ honestly; never advertise a connected Google/phone/email provider without eviden
 
 ### Checks completed (2 November 2026; final release review still pending)
 
-- Svelte check: zero errors and zero warnings. Frontend tests: 129 passed.
+- Svelte check: zero errors and zero warnings. Frontend tests: 132 passed (including numeric privacy retention, conflict recovery and read-only/pending-save regression checks).
 - Focused Python route/conversation/recovery checks: 110 passed. Public/SEO checks:
   121 passed. Console request/loading/search execution harness: 27 passed.
 - Ruff across the repository and `git diff --check`: passed.
@@ -154,12 +154,67 @@ honestly; never advertise a connected Google/phone/email provider without eviden
   works with actual synthetic catalogue data. Mobile navigation/More and the
   public menu/language selector were checked at 390px, including Arabic RTL with
   no horizontal overflow. French and Spanish new homepage copy were also checked.
-- Full Python regression run is in progress in the normal local environment.
-  The restricted sandbox hangs in an existing socket-pair watchdog test, so that
-  test has not been weakened or skipped to bypass the environment limitation.
+- Full GitHub CI at `6355316`: **4,133 passed, 92 skipped**, no failures, in
+  613 seconds. Skips remain environment-specific; they are not claimed as tested.
+  The earlier local auth harness failures were fixed; its focused 73 cases pass.
+  The restricted environment socket-pair limitation did not require weakening tests.
 - Native PostgreSQL: this machine's installation is missing `share/postgres.bki`,
   so a fresh local cluster could not initialise. A real native conversation/RLS
-  test is added to the existing verified-TLS PostgreSQL CI job. Its result is
-  pending; SQLite checks are not presented as PostgreSQL verification.
+  test is added to the existing verified-TLS PostgreSQL CI job. That workflow
+  passed, including 252 runtime checks and 34 migration/RLS checks. SQLite is
+  not presented as PostgreSQL verification.
 - No redesign deployment, production data writes, migration, paid model request,
   customer email, phone call or payment has been performed.
+
+
+### Additional browser findings and corrections
+
+- Fixed numeric privacy retention failing before fetch (Svelte number inputs
+  return a number, while the old save path called `.trim()`). Browser retry saved
+  30 days, updated the policy state and retained the value after reload.
+- Escape now closes the mobile More menu even before the native details toggle
+  binding updates. The closed state was verified in Chrome.
+- Removed the duplicate WhatsApp walkthrough from Connected Apps; the complete
+  provider/number/QR workflow remains under Channels → WhatsApp.
+- Corrected the Subscription AI Budget link when its embedded budget form is
+  intentionally omitted. Initial funding still anchors to its existing form.
+- Installation links now use canonical, tenant-preserving destinations. Its
+  combined workflow uses consecutive step numbers; Lovable guidance and copying
+  actual installation code were exercised.
+- Reused existing mutation locks, and disabled business-editor save controls
+  while saving or when read-only. Archived offers display selected offering names.
+- Static console build files were unnecessarily `no-store`; only successful files
+  in the compiled immutable asset directory now receive private immutable browser
+  caching. HTML, API data, missing assets and errors remain `no-store`. General,
+  login, chat, analytics and mutation rate limits are unchanged.
+
+### Synthetic browser workflow record
+
+| Surface | Actual interaction and result |
+|---|---|
+| Profile | Edited, moved to catalogue/back, kept draft, cancelled discard, saved successfully |
+| Products/services | Searched chicken and inspected correct offering cards/advanced inventory |
+| Offers | Created scoped offer, searched/selected real offering, saved, archived and saved |
+| Answers | Filtered Sunday question, changed its answer, saved correct original FAQ index |
+| Locations | Changed one branch Sunday hours to Closed, saved successfully |
+| Delivery | Updated customer notes, saved while retaining areas/exceptions |
+| Assistant rules | Advanced controls initially absent; opened, loaded memory and saved 14 recent messages |
+| Website | Changed assistant name, saved appearance; opened Test and Install; chose Lovable; copied real code |
+| Messages | Two genuine synthetic threads; selected delivery thread contained its correct two messages |
+| Sales | Changed one lead to Won; server-refreshed totals changed; customer search worked |
+| Insights | Actual lead outcomes and common-question report opened, without invented revenue |
+| Billing | Read actual synthetic complimentary Scale/balance/history; saved £5 low-balance alert; no charge |
+| Subscription | Complimentary cancellation state and empty invoice history truthful; no duplicate Add funds |
+| Connected Apps | MCP/API setup and revocation controls retained; duplicate WhatsApp removed |
+| Team/security | Owner/join controls, MFA/add-phone, linked providers and device states inspected; no credentials changed |
+| Privacy | Navigation cancellation preserved draft; repaired numeric retention saved and survived reload |
+| Cookies | Opened preferences, selected Essential only, dialog closed |
+| Advanced | Actual health/data checks reported 9 passed, 1 unconfigured; no external health claim |
+| Email | Saved synthetic support address; correctly stayed awaiting verification/routing and not active |
+| Phone | Inspected provider/AI disclosure, disabled activation and retention; changed language in synthetic config |
+
+Browser interactions use loopback-only fixtures. They establish control behaviour,
+not real provider connectivity, payment delivery, customer usability feedback or
+production load times. Security-sensitive credential enrolment, actual payments,
+external sends/calls and provider OAuth are verified by automated contracts where
+available, not performed against real accounts here.

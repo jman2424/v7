@@ -139,6 +139,9 @@ def _serve_console(asset_path: str = ""):
         response.headers["Cache-Control"] = "no-store"
     else:
         response = send_from_directory(build_dir, requested)
+        # Only successful compiled assets; never HTML, private data or errors.
+        if relative.parts[:2] == ("_app", "immutable"):
+            g.console_immutable_asset = True
     return response
 
 

@@ -1,8 +1,6 @@
 <script lang="ts">
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
-  import WhatsAppConnection from './WhatsAppConnection.svelte';
-  export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
   type Settings = {configured:boolean;owner_access:boolean;clients:string[];connected_clients:string[];mcp_url:string;api_url:string;authorization_url:string;token_url:string};
@@ -37,8 +35,6 @@
   }
   $: example = settings?.api_url ? `curl "${settings.api_url}/statistics" -H "Authorization: Bearer YOUR_ACCESS_TOKEN"` : '';
 </script>
-
-<WhatsAppConnection {tenant} {apiPrefix}/>
 
 <section class="connections" aria-label="MCP and REST API connections">
   {#if error}<p role="alert">{error}</p><button type="button" on:click={load}>Retry</button>{/if}

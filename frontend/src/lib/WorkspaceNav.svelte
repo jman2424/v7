@@ -15,9 +15,10 @@
   export let onSignOut:()=>void;
   let moreOpen=false;
   let moreMenu:HTMLDetailsElement;
+  function closeMore(){moreOpen=false;if(moreMenu)moreMenu.open=false;}
   onMount(()=>{
-    const closeOutside=(event:PointerEvent)=>{if(moreOpen&&event.target instanceof Node&&!moreMenu?.contains(event.target))moreOpen=false;};
-    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&moreOpen){moreOpen=false;moreMenu?.querySelector('summary')?.focus();}};
+    const closeOutside=(event:PointerEvent)=>{if((moreOpen||moreMenu?.open)&&event.target instanceof Node&&!moreMenu?.contains(event.target))closeMore();};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&(moreOpen||moreMenu?.open)){closeMore();moreMenu?.querySelector('summary')?.focus();}};
     document.addEventListener('pointerdown',closeOutside);document.addEventListener('keydown',escape);
     return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',escape);};
   });
@@ -52,7 +53,7 @@
     <details class="mobile-more" bind:this={moreMenu} bind:open={moreOpen}>
       <summary class:active={more.some(item=>item.id===active)}><span class="more-icon" aria-hidden="true">•••</span><span>{$t('More')}</span></summary>
       <div class="more-menu" role="group" aria-label="More workspaces">
-        {#each more as item}<a href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined} on:click={()=>moreOpen=false}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>{/each}
+        {#each more as item}<a href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined} on:click={closeMore}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>{/each}
         {#if administrator}<a href={workspaceHref(base,platform?'home':'platform','overview',tenant)}>{$t(platform?'Business workspace':'Platform administration')}</a>{/if}
         <button on:click={onSignOut}>{$t('Sign out')}</button>
       </div>
