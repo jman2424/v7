@@ -33,7 +33,7 @@ def test_validated_capability_renders_existing_form_without_execution(handler, m
     assert 'confirmed' not in result['reply']
 
 
-@pytest.mark.parametrize('channel', ['whatsapp', 'test', 'unknown'])
+@pytest.mark.parametrize('channel', ['whatsapp', 'email', 'phone', 'test', 'unknown'])
 def test_non_web_channel_does_not_advertise_or_return_web_forms(handler, monkeypatch, channel):
     handler.sales_actions = {'quote': {'enabled': True}}
     def answer(*args, **kwargs):

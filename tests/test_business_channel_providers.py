@@ -68,7 +68,8 @@ def fake_answer(monkeypatch, container, *, verified=True, intent='question', err
         calls.append((text, kwargs))
         if error:
             raise error
-        return {'reply':'The saved starting price is £100.', 'agent':{'_validated_grounded':verified,'intent':intent}}
+        return {'reply':'The saved starting price is £100.', '_validated_channel_answer':verified,
+                'agent':{'intent':intent}}
     runtime = SimpleNamespace(handler=SimpleNamespace(handle=handle, h_v7=SimpleNamespace(
         website_destinations={}, website_knowledge={}, business_profile={})))
     monkeypatch.setattr(container, 'for_tenant', lambda tenant:runtime)
