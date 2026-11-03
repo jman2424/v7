@@ -11,13 +11,13 @@ const functions=ts.transpileModule(tree.statements.filter(ts.isFunctionDeclarati
 const constants=ts.transpileModule(tree.statements.filter(node=>ts.isVariableStatement(node)&&node.declarationList.declarations.some(row=>row.name.getText(tree)==='errorMessages')).map(node=>node.getText(tree)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 function harness(){
   const requests=[];
-  const context=vm.createContext({AbortController,fetch(url,options){
+  const context=vm.createContext({AbortController,setTimeout,clearTimeout,fetch(url,options){
     let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});
     requests.push({url,options,resolve,reject});return promise;
   }});
   vm.runInContext(`let dirty=false,savedSettings='',savedDrafts='';
     let tenant='FIRST',csrf='csrf-test',apiPrefix='',isPlatform=false,canManage=true;
-    let settings=null,grants={},readiness={},workerEnabled=false,operations=[],drafts={},status='',error=false,loading=false,saving=false,busyId='',disposed=false,generation=0;
+    let settings=null,grants={},readiness={},workerEnabled=false,emailNotice='',operations=[],drafts={},status='',error=false,loading=false,saving=false,busyId='',disposed=false,generation=0;
     let actionFor='',actionType='callback',actionName='',actionContact='',actionDetails='',actionSlot='',actionConsent=false;
     const controllers=new Set();${constants}${functions}
     globalThis.subject={load,decide,performAction,prepareAction,
