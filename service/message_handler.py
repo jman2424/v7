@@ -279,6 +279,13 @@ class MessageHandler:
             ctx.tenant, mode, rid, reply.get("intent"), sorted(list(reply.keys())),
         )
 
+        # The sales policy intentionally removes its private grounding marker.
+        # Capture only real V7 validation before that presentation step; never
+        # infer it from the route name, customer metadata or remembered state.
+        validated_text = (reply.get('reply') if dispatch_mode == 'v7'
+                          and reply.get('intent') == 'grounded_answer'
+                          and isinstance(reply.get('agent'), dict)
+                          and reply['agent'].get('_validated_grounded') is True else None)
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
@@ -306,6 +313,11 @@ class MessageHandler:
 
         self._telemetry(ctx, event_type='pipeline_turn', meta={
             'mode': mode, 'rid': rid, 'intent': reply.get('intent'), 'ok': True, 'channel': ctx.channel})
+        reply.pop('_validated_channel_answer', None)
+        if (ctx.channel in {'email', 'phone'} and isinstance(validated_text, str)
+                and reply.get('intent') == 'grounded_answer'
+                and reply.get('reply') == readable_reply(consultation_estimate(validated_text))):
+            reply['_validated_channel_answer'] = True
         return reply
 
     def _remember_turn(self, ctx, sess, user_text, reply):

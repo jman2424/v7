@@ -41,7 +41,7 @@ def _answer(container, job, text):
     agent = result.get('agent') or {}
     if not isinstance(agent, dict):
         raise ValueError('channel_invalid_agent')
-    verified = isinstance(agent, dict) and agent.get('_validated_grounded') is True
+    verified = result.get('_validated_channel_answer') is True
     # Preserve existing deterministic salutations/boundaries. This does not
     # bless an extractive FAQ, price, policy, memory recall or model fallback.
     local_conversation = (result.get('intent') in {'greeting', 'smalltalk', 'out_of_scope'}

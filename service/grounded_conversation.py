@@ -953,16 +953,20 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
         r'\b(?:get started|next steps?|how (?:do|can) I (?:book|proceed)|book (?:it|that|this))\b',question,re.I)
         and not re.search(r'\b(?:compar\w*|options?|alternatives?|prices?|pricing|costs?|how much|instead)\b',question,re.I))
     from service.agent_response_schema import response_format
+    from service.channel_intelligence import response_profile
+    workflow = response_profile(response_channel)
+    system_instructions = INSTRUCTIONS + '\nDelivery workflow: ' + workflow['guidance']
     try:
         prompt_started = time.perf_counter()
         completion = dict(
             purpose="conversation_answer", model=model, temperature=0.2,
             timeout=30, response_format=response_format(knowledge, destinations, allowed_actions,
                 intents=AGENT_INTENTS, stages=AGENT_STAGES, actions=AGENT_ACTIONS, statements=statements),
-            messages=[{"role": "system", "content": INSTRUCTIONS},
+            messages=[{"role": "system", "content": system_instructions},
                       {"role": "user", "content": json.dumps({
                           "tone": tone,
                           "response_channel": response_channel if response_channel in {'web', 'test', 'email', 'phone', 'whatsapp'} else 'web',
+                          "channel_workflow": workflow['role'],
                           "approved_request_actions": allowed_actions,
                           "knowledge": prompt_knowledge(knowledge, prioritized=[
                               context.get('selected_offering_id'), *context.get('offering_ids', [])]),
@@ -1074,7 +1078,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             emit('grounded_contract_repair',outcome=repair_reason,attempt=1)
             validation_elapsed += time.perf_counter() - validation_started
             validation_started = None
-            correction = {'role':'system','content':INSTRUCTIONS +
+            correction = {'role':'system','content':system_instructions +
                 '\nYour previous response failed validation ('+repair_reason+'). Return a corrected response. '
                 'Answer the current question directly. Do not include any price or money amount unless '
                 'the current question asks for pricing. A size/classification follow-up needs the band first, '

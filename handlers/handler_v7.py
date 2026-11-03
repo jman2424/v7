@@ -1326,13 +1326,19 @@ class MessageHandlerV7:
         return unrelated_task(text)
 
     def finalize_navigation(self, response, channel):
-        if channel not in {'web', 'test'}:
+        if channel not in {'web', 'test', 'whatsapp'}:
             return response
         from service.website_destinations import public_targets, buttonize_reply
         from service.platform_offer_knowledge import public_destinations
         targets = public_targets(self.website_destinations, self.website_knowledge,
                                  self.business_profile.get('website', ''))
         targets += public_destinations(self.tenant_key, self.website_destinations)
+        if channel == 'whatsapp':
+            from service.channel_intelligence import append_message_links
+            agent = response.get('agent')
+            response['reply'] = append_message_links(response['reply'], targets,
+                agent.get('navigation_ids') if isinstance(agent, dict) else [])
+            return response
         text, actions = buttonize_reply(response['reply'], targets, response.get('actions'))
         response['reply'] = text
         if actions:
