@@ -471,6 +471,11 @@ class MessageHandlerV7:
             if offer_answer:
                 return self._wrap_reply(request_id=request_id,t0=t0,reply=offer_answer,
                     intent='faq',plan=None,facts={'source':'current_platform_offer'},entities={},items=[])
+            from service.platform_offer_knowledge import automatic_setup_answer
+            setup_answer = automatic_setup_answer(user_text, self.tenant_key)
+            if setup_answer:
+                return self._wrap_reply(request_id=request_id,t0=t0,reply=setup_answer,
+                    intent='faq',plan=None,facts={'source':'current_platform_promotions'},entities={},items=[])
 
             # 0.9) Explicit human handoff and voluntary contact details.
             contact = self._handoff_contact(user_text, session_snapshot)
@@ -542,6 +547,9 @@ class MessageHandlerV7:
                 plan = self._simple_plan("offers", "SHOW_OFFERS", session_snapshot)
                 facts = {"offers": offers}
                 reply_text = self.renderer.render(user_text=user_text, plan=plan, facts=facts, session=session_snapshot)
+                platform_answer = automatic_setup_answer(user_text, self.tenant_key, all_offers=True)
+                if platform_answer:
+                    reply_text = platform_answer + ('\n\n'+reply_text if offers.get('items') else '')
                 return self._wrap_reply(
                     request_id=request_id,
                     t0=t0,
@@ -948,7 +956,8 @@ class MessageHandlerV7:
                     lambda: relevant_passages(self.website_knowledge, query, limit=6), []):
                 if len(pages) < 6 and page not in pages:
                     pages.append(page)
-        if live_offer and automatic_offer_answer(faq_question, live_offer):
+        if live_offer and (automatic_offer_answer(faq_question, live_offer)
+                or re.search(r'\b(?:offers|deals?|discounts?|promotions?|coupons?)\b', faq_question, re.I)):
             knowledge['current_platform_offer'] = live_offer
         for index, page in enumerate(pages):
             knowledge[f'website:{index}'] = page
@@ -1114,6 +1123,8 @@ class MessageHandlerV7:
             knowledge.update(request_facts(allowed_actions, native_booking_management=True))
         emit('chat_phase', phase='knowledge_retrieval', outcome='completed', knowledge_count=len(knowledge),
              elapsed_ms=round((time.perf_counter()-retrieval_started)*1000, 2))
+        from service.platform_offer_knowledge import current_promotion_knowledge
+        knowledge = current_promotion_knowledge(self.tenant_key, knowledge)
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected if channel in {'web', 'test'} else None,
@@ -1326,6 +1337,8 @@ class MessageHandlerV7:
         return unrelated_task(text)
 
     def finalize_navigation(self, response, channel):
+        from service.platform_offer_knowledge import current_promotion_reply
+        response['reply'] = current_promotion_reply(self.tenant_key, response['reply'])
         if channel not in {'web', 'test', 'whatsapp'}:
             return response
         from service.website_destinations import public_targets, buttonize_reply

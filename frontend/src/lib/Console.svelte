@@ -2023,8 +2023,9 @@
       {/if}
 
       {#if section === 'offers'}
+      {#if isPlatform}{#key tenant}{#await import('./PlatformOffers.svelte')}<p role="status">Loading platform offers…</p>{:then platformOffers}<svelte:component this={platformOffers.default} {tenant} {csrf} canManage={canEditCurrent} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p role="alert">Platform offers could not be loaded. Refresh the page to try again.</p>{/await}{/key}{/if}
       <section id="offers" class="surface workspace-section" aria-labelledby="offers-heading">
-        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Current offers</h2></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addOffer}>Add offer</button></div>
+        <div class="surface-head"><div><p class="eyebrow">Sales conversion</p><h2 id="offers-heading">Catalogue offers</h2></div><button class="secondary" type="button" disabled={!canEditCurrent} on:click={addOffer}>Add offer</button></div>
         <fieldset class="editor-permission" disabled={!canEditCurrent}>
         <div class="offers-list">
           {#each offers as offer, index}
@@ -2044,7 +2045,7 @@
             </section>
             {/if}
           {:else}
-            <div class="surface-body"><p class="empty-state">No offers have been added. Add an offer when you are ready to run a promotion.</p></div>
+            <div class="surface-body"><p class="empty-state">No catalogue offers have been added. Add one when you are ready to run a promotion.</p></div>
           {/each}
         </div>
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>

@@ -55,6 +55,9 @@ def redeem(tenant, campaign):
         previous = current.get('campaign')
         if previous == campaign or previous == HIGHSTREET and campaign == SETUP:
             return  # Idempotent; never replace a stronger accepted offer.
+        from service.platform_promotions import enabled
+        if not enabled(campaign):
+            raise ValueError('promotion_unavailable')
         if previous and previous not in CAMPAIGNS:
             raise ValueError('discount_does_not_stack')
         platform = db.execute("SELECT subscription,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()

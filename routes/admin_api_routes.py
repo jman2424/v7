@@ -87,6 +87,7 @@ def _require_admin_session() -> None:
     permission = {
         "api_catalog_get": "offerings.read", "api_catalog_put": "offerings.write",
         "api_offers_get": "offers.read", "api_offers_put": "offers.write",
+        "api_platform_promotions_get": "offers.read", "api_platform_promotions_put": "offers.write",
         "api_errors": "errors.read", "api_questions": "conversations.read",
         "api_conversations": "conversations.read", "api_leads": "customers.read",
         "api_lead_status_put": "customers.read", "api_action_requests_get": "customers.read",
@@ -610,6 +611,51 @@ def api_offers_get():
         # Existing tenants created before offers support get a clean empty list.
         offers = []
     return jsonify(offers if isinstance(offers, list) else [])
+
+
+def _platform_promotions_report():
+    from service import platform_promotions, referrals
+    tenant = _tenant()
+    raw = platform_promotions.document(_storage(), tenant)
+    settings = platform_promotions.validate(raw) if raw is not None else platform_promotions.DEFAULTS.copy()
+    response = jsonify(available=True, settings=settings, revision=revision(raw),
+                       referral=referrals.public_offer(tenant))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.get('/platform-promotions')
+def api_platform_promotions_get():
+    require_platform_operator()
+    from service.subscriptions import internal_business
+    if not internal_business(_tenant()):
+        return jsonify(available=False)
+    try:
+        return _platform_promotions_report()
+    except (OSError, RuntimeError, ValueError):
+        return jsonify(error='platform_promotions_unavailable'), 503
+
+
+@bp.put('/platform-promotions')
+def api_platform_promotions_put():
+    require_platform_operator()
+    from service import platform_promotions
+    from service.subscriptions import internal_business
+    if not internal_business(_tenant()):
+        abort(404)
+    body = request.get_json(silent=True)
+    if (not isinstance(body, dict) or set(body) != {'settings', 'revision'}
+            or not isinstance(body.get('revision'), str)
+            or not re.fullmatch(r'[a-f0-9]{64}', body['revision'])):
+        return jsonify(error='invalid_platform_promotions'), 400
+    try:
+        settings = platform_promotions.validate(body['settings'])
+    except ValueError:
+        return jsonify(error='invalid_platform_promotions'), 400
+    _audited_json_write(_storage(), _tenant(), platform_promotions.FILENAME, settings,
+                        action='platform_promotions.update', expected_revision=body['revision'])
+    request.environ.pop('v7.platform_promotions', None)
+    return _platform_promotions_report()
 
 
 @bp.put("/offers")

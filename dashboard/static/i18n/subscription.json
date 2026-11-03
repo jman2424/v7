@@ -760,7 +760,8 @@
     "Optional initial funding, separate from your subscription.": "Optional initial funding, separate from your subscription.",
     "AI model and processing prices": "AI model and processing prices",
     "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.",
-    "Open WhatsApp setup": "Open WhatsApp setup"
+    "Open WhatsApp setup": "Open WhatsApp setup",
+    "This offer is paused for new claims. Choose another active offer or continue at the standard price.": "This offer is paused for new claims. Choose another active offer or continue at the standard price."
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1523,7 +1524,8 @@
     "Optional initial funding, separate from your subscription.": "Fondos iniciales opcionales, separados de tu suscripción.",
     "AI model and processing prices": "Modelo de IA y precios de procesamiento",
     "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "El saldo de IA paga los tokens del modelo; Meta o Twilio factura la mensajería por separado. V7 no puede recopilar ni mostrar tus datos de pago de Meta.",
-    "Open WhatsApp setup": "Abrir configuración de WhatsApp"
+    "Open WhatsApp setup": "Abrir configuración de WhatsApp",
+    "This offer is paused for new claims. Choose another active offer or continue at the standard price.": "Esta oferta está pausada para nuevas solicitudes. Elige otra oferta activa o continúa con el precio estándar."
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -2286,7 +2288,8 @@
     "Optional initial funding, separate from your subscription.": "Financement initial facultatif, distinct de votre abonnement.",
     "AI model and processing prices": "Modèle IA et tarifs de traitement",
     "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "Le crédit IA paie les jetons du modèle ; Meta ou Twilio facture la messagerie séparément. V7 ne peut ni recueillir ni afficher vos informations de paiement Meta.",
-    "Open WhatsApp setup": "Ouvrir la configuration WhatsApp"
+    "Open WhatsApp setup": "Ouvrir la configuration WhatsApp",
+    "This offer is paused for new claims. Choose another active offer or continue at the standard price.": "Cette offre est suspendue pour les nouvelles demandes. Choisissez une autre offre active ou continuez au tarif normal."
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -3049,6 +3052,7 @@
     "Optional initial funding, separate from your subscription.": "رصيد أولي اختياري، منفصل عن اشتراكك.",
     "AI model and processing prices": "نموذج الذكاء الاصطناعي وأسعار المعالجة",
     "AI credit pays for model tokens; Meta or Twilio bills messaging separately. V7 cannot collect or display your Meta payment details.": "يدفع رصيد الذكاء الاصطناعي تكلفة رموز النموذج؛ وتُصدر Meta أو Twilio فواتير الرسائل بشكل منفصل. لا يستطيع V7 جمع بيانات الدفع الخاصة بك لدى Meta أو عرضها.",
-    "Open WhatsApp setup": "فتح إعداد واتساب"
+    "Open WhatsApp setup": "فتح إعداد واتساب",
+    "This offer is paused for new claims. Choose another active offer or continue at the standard price.": "هذا العرض متوقف للمطالبات الجديدة. اختر عرضًا آخر متاحًا أو تابع بالسعر العادي."
   }
 }

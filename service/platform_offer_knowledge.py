@@ -5,6 +5,7 @@ record is supplied to a public conversation.
 """
 from decimal import Decimal, ROUND_HALF_UP
 import re
+from typing import Any
 from flask import current_app
 
 from service import referrals, subscriptions
@@ -12,22 +13,66 @@ from service.plan_catalog import public_plans, vat_percent
 from service.website_destinations import validate
 
 
-SETUP_SUPPORT = (
-    'Vertex Seven provides business and agent setup with implementation support. '
-    'We provide the embed snippet and help your team or website developer add it and test it. '
-    'Website editing, installation by Vertex Seven, custom development and third-party integrations are not included as a done-for-you implementation service. '
-    'Use SETUP for free one-time setup; the normal monthly subscription price still applies. '
-    'MHIGHSTREET gives free one-time setup and 50% off the first subscription month only; later months use the normal plan price. '
-    'Enter a code in Subscription before checkout. Business approval and verified checkout completion are still required. '
-    'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid setup.'
-)
+def setup_support() -> str:
+    from service.platform_promotions import public_flags
+    flags = public_flags()
+    text = ('Vertex Seven provides business and agent setup with implementation support. '
+            'We provide the embed snippet and help your team or website developer add it and test it. '
+            'Website editing, installation by Vertex Seven, custom development and third-party integrations '
+            'are not included as a done-for-you implementation service. ')
+    text += ('Use SETUP for free one-time setup; the normal monthly subscription price still applies. '
+             if flags['setup_enabled'] else 'SETUP is paused for new claims. ')
+    text += ('MHIGHSTREET gives free one-time setup and 50% off the first subscription month only; '
+             'later months use the normal plan price. ' if flags['highstreet_enabled']
+             else 'MHIGHSTREET is paused for new claims. ')
+    return text + ('Enter an active code in Subscription before checkout. Business approval and verified checkout completion are still required. '
+                   'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid setup. '
+                   'Previously accepted offers keep their saved terms.')
+
+
+def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = False) -> str | None:
+    """Current billing terms for explicit code questions or an offers fallback."""
+    if not tenant or not subscriptions.internal_business(tenant):
+        return None
+    requested = []
+    if (re.search(r'\bSETUP\b', question)
+            or re.search(r'\b(?:code\s+setup|setup\s+(?:offer|code)|free\s+setup)\b', question, re.I)):
+        requested.append('SETUP')
+    if re.search(r'\bMHIGHSTREET\b', question, re.I):
+        requested.append('MHIGHSTREET')
+    if not requested and not all_offers:
+        return None
+    from service.platform_promotions import public_flags
+    flags = public_flags()
+    rows, active = [], False
+    for code in requested or ['SETUP', 'MHIGHSTREET']:
+        key = 'setup_enabled' if code == 'SETUP' else 'highstreet_enabled'
+        if flags[key]:
+            active = True
+            rows.append(('SETUP: free unpaid one-time setup; normal monthly subscription prices apply.'
+                         if code == 'SETUP' else 'MHIGHSTREET: free unpaid setup and 50% off the first subscription month only; later months use the normal price.'))
+        elif requested:
+            rows.append(code+' is paused for new claims.')
+    if not requested:
+        offer = referrals.public_offer(tenant)
+        if offer['enabled']:
+            active = True
+            rows.append('A referral offer is also available. Ask for its current eligibility and reward terms.')
+    if not rows:
+        rows.append('New promotional claims are currently paused.')
+    if active:
+        rows.append('Accept an active code before checkout. Business approval and verified checkout completion are required. '
+                    'Offers do not stack or cover AI credit or provider fees, and paid setup is not refunded.')
+    else:
+        rows.append('Previously accepted offers keep their saved terms.')
+    return '\n\n'.join(rows)
 
 
 def public_setup_policy(tenant):
     if not tenant or not subscriptions.internal_business(tenant):
         return None
     return {'question': 'What do setup, implementation support and setup codes include?',
-            'answer': SETUP_SUPPORT, 'answer_complete': True,
+            'answer': setup_support(), 'answer_complete': True,
             'authority': 'Current platform service scope and billing offers override older imported implementation claims.'}
 
 
@@ -86,7 +131,7 @@ def public_plan_context(tenant):
                   for plan in public_plans()],
         'usage': 'AI processing credit is separately prepaid; none is included. There is no fixed message allowance. Usage depends on the selected model and tokens.',
         'whatsapp': 'WhatsApp requires provider setup. Business phone numbers and Meta/provider messaging fees are separate costs.',
-        'implementation_support': SETUP_SUPPORT,
+        'implementation_support': setup_support(),
         'vat_percent': vat_percent(),
     }
 
@@ -140,5 +185,60 @@ def automatic_plan_answer(question, knowledge, history=None):
         tax = ' No VAT is added to the published prices.'
     lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
                  'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overage charges. Optional £5 automatic recharge requires explicit authorisation, a monthly purchase cap and platform availability.' + tax)
-    lines.append('Use code SETUP for free one-time setup. Monthly subscription prices are unchanged. Implementation support is included; your team or website developer installs the widget.')
+    from service.platform_promotions import public_flags
+    if public_flags()['setup_enabled']:
+        lines.append('Use code SETUP for free one-time setup. Monthly subscription prices are unchanged.')
+    lines.append('Implementation support is included; your team or website developer installs the widget.')
     return '\n\n'.join(lines)
+
+
+def current_promotion_reply(tenant: str, text: str) -> str:
+    """Prevent stale saved/imported copy from advertising a paused named code.
+
+    This final public-copy guard never changes another business's own offers.
+    Replacements are current server-owned status, not model-written terms.
+    """
+    if not tenant or not subscriptions.internal_business(tenant):
+        return text
+    from service.platform_promotions import public_flags
+    flags = public_flags()
+    paused = [code for code, key in (('SETUP', 'setup_enabled'), ('MHIGHSTREET', 'highstreet_enabled'))
+              if not flags[key]]
+    if not paused or not isinstance(text, str):
+        return text
+    # SETUP is a common English word: match it as a named code, not ordinary
+    # lower-case prose about implementation or published setup prices.
+    patterns = {code: re.compile(r'\b'+code+r'\b') for code in paused}
+    if not any(pattern.search(text) for pattern in patterns.values()):
+        return text
+    result, mentioned, changed = [], set(), False
+    for part in re.split(r'(?<=[.!?])\s+|\n+', text):
+        found = [code for code, pattern in patterns.items() if pattern.search(part)]
+        if found and part not in {code+' is paused for new claims.' for code in found}:
+            changed = True
+            for code in found:
+                if code not in mentioned:
+                    result.append(code+' is paused for new claims.')
+                    mentioned.add(code)
+        elif part:
+            result.append(part)
+    if not changed:
+        return text
+    result.append('Previously accepted offers keep their saved terms.')
+    return '\n\n'.join(dict.fromkeys(result))
+
+
+def current_promotion_knowledge(tenant: str, knowledge: dict[str, Any]) -> dict[str, Any]:
+    """Withhold stale promotional excerpts while keeping current billing facts."""
+    if not tenant or not subscriptions.internal_business(tenant):
+        return knowledge
+    from service.platform_promotions import public_flags
+    flags = public_flags()
+    paused = [code for code, key in (('SETUP', 'setup_enabled'), ('MHIGHSTREET', 'highstreet_enabled'))
+              if not flags[key]]
+    if not paused:
+        return knowledge
+    pattern = re.compile(r'\b(?:'+'|'.join(paused)+r')\b')
+    return {key: value for key, value in knowledge.items()
+            if not (key.startswith(('faq:', 'matched_faq:', 'website:'))
+                    and pattern.search(str(value)))}
