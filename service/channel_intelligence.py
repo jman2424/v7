@@ -32,6 +32,7 @@ def response_profile(channel: str) -> dict[str, str]:
 
 def append_message_links(text: str, targets: list[dict[str, Any]], selected: Any) -> str:
     """Messaging has no widget action tray. Resolve IDs against current targets."""
+    from service.ai_disclosure import message_reply
     if not isinstance(selected, list) or any(not isinstance(key, str) for key in selected):
         return text
     approved = {row['id']: row for row in targets if row.get('enabled', True)}
@@ -39,7 +40,12 @@ def append_message_links(text: str, targets: list[dict[str, Any]], selected: Any
     for key in dict.fromkeys(selected):
         target = approved.get(key)
         if target and target['url'] not in text and target['url'] not in [row[1] for row in links]:
-            links.append((target['label'], target['url']))
+            candidate = [*links, (target['label'], target['url'])]
+            body = text+'\n\n'+'\n'.join(label+': '+url for label, url in candidate)
+            # Respect Twilio's supported body size, including our AI notice.
+            # Never shorten verified facts or split a send into partial effects.
+            if len(message_reply(body)) <= 1600:
+                links = candidate
         if len(links) == 3:
             break
     return text + ('\n\n'+'\n'.join(label+': '+url for label, url in links) if links else '')

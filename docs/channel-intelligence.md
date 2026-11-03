@@ -28,6 +28,10 @@ IDs could therefore disappear at delivery. Its finalization now resolves those
 IDs against the current tenant's enabled public destinations and appends at most
 three links in selection order. Unknown/disabled IDs are ignored; model-written
 URLs are never adopted as approved destinations. Existing URLs are not duplicated.
+Links are appended only when the body plus the mandatory AI notice fits Twilio's
+[1,600-character messaging limit](https://www.twilio.com/docs/api/errors/21617).
+Verified answers are never truncated to fit a link. Already oversized answers
+are left unchanged; this change does not introduce multi-message sends.
 
 Delivery profiles are fixed server-owned guidance in the shared system prompt,
 including correction attempts. They do not add a model call or select a different
@@ -43,7 +47,7 @@ approval, spoken phone output, WhatsApp navigation, unsupported prices, modified
 answers and forged validation flags. Existing broader regressions cover memory,
 business-specific sales flows, permissions, tenant isolation and accounting.
 
-Local checks: 89 delivery/channel tests passed; 626 reasoning, memory, grounding
+Local checks: 92 delivery/channel tests passed; 626 reasoning, memory, grounding
 and permission tests passed, with one environment-specific test skipped. Repository
 Ruff, Python compilation and strict typing of the new channel helper passed.
 These establish wiring and deterministic safeguards, not a measured improvement

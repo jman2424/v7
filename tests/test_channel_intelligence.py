@@ -145,6 +145,21 @@ def test_messaging_uses_current_approved_destinations_in_selected_order():
     assert append_message_links('Hello', targets, [{'url': 'https://evil.example'}]) == 'Hello'
 
 
+@pytest.mark.parametrize('length', [1500, 1600, 2000])
+def test_navigation_does_not_expand_an_oversized_body_or_truncate_verified_terms(length):
+    from service.ai_disclosure import message_reply
+    body = 'x'*length
+    targets = [{'id': 'long', 'label': 'Long page', 'url': 'https://business.example/'+'q'*1000},
+               {'id': 'short', 'label': 'Help', 'url': 'https://business.example/help'}]
+    result = append_message_links(body, targets, ['long', 'short'])
+    assert result.startswith(body)
+    if len(message_reply(body)) <= 1600:
+        assert len(message_reply(result)) <= 1600
+        assert '/help' in result
+    else:
+        assert result == body
+
+
 def test_workflow_profiles_do_not_grant_actions_or_change_models():
     for channel in ('web', 'test', 'email', 'phone', 'whatsapp', 'unknown'):
         assert set(response_profile(channel)) == {'role', 'guidance'}
