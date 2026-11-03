@@ -23,6 +23,13 @@ formatting. The worker requires this signal. Raw agent flags, customer metadata,
 remembered state, route names and saved-knowledge fallbacks cannot certify an
 answer. Consequential intents and all existing approval gates still apply.
 
+Email and phone also rejected every inline URL, including an exact approved URL
+rendered from a complete saved policy or FAQ. Validated answers now reuse the
+widget's approved-link canonicalizer. Email restores the current approved URL
+as a labelled link; phone uses the page label in speech. Unknown, disabled or
+mixed unapproved links still block delivery, as do all links in unvalidated
+answers. No model URL becomes an approved destination through this repair.
+
 WhatsApp sends a message body rather than a widget action tray. Valid navigation
 IDs could therefore disappear at delivery. Its finalization now resolves those
 IDs against the current tenant's enabled public destinations and appends at most
@@ -47,7 +54,7 @@ approval, spoken phone output, WhatsApp navigation, unsupported prices, modified
 answers and forged validation flags. Existing broader regressions cover memory,
 business-specific sales flows, permissions, tenant isolation and accounting.
 
-Local checks: 92 delivery/channel tests passed; 626 reasoning, memory, grounding
+Local checks: 190 delivery/channel/security tests passed; 626 reasoning, memory, grounding
 and permission tests passed, with one environment-specific test skipped. Repository
 Ruff, Python compilation and strict typing of the new channel helper passed.
 These establish wiring and deterministic safeguards, not a measured improvement

@@ -134,6 +134,42 @@ def test_raw_agent_flag_does_not_substitute_for_delivery_validation(configured, 
     assert routine is False
 
 
+@pytest.mark.parametrize('channel', ['email', 'phone'])
+@pytest.mark.parametrize('verified,approved', [(True, True), (True, False), (False, True)])
+def test_channel_link_canonicalization_requires_pipeline_validation_and_current_approval(
+        configured, monkeypatch, channel, verified, approved):
+    from service.website_destinations import validate
+    v7 = SimpleNamespace(website_destinations=validate([{
+        'id': 'book', 'label': 'Booking page', 'url': 'https://business.example/book',
+        'enabled': approved}]), website_knowledge={}, business_profile={})
+    runtime = SimpleNamespace(handler=SimpleNamespace(h_v7=v7, handle=lambda *a, **k: {
+        'reply': 'Use https://business.example/book.', '_validated_channel_answer': verified,
+        'agent': {'intent': 'answer', 'navigation_ids': []}}))
+    monkeypatch.setattr(configured, 'for_tenant', lambda _: runtime)
+    job = {'tenant': 'EXAMPLE', 'channel': channel, 'conversation_id': 'approved-inline'}
+    if not verified or not approved:
+        with pytest.raises(ValueError, match='^channel_unapproved_link$'):
+            channel_worker._answer(configured, job, 'Where do I go?')
+    else:
+        result, routine = channel_worker._answer(configured, job, 'Where do I go?')
+        assert routine and 'Booking page' in result
+        assert ('https://business.example/book' in result) == (channel == 'email')
+
+
+def test_one_approved_link_cannot_hide_an_unapproved_link(configured, monkeypatch):
+    from service.website_destinations import validate
+    v7 = SimpleNamespace(website_destinations=validate([{
+        'id': 'book', 'label': 'Booking', 'url': 'https://business.example/book'}]),
+        website_knowledge={}, business_profile={})
+    runtime = SimpleNamespace(handler=SimpleNamespace(h_v7=v7, handle=lambda *a, **k: {
+        'reply': 'Use https://business.example/book or https://evil.example.',
+        '_validated_channel_answer': True, 'agent': {'intent': 'answer'}}))
+    monkeypatch.setattr(configured, 'for_tenant', lambda _: runtime)
+    with pytest.raises(ValueError, match='^channel_unapproved_link$'):
+        channel_worker._answer(configured,
+            {'tenant': 'EXAMPLE', 'channel': 'email', 'conversation_id': 'mixed-links'}, 'Where?')
+
+
 def test_messaging_uses_current_approved_destinations_in_selected_order():
     targets = [{'id': 'book', 'label': 'Book online', 'url': 'https://business.example/book'},
                {'id': 'prices', 'label': 'Prices', 'url': 'https://business.example/prices'},

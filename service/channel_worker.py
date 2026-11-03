@@ -36,12 +36,24 @@ def _answer(container, job, text):
     answer = result.get('reply')
     if not isinstance(answer, str) or not answer.strip() or len(answer) > 6000 or '\x00' in answer:
         raise ValueError('channel_invalid_answer')
-    if re.search(r'https?://|mailto:|tel:', answer, re.I):
-        raise ValueError('channel_unapproved_link')
     agent = result.get('agent') or {}
     if not isinstance(agent, dict):
         raise ValueError('channel_invalid_agent')
     verified = result.get('_validated_channel_answer') is True
+    targets, inline = [], []
+    if verified and (channel == 'email' or re.search(r'https?://', answer, re.I)):
+        # Source statements can contain exact approved links. Reuse the widget's
+        # canonicalizer; it leaves every unknown URL in place for rejection below.
+        from service.website_destinations import public_targets, buttonize_reply
+        from service.platform_offer_knowledge import public_destinations
+        original = runtime.handler.h_v7
+        refresh = getattr(original, 'request_copy', None)
+        v7 = refresh() if callable(refresh) else original
+        targets = public_targets(v7.website_destinations, v7.website_knowledge, v7.business_profile.get('website', ''))
+        targets += public_destinations(tenant, v7.website_destinations)
+        answer, inline = buttonize_reply(answer, targets)
+    if re.search(r'https?://|mailto:|tel:', answer, re.I):
+        raise ValueError('channel_unapproved_link')
     # Preserve existing deterministic salutations/boundaries. This does not
     # bless an extractive FAQ, price, policy, memory recall or model fallback.
     local_conversation = (result.get('intent') in {'greeting', 'smalltalk', 'out_of_scope'}
@@ -51,15 +63,10 @@ def _answer(container, job, text):
                and agent.get('next_action') not in {'open_request_form', 'request_handoff'})
     if channel == 'email' and verified:
         # Use current approved page records, never model-written URLs/recipients.
-        from service.website_destinations import public_targets
-        from service.platform_offer_knowledge import public_destinations
-        original = runtime.handler.h_v7
-        refresh = getattr(original, 'request_copy', None)
-        v7 = refresh() if callable(refresh) else original
-        targets = public_targets(v7.website_destinations, v7.website_knowledge, v7.business_profile.get('website', ''))
-        targets += public_destinations(tenant, v7.website_destinations)
         chosen = set(agent.get('navigation_ids') or [])
-        links = [row['label']+': '+row['url'] for row in targets if row['id'] in chosen][:3]
+        inline_urls = {row['url'] for row in inline if row.get('type') == 'navigate'}
+        links = [row['label']+': '+row['url'] for row in targets
+                 if row['id'] in chosen or row['url'] in inline_urls][:3]
         if links:
             answer += '\n\n'+'\n'.join(dict.fromkeys(links))
     if len(answer) > 6000:
