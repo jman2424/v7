@@ -76,6 +76,7 @@ def referrals_post(action):
     from service import referrals, session_store
     if action == 'program':
         management_user(platform_only=True)
+        require_permission('offers.write')
     tenant = _tenant()
     data = _body()
     try:

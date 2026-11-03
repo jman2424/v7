@@ -237,6 +237,13 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     def _public_widget_context():
         return {"public_widget_tenant": widget_tenant_for_request()}
 
+    @app.context_processor
+    def _public_promotion_context():
+        if request.endpoint == 'root' or request.blueprint == 'public_seo':
+            from service.platform_promotions import public_flags
+            return {'setup_offer_enabled': public_flags()['setup_enabled']}
+        return {}
+
     from service.login_limiter import LoginAttemptLimiter
 
     app.extensions["auth_login_limiter"] = LoginAttemptLimiter(

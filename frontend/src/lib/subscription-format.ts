@@ -59,6 +59,7 @@ const billingErrors: Record<string, string> = {
   month_already_approved: 'This usage month has already been approved.',
   internal_business_has_no_customer_subscription: 'This internal workspace does not require a customer subscription.',
   unknown_billing_plan: 'Choose an available plan.',
+  promotion_unavailable: 'This offer is paused for new claims. Choose another active offer or continue at the standard price.',
   company_owner_required: 'Only your business owner can manage payments.',
   forbidden: 'You do not have permission for this billing action.',
   unauthorized: 'Your sign-in has expired. Sign in again.',
