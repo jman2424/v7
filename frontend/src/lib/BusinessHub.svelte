@@ -14,7 +14,10 @@
   export let presentation:'all'|'activity'='all';
   export let showRules=true;
   $: visibleChannels=channel?[channel]:['email','phone'] as Channel[];
-  $: visibleOperations=operations.filter(row=>!channel||row.channel===channel);
+  let activitySearch='',activityState='';
+  $: channelOperations=operations.filter(row=>!channel||row.channel===channel);
+  $: visibleOperations=filterOperations(channelOperations,activitySearch,activityState);
+  $: reviewCount=channelOperations.filter(row=>row.state==='needs_review').length;
   type Preferences = {enabled:boolean;mode:'review'|'automatic';daily_limit:number;retention_days:number;privacy_confirmed:boolean;language:string;provider_cleanup?:'keep'|'trash_handled';cleanup_confirmed?:boolean};
   type Operation = {id:string;channel:string;state:string;source_address:string;reply:string;provider_id:string;error_code:string;version:number;created:number;payload:{subject?:string;text?:string;recipient?:string}};
   let savedSettings='',savedDrafts='';
@@ -22,7 +25,10 @@
   $: dirty=Boolean(savedSettings&&savedSettings!==JSON.stringify(settings))||Boolean(savedDrafts&&savedDrafts!==JSON.stringify(drafts))||Boolean(actionFor);
   let settings: Record<Channel,Preferences>|null = null;
   let grants: Record<Channel,boolean> = {email:false,phone:false};
-  let readiness: Record<Channel,{configured:boolean;recipients:string[];provider_cleanup_available?:boolean}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
+  let readiness: Record<Channel,{configured:boolean;recipients:string[];checks?:Record<string,boolean>;provider_cleanup_available?:boolean}> = {email:{configured:false,recipients:[]},phone:{configured:false,recipients:[]}};
+  let emailNotice='';
+  const checkNames:Record<string,string>={permission:'Channel permission and module switch',routing:'Provider routing',worker:'Processing worker',business_active:'Business active',privacy:'Privacy information confirmed'};
+  const operationReasons:Record<string,string>={reply_review_required:'Review this draft and check its business details before approving it.',call_reply_timed_out:'The live call ended before a verified reply was ready. Follow up with the caller.',channel_processing_failed:'The enquiry could not be processed safely. Check the connection and prepare a reply manually.',call_transcript_unclear:'The caller was difficult to understand twice. Check the transcript with them before acting.',call_message_received:'A caller left a message for your team. No automatic action was taken.',channel_disabled:'Handling was disabled. Review this enquiry manually.',channel_route_changed:'The provider route changed. Ask the operator to check it before sending.',channel_sender_changed:'The verified sender changed. Check the email connection.',channel_invalid_answer:'The reply did not pass validation. Prepare a checked reply manually.',channel_unapproved_link:'An unapproved link was blocked. Use only your verified business links.',send_window_expired:'The safe sending window expired. Check the provider before replying manually.'};
   let workerEnabled = false;
   let moduleInitialized = false;
   let phoneWebhook = '';
@@ -48,15 +54,35 @@
     action_outcome_needs_reconciliation:'Check existing requests before taking further action. Refresh activity for its status.',
     consent_required:'Confirm the customer’s consent before submitting.',invalid_operation_reply:'Enter a reply of up to 6,000 characters.'};
   function url(path:string) {return `${apiPrefix}/admin/api/${path}?tenant=${encodeURIComponent(tenant)}`;}
+  function filterOperations(rows:Operation[],search:string,state:string) {
+    const query=search.trim().toLocaleLowerCase();
+    return rows.filter(row=>(!state||row.state===state)&&(!query||[row.source_address,row.payload.subject||'',row.payload.text||''].some(value=>value.toLocaleLowerCase().includes(query))));
+  }
+  function emailPreview(reply:string) {
+    const footer='\n\n---\n'+emailNotice;
+    return reply.endsWith(footer)?reply:reply+footer;
+  }
+  function emailSubject(subject:string) {
+    subject=subject||'Your enquiry';
+    return subject.toLowerCase().startsWith('re:')?subject:'Re: '+subject;
+  }
+  async function copyWebhook() {
+    try {await navigator.clipboard.writeText(phoneWebhook);status='Incoming call webhook copied.';error=false;}
+    catch {status='Copy is unavailable. Select and copy the webhook URL above.';error=true;}
+  }
   async function call(path:string,options:RequestInit={}) {
     const controller = new AbortController();controllers.add(controller);
+    const timeout=setTimeout(()=>controller.abort(),20000);
     try {
       const response = await fetch(url(path),{...options,credentials:'same-origin',signal:controller.signal,
         headers:{...(options.body?{'Content-Type':'application/json'}:{}),'X-CSRF-Token':csrf,...options.headers}});
       const data = await response.json();
       if (!response.ok) throw new Error(errorMessages[data.error] || 'The business hub could not complete this request. Refresh activity or ask the platform operator.');
       return data;
-    } finally {controllers.delete(controller);}
+    } catch(err) {
+      if(controller.signal.aborted)throw new Error('The request timed out. Refresh activity to check its outcome before retrying; a submitted change may already have completed.');
+      throw err;
+    } finally {clearTimeout(timeout);controllers.delete(controller);}
   }
   async function load() {
     if(dirty&&!await confirmation.ask())return;
@@ -68,6 +94,7 @@
       const configuration=configurationResult.value;
       settings = configuration.settings;grants = configuration.grants;readiness = configuration.channels;
       workerEnabled = configuration.worker_enabled;
+      emailNotice=configuration.email_notice||'';
       if(activityResult.status==='fulfilled')operations=activityResult.value.operations;
       else {operations=[];error=true;status=activityResult.reason instanceof Error?activityResult.reason.message:'Activity is unavailable.';}
       drafts = Object.fromEntries(operations.map(row=>[row.id,row.reply]));
@@ -83,6 +110,7 @@
       if (disposed) return;
       savedSettings=submitted;
       if (submitted === JSON.stringify(settings)){settings = result.settings;savedSettings=JSON.stringify(settings);}
+      readiness=result.channels;workerEnabled=result.worker_enabled;
       status = 'Channel settings saved.';
     } catch (err) {if (!disposed) {error = true;status = err instanceof Error?err.message:'Could not save settings.';}}
     finally {if (!disposed) saving = false;}
@@ -140,6 +168,7 @@
     {#if !channel||channel==='phone'}<section class="notice" aria-labelledby="phone-setup-title"><h3 id="phone-setup-title">Connect your business phone</h3>
       <p>Bring a voice-capable Twilio number you control. Your platform operator securely connects the provider account and assigns the exact number to your company. Start in review mode to take messages; automatic mode answers permitted business questions.</p>
       <label>Incoming call webhook<input readonly value={phoneWebhook}/></label>
+      <button type="button" on:click={copyWebhook}>Copy call webhook</button>
       <p>Set the number’s incoming-call webhook to this URL using HTTP POST after the operator confirms the connection. Then choose your call language and enable the channel below. Test a real call before publishing the number.</p>
       <p>Callers hear an AI and synthetic-voice notice before input collection. They can press 0 to leave a message for the team; this requests follow-up and does not transfer to a live person. Number rental, calls and provider speech charges are separate. No number is purchased here.</p>
       <a href="https://www.twilio.com/docs/voice/quickstart" target="_blank" rel="noopener noreferrer">Twilio inbound voice setup ↗</a>
@@ -151,6 +180,7 @@
       <div class="channels">{#each visibleChannels as key}{@const channel=key as Channel}
         <fieldset><legend>{channelNames[channel]}</legend>
           <p class="connection">{readiness[channel].configured?'Provider routing configured':'Awaiting provider connection'} · {grants[channel]?'Permitted by platform':'Not yet permitted by platform'}</p>
+          {#if readiness[channel].checks}<ul class="readiness-checks" aria-label={channel+' configuration checks'}>{#each Object.entries(readiness[channel].checks||{}) as [name,ready]}<li><strong>{ready?'Ready':'Needs attention'}</strong> · {checkNames[name]||name}</li>{/each}</ul><p class="hint">These are configuration checks. Confirm queue availability in Activity and test actual delivery before going live. AI credit and provider charges still apply.</p>{/if}
           {#each readiness[channel].recipients as recipient}<p><code>{recipient}</code></p>{/each}
           <label class="check"><input type="checkbox" bind:checked={settings[channel].enabled} disabled={!canManage||!grants[channel]||!readiness[channel].configured||!workerEnabled}/>Enable this channel</label>
           <label>Handling mode<select bind:value={settings[channel].mode} disabled={!canManage}><option value="review">Review first</option><option value="automatic">Answer routine questions automatically</option></select></label>
@@ -174,13 +204,15 @@
     </form>
   {/if}
   <section class="activity" aria-labelledby="hub-activity"><h3 id="hub-activity">Activity and approvals</h3><p>Refresh reloads drafts. “Completed” records a prepared call response, a provider-accepted email, or an item your team marked as handled; it does not establish inbox delivery or a completed external booking.</p>
-    {#if !visibleOperations.length&&!loading&&!error}<p>No channel activity yet. Connect and enable a channel to start receiving enquiries.</p>{/if}
+    <p class="hint">{reviewCount} awaiting review · Search covers the latest {channelOperations.length} loaded items.</p>
+    <div class="activity-filters"><label>Search enquiries<input type="search" bind:value={activitySearch} placeholder="Sender, subject or enquiry"/></label><label>Activity status<select bind:value={activityState}><option value="">All statuses</option>{#each Object.entries(stateNames) as [value,label]}<option {value}>{label}</option>{/each}</select></label></div>
+    {#if !visibleOperations.length&&!loading&&!error}<p>{channelOperations.length?'No enquiries match these filters.':'No channel activity yet. Connect and enable a channel to start receiving enquiries.'}</p>{/if}
     {#each visibleOperations as row (row.id)}
       <article><div class="row"><strong>{row.channel==='email'?'Email':row.channel==='phone'?'Phone':'Workflow'} · {stateNames[row.state]||row.state}</strong><time datetime={new Date(row.created*1000).toISOString()}>{new Date(row.created*1000).toLocaleString()}</time></div>
         <p>{row.source_address}</p>{#if row.payload.subject}<h4>{row.payload.subject}</h4>{/if}
         {#if row.payload.text}<pre>{row.payload.text}</pre>{/if}
-        {#if row.error_code}<p class="hint">{row.error_code.replaceAll('_',' ')}</p>{/if}
-        {#if row.state==='needs_review'&&row.channel==='email'}<label for={'draft-'+row.id}>Reply to {row.source_address}<textarea id={'draft-'+row.id} bind:value={drafts[row.id]} maxlength="6000" rows="6" disabled={!canManage||Boolean(busyId)}></textarea></label><p class="hint">Approving sends this reply only to the original sender, from the verified business support address.</p>{:else if row.reply}<pre>{row.reply}</pre>{/if}
+        {#if row.error_code}<p class="hint">{operationReasons[row.error_code]||'This item needs a review. Check its state and connection before taking further action.'} <span>Reference: {row.error_code.replaceAll('_',' ')}</span></p>{/if}
+        {#if row.state==='needs_review'&&row.channel==='email'}<label for={'draft-'+row.id}>Reply to {row.source_address}<textarea id={'draft-'+row.id} bind:value={drafts[row.id]} maxlength="6000" rows="6" disabled={!canManage||Boolean(busyId)}></textarea></label><p class="hint">Approving sends this reply only to the original sender, from the verified business support address.</p><details class="email-preview"><summary>Preview final email</summary><p><strong>To:</strong> {row.source_address}</p><p><strong>Subject:</strong> {emailSubject(row.payload.subject||'')}</p><pre>{emailPreview(drafts[row.id]||'')}</pre></details>{:else if row.reply}<pre>{row.reply}</pre>{/if}
         {#if isPlatform&&row.provider_id}<p class="hint">Result reference: <code>{row.provider_id}</code></p>{/if}
         {#if row.state==='uncertain'}<p>Check the provider before taking further action. V7 will not automatically repeat this send.</p>{/if}
         {#if row.state==='needs_review'&&canManage}<div class="buttons">{#if row.channel==='email'}<button type="button" disabled={Boolean(busyId)||!drafts[row.id]?.trim()} on:click={()=>decide(row,'approve')}>Approve and send reply</button>{/if}<button type="button" disabled={Boolean(busyId)} on:click={()=>prepareAction(row)}>Prepare business action</button><button type="button" disabled={Boolean(busyId)} on:click={()=>decide(row,'complete')}>Mark handled by our team</button><button type="button" disabled={Boolean(busyId)} on:click={()=>decide(row,'reject')}>Decline</button></div>{/if}
@@ -203,6 +235,7 @@
 </section>
 
 <style>
+  .activity-filters{display:flex;gap:1rem;flex-wrap:wrap}.activity-filters label{flex:1;min-width:min(100%,220px)}.readiness-checks{padding-left:1.2rem;font-size:.85rem;line-height:1.8}.email-preview{margin:.8rem 0;padding:1rem;border:1px solid #d6dfda;border-radius:8px}.email-preview summary{cursor:pointer;font-weight:600;min-height:28px}.email-preview pre{margin-bottom:0}
   .hub{display:grid;gap:1.25rem}.heading,.row{display:flex;justify-content:space-between;gap:1rem;align-items:start}.heading p{max-width:65ch}.eyebrow{font-size:.75rem;text-transform:uppercase;font-weight:700;color:#476358}h2,h3,h4,p{margin:.35rem 0 .75rem}.channels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:1rem}fieldset,article,.notice{padding:1.2rem;border:1px solid #d6dfda;border-radius:12px;background:white}legend{font-weight:700;padding:0 .4rem}label{display:grid;gap:.35rem;margin:.8rem 0}.check{display:flex;gap:.6rem;align-items:flex-start}.check input{width:auto;margin-top:.2rem}input,select,textarea,button{font:inherit}input,select,textarea{max-width:100%;padding:.65rem;border:1px solid #bdc9c2;border-radius:7px;background:white}textarea{width:100%;box-sizing:border-box}button{padding:.65rem .9rem;border:1px solid #b9cbc1;border-radius:8px;color:#14503b;background:#f3f7f4;cursor:pointer;min-height:44px}button:disabled{opacity:.55;cursor:not-allowed}.hint,.connection,time{font-size:.85rem;color:#53645c}article{margin:1rem 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5}code{overflow-wrap:anywhere}.buttons{display:flex;flex-wrap:wrap;gap:.5rem}.error{color:#9b1c1c}.notice{background:#f0f7f3}@media(max-width:640px){.heading,.row{display:block}.heading button{width:100%}}
 
  .channel-workflow{display:flex;gap:8px;overflow-x:auto;margin:20px 0;padding-bottom:7px}.channel-workflow a{display:flex;align-items:center;gap:8px;min-height:44px;padding:10px 13px;border:1px solid var(--v7-line);border-radius:9px;color:var(--v7-accent);font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}.channel-workflow span{width:21px;height:21px;border-radius:50%;display:grid;place-items:center;background:var(--v7-soft);font-size:10px}.channel-readiness{padding:18px 20px;border:1px solid var(--v7-tint-line);border-radius:12px;background:var(--v7-tint);margin-bottom:22px}.channel-readiness strong{font-size:14px}.channel-readiness p,.channel-test p{font-size:13px;line-height:1.8;margin:9px 0 0;color:var(--v7-muted)}.channel-test{padding:22px;border:1px solid var(--v7-line);border-radius:12px;margin-block:22px;background:var(--v7-canvas)}.channel-test h3{margin:0;font-size:16px}.channel-test .hint{font-size:11px}.channel-workflow a:focus-visible{outline:3px solid var(--v7-focus);outline-offset:3px}

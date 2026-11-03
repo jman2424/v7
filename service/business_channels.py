@@ -191,6 +191,11 @@ def resend_key():
 
 def readiness(container, tenant):
     current, allowed = settings(container.storage, tenant), grants(container.storage, tenant)
+    from service import agent_modules, tenant_access
+    from service.ai_disclosure import EMAIL_NOTICE
+    policy = agent_modules.decisions(container.storage, tenant, CHANNELS)
+    tenant_active = tenant_access.activation(tenant)['active']
+    worker_enabled = os.getenv('V7_CHANNEL_WORKER', 'false') == 'true'
     state = {}
     for channel in CHANNELS:
         recipients = [recipient for recipient, key in bindings(channel).items() if key == tenant]
@@ -204,5 +209,14 @@ def readiness(container, tenant):
             senders = email_senders()
             state[channel]['sending_addresses'] = sorted({senders[recipient] for recipient in recipients if recipient in senders})
             state[channel]['configured'] = ready and all(recipient in senders for recipient in recipients)
+        # Configuration preflight only: this does not claim a successful live
+        # delivery, queue connection, provider balance, or available AI credit.
+        state[channel]['checks'] = {
+            'permission': allowed[channel] and policy[channel]['allowed'],
+            'routing': bool(state[channel]['configured']),
+            'worker': worker_enabled,
+            'business_active': tenant_active,
+            'privacy': current[channel]['privacy_confirmed'],
+        }
     return {'settings': current, 'grants': allowed, 'channels': state,
-            'worker_enabled': os.getenv('V7_CHANNEL_WORKER', 'false') == 'true'}
+            'worker_enabled': worker_enabled, 'email_notice': EMAIL_NOTICE}

@@ -22,6 +22,48 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test('channel review filters search sender, subject and enquiry while retaining the status filter', () => {
+  const context = {};
+  vm.runInNewContext(functions('BusinessHub.svelte', ['filterOperations'])+';globalThis.filter=filterOperations;', context);
+  const rows=[{id:'1',state:'needs_review',source_address:'client@example.com',payload:{subject:'Coating estimate',text:'My Golf'}},
+    {id:'2',state:'completed',source_address:'other@example.com',payload:{subject:'Opening hours',text:'Sunday?'}}];
+  assert.deepEqual(Array.from(context.filter(rows,' GOLF ','needs_review'),row=>row.id),['1']);
+  assert.equal(context.filter(rows,'Coating','completed').length,0);
+  assert.deepEqual(Array.from(context.filter(rows,'OTHER@EXAMPLE.COM',''),row=>row.id),['2']);
+  assert.equal(context.filter(rows,'','').length,2);
+});
+
+test('email preview preserves prices, paragraph breaks and the immutable disclosure without duplication', () => {
+  const notice='AI-assisted reply. Please check important details with the business team.';
+  const context={emailNotice:notice};
+  vm.runInNewContext(functions('BusinessHub.svelte',['emailPreview'])+';globalThis.preview=emailPreview;',context);
+  const answer='Small £100\nMedium £150\n\nEstimate only; final quote on inspection.';
+  const expected=answer+'\n\n---\n'+notice;
+  assert.equal(context.preview(answer),expected);
+  assert.equal(context.preview(expected),expected);
+  assert.equal(context.preview('<script>example</script>'),'<script>example</script>\n\n---\n'+notice);
+});
+
+for (const component of ['BusinessHub.svelte','BusinessEmailSetup.svelte']) {
+  test(component+' bounds requests and does not automatically retry an ambiguous write', async () => {
+    let abortTimeout,fetches=0,cleared=0;
+    const context={AbortController,tenant:'EXAMPLE',csrf:'test-csrf',apiPrefix:'',revision:'v1',address:'support@example.com',provider:'hosted_email',
+      controllers:new Set(),errorMessages:{},
+      setTimeout(fn,ms){assert.equal(ms,20000);abortTimeout=fn;return 1;},
+      clearTimeout(id){assert.equal(id,1);cleared++;},
+      fetch:async (_url,options)=>{fetches++;return new Promise((_,reject)=>options.signal.addEventListener('abort',()=>reject(new Error('Abort'))));}};
+    const names=component==='BusinessHub.svelte'?['url','call']:['request'];
+    vm.runInNewContext(functions(component,names)+`;globalThis.run=()=>${component==='BusinessHub.svelte'?"call('business-channels',{method:'PUT',body:'{}'})":"request('PUT')"};`,context);
+    const pending=context.run();
+    abortTimeout();
+    await assert.rejects(pending,/timed out.*(?:outcome|whether it saved)/);
+    assert.equal(fetches,1);
+    assert.equal(cleared,1);
+    assert.equal(context.controllers.size,0);
+    assert.equal(context.address,'support@example.com');
+  });
+}
+
 function consoleHarness() {
   const pending = deferred();
   const dispatched = [];

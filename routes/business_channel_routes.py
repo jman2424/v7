@@ -5,6 +5,7 @@ from email.utils import parseaddr
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 
@@ -136,9 +137,9 @@ def _xml(response):
     return Response(str(response), content_type='application/xml; charset=utf-8')
 
 
-def _gather(response, tenant, call, turn, language, prompt=None, *, silence=0, handoff=False):
+def _gather(response, tenant, call, turn, language, prompt=None, *, silence=0, handoff=False, unclear=0):
     proof = _phone_signer().dumps({'tenant': tenant, 'call': call, 'turn': turn,
-                                 'silence': silence, 'handoff': handoff})
+                                 'silence': silence, 'handoff': handoff, 'unclear': unclear})
     gather = response.gather(input='speech dtmf', action='/channels/phone/turn?token='+proof,
                              method='POST', language=language, speech_timeout='auto', timeout=5,
                              num_digits=1, action_on_empty_result=True)
@@ -177,9 +178,24 @@ def phone_turn():
     proof = _proof(tenant, call)
     turn, text = proof.get('turn'), request.form.get('SpeechResult', '').strip()
     silence, handoff = proof.get('silence', 0), proof.get('handoff', False)
+    unclear = proof.get('unclear', 0)
+    confidence = request.form.get('Confidence', '')
+    # Optional provider signal, never proof of identity or business correctness.
+    # Missing scores are supported; malformed/non-finite scores fail closed.
+    score = None
+    if confidence:
+        try:
+            if len(confidence) > 24:
+                raise ValueError
+            score = float(confidence)
+            if not math.isfinite(score) or not 0 <= score <= 1:
+                raise ValueError
+        except ValueError:
+            abort(400)
     digits = request.form.get('Digits', '')
     if (type(turn) is not int or not 1 <= turn <= 12 or len(text) > 4000 or '\x00' in text
             or type(silence) is not int or not 0 <= silence <= 1 or type(handoff) is not bool
+            or type(unclear) is not int or not 0 <= unclear <= 1
             or digits and text):
         abort(400)
     config = channels.settings(container.storage, tenant)['phone']
@@ -191,16 +207,22 @@ def phone_turn():
     if not text or digits:
         if silence == 0:
             _gather(response, tenant, call, turn, language, phone_copy(language, 'retry'),
-                    silence=1, handoff=handoff)
+                    silence=1, handoff=handoff, unclear=unclear)
         else:
             response.say(phone_copy(language, 'silent'), language=language)
             response.hangup()
         return _xml(response)
-    review = config['mode'] == 'review' or handoff
+    low_confidence = score is not None and score < 0.5
+    if low_confidence and unclear == 0:
+        _gather(response, tenant, call, turn, language, phone_copy(language, 'unclear'),
+                handoff=handoff, unclear=1)
+        return _xml(response)
+    review = config['mode'] == 'review' or handoff or low_confidence
     try:
         job, _ = operations.enqueue(tenant, 'phone', call+':'+str(turn), 'phone:'+call, source,
             {'recipient': recipient, 'call': call, 'turn': turn, 'text': text,
-             'mode_at_intake': 'review' if review else config['mode']},
+             'mode_at_intake': 'review' if review else config['mode'],
+             'transcript_needs_review': low_confidence},
             daily_limit=config['daily_limit'])
     except ValueError as exc:
         if str(exc) not in {'channel_daily_limit', 'channel_sender_limit', 'call_turn_limit'}:

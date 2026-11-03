@@ -101,7 +101,8 @@ def process_one(container, tenant):
             operations.finish(tenant, identifier, lease, 'completed', reply=job['reply'], provider_id=provider_id)
             return True
         if channel == 'phone' and (current['mode'] == 'review' or payload.get('mode_at_intake') == 'review'):
-            operations.finish(tenant, identifier, lease, 'needs_review', error_code='call_message_received')
+            operations.finish(tenant, identifier, lease, 'needs_review', error_code=(
+                'call_transcript_unclear' if payload.get('transcript_needs_review') is True else 'call_message_received'))
             return True
         if channel == 'email':
             if payload.get('restore_thread'):
@@ -151,8 +152,13 @@ def process_one(container, tenant):
         emit('chat_optional_failure', phase='business_channel', error_type=type(exc).__name__)
         # A database error after provider acceptance must never turn an
         # ambiguous send back into an editable/resendable draft.
+        safe_codes = {'channel_invalid_answer': 'channel_invalid_answer',
+                      'channel_unapproved_link': 'channel_unapproved_link',
+                      'channel_invalid_agent': 'channel_invalid_agent',
+                      'channel_answer_too_long': 'channel_answer_too_long'}
+        code = safe_codes.get(str(exc), 'channel_processing_failed') if type(exc) is ValueError else 'channel_processing_failed'
         operations.finish(tenant, identifier, lease, 'uncertain' if sending else 'needs_review',
-                          reply=job['reply'], error_code='channel_processing_failed')
+                          reply=job['reply'], error_code=code)
     return True
 
 

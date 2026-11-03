@@ -10,13 +10,19 @@
   export let apiPrefix='';
   let address='',provider='hosted_email',revision='',state='not_started',loading=true,busy=false,disposed=false;
   let storageAvailable=false,cleanupCounts:Record<string,number>|null=null;
-  let forwardTo:string[]=[];
+  let forwardTo:string[]=[],connectedAddress='';
   let message='',error=false;
   $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({address,provider}));
   const controllers=new Set<AbortController>();
   const states:Record<string,string>={not_started:'Not set up',requested:'Awaiting mailbox verification and routing',routing_configured:'Mailbox routing configured'};
+  const providerHelp:Record<string,string>={google_workspace:'Ask your Google Workspace administrator to forward only this support mailbox to the verified target shown here. Keep your existing mailbox while testing.',microsoft_365:'Ask your Microsoft 365 administrator to allow forwarding for this support mailbox to the verified target shown here. Organisation policies may block external forwarding.',hosted_email:'Use your mail provider’s forwarding settings for this support address. Your operator will supply the verified target after checking ownership.',resend_inbox:'Your operator must bind the exact Resend Inbox and signed incoming webhook to this business. Entering an inbox address alone does not connect it.'};
+  async function copyTarget(target:string) {
+    try {await navigator.clipboard.writeText(target);message='Forwarding address copied.';error=false;}
+    catch {message='Copy is unavailable. Select and copy the forwarding address shown above.';error=true;}
+  }
   async function request(method='GET') {
     const controller=new AbortController();controllers.add(controller);
+    const timeout=setTimeout(()=>controller.abort(),20000);
     try {
       const response=await fetch(`${apiPrefix}/admin/api/business-email-setup?tenant=${encodeURIComponent(tenant)}`,{
         method,credentials:'same-origin',signal:controller.signal,
@@ -26,16 +32,20 @@
       if(!response.ok)throw new Error(data.error==='email_setup_disable_before_change'?
         'Disable email handling before changing its connected address.':'Could not save or load email setup. Refresh and check the address and your permissions.');
       return data;
-    } finally {controllers.delete(controller);}
+    } catch(err) {
+      if(controller.signal.aborted)throw new Error('The request timed out. Refresh setup to check whether it saved before trying again. Your entered details are still here.');
+      throw err;
+    } finally {clearTimeout(timeout);controllers.delete(controller);}
   }
   function apply(data:any) {
-    address=data.settings.address;provider=data.settings.provider;revision=data.revision;state=data.state;
+    address=data.settings.address;connectedAddress=address;provider=data.settings.provider;revision=data.revision;state=data.state;
     storageAvailable=data.storage_available;cleanupCounts=data.cleanup_counts;
     forwardTo=data.forward_to||[];
     savedDraft=JSON.stringify({address,provider});
   }
   async function load() {
     if(dirty&&!await draftConfirmation.ask())return;
+    loading=true;error=false;message='';
     try {const data=await request();if(!disposed)apply(data);}
     catch(err){if(!disposed){error=true;message=err instanceof Error?err.message:'Email setup is unavailable.';}}
     finally{if(!disposed)loading=false;}
@@ -62,7 +72,7 @@
     <li><strong>Choose replies and retention.</strong> Start with review-first drafts, choose how long V7 keeps message content, then enable the channel once its connection is ready.</li></ol>
   {#if loading}<p role="status">Loading email setup…</p>{:else}
     <p><strong>{states[state]||'Check setup'}</strong></p>
-    {#if forwardTo.length}<p>After your operator confirms verification, forward support enquiries from <strong>{address}</strong> to:</p><ul>{#each forwardTo as target}<li><code>{target}</code></li>{/each}</ul><p>V7 replies from your approved business address. Forward only the mailbox or messages you want the assistant to handle.</p>{/if}
+    {#if forwardTo.length&&address===connectedAddress}<p>After your operator confirms verification, forward support enquiries from <strong>{connectedAddress}</strong> to:</p><ul>{#each forwardTo as target}<li><code>{target}</code> <button type="button" on:click={()=>copyTarget(target)}>Copy forwarding address</button></li>{/each}</ul><p>V7 replies from your approved business address. Forward only the mailbox or messages you want the assistant to handle.</p>{/if}
     {#if !storageAvailable}<p class="notice">The platform’s email queue storage is not available yet. You can prepare setup, but live processing must remain off until the operator provisions it.</p>{/if}
     <form on:submit|preventDefault={save}>
       <label>Company support email<input type="email" bind:value={address} maxlength="254" placeholder="support@yourcompany.com" required disabled={!canManage||busy}/></label>
@@ -70,8 +80,10 @@
         <option value="hosted_email">Other hosted business email</option><option value="google_workspace">Google Workspace</option>
         <option value="microsoft_365">Microsoft 365</option><option value="resend_inbox">Resend Inbox</option>
       </select></label>
+      <p class="notice">{providerHelp[provider]}</p>
       <p>Use an address you are authorised to connect. A verified sending domain or approved sender is required; entering an address does not prove ownership. Do not enter your mailbox password or API keys here.</p>
       <button type="submit" disabled={!canManage||busy}>{busy?'Saving…':'Save support email setup'}</button>
+      <button type="button" on:click={load} disabled={busy||loading}>Refresh connection status</button>
     </form>
     {#if message}<p role="status" class:error>{message}</p>{/if}
     <p class="notice">V7 answers routine business support questions. Account access, refunds, cancellations and other consequential requests need the configured verification and approval steps. A sender address is not account authentication.</p>

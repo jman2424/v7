@@ -9,11 +9,11 @@ const tree=ts.createSourceFile('Setup.ts',source,ts.ScriptTarget.Latest,true);
 const functions=ts.transpileModule(tree.statements.filter(ts.isFunctionDeclaration).map(node=>node.getText(tree)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 function harness(){
   const requests=[];
-  const context=vm.createContext({AbortController,fetch(url,options){
+  const context=vm.createContext({AbortController,setTimeout,clearTimeout,fetch(url,options){
     let resolve;const promise=new Promise(yes=>resolve=yes);requests.push({url,options,resolve});return promise;
   }});
   vm.runInContext(`let dirty=false,savedDraft='';let tenant='ONE',csrf='synthetic-csrf',canManage=true,apiPrefix='';
-    let address='',provider='hosted_email',revision='',state='not_started',loading=true,busy=false,disposed=false;
+    let address='',connectedAddress='',provider='hosted_email',revision='',state='not_started',loading=true,busy=false,disposed=false;
     let storageAvailable=false,cleanupCounts=null,forwardTo=[],message='',error=false;const controllers=new Set();
     ${functions}
     globalThis.subject={load,save,edit(value){address=value;},readOnly(){canManage=false;},
