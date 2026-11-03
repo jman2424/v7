@@ -46,6 +46,9 @@ buying a phone number, expanding credentials or enabling automatic replies.
   bounded waits, no automatic retry, stale responses and scoped request bodies.
 - Svelte type checks: zero errors and warnings. Production console build passed.
 - Repository Ruff and Python compilation checks passed.
+- Strict mypy was run on the four affected Python modules: it reports 36
+  missing-annotation errors in their existing untyped functions. It is not a
+  clean type-check pass; no typing rule was disabled to hide this debt.
 - Synthetic Chrome review checked final email spacing/disclosure, sender search,
   empty filtered results and the phone webhook copy control. No customer email,
   live call or paid model request was used.
