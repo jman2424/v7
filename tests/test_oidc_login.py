@@ -364,5 +364,9 @@ def test_linked_oidc_first_factor_rotates_same_account_device_without_extending_
     assert client.get('/auth/session').json['user']['email'] == 'oidc-owner@example.test'
     assert client.get('/admin/api/catalog').status_code == 200
     rows = _rows('trusted_devices')
-    assert len(rows) == 1 and rows[0][0] == hashlib.sha256(rotated.encode()).hexdigest()
+    assert rotated.startswith('v2.')
+    with client.application.app_context():
+        token = trusted_devices._cookie_token(rotated)
+    assert token != device
+    assert len(rows) == 1 and rows[0][0] == hashlib.sha256(token.encode()).hexdigest()
     assert rows[0][1] == oidc_login.account_key(user) and rows[0][3] == expires
