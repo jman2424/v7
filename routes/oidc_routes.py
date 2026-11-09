@@ -1,6 +1,7 @@
 """OAuth sign-in uses explicit existing-account links and the normal MFA policy."""
 from flask import Blueprint, jsonify, redirect, request, session
 from werkzeug.exceptions import HTTPException
+from routes.public_errors import validation_error
 
 from service import oidc_login
 from service.audit import AuditService
@@ -28,7 +29,10 @@ def start(provider):
     try:
         result = oidc_login.start(provider, request.get_json(silent=True))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'invalid_oidc_request', public_messages=(
+            'unknown_provider', 'provider_not_configured', 'invalid_oidc_request',
+            'already_signed_in', 'unknown_tenant',
+        ))
     return jsonify(result)
 
 
@@ -61,6 +65,6 @@ def disconnect(provider):
     try:
         oidc_login.disconnect(provider, user)
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'provider_disconnect_failed', public_messages=('unknown_provider',))
     _audit('auth.oidc.disconnect', provider, user)
     return jsonify(ok=True)

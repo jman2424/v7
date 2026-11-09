@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -103,9 +103,9 @@ def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
     if (not valid_meta_api_url(base, media=True) or "\\" in base
             or any(char.isspace() for char in base)):
         raise AudioMediaError("invalid_media_api")
-    base = base.rstrip("/")
+    version_path = urlsplit(base).path.rstrip("/")
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
-    metadata_bytes = _get(f"{base}/{media_id}?phone_number_id={phone_id}",
+    metadata_bytes = _get(f"https://graph.facebook.com{version_path}/{media_id}?phone_number_id={phone_id}",
                           headers=headers, limit=16 * 1024)
     try:
         metadata = json.loads(metadata_bytes)
@@ -119,9 +119,9 @@ def _meta(event: dict, settings: Settings) -> tuple[bytes, str]:
     mime = _mime(metadata.get("mime_type"))
     if audio.get("mime_type") and _mime(audio["mime_type"]) != mime:
         raise AudioMediaError("audio_type_mismatch")
-    url = metadata.get("url")
-    _media_url(url, {"lookaside.fbsbx.com", "graph.facebook.com"}, allow_query=True)
-    data = _get(url, headers=headers)
+    parsed = _media_url(metadata.get("url"), {"lookaside.fbsbx.com", "graph.facebook.com"}, allow_query=True)
+    host = "lookaside.fbsbx.com" if parsed.hostname == "lookaside.fbsbx.com" else "graph.facebook.com"
+    data = _get(urlunsplit(("https", host, parsed.path, parsed.query, "")), headers=headers)
     if len(data) != size:
         raise AudioMediaError("media_size_mismatch")
     return data, mime
@@ -153,7 +153,7 @@ def _twilio(event: dict, settings: Settings) -> tuple[bytes, str]:
         auth = (account_sid, auth_token)
     else:
         raise AudioMediaError("media_not_configured")
-    return _get(url, auth=auth), mime
+    return _get(f"https://api.twilio.com{parsed.path}", auth=auth), mime
 
 
 def download_audio(event: dict, *, settings: Settings) -> tuple[bytes, str]:

@@ -289,7 +289,9 @@ def test_public_pages_identify_same_brand_and_product_without_private_contacts(s
         application = next(item for item in metadata["@graph"] if item["@type"] == "SoftwareApplication")
         visible = " ".join(page.visible_text)
         assert "V7 Agents is the product; Vertex Seven is the brand behind it." in visible
-        assert "vertex-seven.com" in visible
+        links = PublicAnchors()
+        links.feed(response.text)
+        assert {"href": ORIGIN + "/", "text": "vertex-seven.com"} in links.links
     else:
         application = metadata["about"]
     assert application["@id"] == ORIGIN + "/#v7-agents"

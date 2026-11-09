@@ -1,5 +1,6 @@
 """Opt-in device proofs after MFA; passwords and normal sessions remain required."""
 from datetime import datetime, timezone
+from base64 import urlsafe_b64encode
 import hashlib
 import hmac
 import math
@@ -7,6 +8,9 @@ import re
 import secrets
 import time
 
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from flask import current_app, request
 
 from service import session_store
@@ -15,6 +19,7 @@ from service.account_mfa import account_key
 COOKIE_NAME = 'v7_trusted_device'
 TRUST_SECONDS = 30 * 86400
 _TOKEN = re.compile(r'[A-Za-z0-9_-]{43}\Z')
+_COOKIE_VERSION = 'v2.'
 
 
 def _database():
@@ -32,8 +37,26 @@ def _tables(db):
         db.execute('CREATE INDEX IF NOT EXISTS trusted_devices_expires ON trusted_devices(expires)')
 
 
+def _cookie_cipher():
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+               info=b'v7 trusted-device cookie v2').derive(current_app.secret_key.encode())
+    return Fernet(urlsafe_b64encode(key))
+
+
+def _cookie_token(cookie):
+    if cookie.startswith(_COOKIE_VERSION):
+        if len(cookie) > 200 or not cookie.isascii():
+            return ''
+        try:
+            return _cookie_cipher().decrypt(cookie[len(_COOKIE_VERSION):].encode('ascii')).decode('ascii')
+        except (InvalidToken, UnicodeError):
+            return ''
+    # An existing device gets an encrypted cookie on its next verified login.
+    return cookie
+
+
 def _cookie_hash():
-    token = request.cookies.get(COOKIE_NAME, '')
+    token = _cookie_token(request.cookies.get(COOKIE_NAME, ''))
     return hashlib.sha256(token.encode()).hexdigest() if _TOKEN.fullmatch(token) else None
 
 
@@ -101,7 +124,8 @@ def password_login(user, tenant):
 
 
 def set_cookie(response, token, expires):
-    response.set_cookie(COOKIE_NAME, token, max_age=max(1, math.ceil(expires-time.time())),
+    encrypted = _cookie_cipher().encrypt(token.encode('ascii')).decode('ascii')
+    response.set_cookie(COOKIE_NAME, _COOKIE_VERSION + encrypted, max_age=max(1, math.ceil(expires-time.time())),
                         expires=datetime.fromtimestamp(expires, timezone.utc),
                         httponly=True, secure=bool(current_app.config['SESSION_COOKIE_SECURE']),
                         samesite='Lax', path='/')

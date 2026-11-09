@@ -167,7 +167,7 @@ def confirm(data):
         if row:
             registration._execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
             found = _find(row[0], tenant, db)
-            if (found and hmac.compare_digest(row[2], registration._code_hash(request_id, code))
+            if (found and registration._code_matches(row[2], request_id, code)
                     and hmac.compare_digest(row[1], security._account_revision(found[1]))):
                 identity = _write(found, tenant, password, db)
                 registration._execute(db, "UPDATE registration_requests SET status='reset_used',password_hash='',code_hash='' WHERE id=?", (request_id,))

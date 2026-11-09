@@ -1,13 +1,13 @@
 """Verified owner onboarding and owner-approved, least-privilege join requests."""
-import hashlib
-import hmac
 import json
 import secrets
 import time
 from contextlib import contextmanager
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, hmac
 from flask import current_app, session
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from retrieval.storage import Storage
 from service import registration_mail, session_store
@@ -45,7 +45,22 @@ def _lock_request_key(db, key):
 
 
 def _code_hash(request_id, code):
-    return hmac.new(current_app.secret_key.encode(), f'{request_id}:{code}'.encode(), hashlib.sha256).hexdigest()
+    # Six-digit email codes have low entropy. Pepper them with the app key
+    # and use a salted, memory-hard hash before storing them.
+    return generate_password_hash(f'{request_id}:{code}:{current_app.secret_key}', method='scrypt')
+
+
+def _code_matches(saved, request_id, code):
+    if saved.startswith('scrypt:'):
+        return check_password_hash(saved, f'{request_id}:{code}:{current_app.secret_key}')
+    # Keep codes already issued before this release usable until they expire.
+    verifier = hmac.HMAC(current_app.secret_key.encode(), hashes.SHA256())
+    verifier.update(f'{request_id}:{code}'.encode())
+    try:
+        verifier.verify(bytes.fromhex(saved))
+    except (InvalidSignature, ValueError):
+        return False
+    return True
 
 
 def start(data):
@@ -144,7 +159,7 @@ def confirm(code):
         if not row:
             raise ValueError('Verification expired or already used. Start again.')
         email, password_hash, kind, tenant, name, expected, application = row
-        if not hmac.compare_digest(expected, _code_hash(request_id,code)):
+        if not _code_matches(expected, request_id, code):
             _execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
             _execute(db, "UPDATE registration_requests SET status='expired',password_hash='',code_hash='' WHERE id=? AND attempts>=5", (request_id,))
             invalid = True
@@ -192,7 +207,7 @@ def _confirm_postgres(code):
         if not row:
             raise ValueError('Verification expired or already used. Start again.')
         email, password_hash, kind, tenant, name, expected, application = row
-        if not hmac.compare_digest(expected, _code_hash(request_id,code)):
+        if not _code_matches(expected, request_id, code):
             _execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (request_id,))
             _execute(db, "UPDATE registration_requests SET status='expired',password_hash='',code_hash='' "
                        "WHERE id=? AND attempts>=5", (request_id,))

@@ -1,5 +1,6 @@
 """Regressions from real customer testing, independent of a particular tenant."""
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -268,7 +269,9 @@ def test_failed_model_answers_both_booking_and_social_parts_without_catalogue(as
     result = assistant.handle('How can I get a quote or make a booking? also do you have any socials',
                               SimpleNamespace(channel='test'), {'last_category': 'care'})
     assert result['intent'] == 'store_info'
-    assert 'booking.example.com' in result['reply'] and 'instagram.com' in result['reply']
+    hosts = {urlsplit(word.rstrip('.,)')).hostname for word in result['reply'].split()
+             if word.startswith('https://')}
+    assert {'booking.example.com', 'www.instagram.com'} <= hosts
     assert '£400' not in result['reply']
 
 

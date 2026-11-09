@@ -82,13 +82,14 @@ def received(**overrides):
             'authentication':{'dmarc':'pass'},**overrides}
 
 
-def test_svix_official_vector_and_replay_tamper_protection():
+def test_svix_synthetic_vector_and_replay_tamper_protection():
     raw = b'{"event_type":"ping","data":{"success":true}}'
-    headers = {'svix-id':'msg_loFOjxBNrRLzqYUf', 'svix-timestamp':'1731705121',
-               'svix-signature':'v1,rAvfW3dJ/X/qxhsaXPOyyCGmRKsaKWcsNccKXlIktD0='}
-    assert email.verify(raw, headers, 'whsec_plJ3nmyCDGBKInavdOK15jsl', now=1731705121)
-    assert not email.verify(raw+b' ', headers, 'whsec_plJ3nmyCDGBKInavdOK15jsl', now=1731705121)
-    assert not email.verify(raw, headers, 'whsec_plJ3nmyCDGBKInavdOK15jsl', now=1731705422)
+    # Independently generated with HMAC-SHA256 over id.timestamp.payload.
+    headers = {'svix-id':'msg_v7_fixture', 'svix-timestamp':'1731705121',
+               'svix-signature':'v1,3YnBBMc3L/Ot9f7iLroxIQsBG322cvG6tXHdhVXnVAY='}
+    assert email.verify(raw, headers, SECRET, now=1731705121)
+    assert not email.verify(raw+b' ', headers, SECRET, now=1731705121)
+    assert not email.verify(raw, headers, SECRET, now=1731705422)
 
 
 def test_email_signed_intake_deduplicates_and_rejects_cross_tenant_envelopes(client, configured):
