@@ -25,6 +25,7 @@ _SUBSCRIPTION_ERRORS = (
     'subscription_required', 'active_platform_subscription_required', 'subscription_already_cancelling',
     'scheduled_subscription_requires_review', 'subscription_change_requires_review',
     'payment_processing_refresh_soon', 'subscription_plan_already_active', 'existing_setup_requires_review',
+    'unknown_billing_reference', 'unknown_billing_plan',
 )
 _CHECKOUT_ERRORS = (
     'invalid_billing_item', 'plan_not_applicable_to_billing_item', 'whatsapp_included_in_subscription',
