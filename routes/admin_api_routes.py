@@ -15,6 +15,7 @@ from jsonschema.exceptions import ValidationError
 
 from connectors.web_widget import allowed_origins_from_branding, canonical_origin
 from routes import get_container
+from routes.public_errors import validation_error as _validation_failure
 from routes.session_auth import clear_authenticated_session, is_authenticated_account_active
 from routes.tenancy import is_platform_operator, require_admin_role, require_platform_operator, resolve_admin_tenant, user_roles
 from service.sales_playbook import SalesPlaybookValidationError, load_sales_playbook, validate_sales_playbook
@@ -57,15 +58,12 @@ _PUBLIC_ACTION_ERRORS = (
 )
 
 
-def _validation_failure(error: BaseException, code: str, status: int = 400,
-                        public_messages: tuple[str, ...] = ()) -> tuple[Response, int]:
-    for message in public_messages:
-        if error.args == (message,):
-            return jsonify(error=message), status
-    # Never format the exception, traceback, request JSON or private tenant data.
-    logger.warning('Admin validation rejected endpoint=%s error_type=%s',
-                   request.endpoint, type(error).__name__)
-    return jsonify(error=code), status
+_PUBLIC_ACCOUNT_ERRORS = (
+    'invalid_account_email', 'password_must_be_at_least_12_characters', 'account_already_exists',
+    'invalid_account_id', 'account_payload_must_be_object', 'account_update_required',
+    'invalid_account_active', 'account_not_found', 'staff_account_limit_reached',
+    'invalid_account_roles', 'invalid_account_permissions',
+)
 
 
 @bp.get('/performance')
@@ -311,7 +309,9 @@ def api_tenants_post():
     try:
         created = TenantService(_storage()).create_tenant(data.get("key") or "", data.get("name") or "", owner=None if is_platform_operator() else user)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _validation_failure(exc, 'invalid_business_details', public_messages=(
+            'invalid_business_name', 'invalid_tenant', 'tenant_exists',
+        ))
     _audit("tenant.create", created["key"], after=created)
     return jsonify({"ok": True, "tenant": created}), 201
 
@@ -463,7 +463,9 @@ def api_join_request_decision(request_id):
     try:
         decide(tenant, request_id, data['decision'] == 'approve', session['user']['email'])
     except ValueError as exc:
-        return jsonify(error=str(exc)), 409
+        return _validation_failure(exc, 'join_request_conflict', 409, (
+            'Request not found or already processed.', 'An account already exists for this email in this company.',
+        ))
     _audit('join_request.'+data['decision'],tenant,after={'request_id':request_id,'role':'business_staff'})
     return jsonify(ok=True)
 
@@ -487,7 +489,7 @@ def api_accounts_post():
     try:
         account = AccountService(_storage()).create_account(tenant, data)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _validation_failure(exc, 'account_create_failed', public_messages=_PUBLIC_ACCOUNT_ERRORS)
 
     _audit("account.create", f"{tenant}/{account['id']}", after=account)
     return jsonify({"ok": True, "account": account}), 201
@@ -525,7 +527,7 @@ def api_accounts_put(account_id: str):
     try:
         account = accounts.update_account(tenant, account_id, data)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _validation_failure(exc, 'account_update_failed', public_messages=_PUBLIC_ACCOUNT_ERRORS)
 
     _audit(
         "account.update",
@@ -669,7 +671,15 @@ def api_offers_put():
     try:
         OfferStore.validate(data)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _validation_failure(exc, 'invalid_offer', public_messages=(
+            'offers_must_be_array', 'Maximum 50 current offers and 500 total offers including history.',
+            'invalid_offer_id', 'duplicate_offer_id', 'invalid_offer_deal_type',
+            'Choose eligible catalogue references for the buy-one-get-one deal.',
+            'Enter a positive minimum spend and valid discount, with at most two decimal places.',
+            'Enter a positive signup discount, with at most two decimal places and no more than 100 percent.',
+            'invalid_offer_start_date', 'invalid_offer_end_date', 'offer_end_before_start',
+            'invalid_offer_product_skus', 'duplicate_offer_product_sku',
+        ))
 
     tenant = _tenant()
     storage = _storage()
@@ -824,7 +834,19 @@ def api_agent_settings_put():
         try:
             playbook = validate_sales_playbook(data.get("playbook"))
         except SalesPlaybookValidationError as exc:
-            return jsonify({"error": str(exc)}), 400
+            return _validation_failure(exc, 'invalid_sales_playbook', public_messages=(
+                'sales_playbook_must_be_object', 'unsupported_sales_playbook_fields',
+                'qualification_questions_must_be_list', 'qualification_question_must_be_string',
+                'qualification_question_too_long', 'too_many_qualification_questions',
+                'value_propositions_must_be_list', 'value_proposition_must_be_string',
+                'value_proposition_too_long', 'too_many_value_propositions',
+                'business_model_must_be_string', 'invalid_business_model',
+                'fulfilment_mode_must_be_string', 'invalid_fulfilment_mode',
+                'customer_type_must_be_string', 'invalid_customer_type',
+                'response_guidance_must_be_string', 'response_guidance_too_long',
+                'business_focus_must_be_string', 'business_focus_too_long',
+                'handoff_message_must_be_string', 'handoff_message_too_long',
+            ))
     else:
         playbook = load_sales_playbook(overrides)
 
@@ -1534,7 +1556,13 @@ def api_record_sale():
     try:
         result = record_sale(tenant, data, _storage().read_json(tenant, 'catalog.json'))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _validation_failure(exc, 'sale_record_failed', public_messages=(
+            'Invalid sale reference. Reload and try again.',
+            'Choose a product from this company’s catalogue.',
+            'Enter a past sale date, positive quantity (up to 3 decimals) and GBP total (up to 2 decimals).',
+            'Choose web, WhatsApp or offline sales.',
+            'This sale reference was already used. Refresh before recording another sale.',
+        ))
     _audit('sale.record', f"{tenant}/{result['id']}")
     return jsonify(result), 200
 
@@ -1698,7 +1726,11 @@ def api_whatsapp_qr():
     try:
         result = create_whatsapp_qr(data.get("phone"), data.get("message", ""))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _validation_failure(exc, 'whatsapp_qr_failed', public_messages=(
+            'Enter the full WhatsApp number with its country code.',
+            'Use an international number, for example +44 7700 900123; omit the local leading zero.',
+            'The optional message must be plain text of 160 characters or fewer.',
+        ))
     _audit("whatsapp.qr.create", f"{tenant}/whatsapp-qr")
     response = jsonify(tenant=tenant, **result)
     response.headers["Cache-Control"] = "no-store"

@@ -1,5 +1,6 @@
 """Provider URL parsing and literal validation errors reported by CodeQL."""
 import json
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import urlunsplit
@@ -8,6 +9,7 @@ import pytest
 
 from connectors import whatsapp_audio
 from tests import test_platform_security
+from tests.test_subscriptions import identity
 
 platform = test_platform_security.platform
 
@@ -133,3 +135,31 @@ def test_action_validation_response_never_echoes_customer_text(platform):
     assert response.status_code == 400
     assert response.json == {"error": "A slot needs a valid ISO start time"}
     assert "private-customer-record" not in response.text
+
+
+@pytest.mark.parametrize('path,module,operation,body,role,status,error', [
+    ('/auth/password/reset', 'account_passwords', 'start', {}, None, 400,
+     'Password reset request could not be completed.'),
+    ('/auth/register', 'registration', 'start', {}, None, 503,
+     'Email verification is unavailable. Try again later.'),
+    ('/auth/mfa/confirm', 'account_mfa', 'confirm', {'code': '123456'}, None, 401,
+     'invalid_authenticator_code'),
+    ('/auth/oidc/google/start', 'oidc_login', 'start', {}, None, 400, 'invalid_oidc_request'),
+    ('/billing/checkout', 'subscriptions', 'checkout', {}, 'business_owner', 400,
+     'billing_request_failed'),
+    ('/billing/usage-credit/adjust', 'usage_wallet', 'adjust',
+     {'request_id': 'security-fixture-request-id'}, 'platform_admin', 400,
+     'usage_adjustment_failed'),
+    ('/admin/api/join-requests/request-fixture', 'registration', 'decide',
+     {'decision': 'approve'}, 'business_owner', 409, 'join_request_conflict'),
+])
+def test_unexpected_validation_details_never_reach_response_or_logs(
+        client, monkeypatch, caplog, path, module, operation, body, role, status, error):
+    if role:
+        identity(client, role)
+    detail = 'synthetic-private-credential /private/customer.db'
+    exception = RuntimeError if status == 503 else ValueError
+    monkeypatch.setattr(import_module('service.' + module), operation, Mock(side_effect=exception(detail)))
+    response = client.post(path, json=body)
+    assert response.status_code == status and response.json == {'error': error}
+    assert detail not in caplog.text

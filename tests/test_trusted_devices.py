@@ -70,9 +70,28 @@ def test_trusted_cookie_has_absolute_30_day_expiry_and_only_hash_is_persisted(cl
     with session_store.connection() as db:
         saved, expires = db.execute('SELECT token_hash,expires FROM trusted_devices').fetchone()
         session_expiry = db.execute('SELECT expires FROM management_sessions').fetchone()[0]
-    assert saved == hashlib.sha256(raw.encode()).hexdigest() and saved != raw
+    assert raw.startswith('v2.')
+    with client.application.app_context():
+        token = trusted_devices._cookie_token(raw)
+    assert token and token != raw and token not in header
+    assert saved == hashlib.sha256(token.encode()).hexdigest() and saved != token
     assert expires == account[1][0]+30*86400
     assert session_expiry == account[1][0]+8*3600
+
+
+def test_tampered_device_cookie_requires_mfa_and_legacy_cookie_rotates(client, account):
+    enroll(client, account)
+    encrypted = client.get_cookie(trusted_devices.COOKIE_NAME).value
+    with client.application.app_context():
+        legacy = trusted_devices._cookie_token(encrypted)
+    forget_session(client)
+    replacement = 'B' if encrypted[10] == 'A' else 'A'
+    client.set_cookie(trusted_devices.COOKIE_NAME, encrypted[:10] + replacement + encrypted[11:])
+    assert client.post('/auth/login', json=CREDENTIALS).status_code == 202
+    client.set_cookie(trusted_devices.COOKIE_NAME, legacy)
+    assert client.post('/auth/login', json=CREDENTIALS).status_code == 200
+    rotated = client.get_cookie(trusted_devices.COOKIE_NAME).value
+    assert rotated.startswith('v2.') and rotated != encrypted
 
 
 def test_valid_same_account_proof_rotates_after_password_without_extending_expiry(client, account):
@@ -90,7 +109,9 @@ def test_valid_same_account_proof_rotates_after_password_without_extending_expir
     assert client.get('/admin/api/catalog').status_code == 200
     with session_store.connection() as db:
         rows = db.execute('SELECT token_hash,expires FROM trusted_devices').fetchall()
-    assert rows == [(hashlib.sha256(new.encode()).hexdigest(), original_expiry)]
+    with client.application.app_context():
+        token = trusted_devices._cookie_token(new)
+    assert rows == [(hashlib.sha256(token.encode()).hexdigest(), original_expiry)]
     replay = client.application.test_client()
     replay.set_cookie(trusted_devices.COOKIE_NAME, old)
     assert replay.post('/auth/login', json=CREDENTIALS,

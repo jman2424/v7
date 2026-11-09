@@ -93,7 +93,10 @@ def begin(user, tenant):
 
 
 def _digest(token):
-    return hashlib.sha256(str(token).encode()).hexdigest()
+    # Challenge identifiers contain 256 bits of randomness.
+    key = hashlib.blake2b(current_app.secret_key.encode(), digest_size=32,
+                          person=b'v7-mfa-digest').digest()
+    return hashlib.blake2b(str(token).encode(), key=key, digest_size=32).hexdigest()
 
 
 def additional_device_setup(identity, password, code):

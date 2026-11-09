@@ -3,6 +3,7 @@ from flask import Blueprint, abort, jsonify, request
 
 from service.business_applications import ApplicationError
 from routes import get_container
+from routes.public_errors import validation_error
 from service import subscriptions, usage_payments, usage_wallet
 from service.security import management_user, authorized_tenant, is_platform_admin, require_permission
 
@@ -60,7 +61,13 @@ def checkout_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'usage_checkout_failed', public_messages=(
+            'usage_live_payments_required', 'internal_business_has_no_customer_usage_charge',
+            'business_awaiting_activation', 'invalid_usage_pack', 'invalid_usage_request_id',
+            'stripe_setup_required', 'usage_request_mismatch', 'usage_checkout_requires_review',
+            'stripe_response_invalid', 'usage_checkout_binding_mismatch', 'usage_checkout_mode_mismatch',
+            'stripe_not_configured', 'stripe_request_failed', 'stripe_tax_rate_must_be_20_percent_exclusive',
+        ))
     from routes.admin_api_routes import _audit
     _audit('billing.usage_checkout', tenant, after={'pack_id':result['pack_id'], 'reference':result['reference']})
     return jsonify(result)
@@ -93,7 +100,10 @@ def adjustment_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'usage_adjustment_failed', public_messages=(
+            'invalid_usage_request_id', 'invalid_credit_amount', 'adjustment_reason_required',
+            'adjustment_request_mismatch', 'adjustment_exceeds_available_credit',
+        ))
     if not result['duplicate']:
         from routes.admin_api_routes import _audit
         _audit('billing.usage_adjustment', tenant, after={'amount_pence':data['amount_pence'], 'reason':data['reason']})
@@ -112,7 +122,10 @@ def waive_unconfirmed_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'usage_review_failed', public_messages=(
+            'invalid_wallet_reference', 'unknown_usage_reservation', 'usage_review_reason_required',
+            'usage_review_mismatch', 'usage_review_not_unconfirmed',
+        ))
     if not result['duplicate']:
         from routes.admin_api_routes import _audit
         _audit('billing.usage_charge_waived',tenant,after={

@@ -145,7 +145,7 @@ def confirm(user, data):
         if row:
             registration._execute(db, 'UPDATE registration_requests SET attempts=attempts+1 WHERE id=?', (session['email_change_request'],))
             found = _find_self(user, tenant, db)
-            if (hmac.compare_digest(row[2], registration._code_hash(session['email_change_request'], code))
+            if (registration._code_matches(row[2], session['email_change_request'], code)
                     and hmac.compare_digest(row[1], security._account_revision(found[1]))):
                 if not _available(row[0], tenant, found[0]):
                     raise ValueError(UNAVAILABLE)

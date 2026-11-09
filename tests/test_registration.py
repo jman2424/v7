@@ -1,3 +1,5 @@
+import hmac
+
 import pytest
 
 from service import registration, registration_mail, session_store, tenant_access
@@ -32,6 +34,20 @@ def test_signup_disabled_without_mail(client, monkeypatch):
     assert client.get('/auth/registration').json['enabled'] is False
     assert request_account(client).status_code == 503
     assert not client.application.container.storage.tenant_dir('NEWCO').exists()
+
+
+def test_pending_legacy_email_code_still_verifies_after_upgrade(client, app, mailbox):
+    assert request_account(client, 'join', 'EXAMPLE').status_code == 202
+    with client.session_transaction() as state:
+        reference = state['registration_request']
+    code = mailbox['new@testing.test']
+    legacy = hmac.digest(app.secret_key.encode(), f'{reference}:{code}'.encode(), 'sha256').hex()
+    with session_store.connection() as db:
+        saved = db.execute('SELECT code_hash FROM registration_requests WHERE id=?', (reference,)).fetchone()[0]
+        assert saved.startswith('scrypt:')
+        db.execute('UPDATE registration_requests SET code_hash=? WHERE id=?', (legacy, reference))
+    response = client.post('/auth/register/confirm', json={'code': code})
+    assert response.status_code == 200 and response.json['request']['status'] == 'pending'
 
 
 def test_verified_owner_requires_mfa_and_payment(client, mailbox):

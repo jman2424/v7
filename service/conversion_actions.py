@@ -20,7 +20,6 @@ DEFAULT_ACTIONS = {
 }
 _SLOT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
-_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+\Z")
 _PHONE = re.compile(r"\+?[0-9 ()\-.]{7,32}\Z")
 _ACTIONS = {"consultation", "quote", "callback"}
 
@@ -195,8 +194,12 @@ def _field(value: Any, *, maximum: int, required: bool = True) -> str:
 def _contact(value: Any, action: str) -> str:
     contact = _field(value, maximum=254)
     phone = _PHONE.fullmatch(contact) and 7 <= sum(char.isdigit() for char in contact) <= 15
-    if phone or (action != "callback" and _EMAIL.fullmatch(contact)):
+    if phone:
         return contact
+    if action != "callback":
+        from service.account_service import valid_account_email
+        if valid_account_email(contact):
+            return contact
     raise ActionError("invalid_contact")
 
 

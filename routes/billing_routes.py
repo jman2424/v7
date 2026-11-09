@@ -3,10 +3,41 @@ import json
 from flask import Blueprint, abort, jsonify, request, session
 from service.business_applications import ApplicationError
 from routes import get_container
+from routes.public_errors import validation_error
 from service.security import management_user, authorized_tenant, is_platform_admin, require_permission, account_permissions
 from service import subscriptions
 
 bp = Blueprint('billing', __name__, url_prefix='/billing')
+
+_PROVIDER_ERRORS = ('stripe_not_configured', 'stripe_request_failed', 'stripe_response_invalid',
+                    'stripe_setup_required', 'stripe_live_payments_required')
+_PLAN_ERRORS = (
+    'invalid_subscription_plan', 'existing_subscription_requires_review',
+    'paid_setup_plan_requires_review', 'existing_setup_requires_review',
+    'internal_business_has_no_customer_subscription', 'cancel_pending_checkout_before_changing_plan',
+)
+_DISCOUNT_ERRORS = (
+    'invalid_discount_code', 'promotion_unavailable', 'discount_does_not_stack',
+    'first_month_discount_new_subscription_only', 'implementation_already_paid',
+    'discount_not_applicable', 'checkout_promotion_changed_refresh', 'stripe_discount_invalid',
+)
+_SUBSCRIPTION_ERRORS = (
+    'subscription_required', 'active_platform_subscription_required', 'subscription_already_cancelling',
+    'scheduled_subscription_requires_review', 'subscription_change_requires_review',
+    'payment_processing_refresh_soon', 'subscription_plan_already_active', 'existing_setup_requires_review',
+)
+_CHECKOUT_ERRORS = (
+    'invalid_billing_item', 'plan_not_applicable_to_billing_item', 'whatsapp_included_in_subscription',
+    'extra_usage_charges_disabled', 'active_platform_subscription_required', 'api_charge_not_approved',
+    'subscription_already_exists', 'checkout_plan_changed_refresh', 'checkout_creation_in_progress',
+    'payment_processing_refresh_soon', 'stripe_tax_rate_must_be_20_percent_exclusive',
+)
+_REFERRAL_ERRORS = (
+    'invalid_referral_setting', 'invalid_referral_code', 'referral_already_accepted',
+    'referral_program_disabled', 'invalid_or_self_referral', 'referral_requires_new_business_before_checkout',
+    'referral_does_not_stack_with_existing_discount', 'active_paid_subscription_required',
+    'no_available_referral_reward', 'referral_discount_not_confirmed', 'invalid_referral_coupon',
+)
 
 
 def _owner():
@@ -43,7 +74,8 @@ def change_plan_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'billing_request_failed',
+                                public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS + _PLAN_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.change_plan_review', tenant, after={'plan_id': data.get('plan_id')})
     return jsonify(result)
@@ -58,7 +90,7 @@ def cancel_subscription_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'billing_request_failed', public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.cancel_subscription_review', tenant)
     return jsonify(result)
@@ -91,7 +123,7 @@ def referrals_post(action):
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'referral_request_failed', public_messages=_PROVIDER_ERRORS + _REFERRAL_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.referral.'+action, tenant, after=result)
     return jsonify(result)
@@ -159,7 +191,8 @@ def complimentary_plan_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'invalid_plan_grant',
+                                public_messages=('existing_stripe_subscription_requires_review',))
     from routes.admin_api_routes import _audit
     _audit('billing.complimentary_plan', tenant, after={'plan':'scale', 'enabled':enabled, 'reason':reason.strip()})
     return jsonify(ok=True, plan_state=state)
@@ -173,7 +206,8 @@ def checkout_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'billing_request_failed',
+                                public_messages=_PROVIDER_ERRORS + _PLAN_ERRORS + _DISCOUNT_ERRORS + _CHECKOUT_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.checkout',tenant,after={'kind':data.get('kind'),'plan_id':data.get('plan_id')})
     return jsonify(result)
@@ -187,7 +221,7 @@ def select_plan_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=_PLAN_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.select_plan',tenant,after={'plan_id':state['selected_plan']})
     return jsonify(ok=True,plan_state=state)
@@ -201,7 +235,7 @@ def cancel_checkout_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=_PROVIDER_ERRORS + _CHECKOUT_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.cancel_checkout',tenant)
     return jsonify(result)
@@ -215,7 +249,7 @@ def discount_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=_DISCOUNT_ERRORS)
     from routes.admin_api_routes import _audit
     _audit('billing.discount',tenant,after={key:result[key] for key in ('discount_percent','setup_discount_percent','first_month_discount_percent') if key in result})
     return jsonify(result)
@@ -229,7 +263,7 @@ def portal_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS)
 
 
 @bp.post('/whatsapp')
@@ -242,7 +276,7 @@ def whatsapp_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=('whatsapp_subscription_required',))
     from routes.admin_api_routes import _audit
     _audit('billing.whatsapp',tenant,after={'enabled':data['enabled']})
     return jsonify(ok=True)
@@ -257,7 +291,7 @@ def api_charge_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)),400
+        return validation_error(exc, 'billing_request_failed', public_messages=('prepaid_usage_requires_topup',))
     from routes.admin_api_routes import _audit
     _audit('billing.api_charge',tenant,after={'month':data['month'],'amount_pence':data['amount_pence']})
     return jsonify(ok=True),201

@@ -30,8 +30,10 @@ google-api-python-client==2.142.0
 google-auth==2.34.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
-# Google OAuth PKCE security fix; constrain the transitive runtime dependency.
-oauthlib==4.0.0
+# Keep the Google OAuth runtime on the patched device-code release.
+oauthlib==4.0.1
+# Bound ASN.1 decoder vulnerabilities in the Google authentication stack.
+pyasn1==0.6.5
 
 # --- JSON / Schema / Validation ---
 jsonschema==4.23.0

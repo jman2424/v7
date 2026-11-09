@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from routes import get_container
+from routes.public_errors import validation_error
 from routes.session_auth import clear_authenticated_session, establish_authenticated_session, is_authenticated_account_active
 from retrieval.storage import Storage
 from service.security import public_identity
@@ -11,6 +12,35 @@ from service.login_limiter import LoginThrottled
 # Unique blueprint name to avoid: "auth already registered"
 bp = Blueprint("auth_api", __name__, url_prefix="/auth")
 
+_PASSWORD_ERRORS = (
+    'Enter your company key and account email.', 'Enter a valid email address.',
+    'Please wait before requesting another reset code.',
+    'Use a password between 12 and 256 characters.', 'Current password was not accepted.',
+    'Reset code is invalid, expired or already used. Request a new code.',
+)
+_EMAIL_ERRORS = (
+    'This account cannot change its email here. Contact the platform operator.',
+    'Your account changed. Sign in again.', 'Enter a valid email address.',
+    'Email changes are unavailable. Contact the platform operator.',
+    'Enter a different email address.', 'Current password was not accepted.',
+    'This email cannot be used for this account. Choose another address.',
+    'Please wait before requesting another email change code.',
+    'Verification email could not be sent. Try again later.',
+    'Email change code is invalid, expired or already used. Start again.',
+)
+_REGISTRATION_ERRORS = (
+    'Enter valid account details.', 'Enter a valid email address.',
+    'Use a password between 12 and 256 characters.', 'Choose create a business or request to join.',
+    'Enter a business name up to 120 characters.', 'Business name is too long.',
+    'Please wait before requesting another verification code.', 'Enter the six-digit verification code.',
+    'Verification expired or already used. Start again.', 'Code not accepted. Check your email and try again.',
+    'An account already exists for this email. Use the existing sign-in.',
+    'This company request cannot be completed. Check the company key with its owner.',
+    'An account already exists for this company. Use the existing sign-in.',
+    'The workspace could not be created. The company key may already be in use. Sign in if your account was created, or contact the operator.',
+    'invalid_tenant', 'tenant_exists',
+)
+
 
 @bp.post('/password/reset')
 def password_reset_start():
@@ -18,7 +48,7 @@ def password_reset_start():
     try:
         notice = account_passwords.start(request.get_json(silent=True))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Password reset request could not be completed.', public_messages=_PASSWORD_ERRORS)
     except RuntimeError:
         return jsonify(error='Password reset email is unavailable. Contact the platform operator.'), 503
     return jsonify(message=notice), 202
@@ -30,7 +60,8 @@ def password_reset_confirm():
     try:
         account_passwords.confirm(request.get_json(silent=True))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Reset code is invalid, expired or already used. Request a new code.',
+                                public_messages=_PASSWORD_ERRORS)
     clear_authenticated_session()
     return trusted_devices.clear_cookie(jsonify(ok=True))
 
@@ -57,7 +88,7 @@ def account_email_start():
         account_email.start(user, request.get_json(silent=True))
     except ValueError as exc:
         limiter.fail(subject, attempt)
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Email change request could not be completed.', public_messages=_EMAIL_ERRORS)
     limiter.release(subject, attempt)
     return jsonify(ok=True), 202
 
@@ -69,7 +100,8 @@ def account_email_confirm():
     try:
         account_email.confirm(management_user(), request.get_json(silent=True))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Email change code is invalid, expired or already used. Start again.',
+                                public_messages=_EMAIL_ERRORS)
     clear_authenticated_session()
     return trusted_devices.clear_cookie(jsonify(ok=True))
 
@@ -89,7 +121,7 @@ def password_change():
         account_passwords.change(user, request.get_json(silent=True))
     except ValueError as exc:
         limiter.fail(subject, attempt)
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Password could not be changed.', public_messages=_PASSWORD_ERRORS)
     limiter.release(subject, attempt)
     clear_authenticated_session()
     return trusted_devices.clear_cookie(jsonify(ok=True))
@@ -113,9 +145,12 @@ def register_post():
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Enter valid account details.', public_messages=_REGISTRATION_ERRORS)
     except RuntimeError as exc:
-        return jsonify(error=str(exc)), 503
+        return validation_error(exc, 'Email verification is unavailable. Try again later.', 503, (
+            'Email verification is not configured. Contact the platform operator.',
+            'Verification email could not be sent. Try later or contact the operator.',
+        ))
     return jsonify(request=result), 202
 
 
@@ -128,7 +163,8 @@ def register_confirm():
     try:
         result = registration.confirm(data.get('code'))
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return validation_error(exc, 'Verification could not be completed. Start again.',
+                                public_messages=_REGISTRATION_ERRORS)
     from service.audit import AuditService
     AuditService().record(user=result['email'], role='registration', ip=request.remote_addr or '',
                          action='registration.verified', target=result['tenant'], extra={'status': result['status']})
@@ -276,7 +312,8 @@ def mfa_confirm():
     except LoginThrottled as exc:
         return jsonify(error='try_again_later', retry_after=exc.retry_after), 429
     except ValueError as exc:
-        return jsonify(error=str(exc)), 401
+        return validation_error(exc, 'invalid_authenticator_code', 401,
+                                ('sign_in_again', 'authenticator_code_reused', 'invalid_authenticator_code'))
     identity = establish_authenticated_session(user, user['tenant'], mfa_verified=True)
     response = jsonify(ok=True, user=public_identity(identity), csrf_token=session['_csrf'])
     if data.get('remember_device', False):
