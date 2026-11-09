@@ -845,6 +845,9 @@ def api_agent_settings_put():
                 'customer_type_must_be_string', 'invalid_customer_type',
                 'response_guidance_must_be_string', 'response_guidance_too_long',
                 'business_focus_must_be_string', 'business_focus_too_long',
+                'ideal_customer_must_be_string', 'ideal_customer_too_long',
+                'offering_type_must_be_string', 'invalid_offering_type',
+                'primary_goal_must_be_string', 'invalid_primary_goal',
                 'handoff_message_must_be_string', 'handoff_message_too_long',
             ))
     else:

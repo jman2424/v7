@@ -1,10 +1,11 @@
 """Verified owner onboarding and owner-approved, least-privilege join requests."""
-import hmac
 import json
 import secrets
 import time
 from contextlib import contextmanager
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, hmac
 from flask import current_app, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -53,8 +54,13 @@ def _code_matches(saved, request_id, code):
     if saved.startswith('scrypt:'):
         return check_password_hash(saved, f'{request_id}:{code}:{current_app.secret_key}')
     # Keep codes already issued before this release usable until they expire.
-    legacy = hmac.digest(current_app.secret_key.encode(), f'{request_id}:{code}'.encode(), 'sha256')
-    return hmac.compare_digest(saved, legacy.hex())
+    verifier = hmac.HMAC(current_app.secret_key.encode(), hashes.SHA256())
+    verifier.update(f'{request_id}:{code}'.encode())
+    try:
+        verifier.verify(bytes.fromhex(saved))
+    except (InvalidSignature, ValueError):
+        return False
+    return True
 
 
 def start(data):

@@ -9,6 +9,9 @@ import time
 import pyotp
 import qrcode
 import qrcode.image.svg
+from cryptography.hazmat.primitives import cmac, hashes
+from cryptography.hazmat.primitives.ciphers import algorithms
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from flask import current_app, session
 
 from service import session_store
@@ -93,10 +96,12 @@ def begin(user, tenant):
 
 
 def _digest(token):
-    # Challenge identifiers contain 256 bits of randomness.
-    key = hashlib.blake2b(current_app.secret_key.encode(), digest_size=32,
-                          person=b'v7-mfa-digest').digest()
-    return hashlib.blake2b(str(token).encode(), key=key, digest_size=32).hexdigest()
+    # A keyed lookup value keeps random challenge tokens out of the database.
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None,
+               info=b'v7 MFA challenge lookup').derive(current_app.secret_key.encode())
+    authenticator = cmac.CMAC(algorithms.AES(key))
+    authenticator.update(str(token).encode())
+    return authenticator.finalize().hex()
 
 
 def additional_device_setup(identity, password, code):
