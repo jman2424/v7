@@ -29,6 +29,10 @@ _PHONE = {
         'waiting': 'One moment while the AI assistant checks the business information.',
         'limit': 'The automated service has reached its limit. Please contact the business using its website.',
         'followup': 'Your enquiry has been saved for the team to review. No booking or account change has been made.',
+        'anything_else': 'You can keep speaking, press 0 to leave the team a message, or press 9 to end the call.',
+        'goodbye': 'Thank you for calling. Goodbye.',
+        'unavailable': 'I cannot retrieve a reply for this call. Please contact the business using its website.',
+        'website_pages': 'On the business website, you can visit {pages}.',
         'end': 'Please contact the team if you need further help.',
     },
     'fr': {
@@ -43,6 +47,10 @@ _PHONE = {
         'waiting': 'Un instant, l’assistant IA consulte les informations de l’entreprise.',
         'limit': 'Le service automatisé a atteint sa limite. Veuillez contacter l’entreprise sur son site.',
         'followup': 'Votre demande a été enregistrée pour examen par l’équipe. Aucune réservation ni modification de compte n’a été effectuée.',
+        'anything_else': 'Vous pouvez continuer à parler, appuyer sur 0 pour laisser un message ou sur 9 pour terminer l’appel.',
+        'goodbye': 'Merci de votre appel. Au revoir.',
+        'unavailable': 'Je ne trouve pas de réponse pour cet appel. Veuillez contacter l’entreprise sur son site.',
+        'website_pages': 'Sur le site de l’entreprise, vous pouvez consulter {pages}.',
         'end': 'Veuillez contacter l’équipe pour toute aide supplémentaire.',
     },
     'es': {
@@ -57,6 +65,10 @@ _PHONE = {
         'waiting': 'Un momento, el asistente de IA consulta la información de la empresa.',
         'limit': 'El servicio automatizado ha alcanzado su límite. Contacte con la empresa a través de su web.',
         'followup': 'Su consulta se ha guardado para que el equipo la revise. No se ha realizado ninguna reserva ni cambio de cuenta.',
+        'anything_else': 'Puede seguir hablando, pulsar 0 para dejar un mensaje o 9 para terminar la llamada.',
+        'goodbye': 'Gracias por su llamada. Adiós.',
+        'unavailable': 'No puedo recuperar una respuesta para esta llamada. Contacte con la empresa a través de su web.',
+        'website_pages': 'En la web de la empresa puede consultar {pages}.',
         'end': 'Contacte con el equipo si necesita más ayuda.',
     },
     'de': {
@@ -71,6 +83,10 @@ _PHONE = {
         'waiting': 'Einen Moment, der KI-Assistent prüft die Unternehmensinformationen.',
         'limit': 'Der automatisierte Dienst hat sein Limit erreicht. Bitte kontaktieren Sie das Unternehmen über seine Website.',
         'followup': 'Ihr Anliegen wurde zur Prüfung durch das Team gespeichert. Es wurde keine Buchung oder Kontoänderung vorgenommen.',
+        'anything_else': 'Sie können weiter sprechen, 0 für eine Nachricht drücken oder 9, um den Anruf zu beenden.',
+        'goodbye': 'Vielen Dank für Ihren Anruf. Auf Wiederhören.',
+        'unavailable': 'Ich kann keine Antwort für diesen Anruf abrufen. Bitte kontaktieren Sie das Unternehmen über seine Website.',
+        'website_pages': 'Auf der Website des Unternehmens finden Sie {pages}.',
         'end': 'Bitte kontaktieren Sie das Team, wenn Sie weitere Hilfe benötigen.',
     },
 }

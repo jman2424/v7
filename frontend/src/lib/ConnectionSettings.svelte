@@ -3,7 +3,24 @@
   import { onMount, onDestroy } from 'svelte';
   export let csrf: string;
   export let apiPrefix = '';
-  type Settings = {configured:boolean;owner_access:boolean;clients:string[];connected_clients:string[];mcp_url:string;api_url:string;authorization_url:string;token_url:string};
+  type Settings = {
+    configured: boolean;
+    owner_access: boolean;
+    clients: string[];
+    connected_clients: string[];
+    mcp_url: string;
+    api_url: string;
+    authorization_url: string;
+    token_url: string;
+    configuration_issues?: string[];
+  };
+  const issueLabels: Record<string, string> = {
+    mcp_not_configured: 'Ask the platform operator to set the public HTTPS integration address.',
+    mcp_invalid_public_url: 'Ask the platform operator to correct the public HTTPS integration address.',
+    mcp_https_configuration_required: 'Ask the platform operator to match the integration address to the site’s HTTPS address and enable secure cookies.',
+    mcp_no_oauth_clients: 'Ask the platform operator to register your app’s exact HTTPS callback URL.',
+    mcp_invalid_oauth_configuration: 'Ask the platform operator to check the registered OAuth client settings.',
+  };
   let settings: Settings | null = null;
   let error = '';
   let status = '';
@@ -16,7 +33,9 @@
     error = '';
     try {
       const response = await fetch(apiPrefix+'/auth/mcp/connections', {credentials:'same-origin',signal:controller.signal});
-      if (!response.ok) throw new Error('Could not load connections. Refresh or sign in again.');
+      if (response.status === 401) throw new Error('Sign in again to view connection settings.');
+      if (response.status === 403) throw new Error('This account cannot view integration settings.');
+      if (!response.ok) throw new Error('Could not load connection settings. Try again.');
       settings = await response.json();
     } catch (failure) { if (!controller.signal.aborted) error = failure instanceof Error ? failure.message : 'Could not load connections.'; }
   }
@@ -33,14 +52,23 @@
     } catch (failure) { if (!controller.signal.aborted) error = failure instanceof Error ? failure.message : 'Could not revoke connections.'; }
     finally { busy = false; }
   }
-  $: example = settings?.api_url ? `curl "${settings.api_url}/statistics" -H "Authorization: Bearer YOUR_ACCESS_TOKEN"` : '';
+  $: setupIssues = (settings?.configuration_issues ?? []).map(
+    (code) => issueLabels[code] ?? 'Ask the platform operator to check the integration settings.'
+  );
+  $: example = settings?.configured && settings.api_url
+    ? `curl --fail-with-body "${settings.api_url}/health" -H "Authorization: Bearer YOUR_ACCESS_TOKEN"`
+    : '';
 </script>
 
 <section class="connections" aria-label="MCP and REST API connections">
   {#if error}<p role="alert">{error}</p><button type="button" on:click={load}>Retry</button>{/if}
   {#if settings}
-    <div class="heading"><div><p class="eyebrow">Apps and developers</p><h2>MCP &amp; API connections</h2></div><span class="badge">{settings.configured ? 'Ready for OAuth connections' : 'Awaiting server setup'}</span></div>
-    {#if !settings.configured}<p>The platform operator needs to configure the public HTTPS address and register an OAuth client with its exact callback URL before connections can be authorized.</p>{/if}
+    <div class="heading"><div><p class="eyebrow">Apps and developers</p><h2>MCP &amp; API connections</h2></div><span class="badge">{settings.configured ? 'Ready for OAuth authorization' : 'Setup required'}</span></div>
+    {#if setupIssues.length}
+      <ul aria-label="Connection setup steps">{#each setupIssues as issue}<li>{issue}</li>{/each}</ul>
+    {:else if !settings.configured}
+      <p>Ask the platform operator to configure the public HTTPS address and register your app’s exact callback URL.</p>
+    {/if}
     {#if !settings.owner_access}<p>Connections must be authorized from a business owner account. This account can view setup information only.</p>{/if}
     <div class="cards">
       <article><h3>MCP connection</h3><p>Connect an MCP-compatible app to your business stats, catalogue, offers, roles, health and errors.</p>
@@ -49,9 +77,17 @@
       </article>
       <article><h3>REST API connection</h3><p>Use the same OAuth connection for authenticated HTTP requests.</p>
         <label>API base URL<input readonly value={settings.api_url} placeholder="Available after server setup" /></label><button type="button" disabled={!settings.api_url} on:click={()=>copy(settings!.api_url)}>Copy API URL</button>
-        <p>Use the authorization-code flow with S256 PKCE. Set the resource to the MCP server URL. Send the resulting access token in the Authorization header.</p>
-        <label>Example request<textarea readonly value={example} rows="3"></textarea></label><button type="button" disabled={!example} on:click={()=>copy(example)}>Copy example</button>
-        <p>GET endpoints: <code>/statistics</code>, <code>/catalog</code>, <code>/offers</code>, <code>/roles</code>, <code>/health</code>, <code>/errors</code>. Catalog and offer writes require <code>business:write</code> and the latest document revision.</p>
+        <ol>
+          <li>Use your app’s registered client ID and exact callback URL.</li>
+          <li>Use the authorization-code flow with S256 PKCE and request the <code>business:read</code> scope. Use the MCP server URL as the resource in both requests.</li>
+          <li>Approve the connection from the business-owner account and send the resulting access token as <code>Authorization: Bearer</code>.</li>
+        </ol>
+        <p><a href={apiPrefix+'/api/v1/openapi.json'}>Open the REST API reference</a></p>
+        {#if example}
+          <label>Example request<textarea readonly value={example} rows="3"></textarea></label>
+          <button type="button" on:click={()=>copy(example)}>Copy example</button>
+        {/if}
+        <p>Start with <code>/health</code>, <code>/statistics</code>, <code>/catalog</code> or <code>/offerings</code>. Writes require <code>business:write</code>, the corresponding business permission and the latest document revision.</p>
       </article>
     </div>
     <details><summary>OAuth connection details</summary>

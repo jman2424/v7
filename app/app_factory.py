@@ -95,6 +95,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(whatsapp_bp)
     from routes.business_channel_routes import bp as business_channels_bp
     app.register_blueprint(business_channels_bp)
+    from routes.campaign_routes import bp as campaigns_bp
+    app.register_blueprint(campaigns_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(files_bp)

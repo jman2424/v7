@@ -12,6 +12,7 @@ import time
 from service import session_store
 
 _ID = re.compile(r'[a-f0-9]{32}\Z')
+PHONE_REPLY_WINDOW = 22
 _COLUMNS = ('id', 'tenant', 'channel', 'event_key', 'conversation_id', 'source_address', 'payload',
             'state', 'reply', 'provider_id', 'error_code', 'lease', 'lease_until', 'created', 'updated', 'version')
 _SCHEMA = '''CREATE TABLE IF NOT EXISTS business_operations (
@@ -106,14 +107,21 @@ def enqueue(tenant, channel, event_key, conversation_id, source_address, payload
     return get(tenant, identifier), True
 
 
-def claim(tenant):
+def claim(tenant, *, lane='all'):
+    if lane not in {'all', 'phone', 'background'}:
+        raise ValueError('invalid_operation_lane')
     now, lease = time.time(), secrets.token_hex(16)
     with connection(tenant, write=True) as db:
         # A crash after starting a send is ambiguous. Never silently send again.
         db.execute("UPDATE business_operations SET state='uncertain',error_code='send_interrupted',lease='',lease_until=0,version=version+1 WHERE tenant=? AND state='sending' AND lease_until<?", (tenant, now))
         db.execute("UPDATE business_operations SET state='needs_review',error_code='generation_interrupted',lease='',lease_until=0,version=version+1 WHERE tenant=? AND state='processing' AND lease_until<?", (tenant, now))
         db.execute("UPDATE business_operations SET state='uncertain',error_code='action_interrupted',lease='',lease_until=0,version=version+1 WHERE tenant=? AND state='executing' AND lease_until<?", (tenant, now))
-        row = db.execute("SELECT * FROM business_operations WHERE tenant=? AND state IN ('queued','approved') ORDER BY created LIMIT 1", (tenant,)).fetchone()
+        row = db.execute(
+            """SELECT * FROM business_operations WHERE tenant=? AND state IN ('queued','approved')
+               AND (? = 'all' OR (? = 'phone' AND channel='phone')
+                    OR (? = 'background' AND channel<>'phone'))
+               ORDER BY created,id LIMIT 1""",
+            (tenant, lane, lane, lane)).fetchone()
         if row is None:
             return None
         state = 'sending' if row['state'] == 'approved' else 'processing'
@@ -124,32 +132,50 @@ def claim(tenant):
         return _decode(result)
 
 
-def finish(tenant, operation_id, lease, state, *, reply='', provider_id='', error_code=''):
+def finish(tenant, operation_id, lease, state, *, reply='', provider_id='', error_code='', payload=None):
     if state not in {'needs_review', 'approved', 'completed', 'failed', 'uncertain', 'rejected'}:
         raise ValueError('invalid_operation_state')
     if (not isinstance(reply, str) or len(reply) > 6000 or not isinstance(provider_id, str) or len(provider_id) > 200
             or not isinstance(error_code, str) or error_code and not re.fullmatch(r'[a-z_]{1,80}', error_code)):
         raise ValueError('invalid_operation_outcome')
+    encoded = _encoded_payload(payload) if payload is not None else None
     with connection(tenant, write=True) as db:
-        result = db.execute('UPDATE business_operations SET state=?,reply=?,provider_id=?,error_code=?,lease=\'\',lease_until=0,updated=?,version=version+1 WHERE tenant=? AND id=? AND lease=? AND lease_until>?',
-                            (state, reply, provider_id, error_code, time.time(), tenant, operation_id, lease, time.time()))
+        result = db.execute(
+            """UPDATE business_operations SET state=?,reply=?,provider_id=?,error_code=?,
+               payload=COALESCE(?,payload),lease='',lease_until=0,updated=?,version=version+1
+               WHERE tenant=? AND id=? AND lease=? AND lease_until>?""",
+            (state, reply, provider_id, error_code, encoded, time.time(), tenant, operation_id, lease, time.time()))
         return result.rowcount == 1
 
 
-def save_payload(tenant, operation_id, lease, payload):
+def _encoded_payload(payload):
+    if not isinstance(payload, dict):
+        raise ValueError('invalid_operation')
     encoded = json.dumps(payload, allow_nan=False, separators=(',', ':'))
-    if not isinstance(payload, dict) or len(encoded.encode()) > 20000:
+    if len(encoded.encode()) > 20000:
         raise ValueError('operation_too_large')
+    return encoded
+
+
+def save_payload(tenant, operation_id, lease, payload):
+    encoded = _encoded_payload(payload)
     with connection(tenant, write=True) as db:
         return db.execute('UPDATE business_operations SET payload=?,updated=? WHERE tenant=? AND id=? AND lease=? AND lease_until>?',
                           (encoded, time.time(), tenant, operation_id, lease, time.time())).rowcount == 1
 
 
-def expire_call_turn(tenant, operation_id):
-    """Stop an unheard pending reply spending further queued work after timeout."""
+def expire_call_turn(tenant, operation_id, *, reason='call_reply_timed_out'):
+    """Put an unheard call turn in the team's queue and revoke its worker lease."""
+    if reason not in {'call_reply_timed_out', 'call_review_mode_changed'}:
+        raise ValueError('invalid_call_review_reason')
     with connection(tenant, write=True) as db:
-        return db.execute("UPDATE business_operations SET state='needs_review',error_code='call_reply_timed_out',lease='',lease_until=0,updated=?,version=version+1 WHERE tenant=? AND id=? AND channel='phone' AND state IN ('queued','processing')",
-                          (time.time(), tenant, operation_id)).rowcount == 1
+        return db.execute(
+            """UPDATE business_operations SET state='needs_review',error_code=?,lease='',lease_until=0,
+                      updated=?,version=version+1
+                 WHERE tenant=? AND id=? AND channel='phone'
+                   AND (state IN ('queued','processing') OR (? AND state='completed' AND error_code=''))""",
+            (reason, time.time(), tenant, operation_id, reason == 'call_review_mode_changed'),
+        ).rowcount == 1
 
 
 def decide(tenant, operation_id, version, decision, *, reply=None):
@@ -167,8 +193,12 @@ def decide(tenant, operation_id, version, decision, *, reply=None):
         if decision == 'approve' and (row['channel'] != 'email' or not text.strip()):
             raise ValueError('operation_requires_manual_followup')
         state = {'approve': 'approved', 'reject': 'rejected', 'complete': 'completed'}[decision]
-        db.execute('UPDATE business_operations SET state=?,reply=?,updated=?,version=version+1 WHERE tenant=? AND id=? AND version=?',
-                   (state, text.strip(), time.time(), tenant, operation_id, version))
+        payload = json.loads(row['payload'])
+        payload.pop('phone_reply_verified', None)
+        if decision == 'approve':
+            payload['reply_approval'] = 'owner'
+        db.execute('UPDATE business_operations SET state=?,reply=?,payload=?,updated=?,version=version+1 WHERE tenant=? AND id=? AND version=?',
+                   (state, text.strip(), _encoded_payload(payload), time.time(), tenant, operation_id, version))
     return get(tenant, operation_id)
 
 

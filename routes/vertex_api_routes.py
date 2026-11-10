@@ -1,8 +1,9 @@
 """REST transport over the exact authentication and dispatcher used by Vertex MCP."""
+from pathlib import Path
 import re
 import sqlite3
 
-from flask import Blueprint, abort, g, jsonify, request
+from flask import Blueprint, abort, g, jsonify, request, send_file
 from jsonschema import ValidationError
 from werkzeug.exceptions import HTTPException
 
@@ -11,6 +12,22 @@ from service import mcp_auth, mcp_tools
 from service.business_management import BusinessError
 
 bp = Blueprint('vertex_api', __name__, url_prefix='/api/v1')
+
+_CONTRACT = Path(__file__).resolve().parents[1] / 'schemas' / 'vertex-api.openapi.json'
+_CONFIGURATION_ERRORS = {
+    'mcp_not_configured': (
+        'mcp_not_configured', 'The operator must configure the public HTTPS integration address.',
+    ),
+    'mcp_invalid_public_url': (
+        'mcp_invalid_public_url', 'The operator must correct the public HTTPS integration address.',
+    ),
+    'mcp_https_configuration_required': (
+        'mcp_https_configuration_required', 'The integration address must match the site’s HTTPS address.',
+    ),
+    'invalid_oauth_configuration': (
+        'invalid_oauth_configuration', 'The operator must check the registered OAuth client settings.',
+    ),
+}
 
 # These are transport mappings, not separate business implementations.
 ENDPOINTS = (
@@ -56,11 +73,19 @@ ENDPOINTS = (
 
 @bp.before_request
 def authenticate():
+    if request.endpoint == 'vertex_api.openapi':
+        return
     # Cookie sessions never authenticate this API. OAuth scopes, token revocation,
     # assigned tenant, owner-only access and per-owner quotas are shared with MCP.
     g.vertex_identity, g.vertex_scopes = mcp_auth.authenticate(request.headers.get('Authorization',''))
     mcp_auth.require_origin(request.headers.get('Origin'))
     request.max_content_length = 65536
+
+
+@bp.get('/openapi.json')
+def openapi():
+    """Serve the public REST contract independently of account and OAuth setup."""
+    return send_file(_CONTRACT, mimetype='application/json')
 
 
 @bp.after_request
@@ -73,17 +98,29 @@ def private(response):
 
 @bp.errorhandler(HTTPException)
 def http_error(error):
-    response = jsonify(error={'code':error.name.lower().replace(' ','_'), 'message':error.name})
+    code = error.name.lower().replace(' ', '_')
+    message = error.name
+    if error.code == 503 and isinstance(error.description, str) and error.description in _CONFIGURATION_ERRORS:
+        code, message = _CONFIGURATION_ERRORS[error.description]
+    elif error.code == 401:
+        message = 'Supply a valid Vertex OAuth access token in the Authorization header.'
+    response = jsonify(error={'code': code, 'message': message})
     response.status_code = error.code
     if error.code == 401:
-        response.headers['WWW-Authenticate'] = f'Bearer resource_metadata="{mcp_auth.issuer()}/.well-known/oauth-protected-resource/mcp", scope="business:read"'
+        try:
+            issuer = mcp_auth.issuer()
+        except HTTPException:
+            response.headers['WWW-Authenticate'] = 'Bearer scope="business:read"'
+        else:
+            metadata = issuer + '/.well-known/oauth-protected-resource/mcp'
+            response.headers['WWW-Authenticate'] = f'Bearer resource_metadata="{metadata}", scope="business:read"'
     return response
 
 
 def endpoint(tool):
     def handle(**selectors):
         try:
-            if request.method == 'GET':
+            if request.method in {'GET', 'HEAD'}:
                 if any(len(request.args.getlist(key)) != 1 for key in request.args):
                     abort(400)
                 arguments = request.args.to_dict()

@@ -144,6 +144,41 @@ def test_revocation_and_quota_are_shared(mcp):
     assert rpc(client,token,'ping').status_code == 401
 
 
+def test_public_openapi_remains_available_while_protected_api_needs_setup(mcp, monkeypatch):
+    from scripts.export_vertex_api import document
+
+    monkeypatch.delenv('MCP_PUBLIC_URL', raising=False)
+    client = mcp[0].test_client()
+    contract = client.get('/api/v1/openapi.json')
+    assert contract.status_code == 200 and contract.json == document()
+    assert contract.headers['Cache-Control'] == 'no-store'
+    blocked = client.get('/api/v1/health')
+    assert blocked.status_code == 503
+    assert blocked.json['error']['code'] == 'mcp_not_configured'
+
+
+def test_head_uses_get_validation_and_requires_a_bearer(mcp):
+    client = mcp[0].test_client()
+    token = issue(client)[0]['access_token']
+    response = client.head('/api/v1/statistics?minutes=60', headers=headers(token))
+    assert response.status_code == 200 and response.data == b''
+    assert client.head('/api/v1/statistics?minutes=60').status_code == 401
+    assert client.head('/api/v1/statistics?minutes=bad', headers=headers(token)).status_code == 400
+
+
+def test_rest_setup_error_never_returns_an_unrecognized_description(mcp, monkeypatch):
+    from flask import abort
+    from service import mcp_auth
+
+    def unavailable(_):
+        abort(503, description='internal config with private values')
+
+    monkeypatch.setattr(mcp_auth, 'authenticate', unavailable)
+    response = mcp[0].test_client().get('/api/v1/health')
+    assert response.status_code == 503
+    assert response.json == {'error': {'code': 'service_unavailable', 'message': 'Service Unavailable'}}
+
+
 def test_openapi_contract_matches_shared_operations():
     import json
     from pathlib import Path

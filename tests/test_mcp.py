@@ -86,6 +86,7 @@ def test_metadata_authentication_and_transport(mcp):
     assert rpc(client, token, headers={"MCP-Protocol-Version": "bogus"}).status_code == 400
     assert rpc(client, token, headers={"Accept": "text/html"}).status_code == 406
     assert client.get("/mcp", headers={"Authorization": "Bearer " + token}).status_code == 405
+    assert rpc(client, token, "ping", headers={"Authorization": "bearer  " + token}).status_code == 200
 
 
 def test_chatgpt_business_tools_do_not_charge_central_ai_credit(mcp, monkeypatch):
@@ -137,7 +138,7 @@ def test_consent_login_without_existing_session(mcp):
     client = mcp[0].test_client()
     url, _, _ = authorization(client)
     response = client.get(url)
-    assert '/console/platform' in response.text
+    assert 'href="/console/"' in response.text
     assert 'autocomplete="current-password"' not in response.text
     with client.session_transaction() as session:
         csrf = session["_csrf"]
@@ -145,6 +146,71 @@ def test_consent_login_without_existing_session(mcp):
     assert response.status_code == 400
     login(client)
     assert 'Allow connection' in client.get(url).text
+
+
+def test_expired_consent_session_returns_to_login_without_granting_access(mcp):
+    client = mcp[0].test_client()
+    url, _, _ = authorization(client)
+    csrf = login(client)
+    with client.session_transaction() as session:
+        mcp_auth.session_store.revoke(session["management_token"])
+    response = client.get(url)
+    assert response.status_code == 200
+    assert 'href="/console/"' in response.text
+    assert "Allow connection" not in response.text
+    assert client.post(url, data={"csrf_token": csrf, "decision": "allow"}).status_code == 401
+
+
+@pytest.mark.parametrize("origin,issue", [
+    ("", "mcp_not_configured"),
+    ("https://[bad-origin", "mcp_invalid_public_url"),
+    ("https://vertex.example/mcp", "mcp_invalid_public_url"),
+    ("https://vertex.example:0", "mcp_invalid_public_url"),
+])
+def test_disabled_mcp_reports_origin_issue_to_owner_and_fails_closed(mcp, monkeypatch, origin, issue):
+    monkeypatch.setenv("MCP_PUBLIC_URL", origin)
+    client = mcp[0].test_client()
+    login(client)
+    settings = client.get("/auth/mcp/connections").json
+    assert settings["configured"] is False
+    assert settings["configuration_issues"] == [issue]
+    assert settings["mcp_url"] == ""
+    assert client.get("/.well-known/oauth-authorization-server").status_code == 503
+    assert client.post("/mcp", json={}).status_code == 503
+
+
+def test_owner_can_distinguish_https_mismatch_from_missing_clients(mcp, monkeypatch):
+    app = mcp[0]
+    client = app.test_client()
+    login(client)
+    monkeypatch.delenv("MCP_OAUTH_CLIENTS")
+    settings = client.get("/auth/mcp/connections").json
+    assert settings["configured"] is False
+    assert settings["configuration_issues"] == ["mcp_no_oauth_clients"]
+    # Production enforces the canonical HTTPS origin and secure login cookie.
+    monkeypatch.setattr(app, "testing", False)
+    settings = client.get("/auth/mcp/connections").json
+    assert settings["configuration_issues"] == [
+        "mcp_https_configuration_required", "mcp_no_oauth_clients",
+    ]
+
+
+def test_malformed_client_does_not_hide_a_valid_registration(mcp, monkeypatch):
+    monkeypatch.setenv("MCP_OAUTH_CLIENTS", json.dumps({
+        "test-client": {"redirect_uris": ["https://chatgpt.com/callback"]},
+        "broken-client": {"redirect_uris": ["https://example.test:invalid/callback"],
+                          "secret_hash": "synthetic-secret-do-not-echo"},
+    }))
+    client = mcp[0].test_client()
+    login(client)
+    response = client.get("/auth/mcp/connections")
+    settings = response.json
+    assert settings["configured"] is True
+    assert settings["configuration_issues"] == ["mcp_invalid_oauth_configuration"]
+    assert settings["clients"] == ["test-client"]
+    assert "synthetic-secret-do-not-echo" not in response.text
+    token = issue(client, "business:read")[0]["access_token"]
+    assert rpc(client, token, "tools/list").status_code == 200
 
 
 def test_tenant_isolation_all_reads_and_writes(mcp):
@@ -339,7 +405,9 @@ def test_mcp_tokens_are_hashed_at_rest_and_client_removal_revokes(mcp, monkeypat
     assert tokens["refresh_token"] not in stored
     assert form["code"] not in stored
     monkeypatch.setenv("MCP_OAUTH_CLIENTS", "{}")
-    assert rpc(client, tokens["access_token"], "ping").status_code != 200
+    response = rpc(client, tokens["access_token"], "ping")
+    assert response.status_code == 401
+    assert "resource_metadata" in response.headers["WWW-Authenticate"]
 
 
 def test_production_oauth_requires_matching_https_cookie_configuration(mcp):
