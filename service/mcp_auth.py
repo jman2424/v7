@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 from flask import abort, current_app, g
+from werkzeug.exceptions import BadRequest, HTTPException
 
 from service import session_store
 from service.audit import AuditService
@@ -25,12 +26,29 @@ from service.security import _revision, _verify_password, management_user
 SCOPES = {"business:read", "business:write"}
 
 
+def _https_url(value):
+    if (not isinstance(value, str) or '\\' in value
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)):
+        return None
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if (parsed.scheme != "https" or not parsed.hostname or port == 0
+            or parsed.username is not None or parsed.password is not None or parsed.fragment):
+        return None
+    return parsed
+
+
 def issuer():
-    value = os.getenv("MCP_PUBLIC_URL", "").rstrip("/")
-    parsed = urlsplit(value)
-    if (parsed.scheme != "https" or not parsed.netloc or parsed.path
-            or parsed.query or parsed.fragment or parsed.username or parsed.password):
+    configured = os.getenv("MCP_PUBLIC_URL", "")
+    if not configured:
         abort(503, description="mcp_not_configured")
+    value = configured.rstrip("/")
+    parsed = _https_url(value)
+    if not parsed or parsed.path or '?' in value or '#' in value:
+        abort(503, description="mcp_invalid_public_url")
     if not current_app.testing and (
             current_app.container.settings.BASE_URL.rstrip("/") != value
             or not current_app.config.get("SESSION_COOKIE_SECURE")):
@@ -49,25 +67,35 @@ def require_origin(origin):
         abort(403)
 
 
-def client_config(client_id):
+def _registered_clients():
     try:
         clients = json.loads(os.getenv("MCP_OAUTH_CLIENTS", "{}"))
-        config = clients.get(client_id) if isinstance(clients, dict) else None
-        if not isinstance(config, dict):
-            abort(400, description="invalid_client")
-        redirects = config.get("redirect_uris", [])
-        if not isinstance(redirects, list) or not redirects:
-            abort(503)
-        for uri in redirects:
-            p = urlsplit(uri)
-            if p.scheme != "https" or not p.netloc or p.fragment or p.username or p.password:
-                abort(503)
-        if config.get("secret_hash") and (not isinstance(config["secret_hash"], str)
-                or not config["secret_hash"].startswith("scrypt:")):
-            abort(503, description="invalid_oauth_configuration")
-        return config
     except (ValueError, TypeError):
         abort(503, description="invalid_oauth_configuration")
+    if not isinstance(clients, dict):
+        abort(503, description="invalid_oauth_configuration")
+    return clients
+
+
+def _valid_client(config):
+    if not isinstance(config, dict):
+        return False
+    redirects = config.get("redirect_uris")
+    if (not isinstance(redirects, list) or not redirects
+            or any(not _https_url(uri) or '#' in uri for uri in redirects)):
+        return False
+    secret_hash = config.get("secret_hash")
+    return secret_hash is None or (isinstance(secret_hash, str)
+                                   and (not secret_hash or secret_hash.startswith("scrypt:")))
+
+
+def client_config(client_id):
+    config = _registered_clients().get(client_id)
+    if not isinstance(config, dict):
+        abort(400, description="invalid_client")
+    if not _valid_client(config):
+        abort(503, description="invalid_oauth_configuration")
+    return config
 
 
 @contextmanager
@@ -191,14 +219,20 @@ def exchange(form):
 
 def authenticate(header):
     issuer()  # Disabled unless explicitly configured; never fall back to cookies.
-    if not header.startswith("Bearer "):
+    scheme, separator, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not separator:
         abort(401, description="invalid_token")
     with database() as db:
-        payload = _get(db, header[7:], "access")
+        payload = _get(db, token.lstrip(" "), "access")
     if not payload:
         abort(401, description="invalid_token")
     identity = live_identity(payload)
-    client_config(payload["client_id"])  # Removing a registered client revokes access.
+    try:
+        client_config(payload["client_id"])
+    except BadRequest:
+        # A removed client invalidates its existing bearer grants. Keep
+        # deployment/configuration errors distinct from revoked credentials.
+        abort(401, description="invalid_token")
     rate_limit("owner:" + identity["id"] + ":" + identity["tenant"], 60)
     return identity, set(payload["scope"].split())
 
@@ -264,23 +298,29 @@ def revoke_owner(identity, connection_id=None, source="dashboard"):
 
 
 def connection_settings(identity):
-    from werkzeug.exceptions import HTTPException
     base = ''
-    clients = []
-    configured = False
+    issues = []
     try:
         base = issuer()
-        entries = json.loads(os.getenv('MCP_OAUTH_CLIENTS', '{}'))
-        if isinstance(entries, dict):
-            for client_id in entries:
-                client_config(client_id)
-                clients.append(client_id)
-        configured = bool(clients)
-    except (HTTPException, ValueError, TypeError):
-        clients = []
+    except HTTPException as error:
+        issues.append(next((code for code in (
+            'mcp_not_configured', 'mcp_invalid_public_url', 'mcp_https_configuration_required',
+        ) if error.description == code), 'mcp_not_configured'))
+    clients = []
+    try:
+        entries = _registered_clients()
+    except HTTPException:
+        issues.append('mcp_invalid_oauth_configuration')
+    else:
+        clients = [client_id for client_id, config in entries.items() if _valid_client(config)]
+        if not entries:
+            issues.append('mcp_no_oauth_clients')
+        elif len(clients) != len(entries):
+            issues.append('mcp_invalid_oauth_configuration')
     owner = identity.get('roles') == ['business_owner']
     connected = []
-    if owner:
+    configured = bool(base and clients)
+    if owner and configured:
         with database() as db:
             predicate = ("payload::jsonb #>> '{identity,id}'=? AND payload::jsonb #>> '{identity,tenant}'=?"
                          if session_store._using_postgres() else
@@ -288,7 +328,7 @@ def connection_settings(identity):
             rows = _execute(db, "SELECT payload FROM mcp_grants WHERE kind IN ('access','refresh') AND expires>? AND " + predicate,
                               (time.time(), identity['id'], identity.get('tenant'))).fetchall()
         connected = sorted({json.loads(row[0])['client_id'] for row in rows} & set(clients))
-    return dict(configured=configured, owner_access=owner, clients=clients,
+    return dict(configured=configured, configuration_issues=issues, owner_access=owner, clients=clients,
                 connected_clients=connected, mcp_url=base+'/mcp' if base else '',
                 api_url=base+'/api/v1' if base else '',
                 authorization_url=base+'/oauth/authorize' if base else '',

@@ -164,7 +164,18 @@
   {#if settings && presentation!=='activity'}
     {#if channel}<nav class="channel-workflow" aria-label={channel+' setup steps'}><a href="#channel-connect"><span>1</span>Connect</a><a href="#channel-settings"><span>2</span>Configure</a><a href="#channel-test"><span>3</span>Test</a><a href="#channel-settings"><span>4</span>Activate</a><a href="#hub-activity"><span>5</span>Monitor</a></nav><div class="channel-readiness" id="channel-connect"><strong>{readiness[channel].configured?'Provider routing configured':'Connect your provider first'}</strong><p>{!grants[channel]?'The platform operator must permit this channel before you can enable it.':!workerEnabled?'Configuration can be saved, but the platform worker must be enabled for live handling.':readiness[channel].configured?'Configure handling, test a real enquiry, then enable this channel below.':'Complete the provider connection below before enabling customer handling.'}</p></div>{/if}
     {#if showRules}<AgentModules {tenant} {csrf} {canManage} {isPlatform} {apiPrefix} onReady={(value)=>moduleInitialized=value} onSaved={load}/>{/if}
-    {#if !channel||channel==='email'}<BusinessEmailSetup {tenant} {csrf} {canManage} {apiPrefix}/>{/if}
+    {#if !channel||channel==='email'}
+      <BusinessEmailSetup {tenant} {csrf} {canManage} {apiPrefix}/>
+      {#if canManage}
+        {#await import('./EmailCampaigns.svelte')}
+          <p role="status">Loading email campaigns…</p>
+        {:then campaignPanel}
+          <svelte:component this={campaignPanel.default} {tenant} {csrf} {canManage} {apiPrefix}/>
+        {:catch}
+          <p role="alert">Email campaigns could not be loaded. Reload the page to try again.</p>
+        {/await}
+      {/if}
+    {/if}
     {#if !channel||channel==='phone'}<section class="notice" aria-labelledby="phone-setup-title"><h3 id="phone-setup-title">Connect your business phone</h3>
       <p>Bring a voice-capable Twilio number you control. Your platform operator securely connects the provider account and assigns the exact number to your company. Start in review mode to take messages; automatic mode answers permitted business questions.</p>
       <label>Incoming call webhook<input readonly value={phoneWebhook}/></label>

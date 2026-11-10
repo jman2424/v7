@@ -6,24 +6,33 @@ interrupted generation/send goes to review instead of silently repeating spend.
 from __future__ import annotations
 
 import atexit
+from functools import partial
 import os
-import re
 import secrets
 from threading import Event, Lock, Thread
 import time
 
 from connectors import business_email
 from service import business_channels as channels, business_operations as operations
+from service.ai_disclosure import phone_copy
+from service.channel_intelligence import navigation_targets, render_queued_reply
 
-_lock, _wake, _stop = Lock(), Event(), Event()
-_thread = None
+_lock, _stop = Lock(), Event()
+_wake_events = {lane: Event() for lane in ('phone', 'background')}
+_threads = {}
 _retention_thread = None
 _pid = None
-_tenant_offset = 0
+_tenant_offsets = {'all': 0, 'phone': 0, 'background': 0}
 
 
 def wake():
-    _wake.set()
+    for signal in _wake_events.values():
+        signal.set()
+
+
+def _shutdown():
+    _stop.set()
+    wake()
 
 
 def _answer(container, job, text):
@@ -31,51 +40,20 @@ def _answer(container, job, text):
     runtime = container.for_tenant(tenant)
     result = runtime.handler.handle(text, tenant=tenant, session_id=job['conversation_id'], channel=channel,
                                     metadata={'request_id': secrets.token_hex(12), 'source': 'business_channel'})
-    if not isinstance(result, dict):
-        raise ValueError('channel_invalid_answer')
-    answer = result.get('reply')
-    if not isinstance(answer, str) or not answer.strip() or len(answer) > 6000 or '\x00' in answer:
-        raise ValueError('channel_invalid_answer')
-    agent = result.get('agent') or {}
-    if not isinstance(agent, dict):
-        raise ValueError('channel_invalid_agent')
-    verified = result.get('_validated_channel_answer') is True
-    targets, inline = [], []
-    if verified and (channel == 'email' or re.search(r'https?://', answer, re.I)):
-        # Source statements can contain exact approved links. Reuse the widget's
-        # canonicalizer; it leaves every unknown URL in place for rejection below.
-        from service.website_destinations import public_targets, buttonize_reply
-        from service.platform_offer_knowledge import public_destinations
+
+    def targets():
         original = runtime.handler.h_v7
         refresh = getattr(original, 'request_copy', None)
         v7 = refresh() if callable(refresh) else original
-        targets = public_targets(v7.website_destinations, v7.website_knowledge, v7.business_profile.get('website', ''))
-        targets += public_destinations(tenant, v7.website_destinations)
-        answer, inline = buttonize_reply(answer, targets)
-    if re.search(r'https?://|mailto:|tel:', answer, re.I):
-        raise ValueError('channel_unapproved_link')
-    # Preserve existing deterministic salutations/boundaries. This does not
-    # bless an extractive FAQ, price, policy, memory recall or model fallback.
-    local_conversation = (result.get('intent') in {'greeting', 'smalltalk', 'out_of_scope'}
-                          and not re.search(r'https?://|[£$€%]|\b\d+(?:[.,]\d+)?\s*(?:GBP|USD|EUR|pounds?|dollars?|euros?)\b', answer, re.I))
-    routine = ((verified or local_conversation) and agent.get('intent') not in {'book', 'quote', 'checkout', 'handoff', 'cancel', 'complaint'}
-               and not agent.get('requested_action')
-               and agent.get('next_action') not in {'open_request_form', 'request_handoff'})
-    if channel == 'email' and verified:
-        # Use current approved page records, never model-written URLs/recipients.
-        chosen = set(agent.get('navigation_ids') or [])
-        inline_urls = {row['url'] for row in inline if row.get('type') == 'navigate'}
-        links = [row['label']+': '+row['url'] for row in targets
-                 if row['id'] in chosen or row['url'] in inline_urls][:3]
-        if links:
-            answer += '\n\n'+'\n'.join(dict.fromkeys(links))
-    if len(answer) > 6000:
-        raise ValueError('channel_answer_too_long')
-    return answer, routine
+        return navigation_targets(v7, tenant)
+
+    language = job.get('payload', {}).get('language')
+    prompt = phone_copy(language, 'website_pages') if channel == 'phone' else None
+    return render_queued_reply(result, channel, targets, phone_page_prompt=prompt)
 
 
-def process_one(container, tenant):
-    job = operations.claim(tenant)
+def process_one(container, tenant, *, lane='all'):
+    job = operations.claim(tenant, lane=lane)
     if job is None:
         return False
     identifier, lease, channel = job['id'], job['lease'], job['channel']
@@ -104,6 +82,13 @@ def process_one(container, tenant):
             if channel != 'email' or time.time()-job['created'] > 23*3600:
                 operations.finish(tenant, identifier, lease, 'uncertain', reply=job['reply'], error_code='send_window_expired')
                 return True
+            approval = payload.get('reply_approval')
+            if approval != 'owner' and (approval == 'automatic' or payload.get('mode_at_intake') == 'automatic'):
+                if (current['mode'] != 'automatic' or payload.get('inbox_id')
+                        or not payload.get('sender_domain_authenticated') or payload.get('attachments')):
+                    operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'],
+                                      error_code='reply_review_required')
+                    return True
             provider_id = business_email.send_reply(job, job['reply'])
             operations.finish(tenant, identifier, lease, 'completed', reply=job['reply'], provider_id=provider_id)
             return True
@@ -111,12 +96,16 @@ def process_one(container, tenant):
             operations.finish(tenant, identifier, lease, 'needs_review', error_code=(
                 'call_transcript_unclear' if payload.get('transcript_needs_review') is True else 'call_message_received'))
             return True
+        if channel == 'phone' and time.time() - job['created'] >= operations.PHONE_REPLY_WINDOW:
+            operations.finish(tenant, identifier, lease, 'needs_review', error_code='call_reply_timed_out')
+            return True
         if channel == 'email':
             if payload.get('restore_thread'):
                 business_email.restore_thread(payload['inbox_id'], payload['thread_id'])
             message = (business_email.receive_inbox(payload['inbox_id'], payload['thread_id'], payload['email_id'])
                        if payload.get('inbox_id') else business_email.receive(payload['email_id']))
-            clean = business_email.content(message, expected_sender=job['source_address'], expected_recipient=payload['recipient'])
+            clean = business_email.content(message, expected_sender=job['source_address'],
+                                           expected_recipient=payload['recipient'], routed_recipients=channels.bindings('email'))
             payload = {**payload, **clean}
             # No raw headers, HTML, attachments, download URLs or credentials.
             if not operations.save_payload(tenant, identifier, lease, payload):
@@ -125,10 +114,7 @@ def process_one(container, tenant):
             if clean['automated']:
                 operations.finish(tenant, identifier, lease, 'rejected', error_code='automated_email_skipped')
                 return True
-            text = ('Subject: '+clean['subject']+'\n\n' if clean['subject'] else '')+clean['text']
-            if len(text) > 4000:
-                operations.finish(tenant, identifier, lease, 'needs_review', error_code='email_body_needs_review')
-                return True
+            text = business_email.question_text(clean)
         else:
             text = payload['text']
         answer, routine = _answer(container, job, text)
@@ -139,17 +125,19 @@ def process_one(container, tenant):
         automatic = (enabled and current['mode'] == latest['mode'] == payload.get('mode_at_intake') == 'automatic'
                      and routine and channels.bindings(channel).get(payload['recipient']) == tenant)
         if channel == 'email':
-            automatic = automatic and payload['sender_domain_authenticated'] and not payload['attachments']
+            automatic = (automatic and not payload.get('inbox_id')
+                         and payload['sender_domain_authenticated'] and not payload['attachments'])
             state = 'approved' if automatic else 'needs_review'
             operations.finish(tenant, identifier, lease, state, reply=answer,
-                              error_code='' if automatic else 'reply_review_required')
+                              error_code='' if automatic else 'reply_review_required',
+                              payload={**payload, 'reply_approval': 'automatic'} if automatic else None)
         else:
-            state = 'completed' if automatic and len(answer) <= 1400 else 'needs_review'
-            if state == 'completed' and not operations.save_payload(tenant, identifier, lease,
-                    {**payload, 'phone_reply_verified': True}):
-                return True
+            timed_out = time.time() - job['created'] >= operations.PHONE_REPLY_WINDOW
+            state = 'completed' if automatic and not timed_out and len(answer) <= 1400 else 'needs_review'
+            error = 'call_reply_timed_out' if timed_out else 'call_followup_required'
             operations.finish(tenant, identifier, lease, state, reply=answer,
-                              error_code='' if state == 'completed' else 'call_followup_required')
+                              error_code='' if state == 'completed' else error,
+                              payload={**payload, 'phone_reply_verified': True} if state == 'completed' else None)
     except business_email.EmailTransportError as exc:
         operations.finish(tenant, identifier, lease, 'uncertain' if exc.uncertain else 'needs_review',
                           reply=job['reply'], error_code=exc.code)
@@ -169,25 +157,25 @@ def process_one(container, tenant):
     return True
 
 
-def run_pending(container, limit=20, *, tenants=None):
-    global _tenant_offset
+def run_pending(container, limit=20, *, tenants=None, lane='all'):
     count = 0
     # A bounded share per tenant prevents one busy inbox monopolising a pass.
     tenants = channels.configured_tenants() if tenants is None else list(tenants)
     if not tenants:
         return 0
-    start = _tenant_offset % len(tenants)
+    process = process_one if lane == 'all' else partial(process_one, lane=lane)
+    start = _tenant_offsets[lane] % len(tenants)
     for index in range(len(tenants)):
         tenant = tenants[(start+index) % len(tenants)]
         try:
             for _ in range(2):
-                if count >= limit or not process_one(container, tenant):
+                if count >= limit or not process(container, tenant):
                     break
                 count += 1
         except Exception as exc:
             from service.chat_diagnostics import emit
             emit('chat_optional_failure', phase='business_channel_tenant', error_type=type(exc).__name__)
-        _tenant_offset = (start+index+1) % len(tenants)
+        _tenant_offsets[lane] = (start+index+1) % len(tenants)
         if count >= limit:
             break
     return count
@@ -212,27 +200,31 @@ def run_retention(container, *, tenants=None, provider_cleanup=True):
 
 
 def start(app):
-    global _thread, _retention_thread, _pid
+    global _retention_thread, _pid
     if os.getenv('V7_CHANNEL_WORKER', 'false') != 'true' or app.testing:
         return
     with _lock:
-        if (_pid == os.getpid() and _thread and _thread.is_alive()
+        if (_pid == os.getpid() and all(lane in _threads and _threads[lane].is_alive() for lane in _wake_events)
                 and _retention_thread and _retention_thread.is_alive()):
             return
+        if _pid != os.getpid():
+            _threads.clear()
+            atexit.register(_shutdown)
         _pid = os.getpid()
         _stop.clear()
-        def loop():
+        def loop(lane, signal):
             while not _stop.is_set():
+                signal.clear()
                 try:
                     with app.app_context():
-                        run_pending(app.container)
+                        run_pending(app.container, lane=lane)
                 except Exception as exc:
                     app.logger.warning('Business channel worker failed (%s)', type(exc).__name__)
-                _wake.wait(3)
-                _wake.clear()
-        if not _thread or not _thread.is_alive():
-            _thread = Thread(target=loop, name='v7-business-channels', daemon=True)
-            _thread.start()
+                signal.wait(3)
+        for lane, signal in _wake_events.items():
+            if lane not in _threads or not _threads[lane].is_alive():
+                _threads[lane] = Thread(target=loop, args=(lane, signal), name=f'v7-channel-{lane}', daemon=True)
+                _threads[lane].start()
         def retention_loop():
             while not _stop.is_set():
                 try:
@@ -244,7 +236,6 @@ def start(app):
         if not _retention_thread or not _retention_thread.is_alive():
             _retention_thread = Thread(target=retention_loop, name='v7-channel-retention', daemon=True)
             _retention_thread.start()
-        atexit.register(lambda: (_stop.set(), _wake.set()))
 
 
 if __name__ == '__main__':

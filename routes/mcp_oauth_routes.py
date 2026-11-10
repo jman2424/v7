@@ -3,7 +3,7 @@ from urllib.parse import parse_qsl, urlencode
 import re
 
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, session, url_for
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, Unauthorized
 from werkzeug.datastructures import MultiDict
 
 from service import mcp_auth
@@ -50,22 +50,30 @@ def metadata():
 @bp.route("/oauth/authorize", methods=["GET", "POST"])
 def authorize():
     data = mcp_auth.authorization_request(request.args)
-    error = None
-    if request.method == 'POST' and request.form.get('decision') not in {'allow','deny'}:
-        abort(400)
-    identity = management_user() if session.get("management_token") else None
-    if identity and identity.get("roles") != ["business_owner"]:
-        abort(403)
-    if request.method == "POST" and request.form.get("decision") in {"allow", "deny"}:
+    if request.method == "POST":
+        decisions = request.form.getlist("decision")
+        if len(decisions) != 1 or decisions[0] not in {"allow", "deny"}:
+            abort(400)
         identity = management_user()
+        if identity.get("roles") != ["business_owner"]:
+            abort(403)
         result = {"state": data["state"]}
-        if request.form["decision"] == "allow":
+        if decisions[0] == "allow":
             result["code"] = mcp_auth.authorize(data, identity)
         else:
             result["error"] = "access_denied"
         separator = "&" if "?" in data["redirect_uri"] else "?"
         return redirect(data["redirect_uri"] + separator + urlencode(result), 303)
-    return render_template("mcp_consent.html", identity=identity, data=data, error=error)
+    try:
+        identity = management_user() if session.get("management_token") else None
+    except Unauthorized:
+        # A browser revisiting consent with an expired session needs a way back
+        # to sign-in. A consent decision still requires an active session.
+        session.pop("management_token", None)
+        identity = None
+    if identity and identity.get("roles") != ["business_owner"]:
+        abort(403)
+    return render_template("mcp_consent.html", identity=identity, data=data)
 
 
 @bp.post("/oauth/token")

@@ -965,7 +965,7 @@ def answer(client, model, question, knowledge, history, tone, *, destinations=No
             messages=[{"role": "system", "content": system_instructions},
                       {"role": "user", "content": json.dumps({
                           "tone": tone,
-                          "response_channel": response_channel if response_channel in {'web', 'test', 'email', 'phone', 'whatsapp'} else 'web',
+                          "response_channel": response_channel if response_channel in {'web', 'test', 'email', 'phone', 'whatsapp', 'campaign'} else 'web',
                           "channel_workflow": workflow['role'],
                           "approved_request_actions": allowed_actions,
                           "knowledge": prompt_knowledge(knowledge, prioritized=[

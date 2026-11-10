@@ -64,3 +64,34 @@ Conversation context stays within its existing channel/session boundary. Email
 uses the validated enquiry supplied at intake; unrelated emails and identities
 are not joined into an inferred customer profile. Review mode remains review
 mode. Phone still needs its approved provider/number setup before activation.
+
+## Email replies, phone delivery and campaigns
+
+Inbound email and phone use the same tenant handler as the widget and WhatsApp.
+Delivery turns its verified answer into labelled links in email or concise speech
+with approved page names on the phone. Email accepts a new question in the subject
+and removes quoted replies and hidden HTML from the current enquiry. Automatic
+email replies require a provider-authenticated sender domain and an eligible
+answer. Connected Inbox replies require review. Changing email to review mode
+returns automatically approved drafts to the review queue before submission.
+
+Live calls have a separate processing lane and a 22-second answer window. A late
+or unverified answer goes to the team's queue. Callers can press 0 to leave a
+message and press 9 to end the call. The phone provider and number must be
+configured before a live test.
+
+In **Channels → Email → Email campaigns**, a business owner can draft copy using
+the same public business facts and metered model, edit the subject and message,
+confirm marketing consent, review the recipient count, and explicitly submit a
+broadcast. The provider inserts the unsubscribe link and handles opted-out
+contacts. V7 adds the sender's business mailing address and AI-assisted notice.
+Submission status means provider acceptance. An uncertain outcome requires
+reconciliation before further action.
+
+The operator connects campaigns with the server-only
+`V7_EMAIL_CAMPAIGN_ROUTES_JSON` mapping. Each exact tenant key needs its own
+`segment_id`, verified `sender`, `business_name`, `mailing_address`, and dedicated
+`api_key`. Maintain an opted-in marketing segment in Resend and keep support
+enquiries outside that audience. Review expires after 30 minutes and must be
+repeated if the sender configuration or audience changes. A segment can contain
+up to 100 contacts, and a business can store up to 50 campaigns.

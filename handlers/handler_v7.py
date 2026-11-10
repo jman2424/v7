@@ -905,7 +905,7 @@ class MessageHandlerV7:
         if client is None:
             return None
         knowledge = {"business": {key: value for key, value in self.sales_context.items() if key != 'business_core'}}
-        from service.platform_offer_knowledge import public_knowledge, public_destinations, public_plan_context, public_setup_policy, automatic_offer_answer
+        from service.platform_offer_knowledge import public_knowledge, public_plan_context, public_setup_policy, automatic_offer_answer
         live_offer = public_knowledge(self.tenant_key)
         plan_context = public_plan_context(self.tenant_key)
         from service.plan_catalog import public_plans
@@ -1097,10 +1097,8 @@ class MessageHandlerV7:
                     if terms:
                         public_offer['terms'] = terms
                     knowledge[f'offer:{index}'] = public_offer
-        from service.website_destinations import public_targets
-        destinations = public_targets(self.website_destinations, self.website_knowledge,
-                                      self.business_profile.get('website', ''))
-        destinations += public_destinations(self.tenant_key, self.website_destinations)
+        from service.channel_intelligence import navigation_targets
+        destinations = navigation_targets(self, self.tenant_key)
         selected = []
         agent_state = {}
         allowed_actions = [action for action in ('consultation', 'quote', 'callback')
@@ -1341,11 +1339,9 @@ class MessageHandlerV7:
         response['reply'] = current_promotion_reply(self.tenant_key, response['reply'])
         if channel not in {'web', 'test', 'whatsapp'}:
             return response
-        from service.website_destinations import public_targets, buttonize_reply
-        from service.platform_offer_knowledge import public_destinations
-        targets = public_targets(self.website_destinations, self.website_knowledge,
-                                 self.business_profile.get('website', ''))
-        targets += public_destinations(self.tenant_key, self.website_destinations)
+        from service.website_destinations import buttonize_reply
+        from service.channel_intelligence import navigation_targets
+        targets = navigation_targets(self, self.tenant_key)
         if channel == 'whatsapp':
             from service.channel_intelligence import append_message_links
             agent = response.get('agent')

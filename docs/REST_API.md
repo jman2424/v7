@@ -16,9 +16,8 @@ unrelated OAuth tokens, API keys or caller-provided tenant IDs.
 
 `MCP_PUBLIC_URL` must match the HTTPS `BASE_URL`, and clients must be registered in
 the server-only `MCP_OAUTH_CLIENTS` configuration. Without configuration, both
-transports fail closed. Owners sign in through `/console/platform`, including
-authenticator verification, then return to the consent page. No additional login
-page, Google login or automatic client registration is introduced.
+transports fail closed. Owners sign in through `/console/` and complete
+authenticator verification before returning to the consent page.
 
 - Only the MCP-supported `business_owner` identity can obtain a grant.
 - The tenant comes from that grant's server-authenticated identity. `tenant`
@@ -51,10 +50,11 @@ page, Google login or automatic client registration is introduced.
 | `GET /api/v1/errors` | `get_error_summary` |
 | `GET /api/v1/errors/recent` | `get_recent_errors` |
 
-The [OpenAPI contract](../schemas/vertex-api.openapi.json) lists all 22 operations,
-including business overview, conversations, popular queries, usage and service
-status. Generate it with `python scripts/export_vertex_api.py`; argument schemas
-come directly from the MCP definitions, preventing separate validation rules.
+The public contract is available at `GET /api/v1/openapi.json` and in the
+[repository](../schemas/vertex-api.openapi.json). It covers every mapped REST
+operation, including business overview, conversations, usage and service status.
+Generate it with `python scripts/export_vertex_api.py` after changing shared MCP
+arguments or REST mappings.
 
 GET arguments use query parameters, with bounded integer `minutes`, `offset` and
 `limit` where supported. Statistics accepts either `minutes` or both `start_at`
@@ -103,7 +103,17 @@ Live OAuth client linking requires deployment-specific configuration and validat
 
 ## Console setup
 
-Open **Integrations → MCP & API connections** for server URLs, registered client IDs, OAuth details and a copyable request. Owners can view their connected apps and revoke their own MCP/REST grants together. Configuration status is not a live connection test; server OAuth configuration is still required.
+Open **Settings → Connected apps → MCP & API connections** for the public contract, OAuth
+endpoints, registered client IDs and a copyable request. Register the
+integration's exact HTTPS callback with the platform operator, request
+`business:read` with S256 PKCE, and approve from the assigned business-owner
+account. Include the MCP resource URL in both the authorization and token
+requests. The resulting access token authenticates `GET /api/v1/health`.
+Owners can view and revoke their MCP and REST grants together.
+
+An HTTP 503 with an integration configuration error requires an operator to
+correct the HTTPS address or OAuth client settings. An HTTP 401 from a
+configured REST endpoint means it needs a valid Vertex access token.
 
 ## Generic business records
 

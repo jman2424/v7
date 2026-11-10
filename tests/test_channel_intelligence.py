@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from service import grounded_conversation, channel_worker, business_operations as operations
-from service.channel_intelligence import response_profile, append_message_links
+from service.channel_intelligence import append_message_links, draft_campaign, render_queued_reply, response_profile
 from tests.test_business_channel_providers import configured as _configured, intake, received, phone
 from xml.etree import ElementTree
 from tests.test_grounded_conversation import _state
@@ -64,6 +64,66 @@ def test_real_email_worker_can_prepare_verified_routine_reply(client, app, confi
     assert job['state'] == 'approved'
     assert TERMS in job['reply']
     assert not job['provider_id']  # A second, separate send stage is still required.
+
+
+def test_switching_email_to_review_revokes_automatic_send_but_allows_owner_approval(client, app, configured, monkeypatch):
+    from connectors import business_email
+    from service.business_channels import FILENAME, settings
+
+    shared_brain(configured, monkeypatch)
+    identifier = intake(client).json['reference']
+    monkeypatch.setattr(business_email, 'receive', lambda _: received(text='How do estimates work?'))
+    sent = []
+    monkeypatch.setattr(business_email, 'send_reply', lambda job, _: sent.append(job['id']) or 'synthetic-send')
+    with app.app_context():
+        channel_worker.process_one(configured, 'EXAMPLE')
+        assert operations.get('EXAMPLE', identifier)['payload']['reply_approval'] == 'automatic'
+        policy = settings(configured.storage, 'EXAMPLE')
+        policy['email']['mode'] = 'review'
+        configured.storage.write_json('EXAMPLE', FILENAME, policy)
+        channel_worker.process_one(configured, 'EXAMPLE')
+        review = operations.get('EXAMPLE', identifier)
+        assert review['state'] == 'needs_review' and not sent
+        operations.decide('EXAMPLE', identifier, review['version'], 'approve')
+        channel_worker.process_one(configured, 'EXAMPLE')
+    assert sent == [identifier] and operations.get('EXAMPLE', identifier)['state'] == 'completed'
+
+
+def test_phone_worker_lane_does_not_claim_waiting_inbox_work(client, app, configured, monkeypatch):
+    from connectors import business_email
+
+    email = intake(client).json['reference']
+    call, _ = operations.enqueue('EXAMPLE', 'phone', 'phone-lane-test', 'phone:lane-test',
+                                 '+447000000001', {'recipient': '+447700900001', 'mode_at_intake': 'review'})
+    monkeypatch.setattr(business_email, 'receive', lambda _: pytest.fail('phone lane fetched email'))
+    with app.app_context():
+        assert channel_worker.process_one(configured, 'EXAMPLE', lane='phone')
+    reviewed = operations.get('EXAMPLE', call['id'])
+    assert reviewed['state'] == 'needs_review' and reviewed['error_code'] == 'call_message_received'
+    assert operations.get('EXAMPLE', email)['state'] == 'queued'
+
+
+def test_campaign_draft_uses_same_grounded_model_and_has_no_customer_tools(app, configured, monkeypatch):
+    _, calls = shared_brain(configured, monkeypatch)
+    with app.app_context():
+        body = draft_campaign(configured, 'EXAMPLE', 'How do estimates work?')
+    assert TERMS in body
+    call, context = calls[0]
+    assert call['model'] == 'synthetic-shared-model'
+    assert context['response_channel'] == 'campaign'
+    assert context['approved_request_actions'] == [] and context['recent_conversation'] == []
+
+
+def test_email_links_and_spoken_pages_preserve_the_same_material_terms():
+    target = {'id': 'estimates', 'label': 'Estimates', 'url': 'https://business.example/estimates'}
+    reply = {'reply': '**From £80**\n- The team confirms the final quote after inspection.',
+             'agent': {'navigation_ids': ['estimates']}, '_validated_channel_answer': True}
+    email, email_routine = render_queued_reply(reply, 'email', lambda: [target])
+    spoken, phone_routine = render_queued_reply(reply, 'phone', lambda: [target],
+                                             phone_page_prompt='See {pages} on our website.')
+    assert email_routine and phone_routine
+    assert target['url'] in email and target['url'] not in spoken
+    assert spoken == 'From £80. The team confirms the final quote after inspection. See Estimates on our website.'
 
 
 def test_real_phone_worker_can_speak_verified_business_answer(client, app, configured, monkeypatch):

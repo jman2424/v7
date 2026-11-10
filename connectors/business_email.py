@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import base64
 import binascii
-from email.utils import parseaddr
+from collections.abc import Collection
+from email.errors import HeaderParseError
+from email.headerregistry import HeaderRegistry
 from html.parser import HTMLParser
 import hashlib
 import hmac
@@ -15,6 +17,22 @@ import time
 
 from service.business_channels import address, resend_key, UUID
 from service.ai_disclosure import email_reply
+
+
+_MAILBOX_HEADER = HeaderRegistry()
+_QUESTION_LIMIT = 4000
+_BODY_LIMIT = 100000
+_REPLY_PREFIX = re.compile(r'^(?:(?:re|fw|fwd|aw|wg|tr)\s*:\s*)+', re.I)
+_FORWARDED_SEPARATOR = re.compile(r'-{2,}\s*(?:original|forwarded) message\s*-*', re.I)
+_EMPTY_SUBJECTS = {'no subject', '(no subject)', '[no subject]', '<no subject>'}
+_HIDDEN_TAGS = {'blockquote', 'head', 'script', 'style', 'template', 'title'}
+_VOID_TAGS = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
+              'param', 'source', 'track', 'wbr'}
+_QUOTE_CLASSES = {'gmail_quote', 'gmail_attr', 'moz-cite-prefix', 'yahoo_quoted'}
+_HIDDEN_STYLE = re.compile(r'(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b', re.I)
+_REFERENCE_ATOM = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                            "!#$%&'*+-/=?^_`{|}~.")
+_REFERENCE_DOMAIN = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-')
 
 
 class EmailTransportError(RuntimeError):
@@ -45,9 +63,9 @@ def verify(raw, headers, secret, *, now=None):
                for version, separator, value in (item.partition(',') for item in signatures.split()) if separator)
 
 
-def _request(method, path, *, data=None, idempotency_key=None):
-    key = resend_key()
-    if not key:
+def _request(method, path, *, data=None, idempotency_key=None, api_key=None):
+    key = resend_key() if api_key is None else api_key
+    if not isinstance(key, str) or not key:
         raise EmailTransportError('email_not_configured')
     headers = {'Authorization': 'Bearer '+key, 'Content-Type': 'application/json',
                'User-Agent': 'VertexSeven/1.0 business-channels'}
@@ -59,7 +77,9 @@ def _request(method, path, *, data=None, idempotency_key=None):
         response = connection.getresponse()
         raw = response.read(262145)
         if not 200 <= response.status < 300:
-            raise EmailTransportError('email_provider_rejected', uncertain=method != 'GET' and response.status >= 500)
+            # A conflicting write can already be in progress at Resend.
+            uncertain = method != 'GET' and (response.status == 409 or response.status >= 500)
+            raise EmailTransportError('email_provider_rejected', uncertain=uncertain)
         if len(raw) > 262144:
             raise EmailTransportError('email_provider_response_invalid', uncertain=method != 'GET')
         result = json.loads(raw)
@@ -75,9 +95,12 @@ def _request(method, path, *, data=None, idempotency_key=None):
 
 
 def receive(email_id):
-    if not isinstance(email_id, str) or not re.fullmatch(r'[a-fA-F0-9-]{36}', email_id):
+    if not isinstance(email_id, str) or not UUID.fullmatch(email_id):
         raise EmailTransportError('invalid_email_id')
-    return _request('GET', '/emails/receiving/'+email_id+'?html_format=cid')
+    result = _request('GET', '/emails/receiving/'+email_id+'?html_format=cid')
+    if result.get('id') != email_id:
+        raise EmailTransportError('email_envelope_mismatch')
+    return result
 
 
 def receive_inbox(inbox_id, thread_id, email_id):
@@ -119,29 +142,125 @@ def trash_thread(inbox_id, thread_id):
 class _Text(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.text, self.blocked = [], 0
+        self.text = []
+        self.blocked_tags = []
+        self.past_reply_boundary = False
+        self.saw_quoted_content = False
 
     def handle_starttag(self, tag, attrs):
-        if tag in {'script', 'style', 'blockquote', 'head'}:
-            self.blocked += 1
-        elif not self.blocked and tag in {'br', 'p', 'div', 'li'}:
+        if self.past_reply_boundary:
+            return
+        if self.blocked_tags:
+            if tag not in _VOID_TAGS:
+                self.blocked_tags.append(tag)
+            return
+        attributes = dict(attrs)
+        if (attributes.get('id') or '').casefold() == 'divrplyfwdmsg':
+            self.past_reply_boundary = True
+            self.saw_quoted_content = True
+            return
+        classes = (attributes.get('class') or '').casefold().split()
+        quoted = tag == 'blockquote' or bool(_QUOTE_CLASSES.intersection(classes))
+        if quoted:
+            self.saw_quoted_content = True
+        if (tag in _HIDDEN_TAGS or quoted or 'hidden' in attributes
+                or (attributes.get('aria-hidden') or '').casefold() == 'true'
+                or _HIDDEN_STYLE.search(attributes.get('style') or '')):
+            if tag not in _VOID_TAGS:
+                self.blocked_tags.append(tag)
+        elif tag in {'br', 'p', 'div', 'li'}:
             self.text.append('\n')
 
     def handle_endtag(self, tag):
-        if tag in {'script', 'style', 'blockquote', 'head'}:
-            self.blocked = max(0, self.blocked-1)
+        if self.blocked_tags and self.blocked_tags[-1] == tag:
+            self.blocked_tags.pop()
 
     def handle_data(self, data):
-        if not self.blocked:
+        if not self.blocked_tags and not self.past_reply_boundary:
             self.text.append(data)
 
 
-def content(message, *, expected_sender, expected_recipient):
-    """Untrusted envelope/headers do not establish account privileges or memory."""
-    sender = address(parseaddr(message.get('from', ''))[1])
+def _mailbox(value: object) -> str:
+    if (not isinstance(value, str) or not 1 <= len(value) <= 512
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+        raise EmailTransportError('email_envelope_mismatch')
+    try:
+        header = _MAILBOX_HEADER('To', value)
+        if header.defects or len(header.addresses) != 1 or any(group.display_name for group in header.groups):
+            raise ValueError
+        return address(header.addresses[0].addr_spec)
+    except (ValueError, HeaderParseError, IndexError, RecursionError):
+        raise EmailTransportError('email_envelope_mismatch') from None
+
+
+def envelope(message: dict) -> tuple[str, set[str]]:
+    """Normalize one sender and bounded recipients identically at intake and retrieval."""
     recipients = message.get('to')
-    if (sender != expected_sender or not isinstance(recipients, list)
-            or expected_recipient not in [address(parseaddr(value)[1]) for value in recipients if isinstance(value, str)]):
+    if not isinstance(recipients, list) or not 1 <= len(recipients) <= 50:
+        raise EmailTransportError('email_envelope_mismatch')
+    return _mailbox(message.get('from')), {_mailbox(value) for value in recipients}
+
+
+def _message_reference(value: object) -> str:
+    """Use one bounded message identifier when the provider supplies a valid one."""
+    if (not isinstance(value, str) or not 5 <= len(value) <= 998
+            or not value.startswith('<') or not value.endswith('>')):
+        return ''
+    left, separator, right = value[1:-1].partition('@')
+    if (separator and all(part and not part.startswith('.') and not part.endswith('.') and '..' not in part
+                          for part in (left, right)) and all(char in _REFERENCE_ATOM for char in left)
+            and all(char in _REFERENCE_DOMAIN for char in right)):
+        return value
+    return ''
+
+
+def _current_body(value: str) -> str:
+    lines = value.splitlines()
+    current = []
+    for position, line in enumerate(lines):
+        stripped = line.strip()
+        if line == '-- ' or _FORWARDED_SEPARATOR.fullmatch(stripped):
+            break
+        if stripped.casefold().startswith('on ') and not stripped.endswith(('?', '!')):
+            if stripped.casefold().endswith('wrote:'):
+                break
+            for continuation in lines[position+1:position+3]:
+                part = continuation.strip().casefold()
+                if not part or part.startswith(('on ', '>')):
+                    break
+                if part.endswith('wrote:'):
+                    return '\n'.join(current).strip()
+        if not stripped.startswith('>'):
+            current.append(line.rstrip())
+    return '\n'.join(current).strip()
+
+
+def question_text(clean: dict) -> str:
+    """Choose the new enquiry within the shared handler's input limit."""
+    body = clean['text']
+    raw_subject = clean['subject'].strip()
+    subject = _REPLY_PREFIX.sub('', raw_subject).strip()
+    if subject.casefold() in _EMPTY_SUBJECTS or not any(char.isalnum() for char in subject):
+        subject = ''
+    if not body:
+        if subject and subject == raw_subject and not clean.get('previous_content_only'):
+            return subject
+        raise EmailTransportError('email_body_needs_review')
+    if len(body) > _QUESTION_LIMIT:
+        raise EmailTransportError('email_body_needs_review')
+    if subject and ' '.join(subject.split()).casefold() != ' '.join(body.split()).casefold():
+        combined = f'Subject: {subject}\n\n{body}'
+        if len(combined) <= _QUESTION_LIMIT:
+            return combined
+    return body
+
+
+def content(message, *, expected_sender, expected_recipient, routed_recipients: Collection[str] = ()):
+    """Extract a current enquiry and bind it to the signed intake envelope."""
+    sender, recipients = envelope(message)
+    routed = recipients.intersection(routed_recipients)
+    if (sender != expected_sender or expected_recipient not in recipients
+            or routed - {expected_recipient}):
         raise EmailTransportError('email_envelope_mismatch')
     headers = message.get('headers') or {}
     if not isinstance(headers, dict):
@@ -151,44 +270,53 @@ def content(message, *, expected_sender, expected_recipient):
                  or bool(headers.get('list-id')) or headers.get('precedence', '').lower() in {'bulk', 'list', 'junk'}
                  or sender == expected_recipient or re.match(r'(?:mailer-daemon|postmaster|no-?reply)@', sender, re.I))
     subject = message.get('subject') or ''
-    if not isinstance(subject, str) or len(subject) > 200 or any(char in subject for char in '\r\n\x00'):
+    if (not isinstance(subject, str) or len(subject) > 200
+            or any(ord(char) < 32 or ord(char) == 127 for char in subject)):
         raise EmailTransportError('email_subject_invalid')
     text = message.get('text')
     if not isinstance(text, str) or not text.strip():
         html = message.get('html') or ''
-        if not isinstance(html, str) or len(html) > 100000:
+        if not isinstance(html, str) or len(html) > _BODY_LIMIT:
             raise EmailTransportError('email_body_too_large')
         parser = _Text()
         parser.feed(html)
+        parser.close()
         text = ''.join(parser.text)
-    # The new reply text is the request. Quoted/forwarded instructions never
-    # become trusted tool instructions or an authenticated conversation history.
-    text = re.split(r'(?im)^On .{1,200}wrote:\s*$|^-{2,}\s*(?:Original|Forwarded) message\s*-*\s*$', text)[0]
-    text = '\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('>')).strip()
-    if not text or len(text) > 4000 or '\x00' in text:
+        previous_content_only = parser.saw_quoted_content and not text.strip()
+    else:
+        previous_content_only = False
+    if len(text) > _BODY_LIMIT:
+        raise EmailTransportError('email_body_too_large')
+    if '\x00' in text:
         raise EmailTransportError('email_body_needs_review')
-    message_id = message.get('message_id') or ''
-    if not isinstance(message_id, str) or len(message_id) > 998 or any(char in message_id for char in '\r\n\x00'):
-        raise EmailTransportError('email_message_id_invalid')
+    current = _current_body(text)
+    if len(current) > _QUESTION_LIMIT:
+        raise EmailTransportError('email_body_needs_review')
+    previous_content_only = previous_content_only or bool(text.strip() and not current)
     authentication = message.get('authentication') or {}
-    return {'text': text, 'subject': subject, 'message_id': message_id,
-            'automated': bool(automated), 'attachments': bool(message.get('attachments')),
-            'sender_domain_authenticated': isinstance(authentication, dict) and authentication.get('dmarc') == 'pass'}
+    clean = {'text': current, 'subject': subject, 'message_id': _message_reference(message.get('message_id')),
+             'automated': bool(automated), 'attachments': bool(message.get('attachments')),
+             'sender_domain_authenticated': isinstance(authentication, dict) and authentication.get('dmarc') == 'pass'}
+    if previous_content_only:
+        clean['previous_content_only'] = True
+    return clean
 
 
 def send_reply(operation, reply):
     payload = operation['payload']
     sender = address(payload.get('sending_address', payload['recipient']))
     recipient = address(operation['source_address'])
-    if sender == recipient or not isinstance(reply, str) or not reply.strip() or len(reply) > 6000:
+    if sender == recipient or not isinstance(reply, str) or not reply.strip() or len(reply) > 6000 or '\x00' in reply:
         raise EmailTransportError('invalid_email_reply')
     subject = payload.get('subject') or 'Your enquiry'
+    if (not isinstance(subject, str) or len(subject) > 200
+            or any(ord(char) < 32 or ord(char) == 127 for char in subject)):
+        raise EmailTransportError('email_subject_invalid')
+    subject = subject.strip() or 'Your enquiry'
     if not subject.lower().startswith('re:'):
         subject = 'Re: '+subject
-    if len(subject) > 204 or any(char in subject for char in '\r\n\x00'):
-        raise EmailTransportError('email_subject_invalid')
     headers = {'Auto-Submitted': 'auto-replied', 'X-Auto-Response-Suppress': 'All'}
-    message_id = payload.get('message_id')
+    message_id = _message_reference(payload.get('message_id'))
     if message_id:
         headers.update({'In-Reply-To': message_id, 'References': message_id})
     # Recipient, sender and headers come from verified/stored intake, never

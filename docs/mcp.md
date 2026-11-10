@@ -110,6 +110,13 @@ an activated business and do not execute payments.
    confirm it appears in the existing dashboard. Real ChatGPT linking requires
    your deployment and account; local regression tests do not prove that step.
 
+Open **Settings → Connected Apps** to see whether the public origin and an OAuth
+client are configured. A healthy endpoint returns HTTP 401 with a
+`WWW-Authenticate` discovery link when called without a token. An HTTP 503
+from both discovery endpoints points to an invalid or missing public origin.
+The console separates origin and client readiness so you can correct each
+setting independently. Only validated client IDs are shown.
+
 Discovery endpoints:
 
 - `/.well-known/oauth-protected-resource/mcp` (also available without `/mcp`)
