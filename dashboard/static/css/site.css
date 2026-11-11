@@ -18,7 +18,7 @@ body {
   caret-color: var(--v7-accent);
   scrollbar-color: var(--v7-control-line) transparent;
 }
-::selection { background: var(--v7-signal); color: var(--v7-on-signal); }
+::selection { background: var(--v7-mint); color: var(--v7-on-mint); }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { font-family: var(--v7-font-display); font-weight: 600; text-wrap: balance; color: var(--v7-ink); }
 h1 { font-size: var(--v7-text-display); line-height: 1.02; letter-spacing: -0.035em; }
@@ -92,7 +92,7 @@ table { font-variant-numeric: tabular-nums; }
   color: var(--v7-accent); font-size: 0.9375rem; font-weight: 650;
   text-decoration: underline; text-decoration-color: var(--v7-tint-line); text-decoration-thickness: 2px;
 }
-.text-link:hover { text-decoration-color: currentColor; }
+.text-link:hover { text-decoration-color: var(--v7-mint); }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--v7-space-3); margin-block-start: var(--v7-space-6); }
 
 /* Mobile menu */

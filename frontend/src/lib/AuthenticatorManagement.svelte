@@ -70,14 +70,14 @@
 </section>
 
 <style>
-  .authenticator-card {padding:24px;background:#fff;border:1px solid var(--v7-line);border-radius:18px;line-height:1.65}
-  h3 {margin:0 0 10px;font-size:18px} p {font-size:14px;color:var(--v7-muted)}
+  .authenticator-card {padding:24px;background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);line-height:1.65}
+  h3 {margin:0 0 10px;font-size:var(--v7-text-lg)} p {font-size:var(--v7-text-sm);color:var(--v7-muted)}
   form,label {display:grid;gap:10px} form {max-width:440px;gap:18px}
-  label {font-size:14px;font-weight:600} input {min-height:44px;padding:9px;border:1px solid var(--v7-line);border-radius:8px;font:inherit}
+  label {font-size:var(--v7-text-sm);font-weight:600} input {min-height:44px;padding:9px;border:1px solid var(--v7-line);border-radius:var(--v7-radius-control);font:inherit}
   .actions {display:flex;flex-wrap:wrap;gap:12px}
-  button {padding:11px 17px;border:1px solid var(--v7-accent);border-radius:9px;background:var(--v7-accent);color:#fff;font:inherit;cursor:pointer}
-  button.secondary {background:#fff;color:var(--v7-ink)} button:disabled {opacity:.6;cursor:wait}
-  .qr {display:block;width:220px;max-width:100%;height:auto;background:#fff}
-  code {display:block;overflow-wrap:anywhere;font-size:16px;padding:12px;background:var(--v7-tint);border-radius:8px}
-  .note {font-size:12px;margin-bottom:0} [role=alert] {color:#a51825}
+  button {padding:11px 17px;border:1px solid var(--v7-accent);border-radius:var(--v7-radius-control);background:var(--v7-accent);color:#fff;font:inherit;cursor:pointer}
+  button.secondary {background:var(--v7-surface);color:var(--v7-ink)} button:disabled {opacity:.6;cursor:wait}
+  .qr {display:block;width:220px;max-width:100%;height:auto;background:var(--v7-surface)}
+  code {display:block;overflow-wrap:anywhere;font-size:var(--v7-text-md);padding:12px;background:var(--v7-tint);border-radius:var(--v7-radius-control)}
+  .note {font-size:var(--v7-text-xs);margin-bottom:0} [role=alert] {color:#a51825}
 </style>

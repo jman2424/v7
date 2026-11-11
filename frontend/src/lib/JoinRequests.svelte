@@ -28,10 +28,10 @@
   <button disabled={busy} on:click={refresh}>Refresh requests</button>
 </section>
 <style>
-  section{padding:24px;border-radius:18px;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);background:var(--v7-surface);border:1px solid var(--v7-line);min-width:0;}article{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:20px 0;border-bottom:1px solid var(--v7-line)}strong{overflow-wrap:anywhere;flex:1 1 220px;}p{line-height:1.6;color:var(--v7-muted)}button{font:inherit;padding:10px 14px;border:1px solid var(--v7-control-line, #b5c5bc);border-radius:10px;background:white;color:var(--v7-ink);cursor:pointer;min-height:44px}button:disabled{opacity:.6}button:focus-visible{outline:3px solid var(--v7-accent);outline-offset:3px}
-  h3 { margin:0; font-size:21px; letter-spacing:-.025em; }
-    article span { color:var(--v7-muted); font-size:13px; }
+  section{padding:24px;border-radius:var(--v7-radius-panel);box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);background:var(--v7-surface);border:1px solid var(--v7-line);min-width:0;}article{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:20px 0;border-bottom:1px solid var(--v7-line)}strong{overflow-wrap:anywhere;flex:1 1 220px;}p{line-height:1.6;color:var(--v7-muted)}button{font:inherit;padding:10px 14px;border:1px solid var(--v7-control-line, var(--v7-control-line));border-radius:var(--v7-radius-panel);background:var(--v7-surface);color:var(--v7-ink);cursor:pointer;min-height:44px}button:disabled{opacity:.6}button:focus-visible{outline:3px solid var(--v7-accent);outline-offset:3px}
+  h3 { margin:0; font-size:var(--v7-text-xl); letter-spacing:-.025em; }
+    article span { color:var(--v7-muted); font-size:var(--v7-text-sm); }
     .approve { background:var(--v7-accent); color:white; border-color:var(--v7-accent); }
-    [role="alert"] { padding:14px 16px; color:#a12622; background:#fff2f0; border-radius:12px; }
+    [role="alert"] { padding:14px 16px; color:var(--v7-danger); background:var(--v7-danger-soft); border-radius:var(--v7-radius-panel); }
     @media(max-width:600px) { section { padding:18px; } article button { flex:1; } }
 </style>

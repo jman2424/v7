@@ -36,6 +36,8 @@
   --v7-text-2xl: 1.75rem;   /* 28 */
   --v7-text-3xl: clamp(1.875rem, 1.3rem + 2.2vw, 2.75rem);
   --v7-text-display: clamp(2.75rem, 1.4rem + 5.6vw, 5.25rem);
+  /* Page titles and large figures inside the console, where type does not scale with the viewport. */
+  --v7-text-figure: 2rem;
 
   /* Colour. Green fields carry whole regions; signal marks the one thing to act on. */
   --v7-brand: #12352a;
@@ -46,6 +48,11 @@
   --v7-signal: #f4c542;
   --v7-signal-hover: #ffd75e;
   --v7-on-signal: #1a2a12;
+  /* Pool mint: the highlight colour. Amber is for the action; mint is for emphasis. */
+  --v7-mint: #86e3c8;
+  --v7-mint-soft: #e0f6ee;
+  --v7-mint-line: #b4e6d6;
+  --v7-on-mint: #0d3b2e;
 
   --v7-accent: #176446;
   --v7-accent-hover: #0f4d35;
@@ -61,6 +68,8 @@
   --v7-control-line: #b4c4b7;
   --v7-focus: #8a6312;
   --v7-danger: #a43328;
+  --v7-danger-soft: #fdf1ef;
+  --v7-danger-line: #f0d2cd;
   --v7-warning: #805a14;
 
   /* Space, on a 4px base. */

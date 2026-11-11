@@ -8,7 +8,7 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 | Surface | State |
 |---|---|
 | Public site (`dashboard/templates`, `site.css`, `home.css`) | On the tokens (November 2026). |
-| Owner console (`frontend/`) | Not yet migrated. Uses its own `--v7-*` values in `frontend/src/app.css`. |
+| Owner console (`frontend/`) | On the tokens (November 2026): `frontend/src/app.css` imports `tokens.css`, and component styles use token names for colour, type size and radius. Layout and component structure are unchanged. |
 | Chat widget (`widget.css`) | Shared structure rebuilt (November 2026). Colours stay per business: the ten presets and their palettes are unchanged and are mirrored by the console previews in `frontend/src/lib/widgetAppearance.ts`. |
 
 ## Identity
@@ -17,7 +17,10 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 - Dark green is the brand. It is used as a **field** that owns a whole region (hero,
   featured plan, closing panel), not as small accents on white.
 - Amber (`--v7-signal`) appears only on a green field and only for the one thing to
-  act on: the primary button, the headline's second line, list markers.
+  act on: the primary button.
+- Pool mint (`--v7-mint`) is the highlight: the headline's second line, markers and
+  rules on the site, tags, text selection, and the active item and focus ring in the
+  console sidebar. It is a hint, never a large field and never a button colour.
 - Light surfaces use `--v7-accent` green for links and actions.
 
 ## Colour roles
@@ -27,6 +30,8 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 | `--v7-brand`, `--v7-brand-deep`, `--v7-brand-line` | Green fields, their inset panels and their rules. |
 | `--v7-on-brand`, `--v7-on-brand-muted` | Text on green. Never grey. |
 | `--v7-signal`, `--v7-on-signal` | Primary action on green. |
+| `--v7-mint`, `--v7-mint-soft`, `--v7-mint-line`, `--v7-on-mint` | Highlights, tag and quiet-panel backgrounds, text on mint. |
+| `--v7-danger`, `--v7-danger-soft`, `--v7-danger-line` | Errors and destructive actions. |
 | `--v7-accent`, `--v7-accent-hover` | Links and actions on light surfaces. |
 | `--v7-ink`, `--v7-ink-soft`, `--v7-muted` | Headings, body, secondary text. |
 | `--v7-surface`, `--v7-canvas`, `--v7-soft`, `--v7-tint` | White, band background, quiet panel, green tint. |

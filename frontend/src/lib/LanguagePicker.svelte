@@ -7,6 +7,6 @@
   </select>
 </label>
 <style>
-  .language-picker {display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
-  select {max-width:140px;padding:8px 10px;border:1px solid var(--v7-control-line);border-radius:10px;background:#fff;color:var(--v7-ink)}
+  .language-picker {display:flex;align-items:center;gap:8px;font-size:var(--v7-text-xs);font-weight:600}
+  select {max-width:140px;padding:8px 10px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);color:var(--v7-ink)}
 </style>

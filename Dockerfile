@@ -10,6 +10,9 @@ COPY frontend/ ./
 # The console imports the shared language dictionaries from dashboard/static.
 # Preserve their repository-relative path in this isolated build stage.
 COPY dashboard/static/i18n/ /dashboard/static/i18n/
+# Shared design tokens and the fonts they reference.
+COPY dashboard/static/css/tokens.css /dashboard/static/css/tokens.css
+COPY dashboard/static/fonts/ /dashboard/static/fonts/
 COPY service/console_navigation.json /service/console_navigation.json
 ENV V7_CONSOLE_BASE_PATH=/console
 RUN npm run build

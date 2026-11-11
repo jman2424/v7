@@ -222,20 +222,20 @@
 </section>
 
 <style>
-  .campaigns { border: 1px solid var(--v7-line); border-radius: 16px; padding: 20px; margin: 20px 0; }
+  .campaigns { border: 1px solid var(--v7-line); border-radius: var(--v7-radius-panel); padding: 20px; margin: 20px 0; }
   header { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
   h3 { margin: 0; }
   p { line-height: 1.5; }
-  .configuration { background: #eef5f1; border-radius: 10px; padding: 12px; overflow-wrap: anywhere; }
+  .configuration { background: var(--v7-tint); border-radius: var(--v7-radius-panel); padding: 12px; overflow-wrap: anywhere; }
   .campaign-grid { display: grid; grid-template-columns: minmax(135px, 1fr) minmax(0, 3fr); gap: 20px; }
   .campaign-list, form, fieldset { display: grid; align-content: start; gap: 12px; min-width: 0; }
   fieldset { padding: 0; margin: 0; border: 0; }
   label { display: grid; gap: 6px; font-weight: 600; }
-  input:not([type='checkbox']), textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #b5c5bc; border-radius: 8px; font: inherit; }
-  button { min-height: 44px; border: 1px solid #127557; border-radius: 8px; padding: 8px 12px; background: #127557; color: #fff; font: inherit; cursor: pointer; }
-  .secondary { background: white; color: #174739; border-color: #aabdb2; }
+  input:not([type='checkbox']), textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--v7-control-line); border-radius: var(--v7-radius-control); font: inherit; }
+  button { min-height: 44px; border: 1px solid var(--v7-accent); border-radius: var(--v7-radius-control); padding: 8px 12px; background: var(--v7-accent); color: #fff; font: inherit; cursor: pointer; }
+  .secondary { background: var(--v7-surface); color: #174739; border-color: #aabdb2; }
   .campaign-row { display: grid; gap: 5px; text-align: left; overflow-wrap: anywhere; }
-  .campaign-row[aria-pressed='true'] { background: #eef5f1; }
+  .campaign-row[aria-pressed='true'] { background: var(--v7-tint); }
   .checkbox { display: flex; align-items: start; gap: 8px; }
   button:disabled { opacity: .55; cursor: default; }
   .error { color: #8d3026; }

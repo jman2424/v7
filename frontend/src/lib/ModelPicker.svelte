@@ -78,11 +78,11 @@
   {/if}
 </section>
 <style>
-  .models{padding:20px;border:1px solid var(--v7-line);border-radius:12px;background:var(--v7-surface);min-width:0;overflow-wrap:anywhere}
+  .models{padding:20px;border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);min-width:0;overflow-wrap:anywhere}
   header{display:flex;align-items:start;gap:16px;justify-content:space-between;flex-wrap:wrap}header>div{flex:1 1 300px}
-  h2{font-size:21px;margin:0 0 8px}p{font-size:13px;line-height:1.65;color:var(--v7-muted)}
-  label{display:grid;gap:8px;margin:16px 0;font-weight:600;font-size:13px}select{width:100%;min-height:44px;padding:10px;border:1px solid var(--v7-control-line);border-radius:8px;background:var(--v7-surface);color:var(--v7-ink)}
-  button{min-height:44px;padding:10px 16px;border-radius:8px;border:1px solid var(--v7-control-line);background:var(--v7-surface);color:var(--v7-ink);margin-inline-end:8px}
+  h2{font-size:var(--v7-text-xl);margin:0 0 8px}p{font-size:var(--v7-text-sm);line-height:1.65;color:var(--v7-muted)}
+  label{display:grid;gap:8px;margin:16px 0;font-weight:600;font-size:var(--v7-text-sm)}select{width:100%;min-height:44px;padding:10px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-control);background:var(--v7-surface);color:var(--v7-ink)}
+  button{min-height:44px;padding:10px 16px;border-radius:var(--v7-radius-control);border:1px solid var(--v7-control-line);background:var(--v7-surface);color:var(--v7-ink);margin-inline-end:8px}
   .confirmation{display:flex;align-items:start;font-weight:400}.confirmation input{margin-block-start:3px}
-  summary{cursor:pointer;padding:12px 0;font-weight:600}.scroll{overflow:auto;max-width:100%}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px;text-align:start;border-bottom:1px solid var(--v7-line)}.current{background:var(--v7-tint)}
+  summary{cursor:pointer;padding:12px 0;font-weight:600}.scroll{overflow:auto;max-width:100%}table{width:100%;border-collapse:collapse;font-size:var(--v7-text-sm)}th,td{padding:12px;text-align:start;border-bottom:1px solid var(--v7-line)}.current{background:var(--v7-tint)}
 </style>

@@ -10,10 +10,10 @@
 </span>
 
 <style>
-  .platform-logo { display: inline-flex; align-items: center; justify-content: center; width: var(--logo-size); height: var(--logo-size); flex: none; overflow: hidden; background: #fff; border-radius: 10px; }
+  .platform-logo { display: inline-flex; align-items: center; justify-content: center; width: var(--logo-size); height: var(--logo-size); flex: none; overflow: hidden; background: var(--v7-surface); border-radius: var(--v7-radius-panel); }
   img { display: block; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain; }
   .lockup { height: auto; aspect-ratio: 1; border-radius: 0; }
   .lockup img { width: 100%; height: 100%; }
-  .horizontal { height: auto; padding: 7px 8px; border-radius: 7px; }
+  .horizontal { height: auto; padding: 7px 8px; border-radius: var(--v7-radius-control); }
   .horizontal img { width: 100%; height: auto; }
 </style>

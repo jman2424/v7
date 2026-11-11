@@ -96,10 +96,10 @@
 </section>
 
 <style>
-  .password-card{background:#fff;border:1px solid var(--v7-line,#dce4df);border-radius:18px;padding:24px;max-width:640px;color:var(--v7-ink,#25372e)}
-  h2{font-size:22px;margin:0 0 12px;letter-spacing:-.03em}p{font-size:14px;line-height:1.65;color:var(--v7-muted,#59675f)}
-  form{display:grid;gap:16px;margin-top:20px}label{display:grid;gap:7px;font-size:14px;font-weight:600}input{box-sizing:border-box;width:100%;min-height:44px;border:1px solid #b5c5bc;border-radius:10px;padding:12px;font:inherit;background:#fff;color:inherit}
-  button{min-height:44px;padding:12px 18px;background:var(--v7-accent,#087e5f);color:#fff;border:1px solid var(--v7-accent,#087e5f);border-radius:10px;font:inherit;font-weight:600;cursor:pointer}.secondary{background:#fff;color:inherit;border-color:#b5c5bc}
-  button:disabled{opacity:.5;cursor:wait}input:focus-visible,button:focus-visible{outline:3px solid var(--v7-focus,#6ec5a9);outline-offset:3px}.identity{overflow-wrap:anywhere;font-weight:600}.notice{background:#eef9f3;padding:14px;border-radius:10px}.error{color:#a13728;background:#fff5f3;padding:14px;border-radius:10px}
+  .password-card{background:var(--v7-surface);border:1px solid var(--v7-line,var(--v7-line));border-radius:var(--v7-radius-panel);padding:24px;max-width:640px;color:var(--v7-ink,var(--v7-ink))}
+  h2{font-size:var(--v7-text-xl);margin:0 0 12px;letter-spacing:-.03em}p{font-size:var(--v7-text-sm);line-height:1.65;color:var(--v7-muted,var(--v7-muted))}
+  form{display:grid;gap:16px;margin-top:20px}label{display:grid;gap:7px;font-size:var(--v7-text-sm);font-weight:600}input{box-sizing:border-box;width:100%;min-height:44px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-panel);padding:12px;font:inherit;background:var(--v7-surface);color:inherit}
+  button{min-height:44px;padding:12px 18px;background:var(--v7-accent,var(--v7-accent));color:#fff;border:1px solid var(--v7-accent,var(--v7-accent));border-radius:var(--v7-radius-panel);font:inherit;font-weight:600;cursor:pointer}.secondary{background:var(--v7-surface);color:inherit;border-color:var(--v7-control-line)}
+  button:disabled{opacity:.5;cursor:wait}input:focus-visible,button:focus-visible{outline:3px solid var(--v7-focus,#6ec5a9);outline-offset:3px}.identity{overflow-wrap:anywhere;font-weight:600}.notice{background:var(--v7-tint);padding:14px;border-radius:var(--v7-radius-panel)}.error{color:var(--v7-danger);background:var(--v7-danger-soft);padding:14px;border-radius:var(--v7-radius-panel)}
   @media(max-width:640px){.password-card{padding:20px}}
 </style>

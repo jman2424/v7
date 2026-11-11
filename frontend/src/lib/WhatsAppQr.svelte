@@ -77,17 +77,17 @@
 <style>
   .qr-page {display:grid;gap:20px;min-width:0;overflow-wrap:anywhere}
   .qr-page {scroll-margin-top:28px}
-  .eyebrow {margin:0 0 8px;color:var(--v7-accent);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
-  .share-note {margin:0;font-size:13px}
-  .panel {padding:24px;background:#fff;border:1px solid var(--v7-line);border-radius:var(--v7-radius, 18px);min-width:0;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
-  h2 {margin:0;font-size:22px} p {color:var(--v7-muted);line-height:1.6}
-  form,label {display:grid;gap:8px} form {gap:20px} label {font-size:14px;font-weight:600;min-width:0}
-  input,textarea {box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid var(--v7-control-line, #b5c5bc);border-radius:10px;font:inherit;color:var(--v7-ink);background:#fff}
-  textarea {resize:vertical} small,.hint {font-size:13px;font-weight:400;color:var(--v7-muted);line-height:1.5}
-  button,.button {display:inline-block;justify-self:start;min-height:44px;box-sizing:border-box;padding:12px 16px;border:1px solid var(--v7-accent);border-radius:10px;background:var(--v7-accent);color:white;font:600 14px system-ui;cursor:pointer;text-decoration:none}
-  button:disabled {opacity:.6;cursor:wait} .secondary {background:white;color:var(--v7-accent)} a {color:var(--v7-accent)}
+  .eyebrow {margin:0 0 8px;color:var(--v7-accent);font-size:var(--v7-text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .share-note {margin:0;font-size:var(--v7-text-sm)}
+  .panel {padding:24px;background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius, 18px);min-width:0;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
+  h2 {margin:0;font-size:var(--v7-text-xl)} p {color:var(--v7-muted);line-height:1.6}
+  form,label {display:grid;gap:8px} form {gap:20px} label {font-size:var(--v7-text-sm);font-weight:600;min-width:0}
+  input,textarea {box-sizing:border-box;width:100%;min-width:0;padding:12px;border:1px solid var(--v7-control-line, var(--v7-control-line));border-radius:var(--v7-radius-panel);font:inherit;color:var(--v7-ink);background:var(--v7-surface)}
+  textarea {resize:vertical} small,.hint {font-size:var(--v7-text-sm);font-weight:400;color:var(--v7-muted);line-height:1.5}
+  button,.button {display:inline-block;justify-self:start;min-height:44px;box-sizing:border-box;padding:12px 16px;border:1px solid var(--v7-accent);border-radius:var(--v7-radius-panel);background:var(--v7-accent);color:white;font:600 14px system-ui;cursor:pointer;text-decoration:none}
+  button:disabled {opacity:.6;cursor:wait} .secondary {background:var(--v7-surface);color:var(--v7-accent)} a {color:var(--v7-accent)}
   .actions {display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:16px 0}
-  .result img {display:block;width:min(320px,100%);height:auto;margin:20px auto;background:white;padding:12px;border:1px solid var(--v7-line);border-radius:16px;}
-  .error {color:#a12622} :is(button,a,input,textarea):focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
+  .result img {display:block;width:min(320px,100%);height:auto;margin:20px auto;background:var(--v7-surface);padding:12px;border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);}
+  .error {color:var(--v7-danger)} :is(button,a,input,textarea):focus-visible {outline:3px solid var(--v7-focus);outline-offset:3px}
   @media(max-width:600px) {.panel{padding:16px}}
 </style>

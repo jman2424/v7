@@ -44,21 +44,21 @@
   <p class="hint">Topics are classified from agent responses. Inbound queries without a reply may not have a topic.</p>
 </div>
 <style>
-.performance { display:grid; gap:18px; min-width:0; color:var(--v7-ink, #172b26); }
-  .section-heading span { font-size:10px; text-transform:uppercase; letter-spacing:.1em; font-weight:700; color:var(--v7-muted, #64716d); }
-  .section-heading h3 { margin-top:6px; font-size:21px; line-height:1.4; letter-spacing:-.03em; color:var(--v7-ink, #172b26); }
+.performance { display:grid; gap:18px; min-width:0; color:var(--v7-ink, var(--v7-ink)); }
+  .section-heading span { font-size:var(--v7-text-xs); text-transform:uppercase; letter-spacing:.1em; font-weight:700; color:var(--v7-muted, var(--v7-muted)); }
+  .section-heading h3 { margin-top:6px; font-size:var(--v7-text-xl); line-height:1.4; letter-spacing:-.03em; color:var(--v7-ink, var(--v7-ink)); }
   .section-heading p { margin:6px 0 0; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap:14px; }
-  article { min-width:0; padding:22px; border:1px solid var(--v7-line, #e1e7e4); border-radius:12px; background:var(--v7-surface, #fff); box-shadow:none; }
-  h3 { margin:0; color:var(--v7-muted, #64716d); font-size:12px; font-weight:500; line-height:1.5; }
-  strong { display:block; margin:14px 0 10px; color:var(--v7-ink, #172b26); font-size:34px; line-height:1.15; letter-spacing:-.045em; font-variant-numeric:tabular-nums; }
-  article:first-child strong { color:var(--v7-accent, #087f5b); }
-  p { margin-bottom:0; color:var(--v7-muted, #64716d); font-size:12px; line-height:1.6; }
+  article { min-width:0; padding:22px; border:1px solid var(--v7-line, var(--v7-line)); border-radius:var(--v7-radius-panel); background:var(--v7-surface, #fff); box-shadow:none; }
+  h3 { margin:0; color:var(--v7-muted, var(--v7-muted)); font-size:var(--v7-text-xs); font-weight:500; line-height:1.5; }
+  strong { display:block; margin:14px 0 10px; color:var(--v7-ink, var(--v7-ink)); font-size:var(--v7-text-figure); line-height:1.15; letter-spacing:-.045em; font-variant-numeric:tabular-nums; }
+  article:first-child strong { color:var(--v7-accent, var(--v7-accent)); }
+  p { margin-bottom:0; color:var(--v7-muted, var(--v7-muted)); font-size:var(--v7-text-xs); line-height:1.6; }
   .hint { margin:0; }
-  label { display:grid; gap:7px; padding:16px; border:1px solid var(--v7-line, #e1e7e4); border-radius:8px; background:var(--v7-surface, #fff); font-size:12px; font-weight:600; }
-  select { min-width:0; max-width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--v7-control-line, #cbd6d0); border-radius:8px; background:var(--v7-surface, #fff); color:var(--v7-ink, #172b26); font:inherit; }
+  label { display:grid; gap:7px; padding:16px; border:1px solid var(--v7-line, var(--v7-line)); border-radius:var(--v7-radius-control); background:var(--v7-surface, #fff); font-size:var(--v7-text-xs); font-weight:600; }
+  select { min-width:0; max-width:100%; min-height:44px; padding:10px 12px; border:1px solid var(--v7-control-line, var(--v7-control-line)); border-radius:var(--v7-radius-control); background:var(--v7-surface, #fff); color:var(--v7-ink, var(--v7-ink)); font:inherit; }
   .chart-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:18px; }
   select:focus-visible { outline:3px solid var(--v7-focus, #81baa1); outline-offset:3px; }
   @media(max-width:1000px) { .chart-grid { grid-template-columns:1fr; } }
-  @media(max-width:600px) { article { padding:16px; } strong { font-size:32px; } .section-heading h3 { font-size:19px; } }
+  @media(max-width:600px) { article { padding:16px; } strong { font-size:var(--v7-text-figure); } .section-heading h3 { font-size:var(--v7-text-lg); } }
 </style>

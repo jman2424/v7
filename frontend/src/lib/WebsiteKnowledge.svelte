@@ -120,21 +120,21 @@
 </section>
 
 <style>
-  .knowledge { display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; padding:24px; border:1px solid var(--v7-line); border-radius:var(--v7-radius, 18px); background:#fff;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
+  .knowledge { display:flex; flex-wrap:wrap; justify-content:space-between; gap:20px; padding:24px; border:1px solid var(--v7-line); border-radius:var(--v7-radius, 18px); background:var(--v7-surface);box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}
   .knowledge > div:first-child { flex:1 1 350px; }
-  h2 { margin:0 0 8px; font-size:21px; }
-  p { margin:0; color:var(--v7-muted); font-size:14px; line-height:1.65; }
+  h2 { margin:0 0 8px; font-size:var(--v7-text-xl); }
+  p { margin:0; color:var(--v7-muted); font-size:var(--v7-text-sm); line-height:1.65; }
   .source { margin-top:12px; color:var(--v7-ink); overflow-wrap:anywhere; }
   .controls { flex:0 1 260px; display:grid; align-content:start; gap:8px; }
-  button { min-height:44px; padding:8px 14px; border:0; border-radius:10px; color:#fff; background:var(--v7-accent); font-weight:700; cursor:pointer; }
+  button { min-height:44px; padding:8px 14px; border:0; border-radius:var(--v7-radius-panel); color:#fff; background:var(--v7-accent); font-weight:700; cursor:pointer; }
   button:disabled { opacity:.55; cursor:default; }
   button:focus-visible { outline:3px solid var(--v7-focus); outline-offset:2px; }
-  .error { color:#b42318; }
+  .error { color:var(--v7-danger); }
   .destinations { padding:24px; margin-top:16px; border:1px solid var(--v7-line); border-radius:var(--v7-radius,18px); background:var(--v7-surface,#fff); }
   .destinations form { display:grid; gap:16px; margin-top:16px; }
-  fieldset { border:1px solid var(--v7-line); border-radius:12px; padding:16px; display:grid; gap:12px; min-width:0; }
-  label { display:grid; gap:6px; font-size:14px; font-weight:600; }
-  input,textarea { box-sizing:border-box; width:100%; min-height:44px; border:1px solid var(--v7-line); border-radius:8px; padding:10px; background:var(--v7-surface,#fff); color:var(--v7-ink); }
+  fieldset { border:1px solid var(--v7-line); border-radius:var(--v7-radius-panel); padding:16px; display:grid; gap:12px; min-width:0; }
+  label { display:grid; gap:6px; font-size:var(--v7-text-sm); font-weight:600; }
+  input,textarea { box-sizing:border-box; width:100%; min-height:44px; border:1px solid var(--v7-line); border-radius:var(--v7-radius-control); padding:10px; background:var(--v7-surface,#fff); color:var(--v7-ink); }
   .enabled { display:flex; align-items:center; } .enabled input { width:auto; min-height:auto; }
   .destination-controls { display:flex; flex-wrap:wrap; gap:10px; }
 </style>

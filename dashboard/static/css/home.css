@@ -12,7 +12,7 @@
 }
 .hero h1 { color: var(--v7-on-brand); }
 .hero h1 > span { display: block; }
-.hero-accent { color: var(--v7-signal); }
+.hero-accent { color: var(--v7-mint); }
 .hero-description { max-width: 34rem; margin-block-start: var(--v7-space-5); font-size: var(--v7-text-lg); line-height: 1.6; color: var(--v7-on-brand-muted); }
 .hero .button-dark { background: var(--v7-signal); border-color: var(--v7-signal); color: var(--v7-on-signal); }
 .hero .button-dark:hover { background: var(--v7-signal-hover); border-color: var(--v7-signal-hover); }
@@ -26,7 +26,7 @@
   font-size: var(--v7-text-sm); font-weight: 550; color: var(--v7-on-brand-muted);
 }
 .hero-proof li { display: flex; align-items: center; gap: 0.5rem; }
-.hero-proof li::before { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--v7-signal); }
+.hero-proof li::before { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--v7-mint); }
 
 .hero-demo { min-width: 0; }
 .demo-copy h2 { font-size: var(--v7-text-xl); line-height: 1.2; letter-spacing: -0.02em; color: var(--v7-on-brand); }
@@ -39,7 +39,7 @@
 .demo-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 0.75rem; padding: 0.5rem 0.75rem 0.75rem; }
 .demo-heading strong { font-size: var(--v7-text-sm); font-weight: 650; color: var(--v7-on-brand); }
 .demo-heading span { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--v7-text-xs); color: var(--v7-on-brand-muted); }
-.demo-heading span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--v7-signal); }
+.demo-heading span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--v7-mint); box-shadow: 0 0 0 3px #86e3c833; }
 .live-widget-panel { display: block; width: 100%; height: min(36rem, 72vh); border: 0; border-radius: var(--v7-radius-panel); background: var(--v7-surface); }
 .live-widget-unavailable { padding: var(--v7-space-5); border-radius: var(--v7-radius-panel); background: var(--v7-surface); color: var(--v7-ink); }
 .live-widget-unavailable a { color: var(--v7-accent); text-decoration: underline; }
@@ -65,7 +65,7 @@
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--v7-space-6);
   margin: var(--v7-space-7) 0 0; padding: 0; list-style: none;
 }
-.workflow li, .steps li { padding-block-start: var(--v7-space-4); border-block-start: 2px solid var(--v7-brand); }
+.workflow li, .steps li { padding-block-start: var(--v7-space-4); border-block-start: 2px solid var(--v7-mint); }
 .workflow li > span, .steps li > span {
   display: block; font-family: var(--v7-font-display); font-size: var(--v7-text-2xl); font-weight: 600;
   line-height: 1; letter-spacing: -0.03em; color: var(--v7-accent); font-variant-numeric: tabular-nums;
@@ -82,7 +82,7 @@
 #platform .feature h3 { font-size: var(--v7-text-2xl); line-height: 1.15; letter-spacing: -0.025em; }
 #platform .feature p { color: var(--v7-ink-soft); }
 .mini-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--v7-space-2); max-width: 16rem; }
-.mini-tags span { padding: 0.3rem 0.7rem; border-radius: var(--v7-radius-pill); background: var(--v7-tint); color: var(--v7-accent); font-size: var(--v7-text-xs); font-weight: 650; }
+.mini-tags span { padding: 0.3rem 0.7rem; border-radius: var(--v7-radius-pill); background: var(--v7-mint-soft); color: var(--v7-on-mint); font-size: var(--v7-text-xs); font-weight: 650; }
 
 /* The workspace: a tinted band */
 .control-section { background: var(--v7-canvas); padding-block: clamp(3.5rem, 7vw, 6rem); }
@@ -106,7 +106,7 @@
 
 /* The questions customers actually ask */
 .use-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--v7-space-6); margin-block-start: var(--v7-space-7); }
-.use-grid article { display: flex; flex-direction: column; padding: var(--v7-space-5); border-radius: var(--v7-radius-panel); background: var(--v7-soft); }
+.use-grid article { display: flex; flex-direction: column; padding: var(--v7-space-5); border-radius: var(--v7-radius-panel); background: var(--v7-mint-soft); }
 .use-grid h3 { font-family: var(--v7-font-body); font-size: var(--v7-text-sm); font-weight: 700; letter-spacing: 0; color: var(--v7-accent); }
 .use-grid p { margin-block: var(--v7-space-4) var(--v7-space-5); font-family: var(--v7-font-display); font-size: var(--v7-text-2xl); font-weight: 600; line-height: 1.15; letter-spacing: -0.025em; color: var(--v7-ink); }
 .use-grid article > span { margin-block-start: auto; color: var(--v7-ink-soft); font-size: 0.9375rem; }
@@ -148,7 +148,7 @@
 .pricing-plans .feature-green :is(.card-number, .plan-price small, .plan-tax, .plan-exclusion) { color: var(--v7-on-brand-muted); }
 .pricing-plans .feature-green .plan-tax strong { color: var(--v7-on-brand); }
 .pricing-plans .feature-green .plan-highlights { border-color: var(--v7-brand-line); }
-.pricing-plans .feature-green .plan-highlights li::before { border-color: var(--v7-signal); }
+.pricing-plans .feature-green .plan-highlights li::before { border-color: var(--v7-mint); }
 .pricing-plans .feature-green .button-dark { background: var(--v7-signal); border-color: var(--v7-signal); color: var(--v7-on-signal); }
 .pricing-plans .feature-green .button-dark:hover { background: var(--v7-signal-hover); border-color: var(--v7-signal-hover); }
 .pricing-plans .feature-green .button:focus-visible { outline-color: var(--v7-signal); }
@@ -216,7 +216,7 @@
 .closing > div:last-child { display: flex; flex-direction: column; align-items: flex-start; gap: var(--v7-space-4); }
 .closing .button-dark { background: var(--v7-signal); border-color: var(--v7-signal); color: var(--v7-on-signal); }
 .closing .button-dark:hover { background: var(--v7-signal-hover); border-color: var(--v7-signal-hover); }
-.closing .text-link { color: var(--v7-on-brand); text-decoration-color: var(--v7-brand-line); }
+.closing .text-link { color: var(--v7-mint); text-decoration-color: var(--v7-brand-line); }
 .closing :is(a, button):focus-visible { outline-color: var(--v7-signal); }
 
 @media (max-width: 1050px) {
