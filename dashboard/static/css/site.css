@@ -164,6 +164,11 @@ body:has(.site-cookie-banner:not([hidden])) #public-site-widget { visibility: hi
 .policy .intro { font-size: var(--v7-text-lg); color: var(--v7-ink-soft); }
 .policy section { margin-block-start: var(--v7-space-7); padding-block-start: var(--v7-space-5); border-block-start: 1px solid var(--v7-line); }
 .policy h2 { font-size: var(--v7-text-xl); line-height: 1.25; letter-spacing: -0.015em; margin-block-end: var(--v7-space-3); scroll-margin-top: 1.5rem; }
+.policy > h2 { margin-block-start: var(--v7-space-7); }
+.policy > h1 + p { font-size: var(--v7-text-lg); }
+.policy > :is(ul, ol, .table-scroll, .table-wrap) { margin-block: var(--v7-space-4); }
+.policy caption { padding-block: 0.5rem; text-align: start; font-weight: 650; color: var(--v7-ink); }
+.policy tbody th { font-weight: 600; }
 .policy p, .policy li, .policy dd { color: var(--v7-ink-soft); overflow-wrap: anywhere; }
 .policy p + p { margin-block-start: var(--v7-space-3); }
 .policy ul, .policy ol { padding-inline-start: 1.375rem; }
