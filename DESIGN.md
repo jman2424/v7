@@ -9,7 +9,7 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 |---|---|
 | Public site (`dashboard/templates`, `site.css`, `home.css`) | On the tokens (November 2026). |
 | Owner console (`frontend/`) | Not yet migrated. Uses its own `--v7-*` values in `frontend/src/app.css`. |
-| Chat widget (`widget.css`) | Not yet migrated. Stays themeable per business; only type scale and spacing should be shared. |
+| Chat widget (`widget.css`) | Shared structure rebuilt (November 2026). Colours stay per business: the ten presets and their palettes are unchanged and are mirrored by the console previews in `frontend/src/lib/widgetAppearance.ts`. |
 
 ## Identity
 
@@ -61,6 +61,19 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 - **Plans:** three cards; the recommended plan is a green field.
 - **FAQ:** native `details`, ruled, with a plus that rotates to a cross.
 - **Policy pages:** a single 46rem reading column, no card.
+
+## Chat widget
+
+The widget is not a Vertex Seven surface. It runs on each business's website in that
+business's colours, so it does not load `tokens.css` or the brand fonts.
+
+- Colour comes only from the `--w*` variables: a preset sets them, and `widget.js`
+  overrides them from saved branding while enforcing readable contrast.
+- Shape and rhythm are shared by every preset: `--wgap-*` spacing, 44px controls
+  (`--wcontrol`), and `--wcontrol-radius` derived from the preset's `--wradius`.
+- Below the composer, secondary controls are quiet text, not boxed buttons.
+- A preset may change header layout, bubble shape and shadows. Changing a preset's
+  palette or signature also requires updating its console preview.
 
 ## Motion
 

@@ -9,7 +9,7 @@ export type AppearancePreset = { name: string; description: string; settings: Pi
 
 export const appearancePresets: AppearancePreset[] = [
   { name:'Website demo', description:'Studio layout with green accents and soft grey surfaces, as seen on our website.',
-    settings:{ style:'studio', accent_color:'#086849', background_color:'#FFFFFF', surface_color:'#F2F4F3', text_color:'#27332F', bubble_color:'#E8F3EC' } }
+    settings:{ style:'studio', accent_color:'#176446', background_color:'#FFFFFF', surface_color:'#F5F7F2', text_color:'#14261D', bubble_color:'#E4EFE6' } }
 ];
 export function applyAppearancePreset(widget: Widget, preset: AppearancePreset): Widget {
   return { ...widget, ...preset.settings };
