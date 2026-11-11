@@ -53,7 +53,7 @@ def test_put_faq_updates_and_audits(client, monkeypatch):
         def record(self, **kw):
             calls.append(kw)
 
-    monkeypatch.setattr("services.audit.AuditService", StubAudit, raising=False)
+    monkeypatch.setattr("service.audit.AuditService", StubAudit, raising=False)
 
     as_admin(client)
     new_faq = [

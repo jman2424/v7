@@ -3,8 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from ai_modes.contracts import safe_minimal_rewrite
-from renderer_v7 import RendererV7
+from handlers.renderer_v7 import RendererV7
 from service.reply_formatting import readable_reply
 from service.rewriter import Rewriter
 
@@ -64,7 +63,6 @@ def test_existing_lists_and_fenced_code_are_not_flattened_or_interpreted():
     assert readable_reply(text) == expected
     assert readable_reply(expected) == expected
     assert readable_reply(text).split() == text.split()
-    assert safe_minimal_rewrite(text) == text
     rewriter = Rewriter(max_chars=50)
     rewriter._client = Mock()
     assert rewriter.rewrite(text) == expected

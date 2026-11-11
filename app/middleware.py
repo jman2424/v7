@@ -79,7 +79,6 @@ def install_request_id(app):
     def protect_response(response):
         response.headers["X-Request-ID"] = g.get("request_id", "-")
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers.setdefault("Referrer-Policy", "same-origin")
         if response.status_code == 429:
             response.headers.setdefault("Retry-After", "60")
         analytics_enabled = (response.status_code == 200 and response.mimetype == "text/html"

@@ -25,7 +25,6 @@ def _get(name: str, default: Optional[str] = None) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    MODE: str                    # V5 | V6 | V7
     BUSINESS_KEY: str            # tenant key e.g. "EXAMPLE"
     SECRET_KEY: str = field(repr=False)
 
@@ -37,7 +36,6 @@ class Settings:
     WHATSAPP_API_URL: str
     WHATSAPP_TENANT_MAP: Dict[str, str]
     TWILIO_AUTH_TOKEN: str = field(repr=False)
-    SHEETS_SERVICE_JSON: str | None = field(repr=False)  # path or JSON string
 
     # Rate limiting
     RATE_LIMIT_PER_MIN: int
@@ -47,15 +45,9 @@ class Settings:
     SESSION_MAX_AGE_SECONDS: int
     TRUST_PROXY_COUNT: int
 
-    # Feature flags (global defaults; per-tenant overrides via business/overrides.json)
-    FF_REWRITER_ENABLED: bool
-    FF_TOOL_USE_ENABLED: bool
-    FF_ANALYTICS_TO_SHEETS: bool
-
     # Server
     ENVIRONMENT: str
     BASE_URL: str
-    HEALTH_PATH: str
 
     # Optional explicit WhatsApp routing. None preserves the legacy shared map.
     WHATSAPP_PROVIDER_MODE: str = "auto"
@@ -164,7 +156,6 @@ def load_settings(override: dict | None = None) -> Settings:
         raise RuntimeError("WHATSAPP_API_URL must be HTTPS without credentials or query parameters")
 
     return Settings(
-        MODE=o.get("MODE", _get("MODE", "V6")),
         BUSINESS_KEY=o.get("BUSINESS_KEY", _get("BUSINESS_KEY", "EXAMPLE")),
         SECRET_KEY=secret_key,
 
@@ -177,7 +168,6 @@ def load_settings(override: dict | None = None) -> Settings:
             o.get("WHATSAPP_TENANT_MAP_JSON", _get("WHATSAPP_TENANT_MAP_JSON", ""))
         ),
         TWILIO_AUTH_TOKEN=o.get("TWILIO_AUTH_TOKEN", _get("TWILIO_AUTH_TOKEN", "")),
-        SHEETS_SERVICE_JSON=o.get("SHEETS_SERVICE_JSON", os.environ.get("SHEETS_SERVICE_JSON")),
 
         RATE_LIMIT_PER_MIN=int(o.get("RATE_LIMIT_PER_MIN", os.environ.get("RATE_LIMIT_PER_MIN", 120))),
         RATE_LIMIT_BURST=int(o.get("RATE_LIMIT_BURST", os.environ.get("RATE_LIMIT_BURST", 60))),
@@ -186,13 +176,8 @@ def load_settings(override: dict | None = None) -> Settings:
         SESSION_MAX_AGE_SECONDS=int(o.get("SESSION_MAX_AGE_SECONDS", os.environ.get("SESSION_MAX_AGE_SECONDS", 28800))),
         TRUST_PROXY_COUNT=int(o.get("TRUST_PROXY_COUNT", os.environ.get("TRUST_PROXY_COUNT", 1 if os.environ.get("RENDER") == "true" else 0))),
 
-        FF_REWRITER_ENABLED=_to_bool(o.get("FF_REWRITER_ENABLED", os.environ.get("FF_REWRITER_ENABLED")), True),
-        FF_TOOL_USE_ENABLED=_to_bool(o.get("FF_TOOL_USE_ENABLED", os.environ.get("FF_TOOL_USE_ENABLED")), False),
-        FF_ANALYTICS_TO_SHEETS=_to_bool(o.get("FF_ANALYTICS_TO_SHEETS", os.environ.get("FF_ANALYTICS_TO_SHEETS")), False),
-
         ENVIRONMENT=environment,
         BASE_URL=base_url.rstrip("/"),
-        HEALTH_PATH=o.get("HEALTH_PATH", os.environ.get("HEALTH_PATH", "/health")),
         WHATSAPP_PROVIDER_MODE=whatsapp_mode,
         WHATSAPP_META_TENANT_MAP=_optional_whatsapp_map(
             o.get("WHATSAPP_META_TENANT_MAP_JSON", _get("WHATSAPP_META_TENANT_MAP_JSON", "")),

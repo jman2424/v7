@@ -1,8 +1,8 @@
+"""Liveness (/health), readiness (/ready) and an authenticated /version summary."""
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from app.config import Settings
 from service.security import authorized_tenant, require_permission
 
 bp = Blueprint("health", __name__)
@@ -16,9 +16,10 @@ def health():
 def version():
     require_permission("health.read")
     tenant = authorized_tenant(request.args.get("tenant"))
-    s: Settings = current_app.config.get("SETTINGS") or getattr(current_app, "container").settings
+    from service.ai_mode import tenant_mode
+    container = getattr(current_app, "container")
     info = {
-        "mode": s.MODE,
+        "mode": tenant_mode(container.for_tenant(tenant).overrides).upper(),
         "tenant": tenant,
     }
     return jsonify(info)

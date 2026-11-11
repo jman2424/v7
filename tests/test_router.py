@@ -11,11 +11,11 @@ from __future__ import annotations
 import re
 import pytest
 
-from services import validators  # normalize_postcode
+from service import validators  # normalize_postcode
 from retrieval.synonyms_store import SynonymsStore
 
 # Attempt to import Router (your real implementation)
-from services.router import Router  # type: ignore
+from service.router import Router  # type: ignore
 
 
 @pytest.fixture()

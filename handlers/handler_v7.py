@@ -1,4 +1,4 @@
-# handlers/handler_v7.py
+"""V7 strategy (default): grounded conversation, tools over tenant stores, planning and rendering."""
 from __future__ import annotations
 
 import difflib
@@ -9,8 +9,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from brain_v7 import BrainV7
-from renderer_v7 import RendererV7
+from handlers.brain_v7 import BrainV7
+from handlers.renderer_v7 import RendererV7
 from service.sales_playbook import load_sales_playbook, offering_terms
 from service.tenant_sales_context import build_tenant_sales_context, discovery_question
 from service.validators import normalize_phone

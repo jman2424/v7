@@ -1,4 +1,4 @@
-# routes/webchat_routes.py
+"""Public website chat: the /chat_ui iframe page, /widget.js embed script, /chat_api and voice transcription."""
 from __future__ import annotations
 
 import inspect

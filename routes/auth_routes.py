@@ -1,4 +1,4 @@
-# routes/auth_routes.py
+"""Sign-in, sign-out, MFA, registration, password and email changes, trusted devices and session state."""
 from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, jsonify, request, session

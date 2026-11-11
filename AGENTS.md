@@ -126,10 +126,19 @@ The current implementation is a Python/Flask application with:
 - `routes/` for HTTP endpoints.
 - `service/` for orchestration, analytics, CRM, routing, memory, and sales logic.
 - `retrieval/` for tenant data stores.
-- `ai_modes/` for V5/V6/V7 response strategies.
-- `business/` for tenant data.
-- `dashboard/` for admin and widget UI assets.
+- `handlers/` for the V7 response strategy and its V5/V6 fallbacks.
+- `connectors/` for Stripe, email and WhatsApp adapters.
+- `business/` for bundled starter tenants (live tenant data is not in the repo).
+- `dashboard/` for the public site and widget UI assets.
+- `frontend/` for the SvelteKit owner console served at `/console`.
 - `tests/` for pytest coverage.
+
+Read `docs/ARCHITECTURE.md` before changing code. `docs/reference/http-routes.md`
+and `docs/reference/module-index.md` are generated: after adding or renaming a
+route or module, run `python scripts/generate_route_map.py` and
+`python scripts/generate_module_index.py`. Every new module needs a one-line
+docstring, and every new environment variable must be added to `env.example`;
+tests enforce both. `docs/KNOWN_LIMITATIONS.md` lists deferred work.
 
 Do not migrate frameworks unless explicitly asked.
 
@@ -141,7 +150,8 @@ Common commands include:
 
 - `pytest`
 - `ruff check .`
-- `mypy .`
+- `mypy .` (modules listed in `pyproject.toml` are a shrinking baseline: never add to it)
+- `cd frontend && npm run check && npm test`
 
 Do not claim checks passed unless they were actually run.
 

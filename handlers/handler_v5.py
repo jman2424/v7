@@ -1,3 +1,4 @@
+"""V5 strategy: fully deterministic replies from tenant data, with no model call."""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional

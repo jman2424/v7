@@ -5,7 +5,7 @@ import shutil
 import pytest
 from pathlib import Path
 
-from brain_v7 import BrainV7
+from handlers.brain_v7 import BrainV7
 from service.sales_agent import SalesAgentPolicy
 
 
@@ -413,7 +413,7 @@ def test_brain_uses_bounded_business_context_and_local_fallback(monkeypatch):
     client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
     # Inspect the bounded payload using the fake provider; prepaid attribution
     # and funding requirements have their own integration tests.
-    monkeypatch.setattr('brain_v7.tracked_completion',
+    monkeypatch.setattr('handlers.brain_v7.tracked_completion',
                         lambda client, purpose, **options: client.chat.completions.create(**options))
     brain = BrainV7(client=client)
     plan = brain.plan(

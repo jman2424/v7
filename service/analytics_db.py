@@ -1,4 +1,4 @@
-# service/analytics_db.py
+"""Message, lead, error and usage event storage (SQLite or PostgreSQL) with tenant-scoped queries."""
 from __future__ import annotations
 
 import json
@@ -9,8 +9,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from service import session_store
+from service.runtime_paths import analytics_db_path
 
-DB_PATH = os.environ.get("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
+# Tests and local tools replace this attribute; the default follows V7_DATA_DIR.
+DB_PATH = str(analytics_db_path())
 
 _INIT_LOCK = threading.Lock()
 _INIT_DONE = False

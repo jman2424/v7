@@ -12,7 +12,7 @@ import time
 import pytest
 import bcrypt
 
-from services.security import (
+from service.security import (
     hash_password,
     verify_password,
     generate_totp_secret,

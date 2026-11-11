@@ -1,4 +1,4 @@
-# retrieval/geo_store.py
+"""Branch lookup and nearest-branch matching by postcode prefix for one tenant."""
 from __future__ import annotations
 
 import math

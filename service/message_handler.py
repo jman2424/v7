@@ -10,7 +10,7 @@ Key upgrades in this remake:
     * last_items
     * last_product_names
 - Preserves existing category / sku / postcode memory
-- Makes follow-up questions like "are they halal" more likely to work downstream
+- Makes follow-up questions about previously listed items more likely to work downstream
 """
 
 from __future__ import annotations
@@ -409,7 +409,8 @@ class MessageHandler:
     # MODE
     # ---------------------------------------------------------
     def _decide_mode(self, ctx: MessageContext) -> str:
-        return (self.overrides.get("ai.mode") or "v7").lower()
+        from service.ai_mode import tenant_mode
+        return tenant_mode(self.overrides)
 
     # ---------------------------------------------------------
     # VALIDATION / SAFETY

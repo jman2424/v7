@@ -9,7 +9,7 @@ import pytest
 
 from retrieval.storage import Storage  # type: ignore
 from retrieval.catalog_store import CatalogStore  # type: ignore
-from services.sales_flows import SalesFlows  # type: ignore
+from service.sales_flows import SalesFlows  # type: ignore
 
 
 def make_catalog(storage: Storage) -> CatalogStore:

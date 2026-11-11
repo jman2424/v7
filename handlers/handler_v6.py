@@ -1,3 +1,4 @@
+"""V6 strategy: deterministic answer followed by an optional model rewrite."""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional

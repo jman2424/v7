@@ -10,6 +10,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from service.runtime_paths import security_db_path
+
 _TENANT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 
 
@@ -94,7 +96,7 @@ def connection():
         # Other callers still issue SQLite-specific SQL. A generic translation
         # here could bypass tenant context or silently split writable state.
         raise RuntimeError("Security database caller requires PostgreSQL port")
-    path = Path(os.getenv("SECURITY_DB_PATH", "logs/security.db"))
+    path = security_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=10)
     try:

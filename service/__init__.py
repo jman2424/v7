@@ -23,12 +23,6 @@ class CacheLike(Protocol):
     def clear(self) -> None: ...
 
 
-class ModeStrategy(Protocol):
-    def name(self) -> str: ...
-    def plan(self, user_text: str, ctx: Dict[str, Any]) -> Dict[str, Any]: ...
-    def rewrite(self, draft: str, ctx: Dict[str, Any]) -> str: ...
-
-
 class RewriterLike(Protocol):
     def rewrite(self, text: str, *, style: Optional[str] = None) -> str: ...
 
@@ -122,7 +116,6 @@ class RouterLike(Protocol):
 
 @dataclass
 class HandlerDeps:
-    mode: ModeStrategy
     rewriter: RewriterLike
     analytics: AnalyticsLike
     crm: CRMLike

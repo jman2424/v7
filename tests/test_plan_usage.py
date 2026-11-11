@@ -166,7 +166,7 @@ def test_internal_and_legacy_tenants_keep_existing_behavior(plan_ledger, monkeyp
 
 @pytest.mark.parametrize("channel", ["web", "whatsapp"])
 def test_exhausted_ai_budget_never_calls_provider_and_brain_uses_saved_fallback(plan_ledger, monkeypatch, channel):
-    from brain_v7 import BrainV7
+    from handlers.brain_v7 import BrainV7
     from service import model_settings
     monkeypatch.setattr(model_settings, "document", lambda *args: {})
     usage_wallet.adjust("EXAMPLE", 100, "Test prepaid funding", "test-admin", "funding")

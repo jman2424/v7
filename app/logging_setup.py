@@ -1,3 +1,4 @@
+"""Console and file logging with secrets redacted from formatted records."""
 from __future__ import annotations
 
 import logging

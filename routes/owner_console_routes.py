@@ -1,3 +1,4 @@
+"""Serves the built SvelteKit owner console under /console and maps legacy section URLs."""
 from __future__ import annotations
 
 from pathlib import Path

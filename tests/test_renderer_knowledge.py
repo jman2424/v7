@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from renderer_v7 import RendererV7
+from handlers.renderer_v7 import RendererV7
 
 
 @pytest.mark.parametrize("action,fact", [("FAQ_LOOKUP", "faq"), ("STORE_INFO", "store_info")])

@@ -1,3 +1,4 @@
+"""Authenticated read/write of one tenant document with schema validation, audit records and snapshots."""
 from __future__ import annotations
 from flask import Blueprint, abort, jsonify, request, session
 from jsonschema.exceptions import ValidationError

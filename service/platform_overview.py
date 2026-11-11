@@ -34,7 +34,7 @@ def get_platform_overview(container: Any, *, minutes: int = 1440, page: int = 1)
     for path in tenants[start:start + PAGE_SIZE]:
         issues = []
         name = path.name
-        mode = str(container.settings.MODE)
+        mode = "V7"
         valid_files = 0
         for filename in KNOWLEDGE_FILES:
             candidate = path / filename
@@ -87,7 +87,7 @@ def _postgres_platform_overview(container: Any, *, minutes: int, page: int) -> d
     rows = []
     for tenant in keys[start:start + PAGE_SIZE]:
         issues = []
-        name, mode, valid_files = tenant, str(container.settings.MODE), 0
+        name, mode, valid_files = tenant, "V7", 0
         documents = container.storage.read_json_many(tenant, KNOWLEDGE_FILES)
         for filename in KNOWLEDGE_FILES:
             if filename not in documents:

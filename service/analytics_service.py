@@ -1,4 +1,4 @@
-# service/analytics_service.py
+"""In-process analytics facade used by the chat pipeline; persists through analytics_db."""
 from __future__ import annotations
 
 import csv
@@ -85,7 +85,7 @@ class AnalyticsService:
     settings: SettingsLike
 
     def __post_init__(self) -> None:
-        self.db_path = os.getenv("ANALYTICS_DB_PATH", "/app/logs/analytics.db")
+        self.db_path = os.getenv("ANALYTICS_DB_PATH") or analytics_db.DB_PATH
         self.ensure_ready()
 
     # -----------------------

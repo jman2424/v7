@@ -19,11 +19,8 @@ from typing import Any, Dict, Optional
 
 
 def _default_audit_path() -> str:
-    configured = (os.getenv("AUDIT_LOG_PATH") or "").strip()
-    if configured:
-        return configured
-    data_root = (os.getenv("V7_DATA_DIR") or "").strip()
-    return os.path.join(data_root, "logs", "selfrepair.log") if data_root else "logs/selfrepair.log"
+    from service.runtime_paths import audit_log_path
+    return str(audit_log_path())
 
 
 @dataclass

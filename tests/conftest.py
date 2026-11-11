@@ -170,17 +170,6 @@ def mock_request():
 
 
 @pytest.fixture()
-def mock_mode(monkeypatch):
-    """Stub AI mode that echoes inputs for deterministic unit tests."""
-    class DummyMode:
-        def generate_reply(self, context: Dict[str, Any]) -> Dict[str, Any]:
-            return {"reply": f"echo: {context.get('message', '')}"}
-
-    monkeypatch.setattr("ai_modes.v7_flagship.Mode", DummyMode)
-    yield DummyMode
-
-
-@pytest.fixture()
 def dummy_lead():
     """Sample CRM lead record."""
     return {

@@ -10,8 +10,6 @@ services:
     buildCommand: "pip install -r requirements.txt && cd frontend && npm ci && V7_CONSOLE_BASE_PATH=/console npm run build"
     startCommand: "gunicorn -c gunicorn.conf.py 'app:create_app()'"
     envVars:
-      - key: MODE
-        value: V7
       - key: BUSINESS_KEY
         value: EXAMPLE
       - key: ENVIRONMENT
@@ -52,7 +50,7 @@ services:
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
         sync: false
-      - key: SHEETS_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
       - key: STRIPE_API_KEY
         sync: false

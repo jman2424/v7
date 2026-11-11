@@ -1,3 +1,4 @@
+"""Authenticated, tenant-scoped analytics KPIs, rollups and CSV export."""
 from __future__ import annotations
 
 import csv

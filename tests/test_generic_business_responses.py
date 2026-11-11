@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from handlers.handler_v7 import MessageHandlerV7
-from renderer_v7 import RendererV7
+from handlers.renderer_v7 import RendererV7
 from retrieval.catalog_store import CatalogStore
 from retrieval.storage import Storage
 from service.business_core import BusinessCore, empty_core

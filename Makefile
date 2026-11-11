@@ -1,4 +1,4 @@
-.PHONY: help install dev fmt lint type test unit cov run build up down logs snapshot restore seed clean
+.PHONY: help install dev lint type test cov console run build up down snapshot restore seed clean
 
 PY=python3
 PIP=pip
@@ -8,17 +8,15 @@ PORT?=10000
 help:
 	@echo "Targets:"
 	@echo "  install     - install deps"
-	@echo "  dev         - install dev tools (pre-commit)"
-	@echo "  fmt         - format (black + isort)"
+	@echo "  dev         - install lint, type-check and test tools"
 	@echo "  lint        - ruff lint"
 	@echo "  type        - mypy type-check"
-	@echo "  test        - pytest (unit + integration)"
-	@echo "  unit        - pytest unit only"
+	@echo "  test        - pytest"
+	@echo "  console     - check, test and build the owner console"
 	@echo "  cov         - pytest with coverage"
-	@echo "  run         - run dev server (Flask)"
+	@echo "  run         - run the isolated local preview"
 	@echo "  build       - docker build"
 	@echo "  up / down   - docker compose up/down"
-	@echo "  logs        - tail app logs"
 	@echo "  snapshot    - snapshot tenant data"
 	@echo "  restore     - dry-run restore snapshot"
 	@echo "  seed        - load example business data"
@@ -30,11 +28,6 @@ install:
 
 dev: install
 	$(PIP) install -r requirements-dev.txt
-	pre-commit install
-
-fmt:
-	black .
-	isort .
 
 lint:
 	ruff check .
@@ -43,16 +36,16 @@ type:
 	mypy .
 
 test:
-	pytest -v
+	pytest
 
-unit:
-	pytest -v -k "not acceptance"
+console:
+	cd frontend && npm ci && npm run check && npm test && V7_CONSOLE_BASE_PATH=/console npm run build
 
 cov:
 	pytest -q --cov=. --cov-report=term-missing
 
 run:
-	export FLASK_APP=$(APP) && flask run --port=$(PORT)
+	$(PY) scripts/run_local.py
 
 build:
 	docker build -t ai-sales-assistant:latest .
@@ -62,9 +55,6 @@ up:
 
 down:
 	docker compose down
-
-logs:
-	tail -n 200 -f logs/chatbot.log
 
 snapshot:
 	$(PY) scripts/snapshot_backup.py

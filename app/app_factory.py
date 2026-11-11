@@ -1,4 +1,4 @@
-# app/app_factory.py
+"""Flask application factory: settings, middleware, blueprints, error handlers and security headers."""
 from __future__ import annotations
 
 import os
@@ -267,15 +267,14 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
 
     @app.after_request
     def _security_headers(response):
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # middleware.protect_response owns nosniff, CSP, HSTS and caching; this
+        # hook only adds the two policies that depend on the page being served.
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         speech_page = (request.path.rstrip('/').removesuffix('.html') == '/console/channels' and request.args.get('view', 'website') == 'website') or request.path in {
             "/chat_ui", "/console/test", "/console/test/", "/console/test.html",
             "/console/website", "/console/website/", "/console/website.html",
         }
         response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)" if speech_page else "camera=(), geolocation=(), microphone=()")
-        if app.config["SESSION_COOKIE_SECURE"]:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
     # Root

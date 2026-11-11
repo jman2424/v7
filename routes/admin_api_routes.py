@@ -1,4 +1,4 @@
-# routes/admin_api_routes.py
+"""Management JSON API under /admin/api used by the owner console (tenant data, leads, statistics, settings)."""
 from __future__ import annotations
 
 import logging
@@ -354,8 +354,8 @@ def api_usage_get():
     from service import model_settings
     chosen_model = model_settings.selected(tenant,container.storage)
     brain = container.handler.h_v7.brain
-    mode = str(container.overrides.get("ai.mode") or "v7").lower()
-    mode = mode if mode in {"v5", "v6"} else "v7"
+    from service.ai_mode import tenant_mode
+    mode = tenant_mode(container.overrides)
     result.update(scope=scope, tenant=tenant, configuration={
         "mode": mode.upper(),
         "planning_model": chosen_model or brain.config.model,

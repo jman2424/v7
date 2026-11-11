@@ -18,7 +18,7 @@ MANAGEMENT_READS = (
 MANAGEMENT_READS = tuple(MANAGEMENT_READS) + (
     '/files/raw/catalog.json', '/files/versions', '/analytics/kpis.json',
     '/analytics/rollups.json', '/analytics/export.csv', '/__diag/validate',
-    '/__diag/selfrepair', '/__diag/self_repair', '/catalog_webhook',
+    '/catalog_webhook',
     '/export_catalog_csv', '/mode', '/billing/subscription',
 )
 MANAGEMENT_WRITES = (

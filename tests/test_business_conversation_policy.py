@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from brain_v7 import BrainV7
+from handlers.brain_v7 import BrainV7
 from service.sales_agent import SalesAgentPolicy
 from service.sales_playbook import default_sales_playbook
 from service.tenant_sales_context import planning_business_context
@@ -103,7 +103,7 @@ def test_model_receives_new_preferences_as_data_and_only_public_facts(monkeypatc
     brain = BrainV7(client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
     # This unit test inspects the public planning payload, not the prepaid
     # request boundary (covered independently in test_prepaid_ai_usage.py).
-    monkeypatch.setattr('brain_v7.tracked_completion',
+    monkeypatch.setattr('handlers.brain_v7.tracked_completion',
                         lambda client, purpose, **options: client.chat.completions.create(**options))
     brain.plan("Help me choose a service", hints={"business": {
         "business_model": "professional_services", "fulfilment_mode": "remote",

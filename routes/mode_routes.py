@@ -1,3 +1,4 @@
+"""Reports the response strategy (v5/v6/v7) a tenant currently runs."""
 from flask import Blueprint, jsonify, request
 
 from routes import get_container
@@ -12,4 +13,5 @@ def get_mode():
     require_permission("business_settings.read")
     c = get_container()
     tenant = authorized_tenant(request.args.get("tenant"))
-    return jsonify(ok=True, tenant=tenant, mode=c.settings.MODE)
+    from service.ai_mode import tenant_mode
+    return jsonify(ok=True, tenant=tenant, mode=tenant_mode(c.for_tenant(tenant).overrides).upper())

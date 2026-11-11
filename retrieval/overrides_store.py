@@ -1,4 +1,4 @@
-# retrieval/overrides_store.py
+"""Read-only dotted-key access to a tenant overrides.json (for example ai.mode)."""
 from __future__ import annotations
 
 from dataclasses import dataclass

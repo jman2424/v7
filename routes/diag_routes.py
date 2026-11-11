@@ -1,3 +1,4 @@
+"""Authenticated diagnostics: tenant document validation and integration presence checks."""
 from flask import Blueprint, jsonify, request
 
 from routes import get_container
@@ -7,8 +8,6 @@ bp = Blueprint("diag", __name__, url_prefix="/__diag")
 
 
 @bp.get("/validate")
-@bp.get("/selfrepair")
-@bp.get("/self_repair")
 @require_management()
 def validate_all():
     require_permission("health.read")

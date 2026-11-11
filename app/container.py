@@ -4,8 +4,7 @@ Container — creates and holds singletons.
 Provides:
 - Stores (retrieval/*)
 - Services (service/*)
-- Mode strategy (ai_modes/*) based on Settings.MODE
-- MessageHandler orchestrator for V5/V6/V7 routing
+- MessageHandler orchestrator; each tenant picks v5/v6/v7 via overrides.json "ai.mode"
 """
 
 from __future__ import annotations
@@ -41,18 +40,16 @@ from service.sales_flows import SalesFlows
 from service.message_handler import MessageHandler
 from service import HandlerDeps  # dataclass used by MessageHandler
 
-# AI modes (legacy strategy object, still required by HandlerDeps.mode)
-from ai_modes.contracts import ModeStrategy
-from ai_modes.v5_legacy import V5Legacy
-from ai_modes.v6_hybrid import AIV6Hybrid
-from ai_modes.v7_flagship import AIV7Flagship
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _bootstrap_persistent_business_data() -> None:
-    """Seed an empty mounted data directory without overwriting tenant changes."""
+def _bootstrap_persistent_business_data(only: Optional[str] = None) -> None:
+    """Seed an empty mounted data directory without overwriting tenant changes.
+
+    ``only`` limits the seed to one bundled tenant. Production passes its own
+    starter tenant so bundled demonstration businesses never become live ones.
+    """
     raw_data_root = (os.getenv("V7_DATA_DIR") or "").strip()
     if not raw_data_root:
         return
@@ -70,7 +67,10 @@ def _bootstrap_persistent_business_data() -> None:
             raise RuntimeError("Bundled tenant data is missing")
         staging = Path(tempfile.mkdtemp(prefix=".v7-business-", dir=data_root))
         try:
-            shutil.copytree(source, staging / "business")
+            if only and (source / only).is_dir():
+                shutil.copytree(source / only, staging / "business" / only)
+            else:
+                shutil.copytree(source, staging / "business")
             os.replace(staging / "business", target)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
@@ -82,7 +82,6 @@ def _bootstrap_persistent_business_data() -> None:
 class Container:
     settings: Settings
     # Filled during __post_init__
-    mode: Optional[ModeStrategy] = None
     handler: Optional[MessageHandler] = None
     _tenant_containers: Dict[str, "Container"] = field(default_factory=dict, init=False, repr=False)
     _tenant_lock: object = field(default_factory=RLock, init=False, repr=False)
@@ -90,7 +89,8 @@ class Container:
     def __post_init__(self):
         # ---------- Retrieval layer ----------
         if os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower() != "postgres":
-            _bootstrap_persistent_business_data()
+            production = self.settings.ENVIRONMENT == "production" or os.getenv("RENDER") == "true"
+            _bootstrap_persistent_business_data(self.settings.BUSINESS_KEY if production else None)
         self.storage = Storage(self.settings.BUSINESS_KEY)
         self.catalog = CatalogStore(self.storage)
         self.policy = PolicyStore(self.storage)
@@ -126,23 +126,8 @@ class Container:
             geo_prefixes=coverage_prefixes,
         )
 
-        # ---------- Mode strategy (legacy, still required by HandlerDeps.mode) ----------
-        # Settings.MODE should be "V5", "V6", or "V7"
-        mode_name = (self.settings.MODE or "V7").upper().replace("AI", "")
-
-        if mode_name == "V5":
-            # V5Legacy takes no constructor args
-            self.mode = V5Legacy()
-        elif mode_name == "V6":
-            # AIV6Hybrid takes no constructor args
-            self.mode = AIV6Hybrid()
-        else:
-            # default: V7 flagship, also no constructor args
-            self.mode = AIV7Flagship()
-
         # ---------- Message orchestrator ----------
         deps = HandlerDeps(
-            mode=self.mode,
             rewriter=self.rewriter,
             analytics=self.analytics,
             crm=self.crm,

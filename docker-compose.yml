@@ -17,18 +17,6 @@ services:
       - ./business:/app/business
       - ./logs:/app/logs
       - ./backups:/app/backups
-    depends_on:
-      - redis
     command: gunicorn -c gunicorn.conf.py "app:create_app()"
     restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: asa_redis
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    restart: unless-stopped
-
-volumes:
-  redisdata:

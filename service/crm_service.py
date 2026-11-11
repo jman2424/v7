@@ -38,11 +38,8 @@ def _conversation_entries(messages):
 
 
 def _default_snapshot_path() -> str:
-    configured = (os.getenv("CRM_SNAPSHOT_PATH") or "").strip()
-    if configured:
-        return configured
-    data_root = (os.getenv("V7_DATA_DIR") or "").strip()
-    return os.path.join(data_root, "logs", "crm_snapshot.json") if data_root else "logs/crm_snapshot.json"
+    from service.runtime_paths import crm_snapshot_path
+    return str(crm_snapshot_path())
 
 
 def _using_postgres() -> bool:

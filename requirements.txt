@@ -8,9 +8,8 @@ psycopg-pool==3.3.3
 
 # --- AI / OpenAI SDK ---
 openai==1.93.0
-
-# --- Search / Fuzzy Matching ---
-rapidfuzz==3.9.1
+# Required by the OpenAI SDK; pinned for reproducible builds.
+pydantic==2.9.2
 
 # --- Web / HTTP ---
 requests==2.33.0
@@ -25,22 +24,10 @@ pyjwt[crypto]==2.15.0
 pyotp==2.9.0
 itsdangerous==2.2.0
 
-# --- Google Sheets API ---
-google-api-python-client==2.142.0
-google-auth==2.34.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.1
-# Keep the Google OAuth runtime on the patched device-code release.
-oauthlib==4.0.1
-# Bound ASN.1 decoder vulnerabilities in the Google authentication stack.
-pyasn1==0.6.5
-
 # --- JSON / Schema / Validation ---
 jsonschema==4.23.0
-pydantic==2.9.2
 
-# --- Caching / Tools ---
-cachetools==5.5.0
+# --- QR codes for WhatsApp links and authenticator setup ---
 qrcode==8.2
 
 # --- Twilio for WhatsApp ---
@@ -49,7 +36,7 @@ twilio==9.3.4
 # --- Testing (your tests folder uses pytest) ---
 pytest==9.0.3
 
-# --- Optional: YAML support for schemas/openapi.yaml ---
+# --- YAML parsing in service/validators.py ---
 pyyaml==6.0.1
 bcrypt==4.2.0
 

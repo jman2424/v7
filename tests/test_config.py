@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.config import load_settings
-from services.security import hash_password
+from service.security import hash_password
 
 
 def test_production_rejects_default_secret_key():

@@ -1,4 +1,4 @@
-# retrieval/policy_store.py
+"""Delivery areas, rules and exceptions for one tenant."""
 from __future__ import annotations
 
 import re

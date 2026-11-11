@@ -145,7 +145,7 @@ def test_unknown_stock_fallback_answers_price_without_claiming_unavailable(monke
 
 
 def test_comparison_does_not_convert_unknown_availability_to_out_of_stock():
-    from renderer_v7 import RendererV7
+    from handlers.renderer_v7 import RendererV7
 
     reply = RendererV7()._comparison_reply({'comparison': {'items': [
         {'name': 'Basic', 'price': 10, 'in_stock': None},

@@ -1,3 +1,4 @@
+"""Optional model rewrite of a drafted reply; never adds facts and falls back to the draft."""
 from __future__ import annotations
 
 import json

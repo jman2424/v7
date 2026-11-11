@@ -5,9 +5,9 @@ widgets, tenant management, and admin CRM analytics.
 
 Explore [Vertex Seven and V7 Agents](https://vertex-seven.com/).
 
-The [business-intelligence roadmap](docs/business-intelligence-roadmap.md) records
+The [business-intelligence roadmap](docs/history/business-intelligence-roadmap.md) records
 the current capability audit, delivery stages, acceptance gates and progress for
-the [business-first agent brief](docs/business-intelligence-brief.md). Core
+the [business-first agent brief](docs/history/business-intelligence-brief.md). Core
 business intelligence remains available on every plan; optional execution modules
 are delivered separately with server-enforced permissions.
 
@@ -33,7 +33,7 @@ agent for its own niche.
 
 - Python/Flask backend
 - Tenant configuration under `business/` with SQLite/files, or private PostgreSQL tables
-- V5/V6/V7 AI mode strategies under `ai_modes/`
+- V7 response strategy (with V5/V6 fallbacks) under `handlers/`
 - Web and WhatsApp routes under `routes/`
 - Svelte management console under `frontend/`
 - Public homepage and widget assets under `dashboard/`
@@ -42,11 +42,15 @@ agent for its own niche.
 ## Common Commands
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 pytest
 ruff check .
 mypy .
 ```
+
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the repository map and
+[docs/README.md](docs/README.md) for the documentation index. `env.example` lists
+every environment variable.
 
 ## Deployment
 
@@ -75,14 +79,14 @@ For external PostgreSQL storage, set `V7_STORAGE_BACKEND=postgres`, a protected
 restricted-login `V7_POSTGRES_DSN`, and `V7_SUPABASE_CA_FILE` when a project CA is
 required. Connections enforce verified TLS and tenant RLS. Startup refuses missing
 or unsafe storage; it does not seed or fall back to local files. Follow
-[Supabase storage and migration](docs/SUPABASE_MIGRATION.md) for all migrations
+[Supabase storage and migration](docs/operations/supabase-migration.md) for all migrations
 (schema versions 1-9), import and disposable database checks.
 
 The current live V7 instance has not completed this cutover. Preserve a complete
 independent export of its business documents, security/analytics databases, CRM
 and configured account/audit data before changing or redeploying it. See
-[complete live backup](docs/LIVE_BACKUP.md) and `scripts/export_runtime.py`.
-Public signup also needs a verified mail sender; see [registration setup](docs/REGISTRATION.md).
+[complete live backup](docs/operations/live-backup.md) and `scripts/export_runtime.py`.
+Public signup also needs a verified mail sender; see [registration setup](docs/guides/registration.md).
 
 ## Website Widget
 
@@ -230,7 +234,7 @@ tests/test_owner_console.py` and `npm run check` in `frontend/` to check setup c
 callback URLs, readiness checks and cost guidance together. The guided setup is
 also available from Integrations. Credentials and recipient assignments remain
 server-managed; Refresh checks saved configuration without contacting a provider
-or sending a message. See [WhatsApp setup](docs/whatsapp-setup.md) for the operator
+or sending a message. See [WhatsApp setup](docs/guides/whatsapp-setup.md) for the operator
 handoff and launch checks.
 
 The optional QR creator makes a click-to-chat link and downloadable
@@ -351,7 +355,7 @@ Build the console first with `cd frontend && npm ci && npm run build`, setting
 AI-provider and WhatsApp calls and stores edits in its own data directory.
 
 Use a random `SECRET_KEY` of at least 32 characters for other deployments.
-See [security and operations](docs/SECURITY.md) for account setup, persistence,
+See [security and operations](docs/operations/security.md) for account setup, persistence,
 webhook configuration and remaining limitations. Run `python -m pytest`,
 `python -m ruff check .`, and `npm run check` / `npm run build` in `frontend`
 before release.
@@ -362,7 +366,7 @@ Every management account now completes authenticator verification. New accounts
 scan their own QR after their password is accepted; this does not grant dashboard
 access until a valid code is confirmed. Local preview credentials are not live
 Render credentials. Existing server-configured admin passwords and authenticators
-are unchanged. See [security and recovery](docs/SECURITY.md).
+are unchanged. See [security and recovery](docs/operations/security.md).
 
 The `/console/subscription` page shows Starter at GBP 99/month plus GBP 149
 setup, Business at GBP 199/month plus GBP 299 setup, and Scale at GBP 349/month
@@ -380,7 +384,7 @@ require authenticator 2FA. New businesses can be configured before launch, but
 only activate after the monthly invoice and matching setup payment are confirmed.
 Ownership, activation and usage records need durable storage and protected backups.
 No real Stripe charge is taken by tests or by deploying the code. See
-[monthly plans](docs/billing-plans.md) for allowance definitions and limitations.
+[monthly plans](docs/guides/billing-plans.md) for allowance definitions and limitations.
 
 Stripe setup (server-side only):
 - Set `BILLING_PROVIDER=stripe`, `STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, and

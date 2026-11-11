@@ -1,7 +1,7 @@
 """Inspect or copy a frozen V7 backup into private Supabase tables; never alter sources.
 
 Defaults to an offline dry run. Applying requires --apply --source-frozen and a
-server-only V7_SUPABASE_MIGRATION_DSN. See docs/SUPABASE_MIGRATION.md.
+server-only V7_SUPABASE_MIGRATION_DSN. See docs/operations/supabase-migration.md.
 """
 from __future__ import annotations
 
@@ -488,7 +488,7 @@ def main():
         # Database errors can contain DSNs, credentials, email or entire rejected rows.
         # Never dump exception messages/tracebacks from this credential-handling tool.
         print('Migration stopped ('+type(exc).__name__+'). Source files were not modified. '
-              'Check the prerequisites in docs/SUPABASE_MIGRATION.md; no credentials or rows were logged.', file=sys.stderr)
+              'Check the prerequisites in docs/operations/supabase-migration.md; no credentials or rows were logged.', file=sys.stderr)
         return 1
     return 0
 

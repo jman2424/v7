@@ -137,7 +137,7 @@ def test_tenants_channels_and_time_window_are_separate(ledger):
 
 
 def test_brain_and_rewriter_record_real_completion_metadata(ledger):
-    from brain_v7 import BrainV7
+    from handlers.brain_v7 import BrainV7
     from service.rewriter import Rewriter
     client = Mock()
     client.chat.completions.create.return_value = completion()

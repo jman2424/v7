@@ -2,7 +2,7 @@
 
 This cannot access a Render Free instance or recover files from a previous
 instance. Run it only where the actual source files are accessible. See
-docs/LIVE_BACKUP.md. No provider connection or application import is performed.
+docs/operations/live-backup.md. No provider connection or application import is performed.
 """
 from __future__ import annotations
 
@@ -273,8 +273,13 @@ def configured_sources(args) -> Sources:
     # the actual source paths instead of choosing a different file during export.
     file_data_root = rooted(raw_data_root) if raw_data_root else root
     business = args.business_dir or data_root / 'business'
-    security = args.security_db or os.getenv('SECURITY_DB_PATH') or root / 'logs/security.db'
-    analytics = args.analytics_db or os.getenv('ANALYTICS_DB_PATH') or Path('/app/logs/analytics.db')
+    # Mirror service.runtime_paths: the data directory wins once its file
+    # exists; older runtimes keep their historical locations.
+    def state(name, legacy):
+        preferred = file_data_root / 'logs' / name
+        return preferred if preferred.exists() or not Path(legacy).exists() else Path(legacy)
+    security = args.security_db or os.getenv('SECURITY_DB_PATH') or state('security.db', root / 'logs/security.db')
+    analytics = args.analytics_db or os.getenv('ANALYTICS_DB_PATH') or state('analytics.db', '/app/logs/analytics.db')
     configured_crm = args.crm_snapshot or os.getenv('CRM_SNAPSHOT_PATH', '').strip()
     crm = configured_crm or file_data_root / 'logs/crm_snapshot.json'
     audit = args.audit_log or file_data_root / 'logs/selfrepair.log'
@@ -318,7 +323,7 @@ def main(argv=None):
         print(json.dumps({'mode': 'verified' if args.verify_only else 'exported', **result}, indent=2))
     except Exception as exc:
         # SQLite, JSON and filesystem exceptions may contain private data/paths.
-        print('Export stopped (' + type(exc).__name__ + '). Check docs/LIVE_BACKUP.md. '
+        print('Export stopped (' + type(exc).__name__ + '). Check docs/operations/live-backup.md. '
               'No source records or credentials were logged.', file=sys.stderr)
         return 1
     return 0

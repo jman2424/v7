@@ -119,6 +119,3 @@ def export_catalog_csv():
                 item.get("price_str", item.get("price", "")), item.get("stock", item.get("in_stock", "")))])
     return Response(stream.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=catalog.csv", "Cache-Control": "no-store"})
-def _get_catalog_path():
-    c = get_container()
-    return c.storage.file_path(c.settings.BUSINESS_KEY, "catalog.json")

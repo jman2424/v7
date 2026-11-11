@@ -1,3 +1,4 @@
+"""Deterministic intent and entity detection (postcode, product, delivery, branch) before any model call."""
 from __future__ import annotations
 import re
 import time

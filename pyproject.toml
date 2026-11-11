@@ -1,0 +1,93 @@
+# Single source of tool configuration. Runtime dependencies live in
+# requirements.txt; this project is deployed as an application, not a package.
+[project]
+name = "v7-agents"
+version = "7.0.0"
+description = "Multi-tenant AI sales and support assistant platform"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["logs", "backups", "business", "frontend", "sdk/js"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+# E501/E7xx: the codebase uses long and compound lines deliberately.
+# F401/F841: re-exports and intentionally unused bindings are common.
+ignore = ["E501", "E701", "E702", "E731", "E741", "F401", "F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files adjust sys.path or environment before importing the app.
+"scripts/*.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
+"service/mcp_tools.py" = ["E402"]
+"connectors/billing.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+explicit_package_bases = true
+ignore_missing_imports = true
+follow_imports = "silent"
+strict_optional = true
+warn_unused_configs = true
+exclude = '^(tests|evals|sdk|frontend|logs|backups|business|\.venv)/'
+
+# Ratchet: these modules had type errors when checking was switched on
+# (2026-11). They are skipped, not trusted. Remove a module from this list
+# after fixing it; never add one.
+[[tool.mypy.overrides]]
+module = [
+    "app.config",
+    "app.container",
+    "app.json_provider",
+    "app.public_analytics",
+    "app.public_widget",
+    "handlers.brain_v7",
+    "connectors.whatsapp",
+    "handlers.handler_v7",
+    "retrieval.geo_store",
+    "retrieval.offer_store",
+    "retrieval.storage",
+    "routes.admin_api_routes",
+    "routes.conversion_routes",
+    "routes.owner_console_routes",
+    "routes.webchat_routes",
+    "scripts.billing_sandbox",
+    "scripts.export_runtime",
+    "scripts.prepare_supabase",
+    "scripts.rebuild_synonyms",
+    "scripts.restore_snapshot",
+    "scripts.snapshot_backup",
+    "scripts.snapshot_paths",
+    "service.ai_provider_funding",
+    "service.analytics_db",
+    "service.analytics_service",
+    "service.api_usage",
+    "service.business_read_cache",
+    "service.channel_worker",
+    "service.crm_service",
+    "service.grounded_money",
+    "service.login_limiter",
+    "service.message_handler",
+    "service.performance_metrics",
+    "service.plan_usage",
+    "service.postgres_pool",
+    "service.privacy_settings",
+    "service.product_metrics",
+    "service.reply_formatting",
+    "service.sales_agent",
+    "service.security",
+    "service.speech_transcription",
+    "service.telemetry_outbox",
+    "service.tenant_sales_context",
+    "service.tenant_service",
+    "service.website_knowledge",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q --disable-warnings --tb=short"
+testpaths = ["tests"]

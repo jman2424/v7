@@ -13,7 +13,6 @@ from flask import Flask
 
 from app.config import load_settings
 from app.middleware import install_rate_limit, install_request_id
-from connectors.sheets import SheetsClient
 from connectors.web_widget import WidgetBridge, canonical_origin
 from retrieval.storage import Storage
 from tests import test_platform_security as platform_tests
@@ -79,13 +78,11 @@ def test_unsafe_configured_urls_fail_at_startup(setting, value):
         load_settings({"SECRET_KEY": "test-secret-" * 4, setting: value})
 
 
-def test_settings_and_sheets_repr_hide_credentials():
+def test_settings_repr_hides_credentials():
     settings = load_settings({"SECRET_KEY": "private-secret-" * 4, "WHATSAPP_TOKEN": "provider-secret",
-        "WHATSAPP_APP_SECRET": "signature-secret", "TWILIO_AUTH_TOKEN": "twilio-secret",
-        "SHEETS_SERVICE_JSON": "service-private"})
-    for value in [settings.SECRET_KEY, "provider-secret", "signature-secret", "twilio-secret", "service-private"]:
+        "WHATSAPP_APP_SECRET": "signature-secret", "TWILIO_AUTH_TOKEN": "twilio-secret"})
+    for value in [settings.SECRET_KEY, "provider-secret", "signature-secret", "twilio-secret"]:
         assert value not in repr(settings)
-    assert "sheet-secret" not in repr(SheetsClient("https://sheets.test", "sheet-secret"))
 
 
 @pytest.mark.parametrize("value", ["https://user@shop.test", "https://shop.test/path", "https://shop.test?x=1", "https://shop.test\n"])
@@ -96,18 +93,6 @@ def test_widget_origins_are_exact(value):
 def test_empty_widget_allowlist_is_not_replaced_with_defaults():
     bridge = WidgetBridge(allowed_origins=[])
     assert not bridge.validate_origin("http://localhost")
-
-
-def test_sheets_import_never_adopts_blank_or_foreign_tenant_rows(monkeypatch):
-    values = [["tenant", "category", "subcategory", "name", "price_str", "stock"],
-        ["", "Devices", "", "Shared secret", "10", "yes"],
-        ["BETA", "Devices", "", "Beta secret", "10", "yes"],
-        ["ALPHA", "Devices", "", "Alpha item", "10", "yes"]]
-    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: io.BytesIO(json.dumps({"values": values}).encode()))
-    client = SheetsClient("https://sheets.test", "key", export_sheet="test")
-    result = client.import_catalog("ALPHA")
-    assert [item["name"] for category in result["product_catalog"] for item in category["items"]] == ["Alpha item"]
-    assert client.import_catalog("") is None
 
 
 def test_legacy_loader_rejects_paths_outside_tenant_documents(tmp_path):
