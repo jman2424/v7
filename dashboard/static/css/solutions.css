@@ -3,7 +3,6 @@
 .solution-breadcrumb { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; padding-block: 24px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .solution-breadcrumb a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .solution-hero { max-width: 880px; padding-block: 28px 52px; }
-.solution-hero .eyebrow { margin-bottom: 18px; }
 .solution-hero h1 { max-width: 850px; font-size: clamp(34px, 4.5vw, 54px); line-height: 1.12; }
 .solution-intro { max-width: 780px; margin-top: 24px; font-size: 18px; color: var(--muted); }
 .pricing-detail { padding-block: 12px 40px; }
@@ -13,7 +12,6 @@
 .solution-content { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 64px; align-items: start; padding-block: 40px; border-top: 1px solid var(--line); }
 .solution-explanation { display: grid; gap: 36px; }
 .solution-explanation section { min-width: 0; }
-.solution-number { display: block; margin-bottom: 10px; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .05em; }
 .solution-explanation h2 { margin-bottom: 14px; font-size: 26px; line-height: 1.2; letter-spacing: -.03em; }
 .solution-explanation p { font-size: 15px; color: var(--muted); }
 .solution-explanation p + p { margin-top: 14px; }
@@ -36,9 +34,6 @@
 .solution-links a > span:last-child { color: var(--accent); }
 .solution-footer { display: grid; gap: 24px; padding-block: 32px; border-top: 1px solid var(--line); }
 .solution-footer-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
-.solution-footer-top .brand-lockup { width: 174px; }
-.solution-footer-top .brand-caption { padding-inline-start: 41px; }
-.solution-footer-top .brand-name { font-size: 17px; }
 .solution-footer-top p { font-size: 12px; color: var(--muted); }
 .solution-footer-links { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 20px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .solution-footer-links a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
@@ -49,7 +44,6 @@
   .solution-footer-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .solution-page .site-header nav { gap: 12px; flex-wrap: wrap; justify-content: flex-start; }
   .solution-hero { padding-block: 16px 32px; }
   .solution-intro { font-size: 16px; }
   .solution-content { padding-block: 28px; }

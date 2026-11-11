@@ -22,14 +22,13 @@ and colours: V `#005A32`, 7 `#505154`, Vertex lettering `#36393D` and Seven
 lettering `#00552E`. Small icons use the symbol for legibility; headers use the
 outlined wordmark. Keep logos compact and preserve their aspect ratios.
 
-The console palette is defined in `frontend/src/app.css`. Green `#087f5b`
-remains the primary action colour; neutral `#f3f4f4` canvases, `#dce0e2` borders
-and `#656d71` secondary text complement it. Public landing and policy styles use
-the same neutral palette in `dashboard/static/css/home.css` and `privacy.css`.
-Hover green is `#066547`, dark brand green is `#143c30`, and body text is
-`#2f3539`. Use `#edf6f1` for green tints and `#d8e7dc` for their borders.
-The landing page uses a white canvas, green actions and light grey information
-sections. Keep the header symbol proportionate to its wordmark and navigation.
+Colour, type, spacing and shape for the public site are defined once in
+`dashboard/static/css/tokens.css` and described in `DESIGN.md`. Dark green
+`#12352a` carries whole regions (hero, featured plan, closing panel); `#176446`
+is the action green on light surfaces; amber `#f4c542` marks the primary action
+on green. Change values in the token file, not in page stylesheets. The console
+palette in `frontend/src/app.css` has not yet been moved onto these tokens.
+Keep the header symbol proportionate to its wordmark and navigation.
 The hero copy overlays a white fade into the supplied artwork; the conversation
 preview sits below. Mobile layouts keep copy and actions above the artwork,
 and sign-in puts the form before its introduction. Respect reduced motion for

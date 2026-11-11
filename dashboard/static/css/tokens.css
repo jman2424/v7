@@ -1,0 +1,103 @@
+/*
+  V7 design tokens: the single source of colour, type, space and shape for the
+  public site, the owner console and platform chrome. The customer chat widget is
+  themed per business and only borrows the type scale and spacing.
+
+  Change a value here, not in a page stylesheet. See DESIGN.md.
+*/
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("../fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("../fonts/hanken-grotesk-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* Type. Arabic and other scripts fall through to the device's own faces. */
+  --v7-font-display: "Bricolage Grotesque", "Hanken Grotesk", "Segoe UI", system-ui, -apple-system, "Noto Sans Arabic", sans-serif;
+  --v7-font-body: "Hanken Grotesk", "Segoe UI", system-ui, -apple-system, "Noto Sans Arabic", sans-serif;
+  --v7-font-mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+
+  --v7-text-xs: 0.75rem;    /* 12 */
+  --v7-text-sm: 0.875rem;   /* 14 */
+  --v7-text-md: 1rem;       /* 16 */
+  --v7-text-lg: 1.125rem;   /* 18 */
+  --v7-text-xl: 1.375rem;   /* 22 */
+  --v7-text-2xl: 1.75rem;   /* 28 */
+  --v7-text-3xl: clamp(1.875rem, 1.3rem + 2.2vw, 2.75rem);
+  --v7-text-display: clamp(2.75rem, 1.4rem + 5.6vw, 5.25rem);
+
+  /* Colour. Green fields carry whole regions; signal marks the one thing to act on. */
+  --v7-brand: #12352a;
+  --v7-brand-deep: #0b2620;
+  --v7-brand-line: #2b5244;
+  --v7-on-brand: #f4f8f1;
+  --v7-on-brand-muted: #bcd0c1;
+  --v7-signal: #f4c542;
+  --v7-signal-hover: #ffd75e;
+  --v7-on-signal: #1a2a12;
+
+  --v7-accent: #176446;
+  --v7-accent-hover: #0f4d35;
+  --v7-ink: #14261d;
+  --v7-ink-soft: #33473c;
+  --v7-muted: #5a6b60;
+  --v7-surface: #ffffff;
+  --v7-canvas: #f5f7f2;
+  --v7-soft: #edf2e8;
+  --v7-tint: #e4efe6;
+  --v7-tint-line: #cfe0d3;
+  --v7-line: #dde5db;
+  --v7-control-line: #b4c4b7;
+  --v7-focus: #8a6312;
+  --v7-danger: #a43328;
+  --v7-warning: #805a14;
+
+  /* Space, on a 4px base. */
+  --v7-space-1: 0.25rem;
+  --v7-space-2: 0.5rem;
+  --v7-space-3: 0.75rem;
+  --v7-space-4: 1rem;
+  --v7-space-5: 1.5rem;
+  --v7-space-6: 2rem;
+  --v7-space-7: 3rem;
+  --v7-space-8: 4rem;
+  --v7-space-9: 6rem;
+
+  /* Shape and depth. */
+  --v7-radius-control: 8px;
+  --v7-radius-panel: 14px;
+  --v7-radius-field: 22px;
+  --v7-radius-pill: 999px;
+  --v7-shadow-raised: 0 1px 2px #12352a0f, 0 8px 24px -12px #12352a2e;
+  --v7-shadow-float: 0 2px 6px #0b262014, 0 24px 48px -20px #0b262052;
+
+  --v7-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --v7-page: min(1200px, calc(100% - 3rem));
+
+  /* Names used by older page stylesheets; they resolve to the tokens above. */
+  --paper: var(--v7-surface);
+  --white: var(--v7-surface);
+  --ink: var(--v7-ink);
+  --charcoal: var(--v7-ink-soft);
+  --muted: var(--v7-muted);
+  --line: var(--v7-line);
+  --control-border: var(--v7-control-line);
+  --brand: var(--v7-brand);
+  --accent: var(--v7-accent);
+  --accent-hover: var(--v7-accent-hover);
+  --canvas: var(--v7-canvas);
+  --soft: var(--v7-soft);
+  --tint: var(--v7-tint);
+  --tint-border: var(--v7-tint-line);
+}

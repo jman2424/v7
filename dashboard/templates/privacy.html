@@ -3,16 +3,15 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy information | Vertex Seven</title>
   {% include 'platform_favicons.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/privacy.css', v='20261022') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v='20261111') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/site.css', v='20261111') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/premium.css', v='20261102') }}">
   <script defer src="{{ url_for('static', filename='js/page-navigation.js', v='20261102') }}"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><a href="/console/">Workspace</a></nav></header>
   <main id="main" class="policy">
-    <p class="eyebrow">YOUR INFORMATION</p><h1>Privacy information</h1>
+    <h1>Privacy information</h1>
     {% if policy.draft %}<aside class="draft" role="status"><strong>Draft — business information is incomplete.</strong><p>The controller must confirm the missing details below before treating this notice as complete.</p></aside>{% endif %}
     {% if tenant %}<p class="intro">This page contains the privacy details supplied for this business's V7 experience.</p>{% else %}<p class="intro">This page describes the Vertex Seven platform. Each business using a V7 agent has its own responsibilities and privacy information.</p>{% endif %}
     <section><h2>Who is responsible and how to contact them</h2>

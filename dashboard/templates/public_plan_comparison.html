@@ -12,13 +12,13 @@
         </article>
         {% endfor %}
       </div>
-      {% if setup_offer_enabled is not defined or setup_offer_enabled %}<aside class="referral-offer" aria-labelledby="setup-offer-title"><div><p class="eyebrow" data-i18n>SETUP OFFER</p><h3 id="setup-offer-title" data-i18n>Free setup</h3><p data-i18n>Use code SETUP in your Subscription section before checkout. Your monthly subscription price is unchanged.</p><p class="referral-terms" data-i18n>For unpaid one-time setup only. Business approval is required. Offers do not stack or cover AI credit, and paid setup is not refunded.</p></div></aside>{% endif %}
+      {% if setup_offer_enabled is not defined or setup_offer_enabled %}<aside class="referral-offer" aria-labelledby="setup-offer-title"><div><h3 id="setup-offer-title" data-i18n>Free setup</h3><p data-i18n>Use code SETUP in your Subscription section before checkout. Your monthly subscription price is unchanged.</p><p class="referral-terms" data-i18n>For unpaid one-time setup only. Business approval is required. Offers do not stack or cover AI credit, and paid setup is not refunded.</p></div></aside>{% endif %}
       <p class="pricing-note" data-i18n>Implementation support is included. We provide the embed snippet and guidance; your team or website developer adds it to your website.</p>
       <p class="pricing-note">A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.</p>
       {% if not subscription_vat_percent %}<p class="pricing-note">Prices shown are final GBP amounts. VAT is not currently charged.</p>{% endif %}
       {% if referral_offer is defined and referral_offer.enabled %}
       <aside class="referral-offer" aria-labelledby="referral-offer-title">
-        <div><p class="eyebrow" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off one subscription month for both businesses</span></h3>
+        <div><p class="offer-label" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off one subscription month for both businesses</span></h3>
         {% if referral_offer.joining_setup_percent == 100 %}<p data-i18n>The new business gets its first subscription month discounted and pays no setup fee.</p>{% endif %}
         <p><span data-i18n>You earn your reward after its first successful subscription payment, including</span> {{ referral_offer.percent }}% <span data-i18n>off your unpaid setup fee.</span></p>
         <p class="referral-terms" data-i18n>New businesses must accept a referral before their first checkout. Discounts do not stack or apply to AI credit. Already-paid setup fees are not refunded.</p></div>
