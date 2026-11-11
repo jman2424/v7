@@ -23,7 +23,7 @@ GROUPS = [
     ("Inbound provider webhooks", ("whatsapp", "business_channels", "catalog")),
     ("Sign-in and account", ("auth_api", "oidc_login", "admin_ui")),
     ("Owner console (static app)", ("owner_console",)),
-    ("Management API", ("admin_api", "model_settings", "files", "analytics", "mode", "diag")),
+    ("Management API", ("admin_api", "email_campaigns", "model_settings", "files", "analytics", "mode", "diag")),
     ("Billing", ("billing", "usage_billing", "ai_budget", "business_applications")),
     ("Agent integrations (MCP and REST)", ("mcp", "mcp_oauth", "vertex_api")),
     ("Health", ("health", "healthz")),
@@ -38,6 +38,9 @@ def render(app) -> str:
         try:
             source = Path(inspect.getsourcefile(inspect.unwrap(view)) or "").resolve().relative_to(ROOT).as_posix()
         except (TypeError, ValueError):
+            source = "flask"
+        # A virtualenv may sit inside the repository; only tracked packages count as ours.
+        if source.split("/")[0] not in {"app", "routes"}:
             source = "flask"
         blueprint = rule.endpoint.split(".")[0]
         rows.setdefault(blueprint, []).append((rule.rule, methods, f"`{source}` · `{view.__name__}`"))

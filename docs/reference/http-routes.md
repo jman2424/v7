@@ -30,7 +30,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/security` | GET | `routes/public_seo_routes.py` · `resource_page` |
 | `/sitemap.xml` | GET | `routes/public_seo_routes.py` · `sitemap` |
 | `/solutions/<slug>` | GET | `routes/public_seo_routes.py` · `solution_page` |
-| `/static/<path:filename>` | GET | `.venv/Lib/site-packages/flask/app.py` · `<lambda>` |
+| `/static/<path:filename>` | GET | `flask` · `<lambda>` |
 | `/terms` | GET | `routes/public_seo_routes.py` · `application_terms_page` |
 
 ## Customer chat and widget
@@ -143,6 +143,13 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/conversations` | GET | `routes/admin_api_routes.py` · `api_conversations` |
 | `/admin/api/delivery` | GET | `routes/admin_api_routes.py` · `api_delivery_get` |
 | `/admin/api/delivery` | PUT | `routes/admin_api_routes.py` · `api_delivery_put` |
+| `/admin/api/email-campaigns` | GET | `routes/campaign_routes.py` · `list_campaigns` |
+| `/admin/api/email-campaigns` | POST | `routes/campaign_routes.py` · `create_campaign` |
+| `/admin/api/email-campaigns/<identifier>` | PUT | `routes/campaign_routes.py` · `edit_campaign` |
+| `/admin/api/email-campaigns/<identifier>/reconcile` | POST | `routes/campaign_routes.py` · `reconcile_campaign` |
+| `/admin/api/email-campaigns/<identifier>/review` | POST | `routes/campaign_routes.py` · `review_campaign` |
+| `/admin/api/email-campaigns/<identifier>/send` | POST | `routes/campaign_routes.py` · `send_campaign` |
+| `/admin/api/email-campaigns/generate` | POST | `routes/campaign_routes.py` · `generate_campaign` |
 | `/admin/api/errors` | GET | `routes/admin_api_routes.py` · `api_errors` |
 | `/admin/api/fallbacks` | GET | `routes/admin_api_routes.py` · `api_fallbacks` |
 | `/admin/api/faq` | GET | `routes/admin_api_routes.py` · `api_faq_get` |
@@ -299,15 +306,3 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/healthz` | GET | `app/app_factory.py` · `healthz` |
 | `/ready` | GET | `routes/health_routes.py` · `ready` |
 | `/version` | GET | `routes/health_routes.py` · `version` |
-
-## Other
-
-| Path | Methods | Handler |
-|---|---|---|
-| `/admin/api/email-campaigns` | GET | `routes/campaign_routes.py` · `list_campaigns` |
-| `/admin/api/email-campaigns` | POST | `routes/campaign_routes.py` · `create_campaign` |
-| `/admin/api/email-campaigns/<identifier>` | PUT | `routes/campaign_routes.py` · `edit_campaign` |
-| `/admin/api/email-campaigns/<identifier>/reconcile` | POST | `routes/campaign_routes.py` · `reconcile_campaign` |
-| `/admin/api/email-campaigns/<identifier>/review` | POST | `routes/campaign_routes.py` · `review_campaign` |
-| `/admin/api/email-campaigns/<identifier>/send` | POST | `routes/campaign_routes.py` · `send_campaign` |
-| `/admin/api/email-campaigns/generate` | POST | `routes/campaign_routes.py` · `generate_campaign` |
