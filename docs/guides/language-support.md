@@ -1,5 +1,14 @@
 # Language support
 
+**Current state (November 2026):** the console is English-only. Most screen text was
+never added to the dictionaries, so the language picker produced half-translated
+screens and is switched off by `consoleLanguageChoice` in `frontend/src/lib/i18n.ts`.
+The dictionaries, the `t` store and right-to-left support remain, and the public
+homepage keeps its complete Spanish, French and Arabic translations. Turn the switch
+back on only after every console string is in `dashboard/static/i18n/` and reviewed.
+
+The notes below describe how translation behaves when the picker is enabled.
+
 The console language picker supports English, Spanish, French and Arabic.
 Subscription, prepaid credit, model selection, WhatsApp setup and the agent test
 screen use the shared dictionaries in `dashboard/static/i18n/`. Arabic uses

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { language, languages, setLanguage, t } from './i18n';
+  import { consoleLanguageChoice, language, languages, setLanguage, t } from './i18n';
 </script>
-<label class="language-picker"><span>{$t('Language')}</span>
+{#if consoleLanguageChoice}<label class="language-picker"><span>{$t('Language')}</span>
   <select aria-label={$t('Language')} value={$language} on:change={event => setLanguage(event.currentTarget.value)}>
     {#each languages as option}<option value={option.id}>{option.name}</option>{/each}
   </select>
-</label>
+</label>{/if}
 <style>
   .language-picker {display:flex;align-items:center;gap:8px;font-size:var(--v7-text-xs);font-weight:600}
   select {max-width:140px;padding:8px 10px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);color:var(--v7-ink)}

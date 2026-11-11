@@ -45,6 +45,9 @@ Verified against the code in November 2026. Remove an entry when it is resolved.
 
 ## Console and public site (planned redesign)
 
-- Translations are partial: Spanish, French and Arabic cover only part of the console.
+- The console is English-only. Spanish, French and Arabic dictionaries cover only part of
+  it, so the language picker is switched off (`consoleLanguageChoice` in
+  `frontend/src/lib/i18n.ts`). Only the public homepage is translated; other public
+  pages are English.
 - The public site, console and widget use separate colour and type definitions.
 - All languages ship in the initial console bundle.

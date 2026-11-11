@@ -240,7 +240,9 @@ test('Svelte preferences preserve the same independent analytics-only choice', (
   assert.equal(state.jar.get('v7_analytics_consent'), 'v1%3Agranted');
   state.jar.set('_ga', 'synthetic-id'); state.jar.set('_ga_ABC123DEF4', 'synthetic-stream');
   preferences.choosePreferences('all', false);
-  assert.equal(state.jar.get('v7_preferences'), 'all'); assert.equal(state.jar.get('v7_language'), 'en');
+  assert.equal(state.jar.get('v7_preferences'), 'all');
+  // The console is English-only, so it must not overwrite a language saved on the homepage.
+  assert.equal(state.jar.has('v7_language'), false);
   assert.equal(state.jar.get('v7_analytics_consent'), 'v1%3Adenied');
   assert.equal(state.jar.has('_ga'), false); assert.equal(state.jar.has('_ga_ABC123DEF4'), false);
   assert.equal(state.jar.get('session'), 'synthetic-session');

@@ -13,6 +13,14 @@ export const languages = [
   {id: 'ar', name: 'العربية', dir: 'rtl'}
 ] as const;
 export type Language = typeof languages[number]['id'];
+/*
+  The console is English-only until every screen is translated: most component text is
+  not in the dictionaries yet, so offering other languages produced half-translated
+  screens. Set this to true to bring the picker back. The dictionaries, the `t` store
+  and right-to-left support are untouched. The public homepage has its own complete
+  translations and is not affected.
+*/
+export const consoleLanguageChoice: boolean = false;
 export const language = writable<Language>('en');
 const messages: Record<string, Record<string, string>> = {};
 for (const option of languages) {
@@ -58,6 +66,13 @@ export function setLanguage(value: string) {
 }
 
 export function initialiseLanguage() {
+  if (!consoleLanguageChoice) {
+    // Do not call setLanguage: it would overwrite the visitor's saved homepage language.
+    language.set('en');
+    document.documentElement.lang = 'en';
+    document.documentElement.dir = 'ltr';
+    return;
+  }
   const saved = preferenceChoice() === 'all' ? cookieValue('v7_language') : '';
   setLanguage(saved || navigator.language.split('-')[0]);
 }
@@ -65,7 +80,7 @@ export function initialiseLanguage() {
 export function choosePreferences(value: 'all' | 'essential', allowAnalytics = false) {
   preferenceCookie('v7_preferences', value, 180 * 86400);
   if (value === 'essential') preferenceCookie('v7_language', '', 0);
-  else setLanguage(document.documentElement.lang);
+  else if (consoleLanguageChoice) setLanguage(document.documentElement.lang);
   const granted = allowAnalytics === true;
   preferenceCookie('v7_analytics_consent', granted ? 'v1:granted' : 'v1:denied', 180 * 86400);
   if (!granted) clearAnalyticsCookies();
