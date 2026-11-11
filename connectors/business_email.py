@@ -14,6 +14,7 @@ import json
 import re
 import ssl
 import time
+from typing import Any
 
 from service.business_channels import address, resend_key, UUID
 from service.ai_disclosure import email_reply
@@ -185,7 +186,7 @@ def _mailbox(value: object) -> str:
             or any(ord(char) < 32 or ord(char) == 127 for char in value)):
         raise EmailTransportError('email_envelope_mismatch')
     try:
-        header = _MAILBOX_HEADER('To', value)
+        header: Any = _MAILBOX_HEADER('To', value)
         if header.defects or len(header.addresses) != 1 or any(group.display_name for group in header.groups):
             raise ValueError
         return address(header.addresses[0].addr_spec)
@@ -216,7 +217,7 @@ def _message_reference(value: object) -> str:
 
 def _current_body(value: str) -> str:
     lines = value.splitlines()
-    current = []
+    current: list[str] = []
     for position, line in enumerate(lines):
         stripped = line.strip()
         if line == '-- ' or _FORWARDED_SEPARATOR.fullmatch(stripped):

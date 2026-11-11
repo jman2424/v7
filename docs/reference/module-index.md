@@ -32,6 +32,7 @@ HTTP endpoints. One Flask blueprint per file.
 | `routes/billing_routes.py` | Owner-scoped billing, platform oversight, and verified Stripe callbacks. |
 | `routes/business_application_routes.py` | Existing MFA sessions/CSRF protect application and platform review APIs. |
 | `routes/business_channel_routes.py` | Signed provider intake. No inbound field can grant a role or select a tenant. |
+| `routes/campaign_routes.py` | Owner-controlled marketing drafts, approval and provider submission. |
 | `routes/catalog_routes.py` | Signed catalog imports and authenticated, tenant-scoped catalog exports. |
 | `routes/conversion_routes.py` | Public widget sales actions and owner-only requests. |
 | `routes/diag_routes.py` | Authenticated diagnostics: tenant document validation and integration presence checks. |
@@ -116,6 +117,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/conversion_actions.py` | Tenant-scoped, owner-configured sales requests and appointment slots. |
 | `service/crm_service.py` | CRM service: leads + conversations. |
 | `service/customer_intent.py` | Conservative form intent shared by local routing and model-selected actions. |
+| `service/email_campaigns.py` | Private campaign workflow using Resend's marketing audience and delivery controls. |
 | `service/faq_integrity.py` | Exact curated-FAQ integrity checks, without a model or semantic assumptions. |
 | `service/grounded_conversation.py` | One accounted, tenant-grounded answer before deterministic V7 fallbacks. |
 | `service/grounded_money.py` | Currency-aware validation of quoted amounts against cited public facts. |

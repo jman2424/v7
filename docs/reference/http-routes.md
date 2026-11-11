@@ -272,6 +272,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/api/v1/offers` | POST | `routes/vertex_api_routes.py` · `handle` |
 | `/api/v1/offers/<offer_id>` | PATCH | `routes/vertex_api_routes.py` · `handle` |
 | `/api/v1/offers/<offer_id>/disable` | POST | `routes/vertex_api_routes.py` · `handle` |
+| `/api/v1/openapi.json` | GET | `routes/vertex_api_routes.py` · `openapi` |
 | `/api/v1/orders` | GET | `routes/vertex_api_routes.py` · `handle` |
 | `/api/v1/popular-queries` | GET | `routes/vertex_api_routes.py` · `handle` |
 | `/api/v1/projects` | GET | `routes/vertex_api_routes.py` · `handle` |
@@ -298,3 +299,15 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/healthz` | GET | `app/app_factory.py` · `healthz` |
 | `/ready` | GET | `routes/health_routes.py` · `ready` |
 | `/version` | GET | `routes/health_routes.py` · `version` |
+
+## Other
+
+| Path | Methods | Handler |
+|---|---|---|
+| `/admin/api/email-campaigns` | GET | `routes/campaign_routes.py` · `list_campaigns` |
+| `/admin/api/email-campaigns` | POST | `routes/campaign_routes.py` · `create_campaign` |
+| `/admin/api/email-campaigns/<identifier>` | PUT | `routes/campaign_routes.py` · `edit_campaign` |
+| `/admin/api/email-campaigns/<identifier>/reconcile` | POST | `routes/campaign_routes.py` · `reconcile_campaign` |
+| `/admin/api/email-campaigns/<identifier>/review` | POST | `routes/campaign_routes.py` · `review_campaign` |
+| `/admin/api/email-campaigns/<identifier>/send` | POST | `routes/campaign_routes.py` · `send_campaign` |
+| `/admin/api/email-campaigns/generate` | POST | `routes/campaign_routes.py` · `generate_campaign` |
