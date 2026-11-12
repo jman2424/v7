@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
@@ -56,7 +57,7 @@
     <div class="toolbar"><div class="report-identity"><span class="eyebrow">Company report</span><h2>{businessName||'Business performance'}</h2>{#if updatedAt}<p class="refreshed">Refreshed {updatedAt} UTC</p>{/if}</div><div class="filters"><label>Period<select bind:value={days}><option value={1}>Last 24 hours</option><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option><option value={180}>Last 180 days</option><option value={365}>Last 365 days</option></select></label><label>Channel<select bind:value={channel}><option value="all">All channels</option><option value="web">Web chat</option><option value="whatsapp">WhatsApp</option></select></label><button disabled={busy} on:click={()=>refresh(tenant,days,channel)}>{$t("Refresh")}</button></div></div>
   <nav aria-label="Statistics views">{#each views as item}<button class:active={view===item.id} aria-pressed={view===item.id} on:click={()=>view=item.id}>{item.label}</button>{/each}</nav>
     {#if busy}
-      <p class="loading" role="status"><span class="loading-dot" aria-hidden="true"></span>Loading statistics for {tenant}…</p>
+      <p class="loading" role="status"><span class="loading-dot" aria-hidden="true"></span>Loading statistics for {$businessLabel || tenant}…</p>
       <div class="statistics-skeleton" aria-hidden="true"><div class="metrics">{#each [1,2,3] as _}<div class="skeleton-card"><span></span><strong></strong><span></span></div>{/each}</div><div class="skeleton-chart"><span></span><div></div></div></div>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}

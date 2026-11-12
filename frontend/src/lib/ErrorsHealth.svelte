@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   export let tenant: string;
@@ -94,7 +95,7 @@
 
 <section class="health-workspace" aria-label="Errors and business health">
   <div class="heading">
-    <div><h2>{$t("Errors & health")}</h2><p>Recorded failures and saved business data for {tenant}.</p></div>
+    <div><h2>{$t("Errors & health")}</h2><p>Recorded failures and saved business data for {$businessLabel || tenant}.</p></div>
     <div class="controls"><label>Activity period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
       <button type="button" disabled={loading} on:click={() => loadActivity(tenant, minutes)}>{loading ? 'Loading…' : 'Refresh activity'}</button></div>
   </div>

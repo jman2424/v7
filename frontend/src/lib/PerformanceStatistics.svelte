@@ -45,7 +45,7 @@
 </div>
 <style>
 .performance { display:grid; gap:18px; min-width:0; color:var(--v7-ink, var(--v7-ink)); }
-  .section-heading span { font-size:var(--v7-text-xs); text-transform:uppercase; letter-spacing:.1em; font-weight:700; color:var(--v7-muted, var(--v7-muted)); }
+  .section-heading span { font-size:var(--v7-text-xs); font-weight:700; color:var(--v7-muted, var(--v7-muted)); }
   .section-heading h3 { margin-top:6px; font-size:var(--v7-text-xl); line-height:1.4; letter-spacing:-.03em; color:var(--v7-ink, var(--v7-ink)); }
   .section-heading p { margin:6px 0 0; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap:14px; }

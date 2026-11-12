@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { onDestroy } from 'svelte';
   import { base } from './consoleBase';
   import WhatsAppConnection from './WhatsAppConnection.svelte';
@@ -52,7 +53,7 @@
   <article class="panel">
     <p class="eyebrow">Share your number</p>
     <h2>Create a customer link &amp; QR code</h2>
-    <p>Customers scan the code to open chat with your business. Use the approved, tested WhatsApp number for {tenant}.</p>
+    <p>Customers scan the code to open chat with your business. Use the approved, tested WhatsApp number for {$businessLabel || tenant}.</p>
     <form on:submit|preventDefault={generate}>
       <label>WhatsApp number<input type="tel" bind:value={phone} on:input={clearResult} placeholder="+44 7700 900123" autocomplete="tel" maxlength="40" required disabled={busy} /><small>Include the country code. For a UK mobile, replace the first 0 with +44.</small></label>
       <label>Suggested first message (optional)<textarea bind:value={message} on:input={clearResult} maxlength="160" rows="3" placeholder="Hi, I would like to find out more." disabled={busy}></textarea><small>Customers can edit this message before sending. {message.length}/160 characters.</small></label>

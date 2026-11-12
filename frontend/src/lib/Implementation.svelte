@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
@@ -70,7 +71,7 @@
 </script>
 
 <section class="implementation" aria-label="Implementation guide">
-  <div class="intro"><div><p class="eyebrow">Website setup</p><h2>Connect your agent to your website</h2><p>Set up chat for <strong>{tenant}</strong>, then check the experience before sharing it with customers.</p></div><button on:click={refresh} disabled={busy}>Refresh setup</button></div>
+  <div class="intro"><div><p class="eyebrow">Website setup</p><h2>Connect your agent to your website</h2><p>Set up chat for <strong>{$businessLabel || tenant}</strong>, then check the experience before sharing it with customers.</p></div><button on:click={refresh} disabled={busy}>Refresh setup</button></div>
   {#if !embedded}<nav aria-label="Implementation steps">{#each views as item}<button class:active={view === item.id} aria-pressed={view === item.id} on:click={() => view = item.id}>{item.label}</button>{/each}</nav>{/if}
   {#if busy}<p class="loading" role="status"><span class="loading-indicator" aria-hidden="true"></span>Loading saved setup…</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}

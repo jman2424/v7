@@ -167,7 +167,7 @@
 
 .plan-comparison { max-width: 100%; overflow-x: auto; margin-block-start: var(--v7-space-7); border: 1px solid var(--v7-line); border-radius: var(--v7-radius-panel); background: var(--v7-surface); scrollbar-width: thin; }
 .plan-comparison table { width: 100%; min-width: 35rem; border-collapse: collapse; text-align: start; font-size: 0.9375rem; }
-.plan-comparison caption { padding: var(--v7-space-5); text-align: start; font-family: var(--v7-font-display); font-size: var(--v7-text-xl); font-weight: 600; letter-spacing: -0.015em; }
+.plan-comparison caption { position: sticky; inset-inline-start: 0; box-sizing: border-box; inline-size: min(100%, calc(100vw - 2.5rem - 2px)); padding: var(--v7-space-5); text-align: start; font-family: var(--v7-font-display); font-size: var(--v7-text-xl); font-weight: 600; letter-spacing: -0.015em; }
 .plan-comparison th, .plan-comparison td { padding: 0.875rem var(--v7-space-5); border-block-start: 1px solid var(--v7-line); text-align: start; line-height: 1.45; }
 .plan-comparison thead th { background: var(--v7-canvas); font-weight: 700; }
 .plan-comparison tbody th { width: 40%; font-weight: 550; }

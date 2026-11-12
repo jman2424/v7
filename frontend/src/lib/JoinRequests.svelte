@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import {onMount} from 'svelte';
   export let tenant:string;
   export let csrf:string;
@@ -21,7 +22,7 @@
   }
 </script>
 <section aria-label="Tenant join requests">
-  <h3>Requests to join {tenant}</h3><p>These applicants verified their email. Approve only people you recognise. Approval creates a staff account with no billing permissions; authenticator setup is required at sign-in.</p>
+  <h3>Requests to join {$businessLabel || tenant}</h3><p>These applicants verified their email. Approve only people you recognise. Approval creates a staff account with no billing permissions; authenticator setup is required at sign-in.</p>
   {#if error}<p role="alert">{error}</p>{/if}
   {#each requests as item}<article><strong>{item.email}</strong><span>{new Date(item.created*1000).toLocaleDateString()}</span><button class="approve" disabled={busy} on:click={()=>decide(item.id,'approve')}>Approve staff access</button><button disabled={busy} on:click={()=>decide(item.id,'reject')}>Reject</button></article>
   {:else}<p>{busy?'Loading requests…':'No pending requests.'}</p>{/each}

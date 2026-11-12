@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>{{ tenant }} — Chat</title>
+  <title>{{ (branding.widget.assistant_name or branding.widget.chat_title or 'Chat') if branding and branding.widget else 'Chat' }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/widget.css', v='20261111') }}" />
   {% if branding and branding.favicon %}

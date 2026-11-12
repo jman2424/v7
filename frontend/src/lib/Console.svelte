@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
   import { goto } from '$app/navigation';
@@ -40,6 +41,7 @@
     ? platformWorkspace.views.filter(item=>!item.hidden&&mayOpenScreen(item.section)).map(item=>({id:item.id,label:item.label,description:'',icon:item.section,views:[item]}))
     : workspaces.map(item=>({...item,views:item.views.filter(view=>mayOpenScreen(view.section))})).filter(item=>item.views.some(view=>!view.hidden));
   $: businessName=tenants.find(item=>item.key===tenant)?.name||profile.name||$t('Your business');
+  $: businessLabel.set(businessName);
   const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data',budget:'AI Budget','provider-funding':'AI Provider Funding'};
   $: pageTitle = sections[section] || 'Sales workspace';
   sections.operations = 'Business hub';
@@ -1829,7 +1831,7 @@
       {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
         {#if isPlatform}{#await import('./PlatformOverview.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPlatformOverview}<svelte:component this={loadedPlatformOverview.default} {tenant} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:open={(event)=>openCompanyWorkspace(event.detail.tenant,event.detail.section)}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}
-        {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {tenant}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
+        {:else}<section class="surface"><div class="surface-body"><p>This page is available only to the platform administrator. Your account manages {businessName}.</p><a href={base+'/pipeline'}>Open your company workspace</a></div></section>{/if}
       {/if}
 
       {#if section === 'subscription'}
@@ -1949,7 +1951,7 @@
       {#key tenant}{#await import('./JoinRequests.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedJoinRequests}<svelte:component this={loadedJoinRequests.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
       <section id="team" class="surface workspace-section" aria-labelledby="team-heading">
           <div class="surface-head"><div><p class="eyebrow">Account access</p><h2 id="team-heading">Team</h2></div><span class="count-label">{accounts.length} accounts</span></div>
-          <div class="surface-body"><p>Accounts added here belong to <strong>{tenant}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
+          <div class="surface-body"><p>Accounts added here belong to <strong>{businessName}</strong>. Owners can also manage businesses they create. Staff stay within their assigned company. All accounts require authenticator 2FA. {isPlatform ? 'Choose Business owner to create a separate owner login.' : 'You can add staff and grant view permissions for this business.'}</p></div>
           <form class="team-form" on:submit|preventDefault={createAccount}>
             <label>{$t("Email")}<input bind:value={accountEmail} type="email" autocomplete="email" required /></label>
             {#if isPlatform}
@@ -2315,7 +2317,7 @@
   .intent-row strong { color: var(--v7-ink); }
   .activity-status { margin: 0; padding: 0 20px 20px; color: var(--v7-muted); font-size: var(--v7-text-sm); }
   .count-label { padding: 5px 8px; color: var(--v7-muted); background: var(--v7-soft); border: 1px solid var(--v7-line); border-radius: var(--v7-radius-pill); font-size: var(--v7-text-xs); font-weight: 700; white-space: nowrap; }
-  .currency { text-transform: uppercase; }
+  .currency input { text-transform: uppercase; }
   .stock-toggle, .collection-toggle { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: var(--v7-ink); font-size: var(--v7-text-xs); white-space: nowrap; }
   .stock-toggle input, .collection-toggle input { width: 16px; min-height: 16px; accent-color: var(--v7-accent); }
   .icon-button { min-height: 34px; padding: 0 8px; border: 1px solid var(--v7-control-line); border-radius: var(--v7-radius-control); background: var(--v7-surface); color: var(--v7-muted); font-size: var(--v7-text-xs); font-weight: 700; }
@@ -2377,7 +2379,7 @@
   .wide-field { grid-column: span 2; }
   .hours-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 9px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--v7-line); }
   .hours-grid h4 { grid-column: 1 / -1; margin: 0 0 2px; color: var(--v7-ink); font-size: var(--v7-text-sm); }
-  .hours-grid label { font-size: var(--v7-text-xs); text-transform: uppercase; }
+  .hours-grid label { font-size: var(--v7-text-xs); }
   .hours-grid input { font-size: var(--v7-text-xs); text-transform: none; }
   .branches-empty { padding: 20px; }
   @media (max-width: 1050px) { .management-grid { grid-template-columns: 1fr; } .delivery-rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } .delivery-rule .icon-button { width: fit-content; } }

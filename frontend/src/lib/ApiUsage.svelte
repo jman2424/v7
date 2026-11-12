@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { t } from './i18n';
   import { onMount, onDestroy } from 'svelte';
   import MemorySettings from './MemorySettings.svelte';
@@ -93,7 +94,7 @@
       <article class="panel"><span>API calls</span><strong class="value">{number(data.totals.calls)}</strong><small>{number(data.totals.failed_calls)} failed · {number(data.totals.missing_usage_calls)} without token counts</small></article>
     </div>
     <article class="panel">
-      <h3>Current setup · {tenant}</h3>
+      <h3>Current setup · {$businessLabel || tenant}</h3>
       <div class="models">
         <div><span>Agent mode</span><strong>{data.configuration.mode}</strong></div>
         <div><span>Planning model</span><strong>{data.configuration.planning_model}</strong><small>{data.configuration.planning_enabled ? 'Available for AI planning' : 'AI planning inactive'}</small></div>

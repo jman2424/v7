@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { businessLabel } from './businessLabel';
   import { createEventDispatcher, onMount } from 'svelte';
   import { widgetStyles, brandPalettes, widgetTheme, isHexColour, appearancePresets, applyAppearancePreset, appearancePresetMatches } from './widgetAppearance';
   import type { Widget, ColourKey, PreviewTheme } from './widgetAppearance';
@@ -102,7 +103,7 @@
     <footer><div><strong>{dirty ? 'Unsaved changes' : 'Saved appearance'}</strong><p class:error role={error ? 'alert' : 'status'}>{status || (canEdit ? 'Save to apply this appearance to new widget loads.' : 'You have viewing access. Ask your owner to change widget settings.')}</p></div><button class="primary" type="submit" disabled={!canEdit || saving}>{saving ? 'Saving…' : 'Save widget'}</button></footer>
   </form>
   <aside class="preview-stage" aria-label="Widget appearance preview">
-    <div class="preview-caption"><span class="eyebrow">Appearance preview</span><strong>{theme.style.name}</strong><span>{dirty ? 'Unsaved preview' : tenant}</span></div>
+    <div class="preview-caption"><span class="eyebrow">Appearance preview</span><strong>{theme.style.name}</strong><span>{dirty ? 'Unsaved preview' : ($businessLabel || tenant)}</span></div>
     <iframe class="widget-preview" title="Live preview of your chat widget" bind:this={previewFrame}
       src={asset('/chat_ui?tenant='+encodeURIComponent(tenant)+'&embed=panel&preview=1')} loading="lazy"></iframe>
     <div class="launcher-preview" data-style={widget.style} style={'background:'+theme.launcherBackground+';color:'+theme.launcherText+';border-radius:'+theme.launcherRadius+'px;--launcher-accent:'+theme.accent}>{#if widget.company_logo_url}<img src={asset(widget.company_logo_url)} alt="" />{:else}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 0 1-8 8H4l-2 2V12a8 8 0 1 1 18 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>{/if}<span>{widget.assistant_name || 'Chat with us'}</span></div>
