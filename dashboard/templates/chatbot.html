@@ -89,10 +89,11 @@
       },
       channel: "web",
       sessionId: "",
-      deferActions: {{ defer_actions|default(false)|tojson }}
+      deferActions: {{ defer_actions|default(false)|tojson }},
+      preview: {{ preview|default(false)|tojson }}
     };
   </script>
 <script src="{{ url_for('static', filename='js/widget-session.js', v='20261030clear') }}"></script>
-<script src="{{ url_for('static', filename='js/widget.js', v='20261030clear') }}"></script>
+<script src="{{ url_for('static', filename='js/widget.js', v='20261112preview') }}"></script>
 </body>
 </html>

@@ -731,6 +731,8 @@ def chat_ui():
         embedded=request.args.get("embed") in {"1", "panel"},
         closable=request.args.get("embed") == "1",
         defer_actions=request.args.get("preload") == "1" and request.args.get("embed") == "1",
+        # Appearance preview for the owner console: an inert widget that sends nothing.
+        preview=request.args.get("preview") == "1" and request.args.get("embed") == "panel",
         transcription_enabled=bool(os.getenv("OPENAI_API_KEY", "").strip()),
         transcription_token=_transcription_signer().dumps({"tenant": tenant}),
     )

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { widgetStyles, brandPalettes, widgetTheme, isHexColour, appearancePresets, applyAppearancePreset, appearancePresetMatches } from './widgetAppearance';
   import type { Widget, ColourKey, PreviewTheme } from './widgetAppearance';
   export let widget: Widget;
@@ -17,7 +17,26 @@
     { key:'bubble_color', label:'Customer bubble', theme:'bubble' }
   ];
   $: theme = widgetTheme(widget,previewTheme);
-  $: previewCss = '--chat-accent:'+theme.accent+';--chat-accent-text:'+theme.accentText+';--chat-bg:'+theme.background+';--chat-bg-text:'+theme.backgroundText+';--chat-panel:'+theme.surface+';--chat-field:'+theme.field+';--chat-text:'+theme.panelText+';--chat-field-text:'+theme.fieldText+';--chat-muted:'+theme.muted+';--chat-border:'+theme.border+';--chat-bubble:'+theme.bubble+';--chat-bubble-text:'+theme.bubbleText+';--chat-radius:'+theme.style.radius+'px;--chat-font:'+theme.fontFamily;
+  // The preview is the real customer widget. Unsaved settings are sent to it so it
+  // restyles immediately; it stores nothing and sends no messages.
+  let previewFrame: HTMLIFrameElement | undefined;
+  let previewReady = false;
+  function sendPreview(current: Widget) {
+    if (!previewReady || !previewFrame?.contentWindow) return;
+    const { style, accent_color, background_color, surface_color, text_color, bubble_color,
+            assistant_name, chat_title, greeting, avatar, company_logo_url } = current;
+    previewFrame.contentWindow.postMessage({ type:'V7_WIDGET_PREVIEW', appearance:{ style, accent_color,
+      background_color, surface_color, text_color, bubble_color, assistant_name, chat_title, greeting,
+      avatar, company_logo_url } }, window.location.origin);
+  }
+  function previewMessage(event: MessageEvent) {
+    if (event.origin !== window.location.origin || event.source !== previewFrame?.contentWindow
+        || event.data?.type !== 'V7_WIDGET_PREVIEW_READY') return;
+    previewReady = true; sendPreview(widget);
+  }
+  onMount(() => { window.addEventListener('message', previewMessage); return () => window.removeEventListener('message', previewMessage); });
+  $: if (tenant) previewReady = false;
+  $: sendPreview(widget);
   const asset = (url: string) => import.meta.env.DEV && url.startsWith('/') && !url.startsWith('//') ? '/api'+url : url;
   function setColour(key: ColourKey, value: string) { widget = { ...widget, [key]:value.toUpperCase() }; }
   function usePalette(palette: (typeof brandPalettes)[number]) { const { name, ...colours } = palette; widget = { ...widget, ...colours }; }
@@ -84,13 +103,10 @@
   </form>
   <aside class="preview-stage" aria-label="Widget appearance preview">
     <div class="preview-caption"><span class="eyebrow">Appearance preview</span><strong>{theme.style.name}</strong><span>{dirty ? 'Unsaved preview' : tenant}</span></div>
-    <div class="chat-preview" data-style={widget.style} style={previewCss}>
-      <header><div class="chat-identity"><span class="avatar"><img src={widget.avatar ? asset(widget.avatar) : '/static/img/logo.svg?v=20261019svg'} alt="" /></span><div><strong>{widget.assistant_name || 'Sales Assistant'}</strong>{#if widget.chat_title !== widget.assistant_name}<small>{widget.chat_title || 'Sales assistant'}</small>{/if}</div></div>{#if widget.company_logo_url}<img class="logo" src={asset(widget.company_logo_url)} alt="Company logo" />{/if}</header>
-      <div class="chat-body"><span class="conversation-start">AI assistant · Illustrative conversation preview</span><p class="agent-bubble">{widget.greeting || 'Hi! How can I help you today?'}</p><span class="preview-playback"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 9 4 0 5-4v14l-5-4H5V9Zm12-1a6 6 0 0 1 0 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Listen to reply</span><p class="customer-bubble">I'd like to know more about your business.</p><p class="agent-bubble">Tell me what you need and I can help you find the next step.</p></div>
-      <div class="chat-composer"><span>Type your message…</span><span class="mic-preview" aria-label="Microphone control preview"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="send-preview">Send</span></div>
-    </div>
+    <iframe class="widget-preview" title="Live preview of your chat widget" bind:this={previewFrame}
+      src={asset('/chat_ui?tenant='+encodeURIComponent(tenant)+'&embed=panel&preview=1')} loading="lazy"></iframe>
     <div class="launcher-preview" data-style={widget.style} style={'background:'+theme.launcherBackground+';color:'+theme.launcherText+';border-radius:'+theme.launcherRadius+'px;--launcher-accent:'+theme.accent}>{#if widget.company_logo_url}<img src={asset(widget.company_logo_url)} alt="" />{:else}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 12a8 8 0 0 1-8 8H4l-2 2V12a8 8 0 1 1 18 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>{/if}<span>{widget.assistant_name || 'Chat with us'}</span></div>
-    <p class="note">This sample shows your appearance settings. Use Test conversation to check real answers with saved business information.</p>
+    <p class="note">This is your real chat widget with the settings on this page, including changes you have not saved yet. It does not send messages here; use Test conversation to check real answers.</p>
     <a href={'/chat_ui?tenant='+encodeURIComponent(tenant)} target="_blank" rel="noopener noreferrer">Open saved customer widget ↗</a>
   </aside>
 </section>
@@ -121,22 +137,10 @@
   .text-button {padding:6px 0;border:0;background:transparent;color:var(--v7-accent,var(--v7-accent));font-size:var(--v7-text-xs)}.note {margin-top:16px;font-size:var(--v7-text-xs)}
   footer {display:flex;justify-content:space-between;align-items:center;gap:18px;padding:18px 0}footer strong {font-size:var(--v7-text-xs)}footer p {margin-top:5px;font-size:var(--v7-text-xs)}.primary {flex:none;background:var(--v7-accent,var(--v7-accent));border-color:var(--v7-accent,var(--v7-accent));color:#fff}.primary:hover:not(:disabled){background:var(--v7-accent-hover,var(--v7-accent-hover));color:#fff}.error {color:var(--v7-danger)}
   .preview-stage {position:sticky;top:20px;padding:20px;border:1px solid var(--v7-line,var(--v7-line));border-radius:var(--v7-radius-panel);background:var(--v7-canvas);min-width:0}.preview-caption {display:grid;gap:6px;margin-bottom:20px}.preview-caption strong {font-size:var(--v7-text-md)}.preview-caption>span:last-child {font-size:var(--v7-text-xs);color:var(--v7-muted,var(--v7-muted))}
-  .chat-preview {overflow:hidden;border-radius:var(--chat-radius);border:1px solid var(--chat-border);background:var(--chat-panel);color:var(--chat-text);box-shadow:0 8px 24px #172b2614;min-width:0;font-family:var(--chat-font)}
-  .chat-preview header {margin:0;padding:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:10px;border-bottom:1px solid var(--chat-border)}.chat-preview .chat-identity {display:flex;align-items:center;gap:9px;flex:1;min-width:0}.chat-identity>div {display:grid;gap:3px;overflow-wrap:anywhere}.chat-identity strong {font-size:var(--v7-text-sm)}.chat-identity small {font-size:var(--v7-text-xs);color:var(--chat-muted)}
-  .avatar {display:grid;place-items:center;flex:none;width:34px;height:34px;overflow:hidden;border-radius:50%;background:var(--chat-accent);color:var(--chat-accent-text)}.avatar img {width:100%;height:100%;object-fit:contain}.logo {width:96px;max-width:24%;height:38px;object-fit:contain;flex:none}
-  .chat-body {display:flex;flex-direction:column;gap:14px;padding:18px 14px;min-height:290px;background:var(--chat-bg)}.conversation-start {text-align:center;color:var(--chat-bg-text);font-size:var(--v7-text-xs);opacity:.8}.chat-body p {padding:10px 12px;font-size:var(--v7-text-xs);line-height:1.55;max-width:87%;overflow-wrap:anywhere;margin:0;border:1px solid var(--chat-border);border-radius:var(--v7-radius-panel)}
-  .agent-bubble {background:var(--chat-field);color:var(--chat-field-text)}.customer-bubble {align-self:flex-end;background:var(--chat-bubble);color:var(--chat-bubble-text)}.preview-playback {display:flex;align-items:center;gap:6px;color:var(--chat-bg-text);font-size:var(--v7-text-xs)}
-  .chat-composer {display:flex;align-items:center;gap:8px;padding:12px;border-top:1px solid var(--chat-border);font-size:var(--v7-text-xs)}.chat-composer>span:first-child {flex:1;color:var(--chat-muted)}.mic-preview {display:grid;place-items:center;color:var(--chat-text)}.send-preview {padding:8px 10px;border-radius:var(--v7-radius-control);color:var(--chat-accent-text);background:var(--chat-accent);font-size:var(--v7-text-xs);font-weight:700}
+  .widget-preview {display:block;width:100%;height:min(560px,70vh);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);box-shadow:var(--v7-card-shadow)}
   .launcher-preview {display:flex;align-items:center;gap:8px;width:fit-content;margin:16px 0 0 auto;max-width:100%;padding:10px 14px;border-radius:var(--v7-radius-panel);font-size:var(--v7-text-xs);font-weight:600;overflow-wrap:anywhere}
   .preview-stage a {display:inline-flex;align-items:center;min-height:44px;margin-top:8px;color:var(--v7-accent,var(--v7-accent));font-size:var(--v7-text-xs);text-underline-offset:3px}
-  .chat-preview[data-style="daylight"] header {border-top:5px solid var(--chat-accent)}.chat-preview:is([data-style="daylight"],[data-style="studio"]) .avatar {border-radius:var(--v7-radius-control)}
-  .chat-preview[data-style="studio"] header {padding:18px;border-top:3px solid var(--chat-accent)}.chat-preview[data-style="studio"] .avatar {width:42px;height:42px;border-radius:var(--v7-radius-panel)}.chat-preview[data-style="studio"] .chat-body p {border-radius:var(--v7-radius-panel);box-shadow:0 2px 6px #172b2609}
-  .chat-preview[data-style="minimal"] header {justify-content:center;border:0;padding:22px}.chat-preview[data-style="minimal"] .chat-identity {flex-direction:column;text-align:center}.chat-preview[data-style="minimal"] .chat-body p {border:0;border-left:2px solid var(--chat-accent);border-radius:0}.chat-preview[data-style="minimal"] .customer-bubble {border-left:0;border-right:2px solid var(--chat-accent)}
-  .chat-preview[data-style="editorial"] {box-shadow:6px 8px 0 #463f3026}.chat-preview[data-style="editorial"] header {border-bottom:3px double var(--chat-border)}.chat-preview[data-style="editorial"] .chat-body p,.chat-preview[data-style="editorial"] .send-preview {border-radius:0}
-  .chat-preview[data-style="neon"] {border-color:var(--chat-accent);box-shadow:0 0 14px color-mix(in srgb,var(--chat-accent) 35%,transparent)}.chat-preview[data-style="neon"] header {border-bottom-color:var(--chat-accent)}.chat-preview[data-style="neon"] .chat-body p {border-radius:var(--v7-radius-control)}
-  .chat-preview:is([data-style="warm"],[data-style="soft"]) .agent-bubble {border-radius:18px 18px 18px 4px}.chat-preview:is([data-style="warm"],[data-style="soft"]) .customer-bubble {border-radius:18px 18px 4px 18px}.chat-preview[data-style="soft"] .send-preview {border-radius:var(--v7-radius-panel)}
-  .chat-preview[data-style="glass"] {box-shadow:0 14px 32px #14233b30}.chat-preview[data-style="glass"] .chat-body p {border-radius:var(--v7-radius-panel)}.chat-preview[data-style="bold"] header {background:var(--chat-accent);color:var(--chat-accent-text)}.chat-preview[data-style="bold"] header small {color:inherit}.chat-preview[data-style="bold"] .avatar {background:var(--chat-accent-text);color:var(--chat-accent)}
   .launcher-preview img {width:24px;height:24px;object-fit:contain}.launcher-preview:is([data-style="daylight"],[data-style="minimal"],[data-style="studio"],[data-style="soft"]) {border:1px solid var(--launcher-accent)}.launcher-preview[data-style="editorial"] {font-family:Georgia,serif;border:1px solid #c9bba5}.launcher-preview[data-style="neon"] {border:1px solid var(--launcher-accent);box-shadow:0 0 12px var(--launcher-accent)}.launcher-preview[data-style="bold"] {border:2px solid var(--launcher-accent);box-shadow:4px 4px 0 #0f172a33}
-  @media(max-width:1250px){.style-grid {grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:1050px){.designer {grid-template-columns:1fr}.preview-stage {position:static}.chat-preview {max-width:400px;margin:auto}.launcher-preview {margin-right:auto}.preview-stage>.note {max-width:440px}.style-grid {grid-template-columns:repeat(5,minmax(0,1fr))}}
+  @media(max-width:1250px){.style-grid {grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:1050px){.designer {grid-template-columns:1fr}.preview-stage {position:static}.widget-preview {max-width:400px;margin:auto}.launcher-preview {margin-right:auto}.preview-stage>.note {max-width:440px}.style-grid {grid-template-columns:repeat(5,minmax(0,1fr))}}
   @media(max-width:600px){.panel,.preview-stage {padding:16px}.identity-grid,.colour-grid {grid-template-columns:1fr}.style-grid {grid-template-columns:repeat(2,minmax(0,1fr))}.palette-grid {grid-template-columns:repeat(2,minmax(0,1fr))}footer {align-items:start;flex-direction:column}.primary {width:100%}}
 </style>

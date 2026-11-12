@@ -77,8 +77,11 @@ business's colours, so it does not load `tokens.css` or the brand fonts.
 - Shape and rhythm are shared by every preset: `--wgap-*` spacing, 44px controls
   (`--wcontrol`), and `--wcontrol-radius` derived from the preset's `--wradius`.
 - Below the composer, secondary controls are quiet text, not boxed buttons.
-- A preset may change header layout, bubble shape and shadows. Changing a preset's
-  palette or signature also requires updating its console preview.
+- A preset may change header layout, bubble shape and shadows.
+- The console's Appearance tab previews the real widget page (`/chat_ui` with
+  `embed=panel&preview=1`) and sends unsaved settings to it, so the preview cannot
+  drift from what customers see. In preview mode the widget sends and stores nothing.
+  Only the small preset tiles are drawn by the console.
 
 ## Motion
 

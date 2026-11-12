@@ -155,6 +155,7 @@
     soft: {background: "#eef5f1", panel: "#fbfdfb", field: "#f1f7f2", text: "#233d30", bubble: "#dcefe3"},
     bold: {background: "#f4f5f5", panel: "#ffffff", field: "#eef1f0", text: "#142b23", bubble: "#e4f4eb"}
   };
+  const applyAppearance = () => {
   const preset = presets[document.body.dataset.style] || presets.midnight;
   const theme = config.theme || {};
   const colours = config.colors || {};
@@ -193,6 +194,8 @@
   if (typeof font === "string" && font.length <= 120 && /^[\w\s,.'"\-]+$/.test(font)) {
     style.setProperty("--wfont", font);
   }
+  };
+  applyAppearance();
 
   const speechAvailable = "speechSynthesis" in window && typeof window.SpeechSynthesisUtterance === "function";
   let speakingButton = null;
@@ -469,7 +472,7 @@
     actionsStarted = true;
     loadActions();
   };
-  if (!config.deferActions) startActions();
+  if (!config.deferActions && !config.preview) startActions();
 
   const addSuggestedActions = (bubble, suggestions) => {
     if (!Array.isArray(suggestions)) return;
@@ -539,6 +542,10 @@
   };
   form.addEventListener("submit", async event => {
     event.preventDefault();
+    if (config.preview) {
+      chatStatus.textContent = "This is a preview of your design. Use Test conversation to try real answers.";
+      return;
+    }
     const text = input.value.trim();
     if (busy || !text) return;
     const generation = conversationGeneration;
@@ -954,6 +961,56 @@
   });
   clearCancel?.addEventListener('click', () => { clearConfirmation.hidden = true; clearChat?.setAttribute('aria-expanded', 'false'); clearChat?.focus(); });
   clearConfirm?.addEventListener('click', () => { if (!actionBusy) clearConversation(); });
+  if (config.preview) {
+    // Appearance preview inside the owner console. No conversation is restored,
+    // stored, shared with other tabs or sent to the server.
+    restoring = true;
+    add("I\u2019d like to know more about your business.", "me");
+    add("Tell me what you need and I can help you find the next step.", "bot");
+    const text = (value, limit) => typeof value === "string" ? value.slice(0, limit) : "";
+    const image = value => typeof value === "string" && value.length <= 2048
+      && (/^https:\/\/[^\s]+$/.test(value) || /^\/(?!\/)[^\s]*$/.test(value)) ? value : "";
+    const title = document.querySelector(".widget__title");
+    const titles = document.querySelector(".widget__titles");
+    const avatar = document.querySelector(".widget__avatar");
+    const header = document.querySelector(".widget__header");
+    const intro = log.querySelector(".msg--intro .msg__bubble");
+    const defaultAvatar = avatar ? avatar.getAttribute("src") : "";
+    const defaultStyle = document.body.dataset.style;
+    window.addEventListener("message", event => {
+      // Only this site's own console, as the direct parent, may restyle the preview.
+      if (event.origin !== window.location.origin || event.source !== window.parent
+          || !event.data || event.data.type !== "V7_WIDGET_PREVIEW") return;
+      const next = event.data.appearance;
+      if (!next || typeof next !== "object") return;
+      document.body.dataset.style = Object.hasOwn(presets, next.style) ? next.style : defaultStyle;
+      config.accentColor = text(next.accent_color, 7);
+      config.colors = {background: text(next.background_color, 7), surface: text(next.surface_color, 7),
+                       text: text(next.text_color, 7), bubble: text(next.bubble_color, 7)};
+      for (const name of ["--wbg", "--wpanel", "--wfield", "--wborder", "--wtext", "--wpanel-text",
+                          "--wfield-text", "--wme-text", "--wmuted", "--wpanel-muted", "--waccent",
+                          "--waccent-text", "--wme"]) document.body.style.removeProperty(name);
+      applyAppearance();
+      const chatTitle = text(next.chat_title, 80) || "Sales Assistant";
+      const name = text(next.assistant_name, 80) || chatTitle;
+      if (title) title.textContent = name;
+      let subtitle = document.querySelector(".widget__subtitle");
+      if (chatTitle !== name) {
+        if (!subtitle && titles) { subtitle = document.createElement("p"); subtitle.className = "widget__subtitle"; titles.append(subtitle); }
+        if (subtitle) subtitle.textContent = chatTitle;
+      } else subtitle?.remove();
+      if (intro) intro.textContent = text(next.greeting, 240) || "Hi! How can I help you today?";
+      if (avatar) avatar.setAttribute("src", image(next.avatar) || defaultAvatar);
+      let logo = document.querySelector(".widget__brand-logo");
+      const logoSource = image(next.company_logo_url);
+      if (logoSource) {
+        if (!logo && header) { logo = document.createElement("img"); logo.className = "widget__brand-logo"; logo.alt = "Company logo"; header.append(logo); }
+        if (logo) logo.setAttribute("src", logoSource);
+      } else logo?.remove();
+    });
+    if (window.parent !== window) window.parent.postMessage({type: "V7_WIDGET_PREVIEW_READY"}, window.location.origin);
+    return;
+  }
   restoreTranscript();
   let site = window.location.origin;
   try { if (document.referrer) site = new URL(document.referrer).origin; } catch {}
