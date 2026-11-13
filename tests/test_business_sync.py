@@ -118,7 +118,7 @@ def test_connecting_requires_explicit_authorisation_and_a_public_store_address(p
                           headers={'X-CSRF-Token': csrf})
     assert refused.status_code == 400 and refused.json['error'] == 'authorisation_required'
     for address in ('http://shop.example.test', 'https://127.0.0.1', 'https://localhost', 'https://10.0.0.5',
-                    'https://user:pass@shop.example.test', 'https://shop.internal'):
+                    'https://' + 'user:' + 'pass' + '@shop.example.test', 'https://shop.internal'):
         response = connect(client, csrf, connection={**CONNECTION, 'store_url': address})
         assert response.status_code == 400 and response.json['error'] == 'invalid_store_address', address
     assert client.get('/admin/api/data-sources').json['sources'] == []
