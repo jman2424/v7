@@ -18,6 +18,7 @@
   import {hasUnsavedDrafts} from './draftNavigation';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import BillingOverview from './BillingOverview.svelte';
+  import ApplicationsAlert from './ApplicationsAlert.svelte';
   import {workspaces,platformWorkspace,workspaceDefinitions,legacyLocation,resolveWorkspace,workspaceAllowed,workspaceHref,sectionHref,type Workspace} from './workspaceArchitecture';
   import { initialiseLanguage, t } from './i18n';
   let cookiePreferences: CookiePreferences | undefined;
@@ -1791,6 +1792,8 @@
           {/each}
         </nav>
       {/if}
+
+      {#if isPlatform && section !== 'applications'}<ApplicationsAlert href={workspaceHref(base,'platform','applications',tenant)} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{/if}
 
       {#if tenantDirectoryError}
         <div class="workspace-retry notice error"><p role="alert">{tenantDirectoryError}</p><button class="secondary" type="button" disabled={tenantDirectoryBusy} on:click={retryTenantDirectory}>{$t(tenantDirectoryBusy ? 'Please wait…' : 'Retry company list')}</button></div>
