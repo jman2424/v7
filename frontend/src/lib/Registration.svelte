@@ -112,5 +112,26 @@
 </section>
 
 <style>
-  .registration{background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius, 18px);padding:clamp(24px, 4vw, 36px);max-width:560px;width:100%;box-sizing:border-box;box-shadow:var(--v7-card-shadow, 0 8px 28px #203b3008);}h1{font-size:var(--v7-text-2xl);margin:0 0 20px;letter-spacing:-.035em;}h2{font-size:var(--v7-text-lg)}p{line-height:1.6;color:var(--v7-muted);font-size:var(--v7-text-sm);}form,label{display:grid;gap:10px}form{gap:18px}input,select,button{font:inherit;padding:12px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-panel);max-width:100%;box-sizing:border-box;min-height:44px;}button{cursor:pointer;background:var(--v7-accent);color:white;min-height:44px;font-weight:700;}button:disabled{opacity:.6;cursor:wait}small{font-weight:normal;color:var(--v7-muted);line-height:1.6;}.error{color:#ad2020}:focus-visible{outline:3px solid var(--v7-focus);outline-offset:2px}
+  .registration{display:grid;gap:var(--v7-space-4);width:100%;max-width:none;padding:0;border:0;background:transparent}
+  h1{margin:0;color:var(--v7-ink);font-size:var(--v7-text-2xl);font-weight:600;line-height:1.15;letter-spacing:-.03em}
+  h2{margin:0;font-size:var(--v7-text-lg);font-weight:600}
+  p{margin:0;font-size:var(--v7-text-sm);line-height:1.6;color:var(--v7-muted)}
+  form{display:grid;gap:var(--v7-space-4)}
+  label{display:grid;gap:var(--v7-space-2);font-size:var(--v7-text-sm);font-weight:600;color:var(--v7-ink)}
+  label>span{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;font-weight:400;line-height:1.5}
+  label a{color:var(--v7-accent);text-decoration-color:var(--v7-mint);text-decoration-thickness:2px}
+  input:not([type=checkbox]),select,textarea{box-sizing:border-box;width:100%;max-width:100%;min-height:48px;padding:12px 14px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-control);background:var(--v7-surface);color:var(--v7-ink);font:inherit;font-size:var(--v7-text-md);font-weight:400;transition:border-color .15s}
+  textarea{line-height:1.5;resize:vertical}
+  input[type=checkbox]{width:18px;height:18px;margin:2px 0 0;accent-color:var(--v7-accent)}
+  input:not([type=checkbox]):hover,select:hover,textarea:hover{border-color:var(--v7-accent)}
+  input:focus,select:focus,textarea:focus{border-color:var(--v7-accent);outline:3px solid var(--v7-mint);outline-offset:0}
+  small{font-weight:400;line-height:1.5;color:var(--v7-muted)}
+  button{min-height:48px;padding:0 16px;border:1px solid var(--v7-accent);border-radius:var(--v7-radius-control);background:var(--v7-accent);color:#fff;font:inherit;font-size:var(--v7-text-md);font-weight:600;cursor:pointer;transition:background-color .15s,transform .15s var(--v7-ease-out)}
+  button:hover{background:var(--v7-accent-hover)}button:active{transform:translateY(1px)}
+  button[type=button]{border-color:var(--v7-control-line);background:var(--v7-surface);color:var(--v7-ink)}
+  button[type=button]:hover{background:var(--v7-soft)}
+  button:disabled{opacity:.6;cursor:default}
+  [role=status]{padding:12px 14px;border:1px solid var(--v7-mint-line);border-radius:var(--v7-radius-control);background:var(--v7-mint-soft);color:var(--v7-on-mint)}
+  .error{padding:12px 14px;border:1px solid var(--v7-danger-line);border-radius:var(--v7-radius-control);background:var(--v7-danger-soft);color:var(--v7-danger)}
+  :focus-visible{outline:3px solid var(--v7-focus);outline-offset:2px}
 </style>

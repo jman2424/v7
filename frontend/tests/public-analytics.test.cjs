@@ -213,7 +213,8 @@ test('legacy language opt-in never preselects or grants analytics', () => {
   const state = harness({cookies: {v7_preferences: 'all', v7_language: 'fr'}}); state.runUI();
   assert.equal(state.banner.hidden, false); assert.equal(state.language.checked, true); assert.equal(state.analytics.checked, false);
   state.save.emit('click');
-  assert.equal(state.jar.get('v7_preferences'), 'all'); assert.equal(state.jar.get('v7_language'), 'fr');
+  // The public site is English only: a previously saved language is no longer restored.
+  assert.equal(state.jar.get('v7_preferences'), 'all'); assert.equal(state.jar.get('v7_language'), 'en');
   assert.equal(state.jar.get('v7_analytics_consent'), 'v1%3Adenied');
 });
 

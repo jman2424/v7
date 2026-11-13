@@ -21,9 +21,8 @@
     const names = document.cookie.split('; ').map(item => item.split('=')[0]).filter(name => /^_ga(?:_[A-Z0-9]{6,20})?$/.test(name));
     for (const name of names) writeCookie(name, '', 0);
   };
-  const saved = preference() === 'all' ? cookie('v7_language') : '';
-  let language = allowed.has(saved) ? saved : navigator.language.split('-')[0].toLowerCase();
-  if (!allowed.has(language)) language = 'en';
+  // The public site is English only. The dictionaries stay so a language can return later.
+  let language = 'en';
   let messages = {};
   const translate = source => messages[language]?.[source] || source;
   const apply = () => {

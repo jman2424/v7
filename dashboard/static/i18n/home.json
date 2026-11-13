@@ -242,7 +242,8 @@
     "Review important requests, follow up with customers and manage AI spending.": "Revisa las solicitudes importantes, haz seguimiento y controla el gasto de IA.",
     "How V7 works": "Cómo funciona V7",
     "Mobile navigation": "Navegación móvil",
-    "Terms of service": "Condiciones del servicio"
+    "Terms of service": "Condiciones del servicio",
+    "It opens from the chat button in the corner of this page, exactly as it would on your own website.": "Se abre desde el botón de chat en la esquina de esta página, igual que lo haría en tu propio sitio web."
   },
   "fr": {
     "* A website conversation is a distinct chat session used during the month, rather than each message. ** Message usage is measured by AI processing cost in GBP, with one prepaid balance shared across website and WhatsApp. No AI credit is included in the monthly subscription. It is not a fixed number of website or WhatsApp messages and does not include Meta, Twilio or phone number charges. Message capacity depends on the selected model’s price and the tokens used, including conversation context and reply length. There is no fixed message or conversation cap. Activity counters reset at the start of each calendar month in UTC; purchased credit carries forward.": "* Une conversation web est une session de chat distincte utilisée au cours du mois, et non chaque message. ** L’utilisation est mesurée par le coût du traitement IA en GBP, avec un solde prépayé commun au site et à WhatsApp. L’abonnement mensuel n’inclut aucun crédit IA. Il ne correspond pas à un nombre fixe de messages et ne couvre pas les frais de Meta, Twilio ou de numéro de téléphone. La capacité dépend du prix du modèle et des jetons utilisés, notamment le contexte et la longueur des réponses. Il n’y a pas de plafond fixe de messages ou de conversations. Les compteurs sont remis à zéro au début de chaque mois civil en UTC ; le crédit acheté reste disponible.",
@@ -487,7 +488,8 @@
     "Review important requests, follow up with customers and manage AI spending.": "Examinez les demandes importantes, assurez le suivi et maîtrisez les dépenses IA.",
     "How V7 works": "Comment fonctionne V7",
     "Mobile navigation": "Navigation mobile",
-    "Terms of service": "Conditions d’utilisation"
+    "Terms of service": "Conditions d’utilisation",
+    "It opens from the chat button in the corner of this page, exactly as it would on your own website.": "Il s’ouvre depuis le bouton de discussion dans le coin de cette page, exactement comme sur votre propre site web."
   },
   "ar": {
     "* A website conversation is a distinct chat session used during the month, rather than each message. ** Message usage is measured by AI processing cost in GBP, with one prepaid balance shared across website and WhatsApp. No AI credit is included in the monthly subscription. It is not a fixed number of website or WhatsApp messages and does not include Meta, Twilio or phone number charges. Message capacity depends on the selected model’s price and the tokens used, including conversation context and reply length. There is no fixed message or conversation cap. Activity counters reset at the start of each calendar month in UTC; purchased credit carries forward.": "* المحادثة على الموقع هي جلسة دردشة مستقلة استُخدمت خلال الشهر، وليست كل رسالة. ** يُقاس الاستخدام بتكلفة معالجة الذكاء الاصطناعي بالجنيه الإسترليني، برصيد مسبق الدفع مشترك بين الموقع وWhatsApp. لا يشمل الاشتراك الشهري رصيدًا للذكاء الاصطناعي. ولا يمثل عددًا ثابتًا من الرسائل، ولا يشمل رسوم Meta أو Twilio أو أرقام الهاتف. تعتمد سعة الرسائل على سعر النموذج والرموز المستخدمة، بما فيها سياق المحادثة وطول الرد. لا يوجد حد ثابت للرسائل أو المحادثات. تُصفّر عدادات النشاط في بداية كل شهر ميلادي بتوقيت UTC، ويظل الرصيد المشترى متاحًا.",
@@ -732,6 +734,7 @@
     "Review important requests, follow up with customers and manage AI spending.": "راجع الطلبات المهمة وتابع العملاء وتحكم في إنفاق الذكاء الاصطناعي.",
     "How V7 works": "كيف يعمل V7",
     "Mobile navigation": "قائمة التنقل للجوال",
-    "Terms of service": "شروط الخدمة"
+    "Terms of service": "شروط الخدمة",
+    "It opens from the chat button in the corner of this page, exactly as it would on your own website.": "يُفتح من زر المحادثة في زاوية هذه الصفحة، تمامًا كما سيظهر على موقعك الإلكتروني."
   }
 }

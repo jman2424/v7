@@ -74,6 +74,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-radius: var(--wradius);
   box-shadow: var(--wshadow);
   display: grid;
+  /* One column that may shrink: a wide row must never push the panel past a narrow phone frame. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   overflow: hidden;
 }

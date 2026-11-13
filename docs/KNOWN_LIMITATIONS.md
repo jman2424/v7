@@ -56,7 +56,8 @@ Verified against the code in November 2026. Remove an entry when it is resolved.
 
 - The console is English-only. Spanish, French and Arabic dictionaries cover only part of
   it, so the language picker is switched off (`consoleLanguageChoice` in
-  `frontend/src/lib/i18n.ts`). Only the public homepage is translated; other public
-  pages are English.
+  `frontend/src/lib/i18n.ts`). The public site is English only too: the homepage language menu
+  was removed in November 2026. The unused translation files and the "Remember my
+  language" cookie option remain and can be deleted.
 - The public site, console and widget use separate colour and type definitions.
 - All languages ship in the initial console bundle.

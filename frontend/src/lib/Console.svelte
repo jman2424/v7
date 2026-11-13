@@ -1713,22 +1713,22 @@
 {:else if !user}
   <main class="login-shell">
     <section class="login-intro" aria-labelledby="welcome-title">
-      <a class="login-brand" href="/" aria-label="Vertex Seven home"><PlatformLogo horizontal size={180} /></a>
-      <p class="eyebrow">{$t('Your business workspace')}</p>
-      <h2 id="welcome-title">{$t('Customer conversations, with a clear next step.')}</h2>
-      <p>{$t('Products, consultations and customer support.')} {$t('A sales assistant that knows your business.')}</p>
-      <div class="intro-features"><span>{$t('Website widget')}</span><span>WhatsApp</span><span>{$t('Sales pipeline')}</span></div>
-      <a href="/privacy">{$t('Privacy information')}</a>
+      <h2 id="welcome-title">{$t('Every customer question,')} <span>{$t('answered from your own business.')}</span></h2>
+      <p>{$t('Your products, prices and policies in one workspace. Your assistant answers from them, and you see every conversation.')}</p>
+      <ul class="intro-points">
+        <li><NavigationIcon section="website"/><span>{$t('Website chat')}</span></li>
+        <li><NavigationIcon section="conversations"/><span>WhatsApp</span></li>
+        <li><NavigationIcon section="integrations"/><span>{$t('Email and phone')}</span></li>
+      </ul>
     </section>
     <div class="login-content">
-    <div class="login-tools"><LanguagePicker /></div>
+    <a class="login-logo" href="/" aria-label="Vertex Seven home"><PlatformLogo horizontal size={168} label="Vertex Seven" /></a>
     {#if passwordResetOpen && !mfa}
       <div>{#await import('./PasswordManagement.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPasswordManagement}<svelte:component this={loadedPasswordManagement.default} recovery {csrf} {tenant} {email} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:done={() => window.location.reload()}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}<button class="secondary" type="button" on:click={() => window.location.reload()}>{$t('Back to sign in')}</button></div>
     {:else if signupOpen && !mfa}
       <div>{#await import('./Registration.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedRegistration}<svelte:component this={loadedRegistration.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} on:login={(event) => {tenant = event.detail.tenant; email = event.detail.email; signupOpen = false;}}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}<button class="secondary" type="button" on:click={() => signupOpen = false}>{$t("Back to sign in")}</button></div>
     {:else}
     <form class="login" aria-busy={signingIn} on:submit|preventDefault={() => mfa ? confirmMfa() : login()}>
-      <div class="login-logo"><PlatformLogo horizontal size={180} label="Vertex Seven" /></div>
       <h1>{$t(mfa ? mfa.enrollment ? 'Set up two-factor authentication' : 'Verify your sign-in' : 'Sign in to V7')}</h1>
       {#if referralSaved}<p class="notice">{$t('Referral link detected. Accept it in Subscription before your first checkout.')}</p>{/if}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
@@ -1745,17 +1745,17 @@
       <p>{$t('Sign in to manage your business and customer conversations.')}</p>
       <label>{$t("Email or username")}<input disabled={signingIn} bind:value={email} type="text" maxlength="254" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
       <label>{$t('Password')}<span class="password-field"><input id="login-password" disabled={signingIn} bind:value={password} type={showPassword ? 'text' : 'password'} maxlength="1024" autocomplete="current-password" required /><button disabled={signingIn} type="button" aria-controls="login-password" aria-pressed={showPassword} on:click={() => showPassword = !showPassword}>{$t(showPassword ? 'Hide password' : 'Show password')}</button></span></label>
-      <button class="secondary" type="button" disabled={signingIn} on:click={() => {passwordResetOpen = true; password = '';}}>{$t('Forgot password?')}</button>
+      <button class="text-action" type="button" disabled={signingIn} on:click={() => {passwordResetOpen = true; password = '';}}>{$t('Forgot password?')}</button>
       {/if}
       <label class="remember-choice"><input type="checkbox" disabled={signingIn} bind:checked={rememberDevice}/><span>{$t('Remember this device for 30 days')}<small>{$t('Use only on your own device. You will still need your password or linked provider account.')}</small></span></label>
       {#if loginError}<div role="alert" class="notice error">{loginError}</div>{/if}
       <button disabled={signingIn} class="primary" type="submit">{$t(signingIn ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Continue')}</button>
-      {#if !mfa && providers.length}
-        <div class="provider-divider"><span>{$t('Or use a linked account')}</span></div>
-        <div class="provider-buttons">{#each providers as provider}<button class="secondary" type="button" disabled={signingIn || !provider.configured} on:click={() => providerLogin(provider.id)}>{provider.name}{!provider.configured?' · Awaiting setup':''}</button>{/each}</div>
-        <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {$t('New here? Create your account first, then link a provider. Lost access to a provider? Choose Forgot password to set a password using your account email.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
+      {#if !mfa && providers.some(provider => provider.configured)}
+        <div class="provider-divider"><span>{$t('or')}</span></div>
+        <div class="provider-buttons">{#each providers.filter(provider => provider.configured) as provider}<button class="secondary provider" type="button" disabled={signingIn} on:click={() => providerLogin(provider.id)}>{#if provider.id==='google'}<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.2a5.3 5.3 0 0 1-2.3 3.5v2.9h3.7c2.200-2 3.400-5 3.400-8.500z"/><path fill="#34A853" d="M12 23.500c3.100 0 5.700-1 7.600-2.800l-3.700-2.900c-1 .7-2.300 1.100-3.900 1.100-3 0-5.500-2-6.400-4.700H1.800v3A11.500 11.500 0 0 0 12 23.500z"/><path fill="#FBBC05" d="M5.600 14.200a6.900 6.900 0 0 1 0-4.400v-3H1.800a11.500 11.500 0 0 0 0 10.400z"/><path fill="#EA4335" d="M12 5.100c1.700 0 3.200.6 4.400 1.700l3.300-3.300A11.500 11.500 0 0 0 1.800 6.800l3.800 3C6.500 7.100 9 5.100 12 5.100z"/></svg>{:else}<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#F25022" d="M2 2h9.500v9.500H2z"/><path fill="#7FBA00" d="M12.500 2H22v9.500h-9.500z"/><path fill="#00A4EF" d="M2 12.500h9.500V22H2z"/><path fill="#FFB900" d="M12.500 12.500H22V22h-9.500z"/></svg>{/if}<span>{$t('Continue with')} {provider.name}</span></button>{/each}</div>
+        <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {$t('New here? Create your account first, then link a provider. Lost access to a provider? Choose Forgot password to set a password using your account email.')}</p>
       {/if}
-      {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>{$t("Create an account or request to join")}</button>{/if}
+      {#if !mfa}<p class="login-switch">{$t('New to V7?')} <button disabled={signingIn} class="text-action" type="button" on:click={() => signupOpen = true}>{$t('Create an account or join a business')}</button></p>{/if}
       <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a> · <button class="cookie-login-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button></p>
     </form>
     {/if}
@@ -2224,7 +2224,6 @@
 <CookiePreferences bind:this={cookiePreferences} bind:open={cookiePreferencesOpen} />
 
 <style>
-  .login-intro {--v7-focus:var(--v7-tint-line)}
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:var(--v7-surface)}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .activation-notice {display:flex;align-items:center;gap:14px;padding:16px 20px;margin-bottom:20px;border:1px solid var(--v7-tint-line);border-radius:var(--v7-radius-panel);background:var(--v7-tint);color:var(--v7-brand)}
   .activation-notice>div {flex:1;min-width:0}.activation-notice strong {font-size:var(--v7-text-xs);font-weight:700}.activation-notice p {margin:5px 0 0;font-size:var(--v7-text-xs);line-height:1.6;color:var(--v7-muted)}
@@ -2421,22 +2420,6 @@
   @media(max-width:900px){.widget-install-grid {grid-template-columns:1fr}}
   @media(max-width:600px){.widget-workspace-intro {padding:16px}.widget-workspace-tabs>span {width:100%;margin-inline-start:0}.widget-workspace-tabs button {padding:10px;font-size:var(--v7-text-xs)}.widget-install-grid .form-footer {align-items:start;flex-direction:column}.widget-install-grid .form-footer button {width:100%}}
   .company-row { display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:16px; border-bottom:1px solid var(--v7-line); }
-  .login-shell {grid-template-columns:minmax(0,1fr) minmax(380px,1fr);place-items:stretch;padding:0;background:var(--v7-canvas)}
-  .login-intro {display:flex;flex-direction:column;justify-content:center;padding:40px clamp(24px,4vw,64px);background:linear-gradient(90deg,#143c30ed,#143c30c9),url('/static/img/vertex-seven-banner.svg?v=20261019svg');background-size:cover,auto 135%;background-position:center,right center;background-repeat:no-repeat;color:#fff;min-width:0}
-  .login-brand,.login-logo {display:flex;align-items:center;gap:10px;font-size:var(--v7-text-lg);line-height:1.2;letter-spacing:-.025em}
-  .login-brand {margin-bottom:40px;text-decoration:none;color:#fff;width:fit-content}
-  .login-logo {color:var(--v7-ink)}
-  .login-intro .eyebrow {color:var(--v7-tint-line);margin-bottom:20px}
-  .login-intro h2 {font-size:clamp(32px,3.5vw,50px);line-height:1.15;letter-spacing:-.035em;max-width:520px;margin-bottom:24px;color:#fff}
-  .login-intro p:not(.eyebrow) {font-size:var(--v7-text-md);line-height:1.7;color:var(--v7-line);max-width:480px}
-  .login-intro > a:last-child {font-size:var(--v7-text-sm);color:var(--v7-line);margin-top:32px}
-  .intro-features {display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;font-size:var(--v7-text-xs)}
-  .intro-features span {padding:9px 12px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-pill)}
-  .login-content {width:100%;max-width:620px;justify-self:center;align-self:center;padding:36px clamp(24px,5vw,64px)}
-  .login-tools {display:flex;justify-content:flex-end;margin-bottom:20px}
-  .login {width:100%;padding:32px;border-color:var(--v7-line);border-radius:var(--v7-radius-panel);box-shadow:0 16px 60px #2f35390a;gap:16px}
-  .login h1 {font-size:var(--v7-text-2xl);line-height:1.25;letter-spacing:-.025em;margin-bottom:0}
-  .login p {font-size:var(--v7-text-sm);margin-bottom:0;line-height:1.6;color:var(--v7-muted)}
   .password-field {display:flex;position:relative}
   .password-field input {padding-inline-end:124px}
   .password-field button {position:absolute;inset-inline-end:6px;top:6px;bottom:6px;min-height:30px;padding:4px 8px;border:0;border-radius:var(--v7-radius-control);background:var(--v7-soft);color:var(--v7-accent);font-size:var(--v7-text-xs);max-width:118px}
@@ -2508,13 +2491,10 @@
   .activation-notice p {font-size:var(--v7-text-xs);line-height:1.5;margin-top:3px}
   .activation-notice a {font-size:var(--v7-text-xs);font-weight:600;border-color:var(--v7-control-line);border-radius:var(--v7-radius-control);color:var(--v7-accent);padding:8px 12px}
   .activation-notice a:hover {background:var(--v7-soft)}
-  .login {border-color:var(--v7-line);border-radius:var(--v7-radius);box-shadow:0 6px 24px #2f353906}
   .password-field button,.login-policy a {color:var(--v7-accent)}
-  .login-intro .eyebrow {color:var(--v7-tint-line)}
   :global(body) {background:var(--v7-canvas)}
-  @media(max-width:900px){.login-shell{grid-template-columns:1fr}.login-intro{order:2;padding:28px}.login-brand{margin-bottom:40px}.login-intro h2{font-size:var(--v7-text-2xl);max-width:650px}.login-intro> a:last-child{display:none}.login-content{order:1;padding:28px;max-width:600px}}
   @media(max-width:1100px){.workspace-title{flex-basis:100%}.workspace-actions{justify-content:flex-start}}
-  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:var(--v7-text-2xl)}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}.login{padding:24px}}
+  @media(max-width:720px){.app-shell{grid-template-columns:1fr}.workspace{padding:22px 16px 40px}.workspace-head{gap:16px;padding-bottom:20px}.workspace-title{flex-basis:auto}.workspace-head h1{font-size:var(--v7-text-2xl)}.workspace-actions{justify-content:flex-start;align-items:end;gap:12px}.tenant-picker{min-width:0;flex:1 1 130px}}
   @media(max-width:720px){.surface-head,.offer-editor,.branch-editor,.activity-list,.operator-panel{padding:18px}.metric-grid{padding:0;gap:0}.metric-grid>div{min-height:112px;padding:18px}.metric-grid strong{font-size:var(--v7-text-2xl)}.metric-grid>div:nth-child(3){border-inline-start:0;border-top:1px solid var(--v7-line)}.metric-grid>div:nth-child(4){border-top:1px solid var(--v7-line)}.funnel-strip{margin:16px 18px 0}.section-footer{padding:18px}.account-active{white-space:normal}.provider-buttons{grid-template-columns:1fr}}
   @media(max-width:720px){.workspace-retry{align-items:flex-start;flex-direction:column}}
 
@@ -2540,10 +2520,77 @@
  @media(max-width:600px){.catalog-category{margin:0 16px 16px}.category-settings{padding:0 14px 14px}.offering-cards{padding:0 12px}.offering-card{padding:16px}.offering-advanced{grid-template-columns:1fr}.category-settings>.editor-advanced{flex-basis:100%}}
 .message-views{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}.message-views button{min-height:44px;border:1px solid var(--v7-line);background:var(--v7-surface);color:var(--v7-muted);padding:10px 14px;border-radius:var(--v7-radius-control);font:inherit;font-size:var(--v7-text-xs)}.message-views button.active{background:var(--v7-tint);border-color:var(--v7-tint-line);color:var(--v7-accent)}
 
- .login-shell{min-height:100dvh;grid-template-columns:minmax(330px,.9fr) minmax(0,1.1fr);background:var(--v7-canvas)}.login-intro{background:var(--v7-brand);border-radius:0;padding:70px clamp(35px,5vw,90px);display:flex;flex-direction:column;justify-content:center}.login-intro h2{font-size:clamp(34px,3.5vw,50px);line-height:1.15;letter-spacing:-.05em;font-weight:550;max-width:430px}.login-intro>p:not(.eyebrow){font-size:var(--v7-text-sm);line-height:1.85;max-width:390px;color:#c5d9cb}.intro-features{display:flex;flex-direction:column;align-items:flex-start;gap:16px;margin-top:35px}.intro-features>span{border:0;background:none;padding:0;font-size:var(--v7-text-xs);color:#d0e0d2}.intro-features>span::before{content:'✓';margin-inline-end:13px;color:#a9c5ad}.login-content{padding:35px clamp(25px,5vw,80px);min-width:0;display:flex;flex-direction:column;justify-content:center}.login{max-width:450px;border:1px solid var(--v7-line);box-shadow:none;border-radius:var(--v7-radius-panel);padding:36px;background:var(--v7-surface)}.login h1{font-size:var(--v7-text-2xl);font-weight:600;letter-spacing:-.04em}.login label{font-size:var(--v7-text-xs)}.login input{min-height:47px;border-radius:var(--v7-radius-control)}.login .primary{min-height:47px}.login .remember-choice input{min-height:17px}.login-logo{margin-bottom:12px}.login-tools{margin-bottom:25px}.login .provider-help{font-size:var(--v7-text-xs);line-height:1.8}.login-intro>a{margin-top:40px;color:#b6d0bd}.login :global(.password-management){max-width:100%}
- @media(max-width:850px){.login-shell{display:flex;flex-direction:column}.login-intro{padding:30px 26px;display:block;min-height:0}.login-intro h2{font-size:var(--v7-text-2xl);max-width:500px}.login-intro>p:not(.eyebrow){font-size:var(--v7-text-xs);margin-top:12px}.intro-features{display:none}.login-intro>a{display:none}.login-content{padding:25px 20px 40px;align-items:center}.login-tools{align-self:flex-end;margin-bottom:18px}.login{padding:27px 23px;width:100%;max-width:460px}.login h1{font-size:var(--v7-text-2xl)}}
 
  .profile-group{border:0;border-bottom:1px solid var(--v7-line);margin:0;padding:0 0 26px;display:grid;gap:20px;min-width:0}.profile-group legend{font-size:var(--v7-text-md);font-weight:600;margin:0 0 20px;padding:0;color:var(--v7-ink)}.profile-disclosure{padding:0;border:0}.profile-disclosure>summary{font-size:var(--v7-text-sm);min-height:44px;cursor:pointer;line-height:44px;color:var(--v7-accent);font-weight:600}.profile-disclosure[open]{padding-bottom:22px;border-bottom:1px solid var(--v7-line)}.profile-disclosure[open]>label,.profile-disclosure[open]>.two-fields{margin-top:18px}.profile-group .field-note{margin:0}.faq-editor{display:block}.faq-editor>summary{min-height:44px;line-height:1.7;display:flex;align-items:center;cursor:pointer;font-size:var(--v7-text-sm);font-weight:550;gap:16px}.faq-editor>summary::after{content:'⌄';margin-inline-start:auto;color:var(--v7-muted)}.faq-fields{display:grid;gap:16px;padding-top:18px}.advanced-controls{border:1px solid var(--v7-line);background:var(--v7-surface);padding:18px 22px;border-radius:var(--v7-radius-panel);margin-bottom:22px}.advanced-controls>summary{cursor:pointer;font-size:var(--v7-text-sm);line-height:1.5;min-height:30px;align-content:center;color:var(--v7-accent);font-weight:600}.advanced-controls[open]>summary{margin-bottom:20px}.workspace-business-link{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);font-size:var(--v7-text-xs);margin-bottom:20px}.workspace-business-link a{color:var(--v7-accent);font-weight:600;text-decoration:none;min-height:44px;display:flex;align-items:center}.component-loading{border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);padding:24px;color:var(--v7-muted);font-size:var(--v7-text-sm)}
 .profile-form{grid-template-columns:minmax(0,1fr)}.profile-group{grid-column:1/-1}.editor-permission{border:0;margin:0;padding:0;min-width:0;display:contents}.editor-permission:disabled{opacity:.85}
 .customer-question-report{margin-top:24px;border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);background:var(--v7-surface);padding:18px}.customer-question-report>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:var(--v7-text-sm);font-weight:600;color:var(--v7-accent)}.customer-question-report[open]>summary{margin-bottom:18px}.workspace-toolbar>a{display:flex;align-items:center;text-decoration:none;font-size:var(--v7-text-xs)}
+
+  /* ---- November 2026 refresh: sign-in ---- */
+  .login-shell{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);place-items:stretch;min-height:100dvh;padding:0;background:var(--v7-surface)}
+  .login-content{order:1;display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:var(--v7-space-6);width:100%;max-width:28rem;margin-inline:auto;padding:var(--v7-space-6) var(--v7-space-5)}
+  .login-logo{display:inline-flex;align-self:flex-start;margin:0;border-radius:var(--v7-radius-control);text-decoration:none}
+  .login-content>div{display:grid;gap:var(--v7-space-4)}
+  .login-content>div>.secondary{justify-self:start;border:0;background:none;padding:0;color:var(--v7-accent);text-decoration:underline;text-decoration-color:var(--v7-mint);text-decoration-thickness:2px;text-underline-offset:.3em}
+  .login{width:100%;max-width:none;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;gap:var(--v7-space-4)}
+  .login h1{margin:0;color:var(--v7-ink);font-size:var(--v7-text-2xl);font-weight:600;line-height:1.15;letter-spacing:-.03em}
+  .login>p{margin:calc(var(--v7-space-2) * -1) 0 var(--v7-space-2);font-size:var(--v7-text-md);line-height:1.5;color:var(--v7-muted)}
+  .login label{gap:var(--v7-space-2);font-size:var(--v7-text-sm);font-weight:600}
+  .login input:not([type=checkbox]){min-height:48px;padding:12px 14px;font-size:var(--v7-text-md);border-radius:var(--v7-radius-control);transition:border-color .15s,outline-color .15s}
+  .login input:not([type=checkbox]):hover{border-color:var(--v7-accent)}
+  .login input:not([type=checkbox]):focus{border-color:var(--v7-accent);outline:3px solid var(--v7-mint);outline-offset:0}
+  .login .primary{min-height:48px;font-size:var(--v7-text-md);transition:background-color .15s,transform .15s var(--v7-ease-out)}
+  .login .primary:active{transform:translateY(1px)}
+  .password-field input{padding-inline-end:132px}
+  .password-field button{top:4px;bottom:4px;inset-inline-end:4px;padding:4px 10px;background:transparent;color:var(--v7-accent);font-size:var(--v7-text-sm);font-weight:600;max-width:none}
+  .password-field button:hover{background:var(--v7-mint-soft)}
+  .text-action{justify-self:start;min-height:44px;padding:0;border:0;background:none;color:var(--v7-accent);font-size:var(--v7-text-sm);font-weight:600;text-decoration:underline;text-decoration-color:var(--v7-mint);text-decoration-thickness:2px;text-underline-offset:.3em}
+  .text-action:hover{color:var(--v7-accent-hover);text-decoration-color:var(--v7-accent)}
+  .login .login-switch{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:var(--v7-text-sm);color:var(--v7-ink-soft)}
+  .remember-choice{padding:var(--v7-space-3) 0;border-block:1px solid var(--v7-line);font-weight:600}
+  .provider-buttons{grid-template-columns:1fr;gap:var(--v7-space-2)}
+  .provider{display:flex;align-items:center;justify-content:center;gap:10px;min-height:48px;font-size:var(--v7-text-md)}
+  .provider svg{width:18px;height:18px;flex:none}
+  .provider-divider{margin:0;font-size:var(--v7-text-sm)}
+  .login .provider-help,.login .login-policy{margin:0;font-size:var(--v7-text-xs);line-height:1.6;color:var(--v7-muted)}
+  .login .login-policy{padding-top:var(--v7-space-3);border-top:1px solid var(--v7-line)}
+  .login .notice{margin:0;background:var(--v7-mint-soft);border:1px solid var(--v7-mint-line);color:var(--v7-on-mint)}
+  .login .notice.error{background:var(--v7-danger-soft);border-color:var(--v7-danger-line);color:var(--v7-danger)}
+  .login-intro{--v7-focus:var(--v7-mint);order:2;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--v7-space-5);min-width:0;margin:var(--v7-space-4);padding:var(--v7-space-7);border-radius:var(--v7-radius-field);background:var(--v7-brand);color:var(--v7-on-brand)}
+  .login-intro h2{max-width:14ch;margin:0;color:var(--v7-on-brand);font-size:var(--v7-text-3xl);font-weight:600;line-height:1.08;letter-spacing:-.035em}
+  .login-intro h2::before{content:'';display:block;width:56px;height:4px;margin-bottom:var(--v7-space-5);border-radius:var(--v7-radius-pill);background:var(--v7-mint)}
+  .login-intro h2 span{display:block;color:var(--v7-mint)}
+  .login-intro>p:not(.eyebrow){max-width:42ch;margin:0;font-size:var(--v7-text-md);line-height:1.6;color:var(--v7-on-brand-muted)}
+  .intro-points{display:grid;margin:var(--v7-space-4) 0 0;padding:0;list-style:none;max-width:26rem}
+  .intro-points li{display:flex;align-items:center;gap:var(--v7-space-3);padding:var(--v7-space-3) 0;border-top:1px solid var(--v7-brand-line);font-size:var(--v7-text-sm);font-weight:600;color:var(--v7-on-brand)}
+  .intro-points li :global(svg){width:20px;height:20px;flex:none;color:var(--v7-mint)}
+  @media(max-width:900px){.login-shell{display:block}.login-intro{display:none}.login-content{min-height:100dvh;justify-content:flex-start;padding:var(--v7-space-6) var(--v7-space-4);gap:var(--v7-space-5)}}
+
+  /* ---- November 2026 refresh: workspace shell ---- */
+  .workspace{max-width:1440px;padding:var(--v7-space-5) clamp(20px,3vw,48px) var(--v7-space-8);background:transparent}
+  .workspace-head{align-items:flex-end;gap:var(--v7-space-5);margin-bottom:var(--v7-space-4);padding-bottom:0;border-bottom:0}
+  .workspace-head h1{margin:2px 0 0;font-size:var(--v7-text-2xl);font-weight:600;line-height:1.2;letter-spacing:-.03em}
+  .workspace-breadcrumb{gap:8px;font-size:var(--v7-text-sm);color:var(--v7-muted)}
+  .workspace-tabs{gap:2px;margin-bottom:var(--v7-space-5);padding:0;border-bottom:1px solid var(--v7-line);scrollbar-width:none}
+  .workspace-tabs::-webkit-scrollbar{display:none}
+  .workspace-tabs a{min-height:44px;margin-bottom:-1px;padding:10px 14px;border:0;border-bottom:2px solid transparent;border-radius:var(--v7-radius-control) var(--v7-radius-control) 0 0;font-size:var(--v7-text-sm);font-weight:500;color:var(--v7-muted);transition:color .15s,background-color .15s,border-color .15s}
+  .workspace-tabs a:hover{background:var(--v7-soft);color:var(--v7-ink)}
+  .workspace-tabs a.active{background:var(--v7-mint-soft);border-color:transparent;border-bottom-color:var(--v7-accent);color:var(--v7-on-mint);font-weight:650;box-shadow:none}
+  .surface{border-radius:var(--v7-radius-panel);box-shadow:none}
+  .surface-head{padding:20px 24px;border-radius:var(--v7-radius-panel) var(--v7-radius-panel) 0 0}
+  .surface-head h2{font-size:var(--v7-text-lg);font-weight:600;letter-spacing:-.02em}
+  .primary{transition:background-color .15s,transform .15s var(--v7-ease-out)}.primary:active{transform:translateY(1px)}
+  input:focus,textarea:focus,select:focus{border-color:var(--v7-accent);outline:3px solid var(--v7-mint);outline-offset:0}
+  .notice{background:var(--v7-mint-soft);border-color:var(--v7-mint-line);color:var(--v7-on-mint)}
+  .notice.error{background:var(--v7-danger-soft);border-color:var(--v7-danger-line);color:var(--v7-danger)}
+  .workspace-progress{background:var(--v7-mint-soft);border-color:var(--v7-mint-line);color:var(--v7-on-mint)}
+  .loading-indicator{border-color:var(--v7-mint-line);border-top-color:var(--v7-accent)}
+  .count-label{background:var(--v7-mint-soft);border-color:var(--v7-mint-line);color:var(--v7-on-mint)}
+  .message-views button.active{background:var(--v7-mint-soft);border-color:var(--v7-mint-line);color:var(--v7-on-mint)}
+  .empty-state{border-style:solid;background:var(--v7-canvas)}
+  .account-row:nth-child(even),.company-row:nth-child(odd){background:transparent}
+  .section-footer{box-shadow:none}
+  .catalog-category>summary::after,.faq-editor>summary::after{content:'';flex:none;width:8px;height:8px;margin-inline:4px 6px;border-inline-end:2px solid var(--v7-muted);border-block-end:2px solid var(--v7-muted);transform:rotate(45deg) translate(-2px,-2px);transition:transform .2s var(--v7-ease-out)}
+  .catalog-category[open]>summary::after,.faq-editor[open]>summary::after{transform:rotate(-135deg) translate(-2px,-2px)}
+  .loading{background:var(--v7-surface);font-size:var(--v7-text-md)}
+  @media(max-width:850px){.workspace{padding:var(--v7-space-4) var(--v7-space-4) calc(100px + env(safe-area-inset-bottom))}.workspace-head{align-items:flex-start;margin-bottom:var(--v7-space-4)}}
 </style>

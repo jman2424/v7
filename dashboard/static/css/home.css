@@ -41,6 +41,8 @@
 .demo-heading span { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--v7-text-xs); color: var(--v7-on-brand-muted); }
 .demo-heading span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--v7-mint); box-shadow: 0 0 0 3px #86e3c833; }
 .live-widget-panel { display: block; width: 100%; height: min(36rem, 72vh); border: 0; border-radius: var(--v7-radius-panel); background: var(--v7-surface); }
+.demo-launch { display: grid; justify-items: start; gap: var(--v7-space-4); padding: var(--v7-space-5); border-radius: var(--v7-radius-panel); background: var(--v7-brand); }
+.demo-launch p { font-size: var(--v7-text-md); line-height: 1.55; color: var(--v7-on-brand); max-width: 36ch; }
 .live-widget-unavailable { padding: var(--v7-space-5); border-radius: var(--v7-radius-panel); background: var(--v7-surface); color: var(--v7-ink); }
 .live-widget-unavailable a { color: var(--v7-accent); text-decoration: underline; }
 

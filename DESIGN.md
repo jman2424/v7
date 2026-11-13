@@ -19,8 +19,10 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 - Amber (`--v7-signal`) appears only on a green field and only for the one thing to
   act on: the primary button.
 - Pool mint (`--v7-mint`) is the highlight: the headline's second line, markers and
-  rules on the site, tags, text selection, and the active item and focus ring in the
-  console sidebar. It is a hint, never a large field and never a button colour.
+  rules on the site, tags and text selection. In the console it marks "you are here"
+  and "this has focus": the current sidebar item is solid mint, the current tab and
+  status notices use `--v7-mint-soft`, and field focus rings are mint. It is never a
+  large field and never a button colour.
 - Light surfaces use `--v7-accent` green for links and actions.
 
 ## Colour roles
@@ -61,11 +63,20 @@ Values live in `dashboard/static/css/tokens.css`; this file explains how to use 
 
 - **Buttons:** `.button-dark` (primary), `.button-secondary`, `.text-link`. On a green
   field the primary becomes amber and the secondary becomes an outline.
-- **Header:** logo, section links, language, sign-in. Below 1050px links move into the
+- **Header:** logo, section links, sign-in. The public site is English only; there is
+  no language menu. Below 1050px links move into the
   menu; below 720px sign-in is in the menu only.
 - **Plans:** three cards; the recommended plan is a green field.
 - **FAQ:** native `details`, ruled, with a plus that rotates to a cross.
 - **Policy pages:** a single 46rem reading column, no card.
+- **Sign-in and create account:** the form sits unboxed on white at the start edge;
+  one inset green field (`--v7-radius-field`) at the end edge carries the statement,
+  its second line in mint. The field is hidden below 900px. Providers that are not
+  configured are not shown.
+- **Console shell:** green sidebar with drawn icons only (no text glyphs); underline
+  tabs under the page title; flat ruled panels without card shadows.
+- **Public assistant:** the real floating customer widget (`/widget.js`) on every
+  public page. The homepage's "See it in action" and demo buttons open it.
 
 ## Chat widget
 

@@ -32,17 +32,17 @@
 <aside class="primary-sidebar" class:collapsed aria-label={platform?'Platform administration':'Business workspace'}>
   <a class="brand" href={workspaceHref(base,platform?'platform':'home','overview',tenant)} aria-label="Vertex Seven home"><PlatformLogo horizontal={!collapsed} size={collapsed?32:166}/></a>
   {#if administrator}
-    <a class="workspace-switch" aria-label={$t(platform?'Open business workspace':'Platform administration')} href={workspaceHref(base,platform?'home':'platform','overview',tenant)}><span class="switch-mark" aria-hidden="true">⇄</span><span>{platform?$t('Open business workspace'):$t('Platform administration')}</span></a>
+    <a class="workspace-switch" aria-label={$t(platform?'Open business workspace':'Platform administration')} href={workspaceHref(base,platform?'home':'platform','overview',tenant)}><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h13l-3-3 M17 17H4l3 3"/></svg><span>{platform?$t('Open business workspace'):$t('Platform administration')}</span></a>
   {/if}
   <nav aria-label={platform?'Platform navigation':'Main workspace navigation'}>
     <p class="nav-caption">{platform?$t('Administration'):$t('Your workspace')}</p>
     {#each items as item}
-      <a class:active={active===item.id} aria-label={$t(item.label)} aria-current={active===item.id?'page':undefined} title={$t(item.label)} href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span>{#if active===item.id}<span class="active-dot" aria-hidden="true"></span>{/if}</a>
+      <a class:active={active===item.id} aria-label={$t(item.label)} aria-current={active===item.id?'page':undefined} title={$t(item.label)} href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>
     {/each}
   </nav>
   <div class="sidebar-bottom">
-    <button class="collapse-control" on:click={()=>collapsed=!collapsed} aria-label={collapsed?'Expand navigation':'Collapse navigation'} title={collapsed?'Expand navigation':'Collapse navigation'}><span aria-hidden="true">{collapsed?'→':'←'}</span><span>{$t('Collapse navigation')}</span></button>
-    <div class="account-strip"><span class="avatar" aria-hidden="true">{email.charAt(0).toUpperCase()||'V'}</span><div><strong>{platform?$t('Platform operator'):$t('Your account')}</strong><small>{email}</small></div><button on:click={onSignOut} aria-label={$t('Sign out')} title={$t('Sign out')}>↗</button></div>
+    <button class="collapse-control" on:click={()=>collapsed=!collapsed} aria-label={collapsed?'Expand navigation':'Collapse navigation'} title={collapsed?'Expand navigation':'Collapse navigation'}><svg class="glyph" class:flipped={collapsed} viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6 M20 4v16"/></svg><span>{$t('Collapse navigation')}</span></button>
+    <div class="account-strip"><span class="avatar" aria-hidden="true">{email.charAt(0).toUpperCase()||'V'}</span><div><strong>{platform?$t('Platform operator'):$t('Your account')}</strong><small>{email}</small></div><button on:click={onSignOut} aria-label={$t('Sign out')} title={$t('Sign out')}><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4v16h-4 M10 8l4 4-4 4 M14 12H4"/></svg></button></div>
   </div>
 </aside>
 
@@ -51,7 +51,7 @@
     <a class:active={active===item.id} aria-current={active===item.id?'page':undefined} href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined}><NavigationIcon section={item.icon}/><span>{$t(item.id==='customers'?'Customers':item.label)}</span></a>
   {/each}
     <details class="mobile-more" bind:this={moreMenu} bind:open={moreOpen}>
-      <summary class:active={more.some(item=>item.id===active)}><span class="more-icon" aria-hidden="true">•••</span><span>{$t('More')}</span></summary>
+      <summary class:active={more.some(item=>item.id===active)}><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01 M12 12h.01 M19 12h.01"/></svg><span>{$t('More')}</span></summary>
       <div class="more-menu" role="group" aria-label="More workspaces">
         {#each more as item}<a href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined} on:click={closeMore}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>{/each}
         {#if administrator}<a href={workspaceHref(base,platform?'home':'platform','overview',tenant)}>{$t(platform?'Business workspace':'Platform administration')}</a>{/if}
@@ -72,9 +72,9 @@
   @media(forced-colors:active){.primary-sidebar>nav{scrollbar-color:auto;scrollbar-width:auto}}
   .brand{display:flex;align-items:center;min-height:46px;align-self:flex-start;padding:8px 10px;border-radius:var(--v7-radius-panel);background:var(--v7-surface);margin:0 8px 25px;text-decoration:none}
   .workspace-switch{display:flex;align-items:center;gap:10px;color:#d4e6d9;border:1px solid #ffffff24;padding:11px 12px;margin:0 0 25px;border-radius:var(--v7-radius-control);font-size:var(--v7-text-xs);line-height:1.4;text-decoration:none;min-height:44px}
-  .switch-mark{font-size:var(--v7-text-xl)}.nav-caption{margin:0 13px 10px;color:var(--v7-mint);font-size:var(--v7-text-xs);font-weight:650}
+  .nav-caption{margin:0 13px 10px;color:var(--v7-mint);font-size:var(--v7-text-xs);font-weight:650}
   nav{display:grid;gap:6px}nav>a{display:flex;align-items:center;gap:12px;min-height:47px;padding:12px 14px;border-radius:var(--v7-radius-panel);color:#d2e0d7;text-decoration:none;font-weight:500;font-size:var(--v7-text-sm);white-space:nowrap;position:relative}
-  nav>a:hover{background:#ffffff0c;color:white}nav>a.active{background:var(--v7-mint-soft);color:var(--v7-on-mint);font-weight:650}.active-dot{margin-inline-start:auto;width:6px;height:6px;border-radius:50%;background:var(--v7-accent)}
+  nav>a:hover{background:#ffffff0c;color:white}nav>a.active{background:var(--v7-mint-soft);color:var(--v7-on-mint);font-weight:650}
   .sidebar-bottom{margin-top:auto;padding-top:18px}.collapse-control{display:flex;align-items:center;gap:12px;width:100%;padding:12px;color:#afc8b8;background:none;border:0;font:inherit;font-size:var(--v7-text-xs);text-align:start;min-height:44px}
   .account-strip{border-top:1px solid #ffffff1c;padding:17px 2px 0;margin-top:8px;display:flex;align-items:center;gap:10px;min-width:0}.avatar{width:33px;height:33px;border-radius:var(--v7-radius-panel);display:grid;place-items:center;background:#ffffff14;color:#d2e5d8;font-weight:650;flex:none}.account-strip>div{min-width:0;display:grid;gap:3px}.account-strip strong{font-size:var(--v7-text-xs);font-weight:600}.account-strip small{max-width:132px;overflow:hidden;text-overflow:ellipsis;font-size:var(--v7-text-xs);color:var(--v7-tint-line)}.account-strip button{margin-inline-start:auto;min-width:30px;min-height:40px;background:none;border:0;color:#c9ddce;font:inherit;font-size:var(--v7-text-lg)}
   .collapsed{padding-inline:11px}.collapsed .brand{padding:7px;margin-inline:5px}.collapsed :is(nav>a>span,.nav-caption,.workspace-switch>span:not(.switch-mark),.collapse-control>span+span,.account-strip>div,.account-strip>button){display:none}.collapsed nav>a{justify-content:center;padding-inline:0}.collapsed .workspace-switch{justify-content:center}.collapsed .account-strip{justify-content:center}.collapsed .collapse-control{justify-content:center}
@@ -82,6 +82,23 @@
   @media(max-width:850px){
     .primary-sidebar{display:none}.mobile-navigation{position:fixed;bottom:0;inset-inline:0;display:flex;align-items:stretch;justify-content:space-around;padding:7px 8px max(7px,env(safe-area-inset-bottom));background:#fffffff7;border-top:1px solid var(--v7-line);z-index:60;gap:0;backdrop-filter:blur(12px)}
     .mobile-navigation>a,.mobile-more>summary{display:flex;flex:1;min-width:0;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:var(--v7-muted);font-size:var(--v7-text-xs);font-weight:600;min-height:48px;padding:5px 4px;border-radius:var(--v7-radius-control);text-decoration:none;white-space:nowrap;list-style:none;cursor:pointer}.mobile-navigation>a.active,.mobile-more>summary.active{color:var(--v7-accent);background:var(--v7-tint)}
-    .mobile-more{flex:1;min-width:0}.mobile-more>summary::-webkit-details-marker{display:none}.more-icon{height:18px;font-size:var(--v7-text-lg);line-height:12px;letter-spacing:2px}.more-menu{position:absolute;bottom:calc(100% + 8px);inset-inline-end:12px;width:min(270px,calc(100vw - 24px));padding:8px;background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);box-shadow:var(--v7-elevation-menu);display:grid;gap:3px}.more-menu a,.more-menu button{display:flex;align-items:center;gap:10px;padding:12px;min-height:46px;color:var(--v7-ink);text-decoration:none;background:none;border:0;border-radius:var(--v7-radius-control);font:inherit;font-size:var(--v7-text-sm);text-align:start}.more-menu a:hover,.more-menu button:hover{background:var(--v7-soft)}
+    .mobile-more{flex:1;min-width:0}.mobile-more>summary::-webkit-details-marker{display:none}.more-menu{position:absolute;bottom:calc(100% + 8px);inset-inline-end:12px;width:min(270px,calc(100vw - 24px));padding:8px;background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);box-shadow:var(--v7-elevation-menu);display:grid;gap:3px}.more-menu a,.more-menu button{display:flex;align-items:center;gap:10px;padding:12px;min-height:46px;color:var(--v7-ink);text-decoration:none;background:none;border:0;border-radius:var(--v7-radius-control);font:inherit;font-size:var(--v7-text-sm);text-align:start}.more-menu a:hover,.more-menu button:hover{background:var(--v7-soft)}
   }
+
+  /* November 2026 refresh */
+  .glyph{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s var(--v7-ease-out)}.glyph.flipped{transform:scaleX(-1)}
+  .primary-sidebar{padding:20px 12px 12px;color:var(--v7-on-brand)}
+  .brand{margin:0 4px 20px;border-radius:var(--v7-radius-control)}
+  .nav-caption{margin:0 12px 8px;color:var(--v7-on-brand-muted);font-weight:600}
+  nav{gap:2px}nav>a{min-height:44px;padding:10px 12px;border-radius:var(--v7-radius-control);color:var(--v7-on-brand-muted);transition:background-color .15s,color .15s}
+  nav>a:hover{background:var(--v7-brand-line);color:var(--v7-on-brand)}
+  nav>a.active{background:var(--v7-mint);color:var(--v7-on-mint);font-weight:650}
+  .workspace-switch{margin:0 0 20px;border-color:var(--v7-brand-line);color:var(--v7-on-brand)}.workspace-switch:hover{background:var(--v7-brand-line)}
+  .collapse-control{border-radius:var(--v7-radius-control);color:var(--v7-on-brand-muted)}.collapse-control:hover{background:var(--v7-brand-line);color:var(--v7-on-brand)}
+  .account-strip{border-top-color:var(--v7-brand-line);padding:14px 4px 0}
+  .avatar{border-radius:50%;background:var(--v7-brand-line);color:var(--v7-mint)}
+  .account-strip small{color:var(--v7-on-brand-muted)}
+  .account-strip button{display:grid;place-items:center;min-width:40px;border-radius:var(--v7-radius-control);color:var(--v7-on-brand-muted)}.account-strip button:hover{background:var(--v7-brand-line);color:var(--v7-on-brand)}
+  .collapsed{padding-inline:10px}
+  @media(max-width:850px){.mobile-navigation>a.active,.mobile-more>summary.active{background:var(--v7-mint-soft);color:var(--v7-on-mint)}.mobile-more>summary .glyph{stroke-width:3}}
 </style>

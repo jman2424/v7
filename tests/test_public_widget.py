@@ -37,7 +37,7 @@ def test_optional_widget_tenant_accepts_bounded_keys(value):
     assert load_settings({"TESTING": True, "PUBLIC_WIDGET_TENANT": value}).PUBLIC_WIDGET_TENANT == value
 
 
-@pytest.mark.parametrize("path", ["/about", "/guides/getting-started"] +
+@pytest.mark.parametrize("path", ["/", "/about", "/guides/getting-started"] +
     ["/solutions/" + slug for slug in SOLUTIONS])
 def test_public_marketing_pages_embed_only_configured_tenant(widget_client, path):
     response = widget_client.get(path + "?tenant=OTHER", base_url="https://untrusted.example")
@@ -56,24 +56,14 @@ def test_public_marketing_pages_embed_only_configured_tenant(widget_client, path
     assert "connect-src 'self';" in response.headers["Content-Security-Policy"]
 
 
-def test_homepage_has_one_real_customer_panel_and_no_scripted_conversation(widget_client):
+def test_homepage_uses_the_real_floating_widget_and_no_scripted_conversation(widget_client):
     response = widget_client.get('/?tenant=OTHER', base_url='https://untrusted.example')
     assert response.status_code == 200
-    frames = []
-
-    class Frames(HTMLParser):
-        def handle_starttag(self, tag, attrs):
-            if tag == 'iframe':
-                frames.append(dict(attrs))
-
-    Frames().feed(response.text)
-    assert len(frames) == 1
-    frame = frames[0]
-    source = urlsplit(frame['src'])
-    assert not source.netloc and source.path == '/chat_ui'
-    assert parse_qs(source.query) == {'tenant': ['EXAMPLE'], 'embed': ['panel']}
-    assert 'allow-scripts' in frame['sandbox']
-    assert '/widget.js?tenant=' not in response.text
+    # The product itself, not an in-page copy: one embed script, no inline chat frame.
+    assert '<iframe' not in response.text and 'class="live-widget-panel"' not in response.text
+    assert response.text.count('/widget.js?tenant=EXAMPLE') == 1
+    assert response.text.count('data-open-assistant') == 2  # "See it in action" and the demo button
+    assert 'data-language-picker' not in response.text
     assert 'sample-question' not in response.text and 'FICTIONAL STORE' not in response.text
     assert 'data-example=' not in response.text
     assert 'microphone=()' in response.headers['Permissions-Policy']
