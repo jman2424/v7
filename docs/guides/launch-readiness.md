@@ -9,6 +9,8 @@
    activate a managed company.
 3. Add current products or services, prices, FAQs, policies, contact paths,
    opening hours and the intended response style. Save changes before testing.
+   To bring these in from a file or keep them in step with an online store, use
+   My Business → Data Sources & Sync; see [business-imports.md](business-imports.md).
 4. Select an available model and review its token prices. Buy separate prepaid
    AI credit if paid AI is needed. Lower token costs can stretch credit further;
    there is no guaranteed or fixed message count per top-up.

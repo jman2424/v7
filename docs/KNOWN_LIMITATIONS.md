@@ -22,6 +22,15 @@ Verified against the code in November 2026. Remove an entry when it is resolved.
 - **`/catalog_webhook` is single-tenant.** A signed import always replaces the catalog
   of the default `BUSINESS_KEY` tenant and writes the older `product_catalog` layout.
   Use the console or `/api/v1/catalog/items` for every other tenant.
+- **Store synchronisation is untested against live stores.** The WooCommerce, Shopify
+  and custom-feed connectors pass simulated-provider tests only. Verify each against a
+  real development store before offering it. Further limits (one item per product, no
+  descriptions, no Excel, no automatic web-page monitoring, products only) are listed
+  in [reference/business-sync.md](reference/business-sync.md).
+- **Provider sign-in does not create accounts.** Google and Microsoft sign in an
+  account that already exists and has linked the provider. A new user registers with
+  email first. This is deliberate: it prevents takeover through a matching email and
+  keeps manual business approval in the path.
 - **Stripe is the only supported billing provider.** `connectors/billing.py` contains
   an untested Paddle branch.
 - **Legacy `halal_certified` profile field.** Still accepted for existing tenants;

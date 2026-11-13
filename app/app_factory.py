@@ -131,6 +131,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(mcp_bp)
     app.register_blueprint(mcp_oauth_bp)
     app.register_blueprint(vertex_api_bp)
+    from routes.data_sync_routes import bp as data_sync_bp
+    app.register_blueprint(data_sync_bp)
 
 
 # ---------------------------------------------------------------------
@@ -297,10 +299,12 @@ def create_app(config_override: Optional[Dict[str, Any]] = None) -> Flask:
     start_application_notifications(app)
     from service.channel_worker import start as start_business_channels
     from service.ai_budget_worker import start as start_ai_budget
+    from service.sync_worker import start as start_business_sync
     # Start after Gunicorn forks, including deployments using --preload. Health
     # checks also start the worker; no customer request needs to arrive first.
     @app.before_request
     def _start_business_channels():
         start_business_channels(app)
         start_ai_budget(app)
+        start_business_sync(app)
     return app

@@ -42,7 +42,7 @@
     : workspaces.map(item=>({...item,views:item.views.filter(view=>mayOpenScreen(view.section))})).filter(item=>item.views.some(view=>!view.hidden));
   $: businessName=tenants.find(item=>item.key===tenant)?.name||profile.name||$t('Your business');
   $: businessLabel.set(businessName);
-  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data',budget:'AI Budget','provider-funding':'AI Provider Funding'};
+  const sections: Record<string, string> = {subscription:'Subscription',platform:'Platform overview',pipeline:'Sales pipeline',statistics:'Statistics',test:'Website widget',implementation:'Implementation','whatsapp-qr':'WhatsApp',usage:'API usage & cost',conversations:'Conversations',agent:'Agent playbook',website:'Website widget',integrations:'Integrations',catalog:'Catalogue',offers:'Offers',faqs:'Questions & answers','data-sources':'Data Sources & Sync',delivery:'Delivery',profile:'Business profile',branches:'Branches & hours',team:'Team access',companies:'Companies',errors:'Errors & health',account:'Account & security',privacy:'Privacy & data',budget:'AI Budget','provider-funding':'AI Provider Funding'};
   $: pageTitle = sections[section] || 'Sales workspace';
   sections.operations = 'Business hub';
   sections.applications = 'Business Applications';
@@ -61,6 +61,7 @@
     catalog: 'Keep the products and services your assistant recommends up to date.',
     offers: 'Manage the offers your assistant can share with customers.',
     faqs: 'Give customers clear answers from your saved business information.',
+    'data-sources': 'Keep your products and prices up to date from the place they already live.',
     delivery: 'Set the delivery and collection information customers need.',
     profile: 'The business details your assistant uses in customer conversations.',
     branches: 'Manage locations, contact details and opening hours.',
@@ -346,7 +347,7 @@
     'provider-funding':'provider finance reserve OpenAI costs margins',
     subscription:'billing plans payment invoices cancel change plan',usage:'API AI models memory tokens credit costs',
     website:'widget branding colours embed agent test',integrations:'MCP API OpenAI connections',
-    faqs:'FAQ knowledge answers support',account:'login password authenticator 2FA security',
+    faqs:'FAQ knowledge answers support','data-sources':'import sync WooCommerce Shopify upload spreadsheet CSV products prices connect',account:'login password authenticator 2FA security',
     team:'staff users permissions access',catalog:'products services prices stock',
     branches:'locations opening times hours',conversations:'chat history messages customers',
     implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
@@ -885,6 +886,7 @@
       conversations: ['conversations.read'], catalog: ['offerings.read'], offers: ['offers.read'],
       test: ['business_settings.read'], website: ['business_settings.read'], agent: ['business_settings.read'],
       faqs: ['business_settings.read'], delivery: ['business_settings.read'], profile: ['business_settings.read'],
+      'data-sources': ['integrations.read'],
       branches: ['business_settings.read'], privacy: ['business_settings.read'],
       implementation: ['business_settings.read', 'integrations.read'], integrations: ['business_settings.read', 'integrations.read'],
       'whatsapp-qr': ['integrations.read'], errors: ['errors.read', 'analytics.read'],
@@ -1117,7 +1119,7 @@
       if(!response.ok||controller.signal.aborted)return;
       const data=await response.json();
       if(controller.signal.aborted)return;
-      providers=Array.isArray(data.providers)?data.providers.filter((item:{id?:string})=>item.id==='google'):[];
+      providers=Array.isArray(data.providers)?data.providers.filter((item:{id?:string})=>item.id==='google'||item.id==='microsoft'):[];
     } catch { if(!controller.signal.aborted)providers=[]; }
     finally {clearTimeout(timeout);}
   }
@@ -1751,7 +1753,7 @@
       {#if !mfa && providers.length}
         <div class="provider-divider"><span>{$t('Or use a linked account')}</span></div>
         <div class="provider-buttons">{#each providers as provider}<button class="secondary" type="button" disabled={signingIn || !provider.configured} on:click={() => providerLogin(provider.id)}>{provider.name}{!provider.configured?' · Awaiting setup':''}</button>{/each}</div>
-        <p class="provider-help">{$t('Link Google in Account & security after signing in. Previously used another provider? Choose Forgot password to add a password securely using your account email.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
+        <p class="provider-help">{$t('Link Google or Microsoft in Account & security after signing in.')} {$t('New here? Create your account first, then link a provider. Lost access to a provider? Choose Forgot password to set a password using your account email.')} {#if providers.some(provider => !provider.configured)}{$t('Some providers are awaiting server setup.')}{/if}</p>
       {/if}
       {#if !mfa}<button disabled={signingIn} class="secondary" type="button" on:click={() => signupOpen = true}>{$t("Create an account or request to join")}</button>{/if}
       <p class="login-policy"><a href="/privacy">{$t('Privacy')}</a> · <a href="/cookies">{$t('Cookies')}</a> · <button class="cookie-login-trigger" type="button" aria-expanded={cookiePreferencesOpen} aria-controls={cookiePreferencesOpen ? 'workspace-cookie-preferences' : undefined} on:click={(event) => cookiePreferences?.showPreferences(event.currentTarget)}>{$t('Cookie preferences')}</button></p>
@@ -1824,6 +1826,7 @@
       {#if section === 'phone' || section === 'email'}{#key tenant+section}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} channel={section} showRules={false} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'account'}{#if isOwner||isPlatform}<section class="workspace-business-link"><span>Manage the businesses linked to this account.</span><a href={sectionHref(base,'companies',tenant)}>Your businesses →</a></section>{/if}{#await import('./AccountSecurity.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAccountSecurity}<svelte:component this={loadedAccountSecurity.default} {tenant} {csrf} teamUrl={canManageAccounts ? sectionHref(base,'team',tenant) : ''} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#if isPlatform||isOwner}{#key tenant}{#await import('./Referrals.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedReferrals}<svelte:component this={loadedReferrals.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}{/if}
       {#if section === 'privacy'}{#key tenant}{#await import('./PrivacySettings.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedPrivacySettings}<svelte:component this={loadedPrivacySettings.default} {tenant} {csrf} canEdit={isPlatform || isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
+      {#if section === 'data-sources'}{#key tenant}{#await import('./DataSources.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedDataSources}<svelte:component this={loadedDataSources.default} {tenant} {csrf} canEdit={isPlatform||isOwner} {isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'application'}{#key tenant}{#await import('./BusinessApplication.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplication}<svelte:component this={loadedBusinessApplication.default} {tenant} {csrf} canEdit={isPlatform||isOwner} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'applications' && isPlatform}{#await import('./BusinessApplications.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplications}<svelte:component this={loadedBusinessApplications.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/if}
       {#if section === 'agent'}<details class="advanced-controls"><summary>{$t('Business actions & permissions')}</summary>{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}

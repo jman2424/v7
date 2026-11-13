@@ -60,6 +60,11 @@
           "id": "rules",
           "label": "Assistant Rules",
           "section": "agent"
+        },
+        {
+          "id": "sync",
+          "label": "Data Sources & Sync",
+          "section": "data-sources"
         }
       ]
     },

@@ -221,8 +221,7 @@ vm.runInContext(ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTar
     releaseOld(json(200,{providers:[{id:'google',name:'Google',configured:false},{id:'microsoft',name:'Microsoft',configured:false}]}));
     await pending;
     assert.equal(calls.find(call=>call.path==='/auth/oidc/providers').options.signal.aborted,false);
-    assert.equal(h.state().providers.length,1);
-    assert.equal(h.state().providers[0].id,'google');
+    assert.deepEqual(Array.from(h.state().providers.map(item=>item.id)),['google','microsoft']);
     assert.equal(h.state().providers[0].configured,false);
   } else if (scenario === 'logout-clears-workspace') {
     await h.logout();

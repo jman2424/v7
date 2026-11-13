@@ -24,6 +24,7 @@
 | [agent-module-controls.md](reference/agent-module-controls.md) | Optional agent modules and grants. |
 | [business-actions-and-testing.md](reference/business-actions-and-testing.md) | Bookings and other chat actions. |
 | [business-applications.md](reference/business-applications.md) | Commercial eligibility applications. |
+| [business-sync.md](reference/business-sync.md) | Data sources, imports and the sync engine. |
 | [generic-business-core.md](reference/generic-business-core.md) | Supporting non-retail businesses. |
 | [chat-reliability.md](reference/chat-reliability.md) | Transcript reliability and console search. |
 | [response-performance.md](reference/response-performance.md) | Chat latency measurement. |
@@ -33,6 +34,7 @@
 | Page | Covers |
 |---|---|
 | [onboarding.md](guides/onboarding.md) | Configuring a new tenant. |
+| [business-imports.md](guides/business-imports.md) | Importing a client's information and keeping it current. |
 | [launch-readiness.md](guides/launch-readiness.md) | Checklist before a customer goes live. |
 | [registration.md](guides/registration.md) | Account creation and the mail sender it needs. |
 | [account-recovery.md](guides/account-recovery.md) | Passwords and account management. |
@@ -63,6 +65,11 @@
 | [live-backup.md](operations/live-backup.md) | Complete export of a live SQLite runtime. |
 | [supabase-migration.md](operations/supabase-migration.md) | Moving to PostgreSQL. |
 | [agent-evaluation.md](operations/agent-evaluation.md) | Running the agent benchmark. |
+
+## legal/ — drafts awaiting a solicitor
+
+Proposed Acceptable Use Policy and data import/synchronisation terms, with the questions
+for review. Not in force. See [legal/README.md](legal/README.md).
 
 ## history/ — dated work records
 

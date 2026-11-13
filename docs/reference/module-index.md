@@ -35,6 +35,7 @@ HTTP endpoints. One Flask blueprint per file.
 | `routes/campaign_routes.py` | Owner-controlled marketing drafts, approval and provider submission. |
 | `routes/catalog_routes.py` | Signed catalog imports and authenticated, tenant-scoped catalog exports. |
 | `routes/conversion_routes.py` | Public widget sales actions and owner-only requests. |
+| `routes/data_sync_routes.py` | Data Sources & Sync: owner-authorised connections, import previews and signed source notifications. |
 | `routes/diag_routes.py` | Authenticated diagnostics: tenant document validation and integration presence checks. |
 | `routes/files_routes.py` | Authenticated read/write of one tenant document with schema validation, audit records and snapshots. |
 | `routes/health_routes.py` | Liveness (/health), readiness (/ready) and an authenticated /version summary. |
@@ -103,9 +104,11 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/business_core.py` | Generic tenant facts with read-through compatibility for retail documents. |
 | `service/business_email_retention.py` | Owner-opted cleanup of handled mail, never model-selected mailbox actions. |
 | `service/business_email_setup.py` | Client-owned setup requests; mailbox authority stays with verified routing. |
+| `service/business_imports.py` | Read an uploaded CSV file or JSON bundle into plain rows; validation happens later. |
 | `service/business_management.py` | Reusable catalogue and offer operations; no MCP or HTTP business logic. |
 | `service/business_operations.py` | Durable tenant-scoped inbox, draft approval and confirmed action outcomes. |
 | `service/business_read_cache.py` | Version-checked public business snapshots, never authentication/billing state. |
+| `service/business_sync.py` | Plan, review, apply and undo business-information changes from imports and connected sources. |
 | `service/business_validation.py` | Validation for editable settings that do not yet have a full JSON schema. |
 | `service/channel_intelligence.py` | Delivery guidance over the shared business brain; never permission grants. |
 | `service/channel_worker.py` | Durable customer-message jobs, driven in-process or by an explicit worker. |
@@ -117,6 +120,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/conversion_actions.py` | Tenant-scoped, owner-configured sales requests and appointment slots. |
 | `service/crm_service.py` | CRM service: leads + conversations. |
 | `service/customer_intent.py` | Conservative form intent shared by local routing and model-selected actions. |
+| `service/data_sources.py` | A business's authorised data sources: connect, import, synchronise and disconnect. |
 | `service/email_campaigns.py` | Private campaign workflow using Resend's marketing audience and delivery controls. |
 | `service/faq_integrity.py` | Exact curated-FAQ integrity checks, without a model or semantic assumptions. |
 | `service/grounded_conversation.py` | One accounted, tenant-grounded answer before deterministic V7 fallbacks. |
@@ -166,6 +170,9 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/statistics.py` | Bounded, aggregate-only company statistics from recorded channel events. |
 | `service/storage_readiness.py` | Read-only checks before accepting writes through the PostgreSQL runtime. |
 | `service/subscriptions.py` | Stripe-backed subscription and invoice ledger, isolated by company. |
+| `service/sync_http.py` | Bounded JSON requests to one authorised public HTTPS host, with no redirects. |
+| `service/sync_store.py` | Tenant-scoped data sources, sync queue, item links and change history. |
+| `service/sync_worker.py` | Background loop that runs scheduled and queued data-source synchronisation. |
 | `service/telemetry_outbox.py` | Durable, idempotent fan-out of noncritical pipeline telemetry only. |
 | `service/tenant_access.py` | Server-owned business ownership and payment activation state. |
 | `service/tenant_sales_context.py` | Bounded, tenant-owned context for V7 sales conversations. |
@@ -208,6 +215,7 @@ Adapters for external providers.
 |---|---|
 | `connectors/billing.py` | Billing connector (Stripe / Paddle). |
 | `connectors/business_email.py` | Bounded Resend transport; no redirects, attachments or caller-chosen hosts. |
+| `connectors/store_sync.py` | Read-only product adapters for WooCommerce, Shopify and custom JSON feeds. |
 | `connectors/web_widget.py` | Web widget connector + iframe bridge. |
 | `connectors/whatsapp.py` | WhatsApp connector. |
 | `connectors/whatsapp_audio.py` | Bounded, authenticated downloads for signed WhatsApp voice webhooks. |

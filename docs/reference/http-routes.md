@@ -306,3 +306,20 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/healthz` | GET | `app/app_factory.py` · `healthz` |
 | `/ready` | GET | `routes/health_routes.py` · `ready` |
 | `/version` | GET | `routes/health_routes.py` · `version` |
+
+## Other
+
+| Path | Methods | Handler |
+|---|---|---|
+| `/admin/api/data-sources` | GET | `routes/data_sync_routes.py` · `listing` |
+| `/admin/api/data-sources` | POST | `routes/data_sync_routes.py` · `connect` |
+| `/admin/api/data-sources/<source_id>` | PUT | `routes/data_sync_routes.py` · `settings` |
+| `/admin/api/data-sources/<source_id>/disconnect` | POST | `routes/data_sync_routes.py` · `disconnect` |
+| `/admin/api/data-sources/<source_id>/reconnect` | POST | `routes/data_sync_routes.py` · `reconnect` |
+| `/admin/api/data-sources/<source_id>/sync` | POST | `routes/data_sync_routes.py` · `sync_now` |
+| `/admin/api/data-sources/changes/<change_id>` | GET | `routes/data_sync_routes.py` · `change_get` |
+| `/admin/api/data-sources/changes/<change_id>` | PUT | `routes/data_sync_routes.py` · `change_correct` |
+| `/admin/api/data-sources/changes/<change_id>/<decision>` | POST | `routes/data_sync_routes.py` · `change_decide` |
+| `/admin/api/data-sources/diagnostics` | GET | `routes/data_sync_routes.py` · `diagnostics` |
+| `/admin/api/data-sources/imports` | POST | `routes/data_sync_routes.py` · `create_import` |
+| `/sync/hooks/<tenant>/<source_id>` | POST | `routes/data_sync_routes.py` · `source_notification` |

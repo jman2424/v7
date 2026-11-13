@@ -17,7 +17,7 @@ Both are generated from the code and checked by `tests/test_reference_docs.py`.
 | `handlers/` | The three response strategies (`handler_v5/v6/v7.py`) and the V7 planner (`brain_v7.py`) and renderer (`renderer_v7.py`). |
 | `service/` | All business logic: conversation pipeline, accounts and security, billing, channels, analytics. |
 | `retrieval/` | Tenant data stores (catalog, FAQ, delivery, branches, offers, overrides) over `retrieval/storage.py`. |
-| `connectors/` | Adapters for Stripe, Resend email, WhatsApp (Meta and Twilio) and the widget bridge. |
+| `connectors/` | Adapters for Stripe, Resend email, WhatsApp (Meta and Twilio), store product sync and the widget bridge. |
 | `schemas/` | JSON Schemas for tenant documents and the generated REST contract (`vertex-api.openapi.json`). |
 | `business/` | Bundled starter tenants (`EXAMPLE`, and `TARIQ` as a retail demonstration). Live tenant data lives in the data directory or PostgreSQL, not here. |
 | `business_templates/` | Starter playbooks by business type used when a tenant is created. |
@@ -116,6 +116,7 @@ the code reads one that is not documented there. Core settings are parsed once i
 | Change plans or prices | `service/plan_catalog.py`. |
 | Add a database table | A new file in `supabase/migrations/` and the SQLite `CREATE TABLE` in the owning service. |
 | Change console screens | `frontend/src/lib/`; the workspace/route registry is `service/console_navigation.json`. |
+| Change imports or store synchronisation | `service/business_sync.py` (rules), `connectors/store_sync.py` (providers); see [reference/business-sync.md](reference/business-sync.md). |
 | Change the widget | `dashboard/templates/chatbot.html`, `dashboard/static/js/widget.js`, `dashboard/static/css/widget.css`. |
 
 ## Checks

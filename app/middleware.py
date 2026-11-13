@@ -21,7 +21,7 @@ NON_INDEXABLE_PREFIXES = (
     "/admin", "/auth", "/billing", "/files", "/analytics", "/__diag", "/console",
     "/mcp", "/oauth", "/api/", "/mode", "/version", "/export_catalog_csv",
     "/catalog_webhook", "/chat_ui", "/chat_api", "/chat/", "/webchat", "/widget",
-    "/whatsapp", "/channels/", "/business-applications", "/health", "/ready", "/.well-known/",
+    "/whatsapp", "/channels/", "/sync/", "/business-applications", "/health", "/ready", "/.well-known/",
 )
 
 
@@ -206,6 +206,8 @@ def install_csrf(app, settings):
     def csrf():
         if request.path in {'/channels/email/webhook', '/channels/phone/incoming', '/channels/phone/turn', '/channels/phone/poll'}:
             return  # Each exact provider endpoint verifies its own signature.
+        if request.method == 'POST' and request.path.startswith('/sync/hooks/'):
+            return  # Verified with the data source's own signing secret.
         # Webhooks and chat have separate authentication.
         if request.path in {"/chat_api", "/chat/actions", "/chat/transcribe", "/chat/navigation-click", "/chat/performance", "/whatsapp/webhook", "/whatsapp/status", "/catalog_webhook", "/billing/stripe/webhook", "/mcp", "/oauth/token"} or request.blueprint == 'vertex_api':
             return
