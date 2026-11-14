@@ -103,8 +103,16 @@ def test_incomplete_website_response_returns_safe_import_error(monkeypatch):
     opener.open.side_effect = http.client.IncompleteRead(b"private response content", 100)
     monkeypatch.setattr(website.urllib.request, "build_opener", lambda *args: opener)
     with pytest.raises(website.WebsiteImportError, match="No readable public pages") as raised:
-        website.import_website("https://example.test/")
+        website.import_website("https://example.test/", respect_robots=False)
     assert "private response content" not in str(raised.value)
+
+
+def _permit(app, tenant="ALPHA"):
+    """The owner's recorded permission to read the website in the business profile."""
+    from service import data_sources
+    with app.app_context():
+        data_sources.connect_website(app.container.storage, tenant, {"id": "owner@example.test", "roles": ["business_owner"]},
+                                     {"authorised": True, "auto_sync": False})
 
 
 def _knowledge():
@@ -125,6 +133,7 @@ def test_management_audit_failure_prevents_widget_and_website_writes(platform, m
         previous = _knowledge()
         storage.write_json("ALPHA", "store_info.json", {"name": "ALPHA", "website": "https://example.test/"})
         monkeypatch.setattr("routes.admin_api_routes.import_website", lambda _: _knowledge())
+        _permit(app)
     else:
         filename = "branding.json"
         previous = {"widget": {"greeting": "Original welcome"}, "allowed_origins": []}
@@ -156,6 +165,7 @@ def test_management_writes_have_scoped_prepared_and_success_audit(platform, monk
         filename = "website_knowledge.json"
         storage.write_json("ALPHA", "store_info.json", {"name": "ALPHA", "website": "https://example.test/"})
         monkeypatch.setattr("routes.admin_api_routes.import_website", lambda _: _knowledge())
+        _permit(app)
         response = client.post("/admin/api/website-knowledge/import", json={},
                                headers={"X-CSRF-Token": csrf})
     else:
@@ -186,6 +196,7 @@ def test_website_change_during_fetch_cannot_commit_old_knowledge(platform, monke
         return _knowledge()
 
     monkeypatch.setattr("routes.admin_api_routes.import_website", changing_source)
+    _permit(app)
     client = app.test_client()
     csrf = test_platform_security.login(client)
     response = client.post("/admin/api/website-knowledge/import", json={},
@@ -321,7 +332,7 @@ def test_website_watchdog_interrupts_continuously_trickled_protocol_lines(monkey
         # Shutdown may become EOF rather than an exception. The importer must
         # reject the expired fetch on either platform, including tolerated EOF.
         with pytest.raises(website.WebsiteImportError, match="No readable public pages"):
-            website.import_website("https://example.test/")
+            website.import_website("https://example.test/", respect_robots=False)
         assert deadlines[0].expired.is_set()
         with pytest.raises(TimeoutError, match="fetch deadline"):
             deadlines[0].timeout()
@@ -353,4 +364,4 @@ def test_expired_website_fetch_rejects_buffered_body_returned_at_eof(monkeypatch
 
     monkeypatch.setattr(website.urllib.request, "build_opener", build_opener)
     with pytest.raises(website.WebsiteImportError, match="No readable public pages"):
-        website.import_website("https://example.test/")
+        website.import_website("https://example.test/", respect_robots=False)

@@ -253,6 +253,7 @@ def test_adjacent_handlers_return_only_reviewed_errors(client, configured, monke
         monkeypatch.setattr('service.website_destinations.validate',fail)
     else:
         monkeypatch.setattr(api,attribute,fail)
+        monkeypatch.setattr('service.data_sources.website_source',lambda *args:{'id':'0'*32})  # Permission is on record.
     method = client.post if endpoint.endswith('/import') else client.put
     response = method('/admin/api/'+endpoint+'?tenant=EXAMPLE',json={})
     assert response.status_code == status and response.json == {'error':code}

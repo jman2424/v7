@@ -1044,10 +1044,12 @@ def api_website_knowledge_get():
     from service.website_knowledge import current_website_knowledge
     profile = _storage().read_json(tenant, 'store_info.json')
     current = current_website_knowledge(knowledge, profile.get('website') if isinstance(profile, dict) else None)
+    from service import data_sources
+    host = data_sources.website_address(_storage(), tenant)[1]
     return jsonify(source_url=knowledge.get("source_url", "") if isinstance(knowledge, dict) else "",
                    fetched_at=knowledge.get("fetched_at", "") if isinstance(knowledge, dict) else "",
                    page_count=len(pages) if isinstance(pages, list) else 0,
-                   source_current=bool(current))
+                   source_current=bool(current), permission=bool(data_sources.website_source(tenant, host)))
 
 
 @bp.get('/website-destinations')
@@ -1086,8 +1088,16 @@ def api_website_knowledge_import():
         abort(404)
     profile = storage.read_json(tenant, "store_info.json")
     website = profile.get("website") if isinstance(profile, dict) else None
+    import time
+    from service import data_sources, sync_store
     try:
-        knowledge = import_website(website or "")
+        # A website is read only under the owner's recorded permission for that address.
+        permission = data_sources.website_source(tenant, data_sources.website_address(storage, tenant)[1])
+        if website and permission is None:
+            from service.website_knowledge import _validate_public_https_url
+            _validate_public_https_url(website)
+            return jsonify(error='website_permission_required'), 409
+        knowledge, _dropped = data_sources.clean_website(import_website(website or ""))
     except WebsiteImportError as exc:
         return _validation_failure(exc, 'website_import_failed', 422, _PUBLIC_WEBSITE_ERRORS)
     # A fetch runs outside the write lock; the source must still be current.
@@ -1095,6 +1105,8 @@ def api_website_knowledge_import():
                         action="website.knowledge.import", expected_website=website,
                         extra={"page_count": len(knowledge["pages"])})
     _invalidate_tenant(tenant)
+    sync_store.update_source(tenant, permission['id'], status='connected', last_success=time.time(),
+                             last_attempt=time.time(), last_error='')
     return jsonify(source_url=knowledge["source_url"], fetched_at=knowledge["fetched_at"],
                    page_count=len(knowledge["pages"]), source_current=True)
 

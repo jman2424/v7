@@ -117,7 +117,7 @@ def test_importer_keeps_public_host_pinning_and_proxy_redirect_boundaries(monkey
         return Opener()
     monkeypatch.setattr(website, "_resolve_public_ip", lambda host: "93.184.216.34")
     monkeypatch.setattr(website.urllib.request, "build_opener", build)
-    result = website.import_website("https://business.example/")
+    result = website.import_website("https://business.example/", respect_robots=False)
     assert any(isinstance(handler, website._NoRedirect) for handler in handlers)
     assert any(isinstance(handler, website.urllib.request.ProxyHandler) and handler.proxies == {} for handler in handlers)
     assert any(isinstance(handler, website._PinnedHTTPSHandler) and handler.pinned_ip == "93.184.216.34" for handler in handlers)

@@ -14,7 +14,7 @@ import time
 from service import session_store
 
 ID = re.compile(r'[a-f0-9]{32}\Z')
-KINDS = ('woocommerce', 'shopify', 'custom_feed', 'upload')
+KINDS = ('woocommerce', 'shopify', 'custom_feed', 'upload', 'website')
 SOURCE_STATES = ('connected', 'attention', 'reconnect', 'disconnected')
 CHANGE_STATES = ('pending', 'applied', 'rejected', 'rolled_back', 'superseded')
 MAX_ATTEMPTS = 6
@@ -49,6 +49,13 @@ _SCHEMA = (
         version INTEGER NOT NULL DEFAULT 1)''',
     'CREATE INDEX IF NOT EXISTS sync_changesets_tenant ON sync_changesets(tenant,created)',
     'CREATE TABLE IF NOT EXISTS sync_work_tenants (tenant TEXT PRIMARY KEY)',
+    '''CREATE TABLE IF NOT EXISTS sync_consents (
+        id TEXT PRIMARY KEY, tenant TEXT NOT NULL, source_id TEXT NOT NULL, kind TEXT NOT NULL,
+        domain TEXT NOT NULL DEFAULT '', statement TEXT NOT NULL, terms_version TEXT NOT NULL,
+        account TEXT NOT NULL, role TEXT NOT NULL DEFAULT '', details TEXT NOT NULL,
+        granted REAL NOT NULL, ended REAL NOT NULL DEFAULT 0, end_reason TEXT NOT NULL DEFAULT '',
+        ended_by TEXT NOT NULL DEFAULT '')''',
+    'CREATE INDEX IF NOT EXISTS sync_consents_tenant ON sync_consents(tenant,granted)',
 )
 _JSON_SOURCE = ('config', 'authorisation')
 _JSON_CHANGE = ('summary', 'changes')
@@ -157,6 +164,7 @@ def create_source(tenant, kind, label, config, credentials, authorisation, *, au
                    (identifier, tenant, kind, label.strip(), _dump(config, 8000), seal(tenant, credentials),
                     'connected', _dump(authorisation, 8000), int(bool(auto_sync)), int(bool(auto_apply)),
                     interval_minutes, now if auto_sync else 0, now, now))
+        _record_consent(db, tenant, identifier, kind, authorisation, now)
         db.execute('INSERT INTO sync_work_tenants(tenant) VALUES(?) ON CONFLICT DO NOTHING', (tenant,))
     return get_source(tenant, identifier)
 
@@ -177,9 +185,10 @@ _SOURCE_COLUMNS = {'label', 'config', 'secret', 'status', 'authorisation', 'auto
                    'interval_minutes', 'last_success', 'last_attempt', 'last_error', 'next_poll'}
 
 
-def update_source(tenant, source_id, *, expected_version=None, **changes):
+def update_source(tenant, source_id, *, expected_version=None, actor='', **changes):
     if not changes or set(changes) - _SOURCE_COLUMNS:
         raise ValueError('invalid_data_source')
+    renewed = changes.get('authorisation')
     for key in _JSON_SOURCE:
         if key in changes:
             changes[key] = _dump(changes[key], 8000)
@@ -198,7 +207,40 @@ def update_source(tenant, source_id, *, expected_version=None, **changes):
     with connection(tenant, write=True) as db:
         if db.execute(sql, tuple(params)).rowcount != 1:
             raise ValueError('data_source_changed')
+        # The permission record follows the source in the same transaction.
+        now = time.time()
+        if changes.get('status') == 'disconnected':
+            _end_consent(db, tenant, source_id, 'withdrawn', actor, now)
+        elif renewed is not None:
+            kind = db.execute('SELECT kind FROM sync_sources WHERE tenant=? AND id=?', (tenant, source_id)).fetchone()['kind']
+            _end_consent(db, tenant, source_id, 'renewed', actor or str(renewed.get('account', '')), now)
+            _record_consent(db, tenant, source_id, kind, renewed, now)
     return get_source(tenant, source_id)
+
+
+# ---- permission records: added and ended, never edited or deleted ----
+
+def _record_consent(db, tenant, source_id, kind, authorisation, now):
+    domains = authorisation.get('domains') or ['']
+    db.execute('INSERT INTO sync_consents(id,tenant,source_id,kind,domain,statement,terms_version,account,role,'
+               'details,granted) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+               (secrets.token_hex(16), tenant, source_id, kind, str(domains[0])[:255],
+                str(authorisation.get('statement', ''))[:2000], str(authorisation.get('terms_version', ''))[:120],
+                str(authorisation.get('account', ''))[:320], str(authorisation.get('role', ''))[:60],
+                _dump({'data': authorisation.get('data', []), 'domains': domains}, 4000), now))
+
+
+def _end_consent(db, tenant, source_id, reason, actor, now):
+    db.execute('UPDATE sync_consents SET ended=?,end_reason=?,ended_by=? WHERE tenant=? AND source_id=? AND ended=0',
+               (now, reason, str(actor)[:320], tenant, source_id))
+
+
+def list_consents(tenant, *, limit=200):
+    """Every permission this business has given, newest first, including ended ones."""
+    with connection(tenant) as db:
+        rows = db.execute('SELECT * FROM sync_consents WHERE tenant=? ORDER BY granted DESC,id LIMIT ?',
+                          (tenant, limit)).fetchall()
+    return [{**dict(row), 'details': json.loads(row['details'])} for row in rows]
 
 
 def work_tenants():

@@ -30,9 +30,21 @@ def test_native_sync_tables_are_tenant_isolated(pg_runtime, monkeypatch):
     assert updated['can_undo'] and store.list_changesets(tenant)[0]['can_undo']
     with pytest.raises(ValueError):
         store.update_changeset(tenant, change['id'], change['version'], state='rejected')
+    # Permission records: written with the source, ended on withdrawal, never deletable or visible elsewhere.
+    site = store.create_source(tenant, 'website', 'shop.example.test', {'host': 'shop.example.test'}, {},
+                               {'statement': 'I confirm', 'terms_version': sync.TERMS_VERSION, 'account': 'owner@example.test',
+                                'role': 'business_owner', 'domains': ['shop.example.test'], 'data': ['public website pages']})
+    store.update_source(tenant, site['id'], status='disconnected', actor='owner@example.test')
+    ended = next(row for row in store.list_consents(tenant) if row['source_id'] == site['id'])
+    assert ended['end_reason'] == 'withdrawn' and ended['ended_by'] == 'owner@example.test' and ended['statement'] == 'I confirm'
+    assert len(store.list_consents(tenant)) == 2 and store.list_consents(other) == []
     import psycopg
+    with session_store.postgres_connection(tenant) as db:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with db.transaction():
+                db.execute('DELETE FROM v7_private.sync_consents')
     with session_store.postgres_connection(other) as db:
-        for table in ('sync_sources', 'sync_jobs', 'sync_items', 'sync_changesets'):
+        for table in ('sync_sources', 'sync_jobs', 'sync_items', 'sync_changesets', 'sync_consents'):
             assert db.execute(f'SELECT COUNT(*) FROM v7_private.{table}').fetchone()[0] == 0
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             with db.transaction():
@@ -40,5 +52,5 @@ def test_native_sync_tables_are_tenant_isolated(pg_runtime, monkeypatch):
                            "VALUES(%s,%s,%s,'full','forged','{}','queued',0,0)", ('f' * 32, tenant, source['id']))
     admin = pg_runtime['admin']
     for role in ('anon', 'authenticated', 'service_role'):
-        for table in ('sync_sources', 'sync_jobs', 'sync_items', 'sync_changesets', 'sync_work_tenants'):
+        for table in ('sync_sources', 'sync_jobs', 'sync_items', 'sync_changesets', 'sync_work_tenants', 'sync_consents'):
             assert not admin.execute('SELECT has_table_privilege(%s,%s,%s)', (role, 'v7_private.' + table, 'SELECT')).fetchone()[0]

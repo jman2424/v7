@@ -38,3 +38,19 @@ test('the page sends the CSRF token, asks for authorisation and never stores sec
   // Payloads and logs stay behind the operator-only disclosure.
   assert.match(page,/\{#if isPlatform\}\s*<details class="diagnostics">/);
 });
+test('a website is read only after the owner ticks its own permission statement, and the record is shown',()=>{
+  assert.match(page,/begin\('website'\)/);
+  assert.match(page,/adding === 'website' \? listing\.website_statement : listing\.authorisation_statement/);
+  assert.match(page,/kind: 'website', authorised, auto_sync: automatic/);
+  assert.match(page,/Withdraw permission/);assert.match(page,/Permission records/);
+  const site={...store,kind:'website'};
+  assert.equal(text.sourceTitle(site),'Reading your website with your permission');
+  assert.equal(text.syncingText(site),'Public pages of your website (up to 20)');
+  assert.match(text.sourceProblem({...site,status:'attention',problem:'website_changed'}),/covered the old address only/);
+  assert.match(text.importError('website_permission_required'),/^Give permission/);
+  const row={kind:'website',domain:'shop.example',statement:'',terms_version:'t',account:'owner@shop.example',granted:10,ended:0,end_reason:'',ended_by:''};
+  const when=seconds=>'day '+seconds;
+  assert.equal(text.permissionText(row,when),'Read the public pages of shop.example. Given on day 10 by owner@shop.example. Still in force.');
+  assert.match(text.permissionText({...row,ended:20,end_reason:'withdrawn',ended_by:'owner@shop.example'},when),/Withdrawn on day 20 by owner@shop\.example\.$/);
+  assert.match(text.permissionText({...row,ended:20,end_reason:'renewed'},when),/Replaced by a newer permission on day 20\.$/);
+});

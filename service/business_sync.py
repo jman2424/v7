@@ -16,7 +16,7 @@ import re
 from service import sync_store as store
 from service.business_management import revision
 
-TERMS_VERSION = 'data-import-sync-terms-2026-11-draft-1'
+TERMS_VERSION = 'data-import-sync-terms-2026-11-draft-2'
 PRODUCT_FIELDS = ('name', 'price', 'category', 'in_stock', 'stock_quantity')
 OWNERSHIP_GROUP = {'name': 'names', 'price': 'prices', 'category': 'categories',
                    'in_stock': 'availability', 'stock_quantity': 'availability'}

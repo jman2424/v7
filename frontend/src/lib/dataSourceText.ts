@@ -14,12 +14,18 @@ export type HistoryItem = { id: string; state: string; origin: string; summary: 
 export type Listing = {
   sources: Source[]; reviews: HistoryItem[]; history: HistoryItem[]; authorisation_statement: string;
   terms_version: string; can_manage: boolean; automatic_updates_running: boolean;
+  website_statement: string; website: string; permissions: Permission[];
+};
+export type Permission = {
+  kind: string; domain: string; statement: string; terms_version: string; account: string;
+  granted: number; ended: number; end_reason: string; ended_by: string;
 };
 
-const KINDS: Record<string, string> = { woocommerce: 'WooCommerce', shopify: 'Shopify', custom_feed: 'your product feed', upload: 'Uploaded file' };
+const KINDS: Record<string, string> = { woocommerce: 'WooCommerce', shopify: 'Shopify', custom_feed: 'your product feed', upload: 'Uploaded file', website: 'your website' };
 
 export function sourceTitle(source: Source): string {
   if (source.kind === 'upload') return 'Uploaded file';
+  if (source.kind === 'website') return source.status === 'attention' ? 'Reading your website — needs attention' : 'Reading your website with your permission';
   const name = KINDS[source.kind] || 'your store';
   if (source.status === 'reconnect') return `Connection to ${name} needs renewing`;
   if (source.status === 'attention') return `Connected to ${name} — needs attention`;
@@ -27,6 +33,13 @@ export function sourceTitle(source: Source): string {
 }
 
 export function sourceProblem(source: Source): string {
+  if (source.kind === 'website') {
+    if (source.problem === 'website_changed') return 'The website address in your Business profile has changed. Your permission covered the old address only, so nothing is being read. Stop reading this one and add your website again.';
+    if (source.status === 'attention') return 'We could not read your website after several tries. Your assistant keeps what was read before. Check the site is online and that its robots rules allow V7.';
+    if (source.problem === 'some_lines_skipped') return 'Some text on your website looked like instructions to an AI system rather than business information, so it was left out.';
+    if (source.stale) return 'Your website has not been read for a while, so recent changes may not be here yet.';
+    return '';
+  }
   if (source.status === 'reconnect') return 'Your store connection needs attention. Its access details were refused — disconnect and connect again with new ones.';
   if (source.status === 'attention') {
     if (source.problem === 'legacy_catalogue') return 'Your product list uses an older layout that cannot be synchronised. Ask your platform operator to convert it.';
@@ -49,6 +62,7 @@ export function agoText(seconds: number | null, now = Date.now() / 1000): string
 }
 
 export function syncingText(source: Source): string {
+  if (source.kind === 'website') return 'Public pages of your website (up to 20)';
   const labels: Record<string, string> = { names: 'products', prices: 'prices', categories: 'categories', availability: 'availability' };
   const owned = Object.keys(labels).filter(key => (source.ownership || {})[key] !== 'v7').map(key => labels[key]);
   if (!owned.length) return 'Nothing — V7 keeps what you enter';
@@ -111,5 +125,16 @@ const ERRORS: Record<string, string> = {
   location_limit_reached: 'Your plan’s location limit has been reached.',
   sync_rate_limited: 'Too many updates at once. Try again shortly.',
   source_address_changed: 'That is a different store. Add it as a new source instead.',
+  website_missing: 'Save your public https:// website address in Business profile first.',
+  website_already_connected: 'You have already given permission for this website.',
+  website_permission_required: 'Give permission to read your website first.',
 };
+const PERMISSION_KINDS: Record<string, string> = { website: 'Read the public pages of', woocommerce: 'Read products from WooCommerce at', shopify: 'Read products from Shopify at', custom_feed: 'Read the product feed at', upload: 'Import a file' };
+/** One line of the permission record, in plain words. */
+export function permissionText(row: Permission, format: (seconds: number) => string = seconds => new Date(seconds * 1000).toLocaleString()): string {
+  const what = (PERMISSION_KINDS[row.kind] || 'Read') + (row.domain ? ' ' + row.domain : '');
+  const end = !row.ended ? 'Still in force.' : row.end_reason === 'renewed' ? `Replaced by a newer permission on ${format(row.ended)}.` : `Withdrawn on ${format(row.ended)}${row.ended_by ? ' by ' + row.ended_by : ''}.`;
+  return `${what}. Given on ${format(row.granted)} by ${row.account}. ${end}`;
+}
+
 export const importError = (code: string): string => ERRORS[code] || 'That did not work. Try again, or refresh the page.';

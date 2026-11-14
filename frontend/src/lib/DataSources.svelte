@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { t } from './i18n';
-  import { sourceTitle, sourceProblem, agoText, syncingText, reasonText, issueText, importError, changeTitle } from './dataSourceText';
+  import { sourceTitle, sourceProblem, agoText, syncingText, reasonText, issueText, importError, changeTitle, permissionText } from './dataSourceText';
   import type { Source, Row, Change, Listing } from './dataSourceText';
 
   export let tenant: string;
@@ -14,7 +14,7 @@
   let error = '';
   let status = '';
   let busy = false;
-  let adding: '' | 'woocommerce' | 'shopify' | 'custom_feed' | 'upload' = '';
+  let adding: '' | 'woocommerce' | 'shopify' | 'custom_feed' | 'upload' | 'website' = '';
   let authorised = false;
   let form: Record<string, string> = {};
   let automatic = true;
@@ -62,6 +62,16 @@
     refreshSource = sourceId; instant = null; status = ''; error = '';
   }
 
+  async function connectWebsite() {
+    let read = false;
+    await act(async () => {
+      read = Boolean((await call('', 'POST', { kind: 'website', authorised, auto_sync: automatic })).source?.last_success);
+      adding = '';
+    });
+    if (!error) status = read ? 'Thank you. Your permission is recorded and your website has been read. Your assistant can now use it.'
+      : 'Thank you. Your permission is recorded. Your website has not been read yet — choose Read again now in a moment.';
+  }
+
   const connect = () => act(async () => {
     const data = await call('', 'POST', { kind: adding, connection: form, authorised, auto_sync: automatic, auto_apply: autoApply });
     instant = data.instant_updates; adding = '';
@@ -85,8 +95,19 @@
   });
 
   const openReview = (id: string) => act(async () => { review = (await call('/changes/' + id)).change; });
-  const syncNow = (id: string) => act(async () => { await call(`/${id}/sync`, 'POST', {}); }, 'Checked for updates.');
+  async function syncNow(id: string) {
+    const before = listing?.sources.find(source => source.id === id)?.last_success || 0;
+    let after = 0;
+    await act(async () => { after = (await call(`/${id}/sync`, 'POST', {})).source?.last_success || 0; });
+    if (!error) status = after > before ? 'Checked for updates.'
+      : listing?.automatic_updates_running ? 'Update requested. It will show here shortly.'
+      : 'That could not be completed just now. Your current information is kept. Try again in a moment.';
+  }
   const disconnect = (source: Source) => {
+    if (source.kind === 'website') {
+      if (!confirm($t('Withdraw your permission? V7 will stop reading your website and remove the pages it has stored. Your products, prices and answers are not affected.'))) return;
+      return act(async () => { await call(`/${source.id}/disconnect`, 'POST', {}); }, 'Permission withdrawn. Your website is no longer read.');
+    }
     if (!confirm($t('Disconnect this source? V7 will stop reading from it and delete its saved access details. Information already imported stays.'))) return;
     return act(async () => { await call(`/${source.id}/disconnect`, 'POST', {}); }, 'Disconnected.');
   };
@@ -167,9 +188,9 @@
           {#if sourceProblem(source)}<p class="issue" role="status">{$t(sourceProblem(source))}</p>{/if}
           <dl>
             {#if source.syncs}
-              <div><dt>{$t('Last updated')}</dt><dd>{$t(agoText(source.last_success))}</dd></div>
+              <div><dt>{$t(source.kind === 'website' ? 'Last read' : 'Last updated')}</dt><dd>{$t(agoText(source.last_success))}</dd></div>
               <div><dt>{$t('Automatic updates')}</dt><dd>{$t(source.auto_sync ? (listing.automatic_updates_running ? 'Enabled' : 'Enabled — starts once your platform operator switches automatic updates on') : 'Off')}</dd></div>
-              <div><dt>{$t('Synchronising')}</dt><dd>{$t(syncingText(source))}</dd></div>
+              <div><dt>{$t(source.kind === 'website' ? 'What is read' : 'Synchronising')}</dt><dd>{$t(syncingText(source))}</dd></div>
             {:else}
               <div><dt>{$t('Source')}</dt><dd>{source.source_ref || $t('Uploaded file')}</dd></div>
               <div><dt>{$t('Last import')}</dt><dd>{$t(agoText(source.last_attempt))}</dd></div>
@@ -179,17 +200,18 @@
         {#if manage}
           <div class="actions">
             {#if source.syncs}
-              <button type="button" class="primary" disabled={busy || source.status === 'reconnect'} on:click={() => syncNow(source.id)}>{$t('Sync Now')}</button>
+              <button type="button" class="primary" disabled={busy || source.status === 'reconnect'} on:click={() => syncNow(source.id)}>{$t(source.kind === 'website' ? 'Read again now' : 'Sync Now')}</button>
               <button type="button" disabled={busy} on:click={() => (settingsFor = settingsFor === source.id ? '' : source.id)}>{$t('Change Settings')}</button>
             {:else}
               <button type="button" class="primary" disabled={busy} on:click={() => begin('upload', source.id)}>{$t('Import updated file')}</button>
             {/if}
-            <button type="button" class="quiet" disabled={busy} on:click={() => disconnect(source)}>{$t('Disconnect')}</button>
+            <button type="button" class="quiet" disabled={busy} on:click={() => disconnect(source)}>{$t(source.kind === 'website' ? 'Withdraw permission' : 'Disconnect')}</button>
           </div>
         {/if}
         {#if settingsFor === source.id}
           <form class="settings" on:submit|preventDefault={() => saveSettings(source)}>
-            <label class="check"><input type="checkbox" bind:checked={source.auto_sync} />{$t('Check for updates automatically')}</label>
+            <label class="check"><input type="checkbox" bind:checked={source.auto_sync} />{$t(source.kind === 'website' ? 'Read my website again once a day' : 'Check for updates automatically')}</label>
+            {#if source.kind !== 'website'}
             <label>{$t('How often')}<select bind:value={source.interval_minutes}><option value={15}>{$t('Every 15 minutes')}</option><option value={60}>{$t('Every hour')}</option><option value={360}>{$t('Every 6 hours')}</option><option value={1440}>{$t('Once a day')}</option></select></label>
             <label class="check"><input type="checkbox" bind:checked={source.auto_apply} />{$t('Apply routine updates without asking me')}</label>
             <p class="hint">{$t('Unusual changes — big price swings, many removals, or anything that clashes with an edit you made here — always wait for your approval.')}</p>
@@ -198,6 +220,7 @@
                 <label>{$t(label)}<select bind:value={source.ownership[key]}><option value="source">{$t('My store')}</option><option value="v7">{$t('What I enter in V7')}</option></select></label>
               {/each}
             </fieldset>
+            {/if}
             <div class="actions"><button class="primary" disabled={busy}>{$t('Save settings')}</button></div>
           </form>
         {/if}
@@ -224,15 +247,29 @@
           <button type="button" on:click={() => begin('woocommerce')}><strong>WooCommerce</strong><span>{$t('Products, prices and stock')}</span></button>
           <button type="button" on:click={() => begin('shopify')}><strong>Shopify</strong><span>{$t('Products, prices and stock')}</span></button>
           <button type="button" on:click={() => begin('custom_feed')}><strong>{$t('Another website or system')}</strong><span>{$t('A product feed your developer provides')}</span></button>
+          {#if !listing.sources.some(source => source.kind === 'website' && source.host === listing?.website)}<button type="button" on:click={() => begin('website')}><strong>{$t('Your website')}</strong><span>{$t('Public pages, read with your permission')}</span></button>{/if}
           <button type="button" on:click={() => begin('upload')}><strong>{$t('Upload a file')}</strong><span>{$t('Spreadsheet (CSV) or prepared import file')}</span></button>
         </div>
       </div>
     {/if}
 
     {#if adding}
-      <form class="connect" on:submit|preventDefault={adding === 'upload' ? upload : connect}>
-        <h3>{$t(adding === 'upload' ? (refreshSource ? 'Import an updated file' : 'Upload a file') : 'Connect your store')}</h3>
-        {#if adding === 'woocommerce'}
+      <form class="connect" on:submit|preventDefault={adding === 'upload' ? upload : adding === 'website' ? connectWebsite : connect}>
+        <h3>{$t(adding === 'upload' ? (refreshSource ? 'Import an updated file' : 'Upload a file') : adding === 'website' ? 'Let V7 read your website' : 'Connect your store')}</h3>
+        {#if adding === 'website'}
+          {#if listing.website}
+            <p class="site">{$t('Website')}: <strong>{listing.website}</strong></p>
+            <ul class="plain">
+              <li>{$t('V7 reads up to 20 public pages of this website so your assistant can answer from them.')}</li>
+              <li>{$t('It never signs in, fills in forms or changes anything, and it follows your website’s robots rules.')}</li>
+              <li>{$t('Your saved products, prices and answers always take priority over website text.')}</li>
+              <li>{$t('You can withdraw permission at any time. V7 then stops reading and removes the stored pages.')}</li>
+            </ul>
+            <label class="check"><input type="checkbox" bind:checked={automatic} />{$t('Read my website again once a day')}</label>
+          {:else}
+            <p class="issue">{$t('Save your public https:// website address in Business profile first.')}</p>
+          {/if}
+        {:else if adding === 'woocommerce'}
           <label>{$t('Store address')}<input type="url" required placeholder="https://your-shop.com" bind:value={form.store_url} /></label>
           <label>{$t('Consumer key')}<input required autocomplete="off" bind:value={form.consumer_key} /></label>
           <label>{$t('Consumer secret')}<input type="password" required autocomplete="off" bind:value={form.consumer_secret} /></label>
@@ -256,13 +293,14 @@
           {/if}
           <label class="check"><input type="checkbox" bind:checked={completeList} />{$t('This file is the complete list — suggest removing products from this source that are no longer in it')}</label>
         {/if}
-        {#if adding !== 'upload'}
+        {#if adding !== 'upload' && adding !== 'website'}
           <label class="check"><input type="checkbox" bind:checked={automatic} />{$t('Check for updates automatically')}</label>
           <label class="check"><input type="checkbox" bind:checked={autoApply} />{$t('Apply routine updates without asking me (the first import is always shown to you first)')}</label>
         {/if}
-        <label class="check consent"><input type="checkbox" bind:checked={authorised} required />{listing.authorisation_statement}</label>
+        <label class="check consent"><input type="checkbox" bind:checked={authorised} required />{adding === 'website' ? listing.website_statement : listing.authorisation_statement}</label>
+        <p class="hint">{$t('Your answer is saved with your account, the date and the terms version')} ({listing.terms_version}).</p>
         <div class="actions">
-          <button class="primary" disabled={busy || !authorised || (adding === 'upload' && !fileText)}>{$t(busy ? 'Working…' : adding === 'upload' ? 'Preview import' : 'Connect')}</button>
+          <button class="primary" disabled={busy || !authorised || (adding === 'upload' && !fileText) || (adding === 'website' && !listing.website)}>{$t(busy ? 'Working…' : adding === 'upload' ? 'Preview import' : adding === 'website' ? 'Give permission and read my website' : 'Connect')}</button>
           <button type="button" disabled={busy} on:click={() => (adding = '')}>{$t('Cancel')}</button>
         </div>
       </form>
@@ -276,6 +314,13 @@
             <span class="actions"><button type="button" class="quiet" disabled={busy} on:click={() => openReview(item.id)}>{$t('View')}</button>{#if manage && item.can_undo}<button type="button" class="quiet" disabled={busy} on:click={() => undo(item.id)}>{$t('Undo')}</button>{/if}</span></li>
         {/each}</ul>
       </div>
+    {/if}
+
+    {#if listing.permissions.length}
+      <details class="permissions"><summary>{$t('Permission records')}</summary>
+        <p class="hint">{$t('Every permission given for this business, including ones that have ended. These records are kept and cannot be edited.')}</p>
+        <ul>{#each listing.permissions as row}<li><span>{permissionText(row)}</span><span class="hint">{row.terms_version}</span></li>{/each}</ul>
+      </details>
     {/if}
 
     {#if isPlatform}
@@ -318,5 +363,8 @@
   input:not([type=checkbox]),select{box-sizing:border-box;inline-size:100%;min-block-size:44px;padding:10px;border:1px solid var(--v7-control-line,var(--v7-line));border-radius:var(--v7-radius-control);background:var(--v7-surface);color:var(--v7-ink);font:inherit}
   fieldset{border:1px solid var(--v7-line);border-radius:var(--v7-radius-control);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;min-inline-size:0}
   ul{list-style:none;margin:0;padding:0}li{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;padding:8px 0;border-block-end:1px solid var(--v7-line);font-size:var(--v7-text-sm)}
+  .permissions{background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);padding:12px 20px}
+  .permissions summary{min-block-size:44px;align-content:center;font-weight:600;cursor:pointer}.permissions li{overflow-wrap:anywhere}
+  .site{margin:0;overflow-wrap:anywhere}.plain{display:grid;gap:6px;padding-inline-start:20px;list-style:disc;color:var(--v7-ink-soft,var(--v7-muted));font-size:var(--v7-text-sm);line-height:1.5}.plain li{display:list-item;border:0;padding:0}
   pre{overflow:auto;font-size:var(--v7-text-xs);background:var(--v7-soft);padding:12px;border-radius:var(--v7-radius-control)}
 </style>

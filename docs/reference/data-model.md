@@ -49,7 +49,7 @@ Created on demand by the owning service module (search for the table name).
 | Business applications | `business_applications`, `business_application_events`, `business_application_notifications`, `business_application_permits`, `business_application_settings` |
 | Referrals | `referral_program`, `referral_codes`, `referral_claims`, `referral_rewards` |
 | Sales and operations | `recorded_sales`, `sales_action_requests`, `sales_action_attempts`, `business_operations`, `inventory_history` |
-| Data sources and sync | `sync_sources`, `sync_jobs`, `sync_items`, `sync_changesets`, `sync_work_tenants` |
+| Data sources and sync | `sync_sources`, `sync_jobs`, `sync_items`, `sync_changesets`, `sync_work_tenants`, `sync_consents` (permission records; never deleted by the application) |
 | Conversation and integrations | `conversation_memory`, `webhook_inbox`, `mcp_grants`, `mcp_rate` |
 
 ### `analytics.db`

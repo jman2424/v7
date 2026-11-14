@@ -77,6 +77,48 @@ partial fetch never removes anything.
 - Limits: 2,000 jobs per source per hour, 10,000 products per source, ten sources per
   business, polling every 15 minutes to 24 hours.
 
+## Permission records
+
+Every permission is one row in `sync_consents` (SQLite in `security.db`; PostgreSQL in
+`supabase/migrations/20261113090000_business_sync_consent.sql`, forced tenant RLS, no
+DELETE grant). A row holds the exact statement ticked, the account and role, the time,
+the source kind and domain, what it covers and `TERMS_VERSION`. Rows are written by
+`sync_store.create_source` and `update_source` in the same transaction as the source:
+
+| Event | Record |
+|---|---|
+| Connect, or first upload | New row. |
+| Reconnect, or another upload to the same source | Previous row ended as `renewed`; new row. |
+| Disconnect | Row ended as `withdrawn`, with who did it. |
+
+Rows are never edited otherwise and never deleted by the application. The console
+shows them under Data Sources & Sync → Permission records; `GET /admin/api/data-sources`
+returns them as `permissions`.
+
+## The business's own website
+
+Source kind `website`. Its address is always the `website` in the business profile;
+no other address can be read.
+
+- **Permission first.** `POST /admin/api/data-sources` with `kind: "website"` and
+  `authorised: true` records `data_sources.WEBSITE_STATEMENT`. Without an active source
+  for the current host, `POST /admin/api/website-knowledge/import` answers 409
+  `website_permission_required` and nothing is fetched.
+- **Reading.** `website_knowledge.import_website`: HTTPS only, public address pinned,
+  no redirects, same host, at most 20 HTML pages, size and time limits, identified as
+  `V7-Business-Knowledge-Importer/1.0`. `robots.txt` is honoured by default
+  (`respect_robots=True`); if it cannot be read (other than a 404) nothing is fetched.
+- **Cleaning.** `data_sources.clean_website` drops lines that read as instructions to
+  an AI system. The source then shows `some_lines_skipped`.
+- **When.** On permission, on "Read again now", and once a day while automatic reading
+  is on (interval fixed at 1440 minutes). A failed read is retried and never replaces
+  or deletes the stored pages.
+- **One address.** If the profile website changes, the job stops with
+  `website_changed` and the handler already ignores pages from the old address. The new
+  address needs its own permission.
+- **Withdrawal.** Disconnecting ends the permission record, cancels queued jobs and
+  writes an empty `website_knowledge.json`.
+
 ## History and undo
 
 Each applied change set keeps the documents as they were. Undo restores them only if
@@ -88,7 +130,7 @@ Undo copies are kept for the ten most recent applied changes per business.
 
 - Connecting requires a signed-in owner (or platform operator), CSRF token, an active
   business and a ticked authorisation. The statement, account, time, domain and
-  `TERMS_VERSION` are stored on the source.
+  `TERMS_VERSION` are stored on the source and as a permanent permission record (below).
 - Credentials are Fernet-encrypted with a key derived from `V7_SYNC_ENCRYPTION_KEY`
   (or `SECRET_KEY`), bound to the tenant, and never returned by any endpoint. The
   webhook signing secret is shown once, at connection.
@@ -129,7 +171,11 @@ Undo copies are kept for the ten most recent applied changes per business.
 - The older "sheet" catalogue layout (`product_catalog`) cannot be synchronised.
 - Product descriptions are not stored: the catalogue schema has no description field.
 - Excel files must be saved as CSV. Uploads are limited to about 900 KB.
-- There is no automatic monitoring of public web pages. The existing website-knowledge
-  import (Channels → Website) remains a manual, owner-triggered refresh.
+- Website reading covers page text for answers only. It does not turn web pages into
+  products or prices, reads at most 20 pages, and checks at most once a day.
+- Control of a website is the owner's recorded declaration. There is no technical
+  proof of control (such as a code placed on the site).
+- Withdrawing website permission empties `website_knowledge.json`, but earlier dated
+  snapshots of that document remain until the workspace is closed.
 - WooCommerce does not report a currency per product, so the currency check only works
   for Shopify and custom feeds.

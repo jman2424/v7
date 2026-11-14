@@ -6,16 +6,25 @@ import time
 
 from connectors import store_sync
 from service import business_imports, business_sync as sync, sync_store as store
-from service.sync_http import SyncHttpError
+from service.sync_http import SyncHttpError, public_host
+from service.website_knowledge import WebsiteImportError, import_website
 
 AUTHORISATION_STATEMENT = (
     'I confirm that this business owns or is authorised to share this information, that Vertex Seven may '
     'read it from the source named here to set up and keep its AI assistant up to date, and that it '
     'contains no personal data about customers.'
 )
+WEBSITE_STATEMENT = (
+    'I confirm that this business controls the website named here and has the right to reuse what is '
+    'published on it, and I give Vertex Seven permission to read its public pages, when I ask and on the '
+    'schedule shown, to keep this business\'s AI assistant up to date. I understand that only public pages '
+    'are read, that the website\'s robots rules are followed, that nothing is changed on the website, and '
+    'that I can withdraw this permission at any time by disconnecting.'
+)
 SOURCE_TYPES = ('file', 'website', 'api', 'document', 'database', 'other')
 TOOLS = ('none', 'claude', 'codex', 'other')
 _SYNCING = ('woocommerce', 'shopify', 'custom_feed')
+_SCHEDULED = _SYNCING + ('website',)
 
 
 class SourceError(Exception):
@@ -24,13 +33,14 @@ class SourceError(Exception):
         super().__init__(code)
 
 
-def authorisation(user, data, *, domains=()):
-    """The owner's explicit permission, kept with the contract version it was given under."""
+def authorisation(user, data, *, domains=(), statement=AUTHORISATION_STATEMENT,
+                  covers=('products', 'prices', 'availability', 'categories')):
+    """The owner's explicit permission, kept with the exact wording and contract version it was given under."""
     if not isinstance(data, dict) or data.get('authorised') is not True:
         raise SourceError('authorisation_required')
-    return {'statement': AUTHORISATION_STATEMENT, 'terms_version': sync.TERMS_VERSION, 'account': str(user['id']),
+    return {'statement': statement, 'terms_version': sync.TERMS_VERSION, 'account': str(user['id']),
             'role': str(user['roles'][0]), 'confirmed_at': time.time(), 'domains': sorted(set(domains)),
-            'data': ['products', 'prices', 'availability', 'categories']}
+            'data': list(covers)}
 
 
 def _settings(data, current=None):
@@ -59,7 +69,7 @@ def public(source, *, now=None):
         'last_attempt': source['last_attempt'] or None, 'problem': source['last_error'], 'stale': stale,
         'ownership': source['config'].get('ownership', sync.DEFAULT_OWNERSHIP),
         'source_type': source['config'].get('source_type', ''), 'source_ref': source['config'].get('source_ref', ''),
-        'tool': source['config'].get('tool', ''), 'syncs': source['kind'] in _SYNCING,
+        'tool': source['config'].get('tool', ''), 'syncs': source['kind'] in _SCHEDULED,
         'authorised_at': source['authorisation'].get('confirmed_at'),
         'terms_version': source['authorisation'].get('terms_version'), 'version': source['version'],
     }
@@ -91,10 +101,84 @@ def connect(tenant, user, data):
     return source, credentials
 
 
+def website_address(storage, tenant):
+    """The business's own website from its profile, and its host; ('', '') when there is none."""
+    profile = sync._read(storage, tenant, 'store_info.json')
+    website = profile.get('website') if isinstance(profile, dict) else None
+    try:
+        return (website, public_host(website)) if website else ('', '')
+    except SyncHttpError:
+        return '', ''
+
+
+def website_source(tenant, host):
+    """The active permission to read this website, if the owner has given one."""
+    if not host:
+        return None
+    return next((row for row in store.list_sources(tenant) if row['kind'] == 'website'
+                 and row['status'] != 'disconnected' and row['config'].get('host') == host), None)
+
+
+def connect_website(storage, tenant, user, data):
+    """Record the owner's permission to read the website named in the business profile."""
+    website, host = website_address(storage, tenant)
+    if not host:
+        raise SourceError('website_missing')
+    if website_source(tenant, host):
+        raise SourceError('website_already_connected')
+    permission = authorisation(user, data, domains=[host], statement=WEBSITE_STATEMENT, covers=['public website pages'])
+    for row in store.list_sources(tenant):
+        if row['kind'] == 'website' and row['status'] != 'disconnected':
+            disconnect(tenant, row['id'], actor=str(user['id']), storage=storage)  # Permission was for the old address.
+    try:
+        return store.create_source(tenant, 'website', host[:80], {'host': host, 'url': website}, {}, permission,
+                                   auto_sync=data.get('auto_sync') is not False, interval_minutes=1440)
+    except ValueError as exc:
+        raise SourceError(str(exc)) from None
+
+
+def clean_website(knowledge):
+    """Drop lines written as instructions to an AI system; return (knowledge, lines dropped)."""
+    dropped, pages = 0, []
+    for page in knowledge['pages']:
+        lines = page['text'].splitlines()
+        kept = [line for line in lines if not sync.suspicious(line)]
+        dropped += len(lines) - len(kept)
+        if len('\n'.join(kept)) >= 40:
+            pages.append({**page, 'title': '' if sync.suspicious(page['title']) else page['title'], 'text': '\n'.join(kept)})
+    if not pages:
+        raise WebsiteImportError('No readable public pages were found. Check the website URL and try again.')
+    return {**knowledge, 'pages': pages}, dropped
+
+
+def _refresh_website(container, tenant, source, now):
+    storage = container.storage
+    website, host = website_address(storage, tenant)
+    if host != source['config'].get('host'):
+        raise sync.SyncError('website_changed')  # Permission covers one address only.
+    try:
+        knowledge, dropped = clean_website(import_website(website))
+    except WebsiteImportError:
+        # Nothing readable right now. What was read before is kept.
+        raise SyncHttpError('website_unreadable', retry=True) from None
+    with storage.write_lock(tenant):
+        if website_address(storage, tenant)[0] != website:
+            raise sync.SyncError('website_changed')
+        storage._write_json(tenant, 'website_knowledge.json', knowledge)
+    container.invalidate_tenant(tenant)
+    sync._audit(tenant, 'website.knowledge.read', source['id'], 'sync:website',
+                {'pages': len(knowledge['pages']), 'lines_skipped': dropped})
+    store.update_source(tenant, source['id'], status='connected', last_success=now, last_attempt=now,
+                        last_error='some_lines_skipped' if dropped else '')
+
+
 def change_settings(tenant, source_id, data):
     source = _require(tenant, source_id)
     if not isinstance(data, dict) or type(data.get('version')) is not int:
         raise SourceError('invalid_sync_settings')
+    if source['kind'] == 'website':  # Read at most once a day; there is nothing to apply or to own.
+        data = {'version': data['version'], 'auto_sync': data.get('auto_sync', source['auto_sync']),
+                'auto_apply': False, 'interval_minutes': 1440}
     settings, ownership = _settings(data, source)
     changes = {**settings, 'config': {**source['config'], 'ownership': ownership}}
     if isinstance(data.get('label'), str) and data['label'].strip():
@@ -123,12 +207,21 @@ def reconnect(tenant, user, source_id, data):
                                authorisation=authorisation(user, data, domains=[config['host']])), credentials
 
 
-def disconnect(tenant, source_id):
-    """Stop all access and destroy the stored credentials. Imported information stays in V7."""
-    _require(tenant, source_id)
+def disconnect(tenant, source_id, *, actor='', storage=None):
+    """Withdraw permission: stop all access and destroy the stored credentials.
+
+    Products already imported stay in V7. The stored copy of website pages is removed.
+    """
+    source = _require(tenant, source_id)
     store.cancel_jobs(tenant, source_id)
-    return store.update_source(tenant, source_id, secret='', status='disconnected', auto_sync=False,
-                               auto_apply=False, next_poll=0, last_error='')
+    result = store.update_source(tenant, source_id, secret='', status='disconnected', auto_sync=False,
+                                 auto_apply=False, next_poll=0, last_error='', actor=actor)
+    if source['kind'] == 'website' and storage is not None:
+        with storage.write_lock(tenant):
+            knowledge = sync._read(storage, tenant, 'website_knowledge.json')
+            if isinstance(knowledge, dict) and knowledge.get('pages'):
+                storage._write_json(tenant, 'website_knowledge.json', {})
+    return result
 
 
 def _require(tenant, source_id):
@@ -250,7 +343,7 @@ def worker_enabled():
 
 def request_sync(tenant, source_id, *, reason='manual'):
     source = _require(tenant, source_id)
-    if source['kind'] not in _SYNCING or source['status'] == 'disconnected':
+    if source['kind'] not in _SCHEDULED or source['status'] == 'disconnected':
         raise SourceError('unsupported_source')
     try:
         job, _created = store.enqueue(tenant, source_id, 'full', f'{reason}:{int(time.time() // 60)}')
@@ -263,7 +356,7 @@ def schedule(tenant):
     """Queue the periodic check for every source that is due."""
     now, queued = time.time(), 0
     for source in store.list_sources(tenant):
-        if (source['kind'] in _SYNCING and source['auto_sync'] and source['status'] in {'connected', 'attention'}
+        if (source['kind'] in _SCHEDULED and source['auto_sync'] and source['status'] in {'connected', 'attention'}
                 and 0 < source['next_poll'] <= now):
             store.update_source(tenant, source['id'], next_poll=now + source['interval_minutes'] * 60)
             try:
@@ -282,6 +375,10 @@ def run_job(container, tenant, job):
         return
     now = time.time()
     try:
+        if source['kind'] == 'website':
+            _refresh_website(container, tenant, source, now)
+            store.finish(tenant, job)
+            return
         credentials = store.unseal(tenant, source['secret'])
         storage = container.storage
         catalog = sync._read(storage, tenant, 'catalog.json')

@@ -74,6 +74,7 @@ separators all work.
 |---|---|---|
 | WooCommerce | **WooCommerce**: store address and a *read-only* REST API key. | Checked on a schedule; optional webhooks for instant updates. |
 | Shopify | **Shopify**: shop domain and an app with `read_products` only. | Same. |
+| The business's own website | **Your website**: the owner ticks a permission statement; V7 reads up to 20 public pages for answers (not products or prices). | Read on permission, on request and once a day. Follows robots rules. Withdraw at any time. |
 | Another site or system with a developer | **Another website or system**: a URL returning the product list as JSON. | Checked on a schedule; optional signed push. |
 | Anything else | **Upload a file**, then **Import updated file** on that source whenever it changes. | Manual. Do not promise automatic updates. |
 

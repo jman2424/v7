@@ -298,8 +298,8 @@ def _research_robots(url):
 
 
 def import_website(url: str, *, max_pages: int = MAX_PAGES, max_total_chars: int = MAX_TOTAL_CHARS,
-                   max_seconds: int = MAX_IMPORT_SECONDS, respect_robots: bool = False) -> dict[str, Any]:
-    """Fetch up to twenty public same-host pages within a bounded crawl budget."""
+                   max_seconds: int = MAX_IMPORT_SECONDS, respect_robots: bool = True) -> dict[str, Any]:
+    """Fetch up to twenty public same-host pages the site's robots rules allow, within a bounded budget."""
     if (type(max_pages) is not int or not 1 <= max_pages <= MAX_PAGES
             or type(max_total_chars) is not int or not 1000 <= max_total_chars <= MAX_TOTAL_CHARS
             or type(max_seconds) is not int or not 1 <= max_seconds <= MAX_IMPORT_SECONDS):

@@ -8,7 +8,7 @@
   export let apiPrefix = '';
   export let canEdit = false;
 
-  type Summary = { source_url: string; fetched_at: string; page_count: number; source_current: boolean };
+  type Summary = { source_url: string; fetched_at: string; page_count: number; source_current: boolean; permission?: boolean };
   let summary: Summary | null = null;
   let busy = false;
   let status = '';
@@ -70,8 +70,8 @@
         method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf }
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Website import could not complete.');
-      summary = result as Summary;
+      if (!response.ok) throw new Error(result.error === 'website_permission_required' ? 'Permission is needed before your website can be read. Give it under My Business → Data Sources & Sync.' : result.error || 'Website import could not complete.');
+      summary = { ...(result as Summary), permission: true };
       status = `Imported ${summary.page_count} public ${summary.page_count === 1 ? 'page' : 'pages'}. New test conversations can use this information.`;
     } catch (error) {
       failed = true;
@@ -92,9 +92,10 @@
     {:else}<p class="source">No website pages imported yet.</p>{/if}
   </div>
   <div class="controls">
-    <button type="button" disabled={!canEdit || busy || !profileWebsite} on:click={importSite}>{busy ? 'Importing…' : summary?.page_count ? 'Refresh website pages' : 'Import website'}</button>
+    <button type="button" disabled={!canEdit || busy || !profileWebsite || summary?.permission === false} on:click={importSite}>{busy ? 'Importing…' : summary?.page_count ? 'Refresh website pages' : 'Import website'}</button>
     {#if !canEdit}<p>You have viewing access. Ask your owner to update website knowledge.</p>{/if}
-    {#if !profileWebsite}<p>Save a public HTTPS website URL in Business profile first.</p>{/if}
+    {#if !profileWebsite}<p>Save a public HTTPS website URL in Business profile first.</p>
+    {:else if summary?.permission === false}<p>Your website is only read with the owner’s recorded permission. Give it under My Business → Data Sources &amp; Sync → Your website.</p>{/if}
     {#if status}<p class:error={failed} role="status">{status}</p>{/if}
   </div>
 </section>

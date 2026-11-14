@@ -88,6 +88,11 @@ def listing():
         reviews=[row for row in history if row['state'] == 'pending'],
         history=[row for row in history if row['state'] in {'applied', 'rejected', 'rolled_back'}][:15],
         authorisation_statement=sources.AUTHORISATION_STATEMENT, terms_version=sync.TERMS_VERSION,
+        website_statement=sources.WEBSITE_STATEMENT,
+        website=sources.website_address(get_container().storage, tenant)[1],
+        permissions=[{key: row[key] for key in ('kind', 'domain', 'statement', 'terms_version', 'account',
+                                                'granted', 'ended', 'end_reason', 'ended_by')}
+                     for row in store.list_consents(tenant, limit=50)],
         can_manage=bool(is_platform_operator() or 'business_owner' in user_roles()),
         automatic_updates_running=sources.worker_enabled())
     response.headers['Cache-Control'] = 'no-store'
@@ -96,16 +101,20 @@ def listing():
 
 @bp.post(_API)
 def connect():
-    tenant, container = _tenant(), get_container()
+    tenant, container, body = _tenant(), get_container(), _body()
     try:
-        source, credentials = sources.connect(tenant, management_user(), _body())
+        if body.get('kind') == 'website':
+            source, credentials = sources.connect_website(container.storage, tenant, management_user(), body), {}
+        else:
+            source, credentials = sources.connect(tenant, management_user(), body)
         job = sources.request_sync(tenant, source['id'], reason='connect')
     except sources.SourceError as exc:
         return _fail(exc)
     _start(container, tenant, job)
     source = store.get_source(tenant, source['id'])
-    response = jsonify(source=sources.public(source),
-                       instant_updates=sources.webhook_setup(container.settings.BASE_URL, tenant, source, credentials))
+    instant = None if source['kind'] == 'website' else sources.webhook_setup(
+        container.settings.BASE_URL, tenant, source, credentials)
+    response = jsonify(source=sources.public(source), instant_updates=instant)
     response.headers['Cache-Control'] = 'no-store'
     return response, 201
 
@@ -146,7 +155,8 @@ def reconnect(source_id):
 @bp.post(_API + '/<source_id>/disconnect')
 def disconnect(source_id):
     try:
-        sources.disconnect(_tenant(), source_id)
+        sources.disconnect(_tenant(), source_id, actor=str(management_user()['id']), storage=get_container().storage)
+        get_container().invalidate_tenant(_tenant())
     except sources.SourceError as exc:
         return _fail(exc)
     return jsonify(ok=True)
@@ -231,7 +241,7 @@ def source_notification(tenant, source_id):
         source = store.get_source(tenant, source_id)
     except ValueError:
         abort(404)
-    if source is None or source['status'] == 'disconnected' or source['kind'] == 'upload':
+    if source is None or source['status'] == 'disconnected' or source['kind'] in {'upload', 'website'}:
         abort(404)
     raw = request.get_data()
     try:
