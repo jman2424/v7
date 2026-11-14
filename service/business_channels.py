@@ -203,6 +203,7 @@ def readiness(container, tenant):
                                    else os.getenv('V7_PHONE_AUTH_TOKEN') and os.getenv('V7_PHONE_ACCOUNT_SID')))
         state[channel] = {'granted': allowed[channel], 'configured': ready, 'recipients': recipients,
                           'enabled': current[channel]['enabled'], 'mode': current[channel]['mode'],
+                          'in_plan': policy[channel]['reason'] != 'plan_not_allowed',
                           'provider_cleanup_available': channel == 'email' and any(
                               recipient in recipients for recipient in inbox_bindings().values())}
         if channel == 'email':

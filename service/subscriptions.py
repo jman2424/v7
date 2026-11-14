@@ -697,7 +697,8 @@ def whatsapp_enabled(tenant):
     if state:
         with connection(tenant) as db:
             base = db.execute("SELECT status,next_due FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
-        return bool(state['active_plan'] and not state['whatsapp_paused'] and base and base['status'] in {'active','trialing'} and (base['next_due'] or 0)>time.time())
+        return bool(state['active_plan'] and 'whatsapp' in get_plan(state['active_plan'])['channels']
+                    and not state['whatsapp_paused'] and base and base['status'] in {'active','trialing'} and (base['next_due'] or 0)>time.time())
     with connection(tenant) as db:
         row = db.execute("SELECT paused,status,next_due FROM billing_contracts WHERE tenant=? AND kind='whatsapp'",(tenant,)).fetchone()
     # Enforce purchased access when a billing contract exists. Preserve legacy integrations until migrated.

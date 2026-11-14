@@ -130,7 +130,9 @@ def test_malformed_global_policy_disables_operations_not_core_knowledge(configur
 
 def test_no_extra_billing_read_when_all_current_plans_remain_allowed(configured,monkeypatch):
     monkeypatch.setattr('service.subscriptions.configured_plan',Mock(side_effect=AssertionError('Unnecessary billing read')))
-    assert all(row['allowed'] for row in modules.decisions(configured.storage,'EXAMPLE',modules.REGISTRY).values())
+    # Only the plan-limited customer channels (email, phone) need the plan.
+    names=[name for name in modules.REGISTRY if name not in modules.PLAN_CHANNELS]
+    assert all(row['allowed'] for row in modules.decisions(configured.storage,'EXAMPLE',names).values())
 
 
 def test_revoked_quote_is_hidden_and_direct_execution_cannot_bypass_it(configured):

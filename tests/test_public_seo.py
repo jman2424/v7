@@ -158,7 +158,7 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         assert f"£{monthly_with_vat:.2f} / month including {VAT_PERCENT}% VAT, where applicable" in visible
         assert f"£{setup_with_vat:.2f} setup including {VAT_PERCENT}% VAT, where applicable" in visible
         assert f"{plan['website_conversations']:,} website conversations" not in visible
-        assert "No fixed message or conversation cap" in visible
+        assert "Messages are limited by your prepaid AI credit" in visible
         assert f"{plan['whatsapp_messages']:,} WhatsApp messages" not in visible
         assert "AI processing credit purchased separately" in visible
         assert f"one-time setup £{plan['setup_pence'] // 100} before VAT" in offer["description"]
@@ -243,7 +243,7 @@ def test_product_schema_describes_separate_credit_and_actual_tax_state(seo_clien
     description = product['description']
     assert 'AI processing credit is purchased separately' in description
     assert 'no AI credit is included in the subscription' in description
-    assert 'no fixed message or conversation cap' in description
+    assert 'messages are limited by that credit rather than a fixed cap' in description
     assert 'included usage allowances' not in description
     assert ('before VAT' in description) is registered
     assert ('No VAT is added' in description) is not registered
@@ -340,7 +340,7 @@ def test_dedicated_pricing_uses_current_catalogue_and_separates_usage(seo_client
             assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
             assert 'before VAT' not in visible
         assert 'AI processing credit purchased separately' in visible
-        assert 'No fixed message or conversation cap' in visible
+        assert 'Messages are limited by your prepaid AI credit' in visible
         assert 'WhatsApp phone numbers are not included' in visible
         if path == '/pricing':
             assert 'confirm in Stripe' in visible

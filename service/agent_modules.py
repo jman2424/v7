@@ -12,9 +12,11 @@ import os
 import sqlite3
 
 from service.business_management import revision
+from service.plan_catalog import includes_channel
 
 FILENAME = 'agent_modules.json'
 PLANS = frozenset({'starter', 'business', 'scale'})
+PLAN_CHANNELS = frozenset({'email', 'phone'})
 
 
 @dataclass(frozen=True)
@@ -94,8 +96,10 @@ def decisions(storage, tenant, names):
         raw = document(storage, tenant)
         config = validate(raw) if raw is not None else None
         disabled, plans = platform_policy()
-        restricted = any(plans.get(name, PLANS) != PLANS for name in names)
-        plan = None
+        # The plan catalogue decides which customer channels a tier includes;
+        # deployment policy may restrict further but never widens it.
+        restricted = any(plans.get(name, PLANS) != PLANS or name in PLAN_CHANNELS for name in names)
+        plan, current = None, None
         if restricted:
             from service.subscriptions import configured_plan
             current = configured_plan(tenant)
@@ -105,6 +109,7 @@ def decisions(storage, tenant, names):
             row = config['modules'][name] if config else {'granted': REGISTRY[name].legacy, 'enabled': REGISTRY[name].legacy}
             reason = ('platform_disabled' if name in disabled else
                       'plan_not_allowed' if plans.get(name, PLANS) != PLANS and plan not in plans[name] else
+                      'plan_not_allowed' if name in PLAN_CHANNELS and not includes_channel(current, name) else
                       'not_granted' if not row['granted'] else
                       'owner_disabled' if not row['enabled'] else '')
             result[name] = {'allowed': not reason, 'reason': reason, 'managed': config is not None}

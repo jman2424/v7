@@ -9,7 +9,7 @@ def public_pricing() -> Solution:
         'description': 'Compare V7 Agents Starter, Business and Scale plans, one-time setup fees, separate AI credit and WhatsApp costs. Choose a website chatbot plan for your business.',
         'label': 'Pricing',
         'h1': 'V7 Agents pricing, with every cost explained',
-        'intro': 'Compare the platform subscription, one-time setup and separate AI processing costs before choosing a plan. Every plan includes website and WhatsApp agent software; the differences are locations, team size and service level.',
+        'intro': 'Compare the platform subscription, one-time setup and separate AI processing costs before choosing a plan. Every plan includes the website agent. Business adds the email assistant and Scale adds WhatsApp and calls; the plans also differ in locations, team size and service level.',
         'audience': 'GBP pricing for businesses choosing an AI sales assistant. No AI credit is included in the subscription.',
         'sections': [
             {'heading': 'Which plan should you choose?', 'paragraphs': [

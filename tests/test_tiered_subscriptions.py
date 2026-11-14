@@ -59,12 +59,18 @@ def test_provider_metadata_cannot_upgrade_plan_or_activate_without_confirmation(
     metadata['plan_id']='starter'
     subscriptions.sync_subscription('sub_tier')
     assert subscriptions.plan_state('EXAMPLE')['active_plan']=='starter'
+    # WhatsApp & Calls is a Scale channel; a lower tier cannot switch it on.
+    assert not subscriptions.whatsapp_enabled('EXAMPLE')
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("UPDATE billing_plan_state SET active_plan='scale' WHERE tenant='EXAMPLE'")
     assert subscriptions.whatsapp_enabled('EXAMPLE')
     stripe.reset_mock()
     assert client.post('/billing/whatsapp',json={'enabled':False}).status_code==200
     assert not subscriptions.whatsapp_enabled('EXAMPLE')
     assert client.post('/billing/whatsapp',json={'enabled':True}).status_code==200
     stripe.assert_not_called()
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("UPDATE billing_plan_state SET active_plan='starter' WHERE tenant='EXAMPLE'")
     assert client.post('/billing/checkout',json={'kind':'whatsapp'}).json['error']=='whatsapp_included_in_subscription'
     assert client.post('/billing/api-charge',json={'month':'2025-01','amount_pence':100}).status_code==403
     identity(client)

@@ -1267,6 +1267,8 @@ def api_business_channels_put():
         value = channels.validate(data['settings'])
         ready = channels.readiness(get_container(), tenant)
         for channel, config in value.items():
+            if config['enabled'] and not ready['channels'][channel]['in_plan']:
+                return jsonify(error='channel_not_in_plan'), 403
             if config['enabled'] and not ready['grants'][channel]:
                 return jsonify(error='channel_not_granted'), 403
             if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):

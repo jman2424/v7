@@ -187,7 +187,10 @@ def setup_status(container, tenant: str, *, include_costs: bool = False) -> dict
                          "action": "Configure an enabled provider and assign its recipient to this company."})
     if not active:
         blockers.append({"code": "tenant_inactive", "action": "Complete company activation."})
-    if not subscribed:
+    from service.plan_catalog import includes_channel
+    if billing["plan"] and not includes_channel(billing["plan"], "whatsapp"):
+        blockers.append({"code": "whatsapp_not_in_plan", "action": "WhatsApp and calls are part of the Scale plan."})
+    elif not subscribed:
         blockers.append({"code": "whatsapp_subscription_inactive", "action": "Activate WhatsApp access for this company."})
     if quota_paused:
         blockers.append({"code": "whatsapp_allowance_exhausted",

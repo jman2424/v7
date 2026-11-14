@@ -1,4 +1,4 @@
-"""Server-owned monthly V7 prices and included allowances (GBP before VAT)."""
+"""Server-owned monthly V7 prices, included channels and allowances (GBP before VAT)."""
 
 VAT_PERCENT = 20
 
@@ -16,6 +16,7 @@ PLANS = {
         'website_conversations': 300, 'whatsapp_messages': 500,
         'ai_budget_pence': 0, 'locations': 1, 'staff': 2, 'staff_accounts': 2,
         'analytics': 'Basic', 'api_access': 'Basic', 'onboarding': 'Basic',
+        'channels': ('web',), 'channel_summary': 'Website chat',
     },
     'business': {
         'id': 'business', 'name': 'Business', 'audience': 'Growing businesses',
@@ -24,6 +25,7 @@ PLANS = {
         'website_conversations': 1000, 'whatsapp_messages': 2000,
         'ai_budget_pence': 0, 'locations': 5, 'staff': 5, 'staff_accounts': 5,
         'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Assisted',
+        'channels': ('web', 'email'), 'channel_summary': 'Website chat and email',
     },
     'scale': {
         'id': 'scale', 'name': 'Scale', 'audience': 'Busy businesses',
@@ -32,6 +34,8 @@ PLANS = {
         'website_conversations': 3000, 'whatsapp_messages': 5000,
         'ai_budget_pence': 0, 'locations': 15, 'staff': 15, 'staff_accounts': 15,
         'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Priority',
+        'channels': ('web', 'email', 'whatsapp', 'phone'),
+        'channel_summary': 'Website chat, email, WhatsApp and calls',
     },
 }
 
@@ -41,6 +45,13 @@ def get_plan(plan_id):
         raise ValueError('invalid_subscription_plan')
     return {**PLANS[plan_id], 'website_conversations_enforced': False,
             'whatsapp_messages_enforced': False}
+
+
+def includes_channel(plan, channel):
+    """A business without a tiered plan keeps its existing channel access."""
+    if not isinstance(plan, dict):
+        return True
+    return channel in plan.get('channels', PLANS.get(plan.get('id'), {}).get('channels', ()))
 
 
 def public_plans():

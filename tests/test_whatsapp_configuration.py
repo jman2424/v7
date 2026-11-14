@@ -187,7 +187,7 @@ def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch
     from service import subscriptions
     app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
     with app.app_context():
-        subscriptions.select_plan("ALPHA", "starter")
+        subscriptions.select_plan("ALPHA", "scale")
     monkeypatch.setattr("service.subscriptions.whatsapp_enabled", lambda tenant: True)
     monkeypatch.setattr("service.plan_usage.report", lambda tenant, include_costs=False: {
         "month": "2026-10", "whatsapp_messages": {"used": 500, "limit": 500, "paused": True}})
@@ -198,8 +198,8 @@ def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch
     assert data["voice"]["ready"] is False
     assert data["providers"]["meta"]["configured"] is True
     assert data["billing"]["kind"] == "tiered"
-    assert data["billing"]["plan"] == {"id": "starter", "name": "Starter", "monthly_pence": 9900,
-        "setup_pence": 14900, "whatsapp_messages": 500, "ai_budget_pence": 0}
+    assert data["billing"]["plan"] == {"id": "scale", "name": "Scale", "monthly_pence": 34900,
+        "setup_pence": 59900, "whatsapp_messages": 5000, "ai_budget_pence": 0}
     assert data["billing"]["allowance"] == {"month": "2026-10", "used": 500, "limit": 500, "paused": True}
     assert data["billing"]["notifications"] == "dashboard"
     assert {row["code"] for row in data["blockers"]} == {"whatsapp_allowance_exhausted"}
@@ -234,10 +234,10 @@ def test_money_based_setup_exposes_prepaid_credit_only_with_cost_permission(plat
     from service.plan_catalog import PLANS
     app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
     monkeypatch.setattr("service.subscriptions.whatsapp_enabled", lambda tenant: True)
-    monkeypatch.setitem(PLANS["starter"], "message_usage_model", "ai_cost")
-    monkeypatch.setitem(PLANS["starter"], "ai_credit_model", "prepaid")
+    monkeypatch.setitem(PLANS["scale"], "message_usage_model", "ai_cost")
+    monkeypatch.setitem(PLANS["scale"], "ai_credit_model", "prepaid")
     with app.app_context():
-        subscriptions.select_plan("ALPHA", "starter")
+        subscriptions.select_plan("ALPHA", "scale")
     requested_costs = []
 
     def usage(tenant, include_costs=False):

@@ -36,7 +36,7 @@ calculation. With the current unregistered configuration, no VAT is added and
 the displayed GBP price is the final price. If registration is enabled, the
 catalogue's VAT rate and inclusive totals are displayed; final checkout remains
 authoritative. Product and offer descriptions follow the same configuration.
-Both agent channels are included, with no fixed message or conversation cap. WhatsApp phone
+The website agent is in every plan; Business adds email and Scale adds WhatsApp and calls. Messages are limited by prepaid AI credit rather than a fixed cap. WhatsApp phone
 numbers, number rental and provider messaging charges are not included.
 AI credit is purchased separately, with no included monthly processing budget.
 Prepaid packs provide £5, £20 or £50 of usable credit for the same payment while

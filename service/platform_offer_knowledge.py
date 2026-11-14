@@ -127,10 +127,11 @@ def public_plan_context(tenant):
     return {
         'authority': 'Current platform billing catalogue; do not infer features from plan names.',
         'plans': [{'id': plan['id'], 'name': plan['name'],
+                   'channels': plan['channel_summary'],
                    **{key: plan[key] for key in ('locations', 'staff_accounts', 'analytics', 'api_access', 'onboarding')}}
                   for plan in public_plans()],
         'usage': 'AI processing credit is separately prepaid; none is included. There is no fixed message allowance. Usage depends on the selected model and tokens.',
-        'whatsapp': 'WhatsApp requires provider setup. Business phone numbers and Meta/provider messaging fees are separate costs.',
+        'whatsapp': 'WhatsApp and calls are included only in Scale; email starts at Business. WhatsApp requires provider setup. Business phone numbers and Meta/provider messaging fees are separate costs.',
         'implementation_support': setup_support(),
         'vat_percent': vat_percent(),
     }
@@ -177,7 +178,7 @@ def automatic_plan_answer(question, knowledge, history=None):
     named = [plan for plan in plans if re.search(r'\b'+re.escape(plan['name'])+r'\b', question, re.I)]
     selected = named or plans
     lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month plus £{plan['setup_pence']/100:.2f} one-time setup; "
-             f"{plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
+             f"{plan['channel_summary']}; {plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
              for plan in selected]
     from service.plan_catalog import vat_percent
     tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ''
