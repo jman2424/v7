@@ -14,7 +14,7 @@ STAFF_PERMISSIONS = {
     'analytics.read', 'conversations.read', 'customers.read', 'offerings.read', 'offerings.write',
     'offers.read', 'offers.write', 'users.read', 'roles.read', 'business_settings.read',
     'business_settings.write', 'integrations.read', 'health.read', 'errors.read',
-    'view_costs', 'view_subscriptions',
+    'view_costs', 'view_subscriptions', 'service.pause',
 }
 
 

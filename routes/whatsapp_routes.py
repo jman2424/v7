@@ -187,7 +187,8 @@ def _unavailable(c, event, source):
 def _process(c, event, source):
     from service.subscriptions import whatsapp_enabled
     from service.tenant_access import activation
-    if not activation(c.settings.BUSINESS_KEY)['active']:
+    from service.service_controls import blocked
+    if not activation(c.settings.BUSINESS_KEY)['active'] or blocked(c.settings.BUSINESS_KEY, 'whatsapp'):
         return _unavailable(c, event, source)
     if not whatsapp_enabled(c.settings.BUSINESS_KEY):
         return ''

@@ -142,8 +142,9 @@ def _phone_context():
     if not channels.PHONE.fullmatch(source):
         source = 'anonymous'
     from service.tenant_access import activation, unavailable_notice
-    if not activation(tenant)['active']:
-        # A verified call to an unpaid business hears how to reach it; no AI runs.
+    from service.service_controls import blocked
+    if not activation(tenant)['active'] or blocked(tenant, 'phone'):
+        # A verified call to an unpaid or paused business hears how to reach it; no AI runs.
         response = VoiceResponse()
         response.say(unavailable_notice(container.for_tenant(tenant).business_profile), language='en-GB')
         response.hangup()

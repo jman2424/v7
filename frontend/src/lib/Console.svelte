@@ -411,8 +411,10 @@
   $: canViewSubscriptions = Boolean(user?.permissions?.includes('view_subscriptions'));
   let accountViewCosts=false;
   let accountViewSubscriptions=false;
+  let accountPauseService=false;
   let selectedViewCosts=false;
   let selectedViewSubscriptions=false;
+  let selectedPauseService=false;
   let draftConfirmation:ConfirmDialog;
   let savedBusinessDrafts:Record<string,string>={};
   $: businessDrafts={catalog,faq:faqs,offers,delivery,profile,branches,'agent-settings':agentSettings};
@@ -725,7 +727,7 @@
     delivery = normalizeDelivery({}); profile = normalizeProfile({}); branches = [];
     agentSettings = normalizeAgentSettings({}); snippet = ''; originText = '';
     accounts = []; selectedAccountId = ''; selectedAccountPassword = ''; accountPassword = ''; accountEmail = '';
-    selectedAccountActive = true; selectedViewCosts = false; selectedViewSubscriptions = false;
+    selectedAccountActive = true; selectedViewCosts = false; selectedViewSubscriptions = false; selectedPauseService = false;
     insights = normalizeInsights({}); insightsAvailable=false;insightsBusy=false;activityStatus = '';
     formStatus = ''; createStatus = ''; accountStatus = ''; catalogStatus = ''; faqStatus = '';
     offersStatus = ''; deliveryStatus = ''; profileStatus = ''; branchesStatus = ''; agentStatus = '';
@@ -922,6 +924,7 @@
     selectedAccountActive = next?.active ?? true;
     selectedViewCosts = next?.permissions?.includes('view_costs') ?? false;
     selectedViewSubscriptions = next?.permissions?.includes('view_subscriptions') ?? false;
+    selectedPauseService = next?.permissions?.includes('service.pause') ?? false;
     selectedAccountPassword = '';
     return true;
     } catch {
@@ -940,6 +943,7 @@
     selectedAccountActive = selected?.active ?? true;
     selectedViewCosts = selected?.permissions?.includes('view_costs') ?? false;
     selectedViewSubscriptions = selected?.permissions?.includes('view_subscriptions') ?? false;
+    selectedPauseService = selected?.permissions?.includes('service.pause') ?? false;
     selectedAccountPassword = '';
   }
 
@@ -1275,7 +1279,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
       credentials: 'same-origin',
-      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], ...(accountRole === 'business_staff' ? {permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[])]} : {}) })
+      body: JSON.stringify({ email: accountEmail.trim(), password: accountPassword, roles: [accountRole], ...(accountRole === 'business_staff' ? {permissions: [...(accountViewCosts?['view_costs']:[]),...(accountViewSubscriptions?['view_subscriptions']:[]),...(accountPauseService?['service.pause']:[])]} : {}) })
     }, message => { accountStatus = message; accountError = true; });
     if (!result || !isCurrentWorkspace(result.activeLoad)) return;
     const { response, data } = result;
@@ -1289,6 +1293,7 @@
     accountPassword = '';
     accountViewCosts = false;
     accountViewSubscriptions = false;
+    accountPauseService = false;
     await loadAccounts(result.selectedTenant, result.activeLoad);
   }
 
@@ -1299,7 +1304,7 @@
     const selected = accounts.find(account => account.id === selectedAccountId);
     if (!selected) return;
     const payload: { active: boolean; password?: string; permissions?:string[] } = { active: selectedAccountActive };
-    if (selected.roles.includes('business_staff') && !selected.roles.includes('business_owner')) payload.permissions = [...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[])];
+    if (selected.roles.includes('business_staff') && !selected.roles.includes('business_owner')) payload.permissions = [...(selectedViewCosts?['view_costs']:[]),...(selectedViewSubscriptions?['view_subscriptions']:[]),...(selectedPauseService?['service.pause']:[])];
     if (selectedAccountPassword) payload.password = selectedAccountPassword;
     const result = await mutateWorkspace(`/admin/api/accounts/${encodeURIComponent(selectedAccountId)}?tenant=${encodeURIComponent(tenant)}`, {
       method: 'PUT',
@@ -1837,6 +1842,7 @@
       {#if section === 'applications' && isPlatform}{#await import('./BusinessApplications.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessApplications}<svelte:component this={loadedBusinessApplications.default} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/if}
       {#if section === 'agent'}<details class="advanced-controls"><summary>{$t('Business actions & permissions')}</summary>{#key tenant}{#await import('./AgentModules.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAgentModules}<svelte:component this={loadedAgentModules.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}</details>{/if}
       {#if section === 'agent' && mayReadModelParameters()}<details class="advanced-controls" bind:open={advancedAiOpen}><summary>Advanced AI response settings</summary>{#if advancedAiOpen}{#key tenant}{#await import('./AiParameters.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAiParameters}<svelte:component this={loadedAiParameters.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{#await import('./MemorySettings.svelte')}<p class="component-loading" role="status">Loading conversation controls…</p>{:then loadedMemory}<svelte:component this={loadedMemory.default} {tenant} {csrf} canEdit={Boolean(user.permissions?.includes(isPlatform?'models.write':'business_settings.write'))} apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">Conversation controls could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}</details>{/if}
+      {#if section === 'operations' && (user?.permissions?.includes('business_settings.read') || user?.permissions?.includes('service.pause'))}{#key tenant}{#await import('./ServiceControls.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedServiceControls}<svelte:component this={loadedServiceControls.default} {tenant} {csrf} platform={platformMode && isPlatform} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'operations' && platformMode && isPlatform}{#key tenant}{#await import('./ChannelRoutes.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedChannelRoutes}<svelte:component this={loadedChannelRoutes.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'operations'}{#key tenant}{#await import('./BusinessHub.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedBusinessHub}<svelte:component this={loadedBusinessHub.default} presentation={platformMode?'all':'activity'} {tenant} {csrf} isPlatform={platformMode&&isPlatform} canManage={Boolean(user?.permissions?.includes('business_settings.write'))} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'platform'}
@@ -1970,7 +1976,7 @@
               <label>Access level<input value="Business staff" readonly aria-readonly="true" /></label>
             {/if}
             <label>Temporary password<input bind:value={accountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" required /></label>
-            {#if accountRole==='business_staff'}<label class="account-active"><input type="checkbox" bind:checked={accountViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={accountViewSubscriptions}/><span>View subscriptions (read only)</span></label>{/if}
+            {#if accountRole==='business_staff'}<label class="account-active"><input type="checkbox" bind:checked={accountViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={accountViewSubscriptions}/><span>View subscriptions (read only)</span></label><label class="account-active"><input type="checkbox" bind:checked={accountPauseService}/><span>Pause and resume AI</span></label>{/if}
             <button class="primary" type="submit">Add access</button>
           </form>
           {#if accounts.some((account) => isPlatform || account.roles.includes('business_staff'))}
@@ -1978,7 +1984,7 @@
               <label>Account<select value={selectedAccountId} on:change={(event) => selectManagedAccount(event.currentTarget.value)}>{#each accounts.filter((account) => isPlatform || account.roles.includes('business_staff')) as account}<option value={account.id}>{account.email}</option>{/each}</select></label>
               <label>New password <span>Optional</span><input bind:value={selectedAccountPassword} type="password" minlength="12" maxlength="256" autocomplete="new-password" /></label>
               <label class="account-active"><input bind:checked={selectedAccountActive} type="checkbox" /><span>Account active</span></label>
-              {#if accounts.find(account=>account.id===selectedAccountId)?.roles.includes('business_staff')}<label class="account-active"><input type="checkbox" bind:checked={selectedViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={selectedViewSubscriptions}/><span>View subscriptions (read only)</span></label>{/if}
+              {#if accounts.find(account=>account.id===selectedAccountId)?.roles.includes('business_staff')}<label class="account-active"><input type="checkbox" bind:checked={selectedViewCosts}/><span>View API costs</span></label><label class="account-active"><input type="checkbox" bind:checked={selectedViewSubscriptions}/><span>View subscriptions (read only)</span></label><label class="account-active"><input type="checkbox" bind:checked={selectedPauseService}/><span>Pause and resume AI</span></label>{/if}
               <button class="secondary" type="submit">Update access</button>
               {#if isPlatform && accounts.find(account=>account.id===selectedAccountId)?.roles.join(',')==='business_owner'}
                 <div class="surface-body"><p>Restore standard owner access grants management of this company's profile, catalogue, conversations, team, integrations and billing. It grants no platform-admin access and signs this login out.</p><button class="secondary" type="button" on:click={restoreOwnerAccount}>Restore standard owner access</button></div>

@@ -173,6 +173,8 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/platform` | GET | `routes/admin_api_routes.py` · `api_platform` |
 | `/admin/api/platform-promotions` | GET | `routes/admin_api_routes.py` · `api_platform_promotions_get` |
 | `/admin/api/platform-promotions` | PUT | `routes/admin_api_routes.py` · `api_platform_promotions_put` |
+| `/admin/api/platform/service-controls` | GET | `routes/admin_api_routes.py` · `api_platform_service_controls_get` |
+| `/admin/api/platform/service-controls` | PUT | `routes/admin_api_routes.py` · `api_platform_service_controls_put` |
 | `/admin/api/profile` | GET | `routes/admin_api_routes.py` · `api_profile_get` |
 | `/admin/api/profile` | PUT | `routes/admin_api_routes.py` · `api_profile_put` |
 | `/admin/api/questions` | GET | `routes/admin_api_routes.py` · `api_questions` |
@@ -180,6 +182,8 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/recorded-sales/<sale_id>/void` | POST | `routes/admin_api_routes.py` · `api_void_sale` |
 | `/admin/api/sales-actions` | GET | `routes/admin_api_routes.py` · `api_sales_actions_get` |
 | `/admin/api/sales-actions` | PUT | `routes/admin_api_routes.py` · `api_sales_actions_put` |
+| `/admin/api/service-controls` | GET | `routes/admin_api_routes.py` · `api_service_controls_get` |
+| `/admin/api/service-controls` | PUT | `routes/admin_api_routes.py` · `api_service_controls_put` |
 | `/admin/api/sessions_timeseries` | GET | `routes/admin_api_routes.py` · `api_sessions_timeseries` |
 | `/admin/api/statistics` | GET | `routes/admin_api_routes.py` · `api_statistics` |
 | `/admin/api/tenants` | GET | `routes/admin_api_routes.py` · `api_tenants_get` |

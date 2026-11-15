@@ -199,6 +199,9 @@ def execute(container, identity, scopes, name, args, *, source='ChatGPT MCP'):
         validate(name, args)
         if not allowed(identity, scopes, name):
             raise BusinessError("forbidden", "This connection does not have the required permission and scope.")
+        from service.service_controls import platform_blocked
+        if platform_blocked(identity["tenant"]):
+            raise BusinessError("service_suspended", "The platform has suspended this business's connections. Contact the platform operator.")
     except BusinessError:
         if name in WRITES:
             AuditService().record(user=identity["id"], role=identity["roles"][0], ip="", action=name,

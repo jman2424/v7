@@ -1804,3 +1804,86 @@ def api_platform():
     from service.platform_overview import get_platform_overview
     return jsonify(get_platform_overview(get_container(), minutes=_int_arg("minutes", 1440, maximum=43200),
                                          page=_int_arg("page", 1, maximum=100000)))
+
+
+@bp.get('/service-controls')
+def api_service_controls_get():
+    """This business's AI pauses, and anything the platform has suspended."""
+    if not has_permission(management_user(), 'service.pause'):
+        require_permission('business_settings.read')
+    from service import service_controls
+    try:
+        state = service_controls.business_state(_tenant())
+    except Exception as exc:
+        logger.error('Service controls unavailable (%s)', type(exc).__name__)
+        return jsonify(error='service_controls_unavailable'), 503
+    user = management_user()
+    response = jsonify(**state, can_pause=has_permission(user, 'service.pause'))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/service-controls')
+def api_service_controls_put():
+    """Pause or resume all AI, or one channel, for this business only."""
+    require_permission('service.pause')
+    from service import service_controls
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'scope', 'paused'} or type(data['paused']) is not bool
+            or data['scope'] not in ('all', *service_controls.CHANNELS)):
+        return jsonify(error='invalid_service_control'), 400
+    tenant = _tenant()
+    scope = service_controls.key('business', tenant, None if data['scope'] == 'all' else data['scope'])
+    try:
+        service_controls.set_control(scope, data['paused'], management_user()['id'])
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_service_control',
+                                   public_messages=('invalid_service_control', 'service_controls_unavailable'))
+    _audit('business.ai_paused' if data['paused'] else 'business.ai_resumed', tenant + ':' + data['scope'],
+           after={'active': not data['paused']})
+    return jsonify(**service_controls.business_state(tenant), can_pause=True)
+
+
+@bp.get('/platform/service-controls')
+def api_platform_service_controls_get():
+    """Platform administrators only: every active kill switch."""
+    require_platform_operator()
+    require_permission('platform.read')
+    from service import service_controls
+    try:
+        rows = service_controls.platform_state()
+    except Exception as exc:
+        logger.error('Service controls unavailable (%s)', type(exc).__name__)
+        return jsonify(error='service_controls_unavailable'), 503
+    response = jsonify(controls=rows, channels=list(service_controls.CHANNELS))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/platform/service-controls')
+def api_platform_service_controls_put():
+    """Suspend or restore the whole platform, one channel, one business, or one channel of one business."""
+    require_platform_operator()
+    require_permission('platform.read')
+    require_permission('business_settings.write')
+    from service import service_controls
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'tenant', 'channel', 'paused', 'reason'}
+            or type(data['paused']) is not bool or not isinstance(data['reason'], str)
+            or (data['tenant'] is not None and not isinstance(data['tenant'], str))
+            or (data['channel'] is not None and data['channel'] not in service_controls.CHANNELS)):
+        return jsonify(error='invalid_service_control'), 400
+    reason = data['reason'].strip()
+    if data['paused'] and not 5 <= len(reason) <= 500:
+        return jsonify(error='service_control_reason_required'), 400
+    if data['tenant'] is not None and not _storage().tenant_exists(data['tenant']):
+        return jsonify(error='unknown_tenant'), 404
+    try:
+        scope = service_controls.key('platform', data['tenant'], data['channel'])
+        service_controls.set_control(scope, data['paused'], management_user()['id'], reason)
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_service_control',
+                                   public_messages=('invalid_service_control', 'service_controls_unavailable'))
+    _audit('platform.service_suspended' if data['paused'] else 'platform.service_restored', scope,
+           after={'active': not data['paused']})
+    return jsonify(controls=service_controls.platform_state(), channels=list(service_controls.CHANNELS))

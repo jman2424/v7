@@ -203,6 +203,11 @@ class MessageHandler:
             if not activation(tenant)['active']:
                 from service.tenant_access import unavailable_notice
                 return {'reply': unavailable_notice(self.sales_agent.business_profile), 'intent': 'business_inactive'}
+            from service.service_controls import blocked
+            if blocked(tenant, channel):
+                # Paused by the business or suspended by the platform: no AI runs.
+                from service.tenant_access import unavailable_notice
+                return {'reply': unavailable_notice(self.sales_agent.business_profile), 'intent': 'service_paused'}
         ctx = MessageContext(
             tenant=tenant,
             session_id=session_id,

@@ -442,7 +442,8 @@ def _unavailable_notice(tenant):
         container = get_container().for_tenant(tenant)
     except (ValueError, FileNotFoundError):
         return None
-    if activation(container.settings.BUSINESS_KEY)['active']:
+    from service.service_controls import blocked
+    if activation(container.settings.BUSINESS_KEY)['active'] and not blocked(container.settings.BUSINESS_KEY, 'web'):
         return None
     return unavailable_notice(container.business_profile)
 

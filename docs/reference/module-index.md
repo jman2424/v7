@@ -167,6 +167,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/sales_flows.py` | SalesFlows — helper for product suggestions / upsells. |
 | `service/sales_playbook.py` | Validated tenant sales-playbook settings shared by the API and agent. |
 | `service/security.py` | Authentication, management permissions and webhook verification. |
+| `service/service_controls.py` | Live service controls: a business pausing its AI and the platform kill switch, enforced on the server. |
 | `service/session_store.py` | Revocable management sessions and login throttling shared by workers. |
 | `service/speech_transcription.py` | Bounded, in-memory transcription for customer voice messages. |
 | `service/statistics.py` | Bounded, aggregate-only company statistics from recorded channel events. |

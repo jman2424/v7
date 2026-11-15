@@ -146,7 +146,8 @@ def active(storage, tenant, channel):
     if not decision['managed'] and not validate_grants(_read(
             storage, tenant, GRANTS_FILE, {name: False for name in CHANNELS}))[channel]:
         return False
-    return settings(storage, tenant)[channel]['enabled'] and activation(tenant)['active']
+    from service.service_controls import blocked
+    return settings(storage, tenant)[channel]['enabled'] and activation(tenant)['active'] and not blocked(tenant, channel)
 
 
 def configured_tenants():
