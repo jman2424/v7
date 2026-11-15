@@ -32,6 +32,21 @@ def twilio_token(settings) -> str:
 
 
 def recipient_routes(settings, provider: str) -> tuple[dict[str, str], str]:
+    """Operator routes plus platform-assigned senders; a double claim routes nowhere."""
+    from service import channel_routes
+    mapping, routing = _operator_recipient_routes(settings, provider)
+    merged = channel_routes.merge(mapping, "whatsapp_meta" if provider == "meta" else "whatsapp_twilio")
+    return merged, routing if merged.keys() <= mapping.keys() else "assigned"
+
+
+def operator_routes(provider: str) -> dict[str, str]:
+    """Operator-set senders only, used to stop a platform assignment clashing with them."""
+    from flask import current_app, has_app_context
+    settings = getattr(getattr(current_app, "container", None), "settings", None) if has_app_context() else None
+    return _operator_recipient_routes(settings, provider)[0] if settings is not None else {}
+
+
+def _operator_recipient_routes(settings, provider: str) -> tuple[dict[str, str], str]:
     field = "WHATSAPP_META_TENANT_MAP" if provider == "meta" else "TWILIO_WHATSAPP_TENANT_MAP"
     dedicated = getattr(settings, field, None)
     if dedicated is not None:

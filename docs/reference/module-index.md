@@ -111,6 +111,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/business_sync.py` | Plan, review, apply and undo business-information changes from imports and connected sources. |
 | `service/business_validation.py` | Validation for editable settings that do not yet have a full JSON schema. |
 | `service/channel_intelligence.py` | Delivery guidance over the shared business brain; never permission grants. |
+| `service/channel_routes.py` | Platform-assigned phone numbers, email addresses and WhatsApp senders per business. |
 | `service/channel_worker.py` | Durable customer-message jobs, driven in-process or by an explicit worker. |
 | `service/chat_diagnostics.py` | Content-free chat timing and one shared provider budget per customer turn. |
 | `service/console_navigation.py` | Shared presentation routes; existing API authentication remains authoritative. |

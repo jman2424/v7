@@ -1313,6 +1313,50 @@ def api_business_channel_grants_put():
     return jsonify(ok=True, grants=value)
 
 
+@bp.get('/channel-routes')
+def api_channel_routes_get():
+    """Platform administrators only: the numbers and addresses assigned to this business."""
+    require_platform_operator()
+    require_permission('integrations.read')
+    from service import channel_routes
+    tenant, storage = _tenant(), _storage()
+    try:
+        raw = storage.read_json(tenant, channel_routes.FILENAME)
+    except FileNotFoundError:
+        raw = None
+    try:
+        routes = channel_routes.validate(raw) if raw is not None else channel_routes.document(storage, tenant)
+    except ValueError:
+        return jsonify(error='invalid_channel_routes'), 409
+    response = jsonify(routes=routes, revision=revision(raw))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/channel-routes')
+def api_channel_routes_put():
+    """Assign numbers and addresses; one already used by another business is refused."""
+    require_platform_operator()
+    require_permission('business_settings.write')
+    from service import channel_routes
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'routes', 'revision'}
+            or not isinstance(data['revision'], str)):
+        return jsonify(error='invalid_channel_routes'), 400
+    tenant, storage = _tenant(), _storage()
+    try:
+        value = channel_routes.validate(data['routes'])
+    except ValueError:
+        return jsonify(error='invalid_channel_routes'), 400
+    taken = channel_routes.conflicts(tenant, value)
+    if taken:
+        return jsonify(error='route_assigned_elsewhere', recipients=taken), 409
+    _audited_json_write(storage, tenant, channel_routes.FILENAME, value, action='business.channels.routes',
+                        expected_revision=data['revision'])
+    channel_routes.invalidate()
+    return jsonify(ok=True, routes=value, revision=revision(value))
+
+
 @bp.get('/business-operations')
 def api_business_operations_get():
     _require_channel_owner()

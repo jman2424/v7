@@ -140,6 +140,8 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/business-operations/<operation_id>/decision` | POST | `routes/admin_api_routes.py` · `api_business_operations_decision` |
 | `/admin/api/catalog` | GET | `routes/admin_api_routes.py` · `api_catalog_get` |
 | `/admin/api/catalog` | PUT | `routes/admin_api_routes.py` · `api_catalog_put` |
+| `/admin/api/channel-routes` | GET | `routes/admin_api_routes.py` · `api_channel_routes_get` |
+| `/admin/api/channel-routes` | PUT | `routes/admin_api_routes.py` · `api_channel_routes_put` |
 | `/admin/api/channels` | GET | `routes/admin_api_routes.py` · `api_channels` |
 | `/admin/api/conversations` | GET | `routes/admin_api_routes.py` · `api_conversations` |
 | `/admin/api/delivery` | GET | `routes/admin_api_routes.py` · `api_delivery_get` |

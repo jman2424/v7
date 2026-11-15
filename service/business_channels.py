@@ -106,6 +106,13 @@ def grants(storage, tenant):
 
 
 def bindings(channel):
+    """Operator routes plus platform-assigned ones; a double claim routes nowhere."""
+    from service import channel_routes
+    return channel_routes.merge(operator_bindings(channel), channel)
+
+
+def operator_bindings(channel):
+    """Routes set in protected server settings by the operator."""
     name = {'email': 'V7_EMAIL_ROUTES_JSON', 'phone': 'V7_PHONE_ROUTES_JSON'}[channel]
     try:
         value = json.loads(os.getenv(name, '{}'))
@@ -166,25 +173,36 @@ def inbox_bindings():
 
 def email_senders():
     """Verified operator-owned senders may differ from a forwarding alias."""
+    from service import channel_routes
     try:
         raw = json.loads(os.getenv('V7_EMAIL_SENDERS_JSON', '{}'))
         if not isinstance(raw, dict) or len(raw) > 1000:
             raise ValueError
-        routes, result = bindings('email'), {}
+        operator, result = operator_bindings('email'), {}
         for recipient, sender in raw.items():
             recipient, sender = address(recipient), address(sender)
-            if recipient not in routes or recipient in result:
+            if recipient not in operator or recipient in result:
                 raise ValueError
             result[recipient] = sender
         ownership = {}
-        for recipient, tenant in routes.items():
+        for recipient, tenant in operator.items():
             sender = result.get(recipient, recipient)
             if sender in ownership and ownership[sender] != tenant:
                 raise ValueError
             ownership[sender] = tenant
-        return {recipient: result.get(recipient, recipient) for recipient in routes}
     except (ValueError, TypeError, RecursionError):
         return {}
+    routes = bindings('email')
+    senders = {recipient: result.get(recipient, recipient) for recipient in operator if recipient in routes}
+    stored = channel_routes.stored_senders()
+    for recipient, tenant in routes.items():
+        if recipient in senders or recipient not in stored or stored[recipient][0] != tenant:
+            continue
+        sender = stored[recipient][1]
+        # One business's sending identity can never be used by another.
+        if ownership.setdefault(sender, tenant) == tenant:
+            senders[recipient] = sender
+    return senders
 
 
 def resend_key():
