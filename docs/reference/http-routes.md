@@ -56,6 +56,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 |---|---|---|
 | `/catalog_webhook` | GET, POST | `routes/catalog_routes.py` · `catalog_webhook` |
 | `/channels/email/webhook` | POST | `routes/business_channel_routes.py` · `email_webhook` |
+| `/channels/phone/handover` | POST | `routes/business_channel_routes.py` · `phone_handover` |
 | `/channels/phone/incoming` | POST | `routes/business_channel_routes.py` · `phone_incoming` |
 | `/channels/phone/poll` | POST | `routes/business_channel_routes.py` · `phone_poll` |
 | `/channels/phone/turn` | POST | `routes/business_channel_routes.py` · `phone_turn` |

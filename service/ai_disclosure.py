@@ -92,6 +92,51 @@ _PHONE = {
 }
 
 
-def phone_copy(language, key):
+# Wording used only when the business has set a number to hand calls over to.
+_HANDOVER = {
+    'en': {
+        'question': 'How can we help? Press 0 to speak to the team instead.',
+        'message': 'Please say your enquiry and how you would like the team to contact you, or press 0 to speak to the team.',
+        'retry': 'I did not hear an enquiry. Please say your question, or press 0 to speak to the team.',
+        'unclear': 'I could not understand that clearly. Please repeat your enquiry slowly, or press 0 to speak to the team.',
+        'anything_else': 'You can keep speaking, press 0 to speak to the team, or press 9 to end the call.',
+        'connecting': 'Connecting you to the team now. If nobody can answer, you can leave a message.',
+        'no_answer': 'Sorry, nobody on the team could take your call.',
+    },
+    'fr': {
+        'question': 'Comment pouvons-nous vous aider ? Appuyez sur 0 pour parler à l’équipe.',
+        'message': 'Veuillez expliquer votre demande et indiquer comment l’équipe peut vous contacter, ou appuyez sur 0 pour parler à l’équipe.',
+        'retry': 'Je n’ai pas entendu votre demande. Veuillez parler ou appuyer sur 0 pour parler à l’équipe.',
+        'unclear': 'Je n’ai pas bien compris. Répétez votre demande lentement ou appuyez sur 0 pour parler à l’équipe.',
+        'anything_else': 'Vous pouvez continuer à parler, appuyer sur 0 pour parler à l’équipe ou sur 9 pour terminer l’appel.',
+        'connecting': 'Nous vous mettons en relation avec l’équipe. Si personne ne peut répondre, vous pourrez laisser un message.',
+        'no_answer': 'Désolé, personne dans l’équipe n’a pu prendre votre appel.',
+    },
+    'es': {
+        'question': '¿Cómo podemos ayudarle? Pulse 0 para hablar con el equipo.',
+        'message': 'Explique su consulta e indique cómo quiere que el equipo se ponga en contacto con usted, o pulse 0 para hablar con el equipo.',
+        'retry': 'No he oído su consulta. Hable o pulse 0 para hablar con el equipo.',
+        'unclear': 'No he entendido bien. Repita su consulta despacio o pulse 0 para hablar con el equipo.',
+        'anything_else': 'Puede seguir hablando, pulsar 0 para hablar con el equipo o 9 para terminar la llamada.',
+        'connecting': 'Le ponemos en contacto con el equipo. Si nadie puede atenderle, podrá dejar un mensaje.',
+        'no_answer': 'Lo sentimos, nadie del equipo ha podido atender su llamada.',
+    },
+    'de': {
+        'question': 'Wie können wir helfen? Drücken Sie 0, um mit dem Team zu sprechen.',
+        'message': 'Bitte nennen Sie Ihr Anliegen und wie das Team Sie kontaktieren soll, oder drücken Sie 0, um mit dem Team zu sprechen.',
+        'retry': 'Ich habe kein Anliegen gehört. Bitte sprechen Sie oder drücken Sie 0, um mit dem Team zu sprechen.',
+        'unclear': 'Ich habe Sie nicht deutlich verstanden. Bitte wiederholen Sie Ihr Anliegen langsam oder drücken Sie 0, um mit dem Team zu sprechen.',
+        'anything_else': 'Sie können weiter sprechen, 0 drücken, um mit dem Team zu sprechen, oder 9, um den Anruf zu beenden.',
+        'connecting': 'Wir verbinden Sie jetzt mit dem Team. Wenn niemand antworten kann, können Sie eine Nachricht hinterlassen.',
+        'no_answer': 'Leider konnte niemand im Team Ihren Anruf annehmen.',
+    },
+}
+
+
+def phone_copy(language, key, *, handover=False):
     code = language.split('-', 1)[0] if isinstance(language, str) else 'en'
+    if handover:
+        table = _HANDOVER.get(code, _HANDOVER['en'])
+        if key in table:
+            return table[key]
     return _PHONE.get(code, _PHONE['en'])[key]

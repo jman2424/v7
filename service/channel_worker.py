@@ -94,6 +94,7 @@ def process_one(container, tenant, *, lane='all'):
             return True
         if channel == 'phone' and (current['mode'] == 'review' or payload.get('mode_at_intake') == 'review'):
             operations.finish(tenant, identifier, lease, 'needs_review', error_code=(
+                'call_handed_over' if payload.get('handover') is True else
                 'call_transcript_unclear' if payload.get('transcript_needs_review') is True else 'call_message_received'))
             return True
         if channel == 'phone' and time.time() - job['created'] >= operations.PHONE_REPLY_WINDOW:

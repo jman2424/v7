@@ -20,7 +20,8 @@ def response_profile(channel: str) -> dict[str, str]:
                   'Avoid Markdown, visual lists, URLs and references to buttons. Name an approved page '
                   'when directing the caller. Preserve material prices, estimate qualifications and '
                   'policy conditions. Never shorten an answer by dropping required terms. '
-                  'Pressing 0 takes a team message; it does not transfer the call or execute an action.'),
+                  'Pressing 0 reaches the team: a transfer when the business has set one up, otherwise a message. '
+                  'Never promise that a person will answer, and never claim it executes an action.'),
         'whatsapp': ('mobile business messaging',
                      'Use brief readable paragraphs and short lists for comparisons. Follow the '
                      'customer’s selected option and previous requirements. Approved page links '

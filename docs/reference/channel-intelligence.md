@@ -76,8 +76,9 @@ answer. Connected Inbox replies require review. Changing email to review mode
 returns automatically approved drafts to the review queue before submission.
 
 Live calls have a separate processing lane and a 22-second answer window. A late
-or unverified answer goes to the team's queue. Callers can press 0 to leave a
-message and press 9 to end the call. The phone provider and number must be
+or unverified answer goes to the team's queue. Callers can press 0 to reach the
+team (a transfer to the saved hand-over number, otherwise a message) and press 9
+to end the call. The phone provider and number must be
 configured before a live test.
 
 In **Channels → Email → Email campaigns**, a business owner can draft copy using

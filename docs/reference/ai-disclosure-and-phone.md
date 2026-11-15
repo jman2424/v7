@@ -17,8 +17,8 @@ not a certification of compliance with every jurisdiction's requirements.
 - Calls play AI and synthetic-voice identification before starting Gather. Fixed
   prompts use the configured English, French, Spanish or German call language.
 
-Calls accept speech or a single DTMF digit. Pressing 0 collects a team message;
-it does not dial/transfer to a person or promise a callback. The signed
+Calls accept speech or a single DTMF digit. Pressing 0 passes the call to the business's hand-over number when one is saved (it rings for 20 seconds, a connected call is capped at 15 minutes, and a missed transfer falls back to a message). Without a hand-over number, pressing 0 collects a team message
+and does not promise a callback. The signed
 continuation fixes that turn to review mode, including if an operator later
 switches the business to automatic mode. Review messages never invoke the model.
 One retry is allowed after silence; repeated silence ends without creating a

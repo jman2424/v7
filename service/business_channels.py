@@ -16,6 +16,8 @@ GRANTS_FILE = 'business_channel_grants.json'
 DEFAULTS = {channel: {'enabled': False, 'mode': 'review', 'daily_limit': 50,
                       'retention_days': 30, 'privacy_confirmed': False, 'language': 'en-GB'} for channel in CHANNELS}
 DEFAULTS['email'].update(provider_cleanup='keep', cleanup_confirmed=False)
+# Optional number a caller is passed to when they ask for a person.
+DEFAULTS['phone'].update(handover_number='')
 LANGUAGES = ('en-GB', 'en-US', 'fr-FR', 'es-ES', 'de-DE')
 PHONE = re.compile(r'\+[1-9][0-9]{7,14}\Z')
 UUID = re.compile(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\Z')
@@ -63,6 +65,11 @@ def validate(value):
                 raise ValueError('invalid_channel_settings')
             if row['provider_cleanup'] != 'keep' and not row['cleanup_confirmed']:
                 raise ValueError('email_cleanup_confirmation_required')
+        if channel == 'phone':
+            number = row['handover_number']
+            # A routed assistant number would hand a call back to the assistant.
+            if (not isinstance(number, str) or number and (not PHONE.fullmatch(number) or number in bindings('phone'))):
+                raise ValueError('invalid_channel_settings')
         if row['enabled'] and not row['privacy_confirmed']:
             raise ValueError('channel_privacy_confirmation_required')
     return result

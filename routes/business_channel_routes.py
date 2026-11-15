@@ -175,7 +175,8 @@ def phone_incoming():
     language = config['language']
     # Identification plays before Gather so barge-in cannot skip the notice.
     response.say(phone_copy(language, config['mode']), language=language)
-    prompt = phone_copy(language, 'message' if config['mode'] == 'review' else 'question')
+    prompt = phone_copy(language, 'message' if config['mode'] == 'review' else 'question',
+                        handover=bool(config['handover_number']))
     _gather(response, call, 1, language, prompt, call_mode=config['mode'])
     return _xml(response)
 
@@ -227,7 +228,9 @@ def _reply_to_phone_job(response, call, job, turn, config, *, polls=0, announce=
             and mode == 'automatic' and automatic_intake and payload.get('phone_reply_verified') is True):
         response.say(job['reply'], language=language)
         if turn < _MAX_CALL_TURNS:
-            _gather(response, call, turn+1, language, phone_copy(language, 'anything_else'), call_mode='automatic')
+            _gather(response, call, turn+1, language,
+                    phone_copy(language, 'anything_else', handover=bool(config['handover_number'])),
+                    call_mode='automatic')
             return _xml(response)
         return _end_call(response, language, 'end')
 
@@ -282,18 +285,21 @@ def phone_turn():
     language = config['language']
     if digits == '9':
         return _end_call(response, language, 'goodbye')
+    offer = bool(config['handover_number']) and not handoff
+    if digits == '0' and offer:
+        return _hand_over(response, call, turn, config, call_mode)
     if digits == '0' and not handoff:
         _gather(response, call, turn, language, phone_copy(language, 'message'), call_mode=call_mode, handoff=True)
         return _xml(response)
     if not text or digits:
         if silence == 0:
-            _gather(response, call, turn, language, phone_copy(language, 'retry'),
+            _gather(response, call, turn, language, phone_copy(language, 'retry', handover=offer),
                     call_mode=call_mode, silence=1, handoff=handoff, unclear=unclear)
             return _xml(response)
         return _end_call(response, language, 'silent' if turn == 1 else 'end')
     low_confidence = score is not None and score < 0.5
     if low_confidence and unclear == 0:
-        _gather(response, call, turn, language, phone_copy(language, 'unclear'),
+        _gather(response, call, turn, language, phone_copy(language, 'unclear', handover=offer),
                 call_mode=call_mode, handoff=handoff, unclear=1)
         return _xml(response)
     review = 'review' in (call_mode, config['mode']) or handoff or low_confidence
@@ -316,6 +322,53 @@ def phone_turn():
     if job['state'] in {'queued', 'processing'}:
         channel_worker.wake()
     return _reply_to_phone_job(response, call, job, turn, config, announce=True)
+
+
+def _hand_over(response, call, turn, config, call_mode):
+    """Pass the caller to the business's own number; a missed call falls back to a message."""
+    language = config['language']
+    try:
+        # Recorded like any call turn, so the daily and per-call limits apply
+        # and the owner sees that a caller asked for a person.
+        operations.enqueue(call.tenant, 'phone', call.sid+':handover', 'phone:'+call.sid, call.source,
+            {'recipient': call.recipient, 'call': call.sid, 'turn': turn, 'text': '', 'language': language,
+             'mode_at_intake': 'review', 'handover': True}, daily_limit=config['daily_limit'])
+    except ValueError as exc:
+        code = str(exc)
+        if code in {'channel_daily_limit', 'channel_sender_limit', 'call_turn_limit'}:
+            return _end_call(response, language, 'limit')
+        if code == 'operation_event_conflict':
+            abort(403)
+        raise
+    channel_worker.wake()
+    response.say(phone_copy(language, 'connecting', handover=True), language=language)
+    proof = call.proof(turn=turn, call_mode=call_mode, handover=True)
+    # No caller ID is set: the team sees the caller's own number. The transfer
+    # rings for 20 seconds and a connected call is capped at 15 minutes.
+    dial = response.dial(action='/channels/phone/handover?token='+proof, method='POST',
+                         timeout=20, time_limit=900, answer_on_bridge=True)
+    dial.number(config['handover_number'])
+    return _xml(response)
+
+
+@bp.post('/phone/handover')
+def phone_handover():
+    """Signed result of a transfer: end a completed call, otherwise take a message."""
+    container, call = _phone_context()
+    proof = _proof(call)
+    turn, call_mode = proof.get('turn'), proof.get('call_mode', 'review')
+    if (proof.get('handover') is not True or type(turn) is not int or not 1 <= turn <= _MAX_CALL_TURNS
+            or call_mode not in ('automatic', 'review')):
+        abort(403)
+    config = channels.settings(container.storage, call.tenant)['phone']
+    language = config['language']
+    response = VoiceResponse()
+    if request.form.get('DialCallStatus', '') == 'completed':
+        response.hangup()
+        return _xml(response)
+    response.say(phone_copy(language, 'no_answer', handover=True), language=language)
+    _gather(response, call, turn, language, phone_copy(language, 'message'), call_mode=call_mode, handoff=True)
+    return _xml(response)
 
 
 @bp.post('/phone/poll')
