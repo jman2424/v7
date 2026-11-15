@@ -138,6 +138,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/offer_metrics.py` | Offer terms and tenant-scoped engagement, never inferred redemptions. |
 | `service/oidc_login.py` | Explicit provider links and browser-bound OpenID Connect login flows. |
 | `service/openai_completion.py` | Adapt the existing grounded Chat requests to the Responses API when required. |
+| `service/payment_recovery.py` | Seven-day grace after a failed subscription renewal, anchored to the first failure. |
 | `service/performance_metrics.py` | Bounded per-worker timing aggregates, with no messages or identities. |
 | `service/plan_catalog.py` | Server-owned monthly V7 prices, included channels and allowances (GBP before VAT). |
 | `service/plan_usage.py` | Atomic monthly plan allowances. Usage identities are hashes, never chat text. |

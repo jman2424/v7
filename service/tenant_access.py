@@ -103,8 +103,19 @@ def activation(tenant):
         paid = db.execute("SELECT 1 FROM billing_invoices WHERE tenant=? AND kind='platform' AND status='paid' AND paid>0 LIMIT 1", (tenant,)).fetchone()
     # The one-time assistance fee is an optional add-on: a confirmed, paid
     # subscription alone activates the business.
-    active = bool(row and row['status']=='active' and paid)
-    return {'active': active, 'status': 'active' if active else 'awaiting_payments'}
+    if row and paid and row['status'] == 'active':
+        return {'active': True, 'status': 'active'}
+    from service import payment_recovery
+    if row and paid and row['status'] in payment_recovery.FAILED_STATUSES:
+        # A failed renewal keeps service running for seven days from the first
+        # failure, then stops. Data and records are untouched either way.
+        window = payment_recovery.current(tenant)
+        import time
+        if window and time.time() < window['ends']:
+            return {'active': True, 'status': 'payment_recovery', 'grace_ends': window['ends']}
+        return {'active': False, 'status': 'billing_suspended',
+                'grace_ends': window['ends'] if window else None}
+    return {'active': False, 'status': 'awaiting_payments'}
 
 
 def unavailable_notice(profile):

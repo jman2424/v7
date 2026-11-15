@@ -546,10 +546,13 @@ def sync_subscription(subscription_id):
         periods = [item.get('current_period_end') for item in data.get('items',{}).get('data',[]) if item.get('current_period_end')]
         db.execute('UPDATE billing_contracts SET subscription=?,customer=?,status=?,next_due=?,cancel_at_end=? WHERE ref=?',
                    (subscription_id,data.get('customer'),data.get('status','unknown'),min(periods) if periods else None,int(bool(data.get('cancel_at_period_end'))),metadata['billing_ref']))
-        if plan and row['kind'] == 'platform':
+        if row['kind'] == 'platform':
             current = db.execute("SELECT ref FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
             if current and current['ref'] == metadata['billing_ref']:
-                db.execute('UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant=?', (plan['id'],plan['id'],tenant))
+                if plan:
+                    db.execute('UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant=?', (plan['id'],plan['id'],tenant))
+                from service import payment_recovery
+                payment_recovery.observe(db, tenant, subscription_id, str(data.get('status', 'unknown')))
     if row['kind'] == 'platform':
         from service import billing_promotions
         billing_promotions.mark_subscription_started(tenant, metadata['billing_ref'])

@@ -124,6 +124,8 @@ def start(app):
                     worked = process_one(app.container)
                     if time.time() >= maintenance_at:
                         retention_once()
+                        from service.payment_recovery import remind_all
+                        remind_all(app.container)
                         maintenance_at = time.time() + 3600
             except Exception as exc:
                 app.logger.warning('Application worker failed error_type=%s', type(exc).__name__)
