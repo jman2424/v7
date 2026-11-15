@@ -8,13 +8,14 @@ const tree = ts.createSourceFile('Console.ts',source,ts.ScriptTarget.Latest,true
 const names = ['createAccount','updateAccount','restoreOwnerAccount'];
 const code = ts.transpileModule(tree.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(tree)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 
-function harness(role,operator=true) {
+function harness(role,operator=true,pause=false) {
   const sent=[];
   const scope=vm.createContext({sent});
   vm.runInContext(`
     let tenant='FIRST',csrf='synthetic-csrf',isPlatform=${operator},accountRole=${JSON.stringify(role)};
     let accountEmail='owner@example.test',accountPassword='Synthetic-only-password',accountStatus='',accountError=false;
     let accountViewCosts=false,accountViewSubscriptions=false,selectedViewCosts=true,selectedViewSubscriptions=false;
+    let accountPauseService=false,selectedPauseService=${pause};
     let selectedAccountId='owner-id',selectedAccountActive=true,selectedAccountPassword='';
     let accounts=[{id:'owner-id',email:'owner@example.test',roles:[accountRole],permissions:['offerings.read']}];
     async function mutateWorkspace(path,options){sent.push({path,options});return {response:{ok:true},data:{account:{email:accountEmail}},selectedTenant:tenant,activeLoad:{}};}
@@ -41,6 +42,10 @@ test('ordinary owner edits preserve their server-controlled permission subset',a
 test('staff view flags still save explicitly',async()=>{
   const {subject,sent}=harness('business_staff');await subject.updateAccount();
   assert.deepEqual(JSON.parse(sent[0].options.body).permissions,['view_costs']);
+});
+test('the pause and resume AI permission is saved only when ticked',async()=>{
+  const {subject,sent}=harness('business_staff',true,true);await subject.updateAccount();
+  assert.deepEqual(JSON.parse(sent[0].options.body).permissions,['view_costs','service.pause']);
 });
 test('restore is explicit, tenant scoped and never sends a password or platform permissions',async()=>{
   const {subject,sent}=harness('business_owner');await subject.restoreOwnerAccount();

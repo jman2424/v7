@@ -77,7 +77,7 @@ function consoleHarness() {
     let profile={name:'First business',about:'Original description',email:'',phone:'',website:'',certifications:[],social:{}};
     let profileStatus='',profileError=false,accountStatus='',accountError=false;
     let accountEmail='staff@example.test',accountPassword='Test-only-password',accountRole='business_staff';
-    let accountViewCosts=false,accountViewSubscriptions=false,csrf='test-csrf';
+    let accountViewCosts=false,accountViewSubscriptions=false,accountPauseService=false,csrf='test-csrf';
     let accountReloads=[];
     async function loadAccounts(...args){accountReloads.push(args);}
     ${functions('Console.svelte', ['workspaceRequest', 'isCurrentWorkspace', 'mutateWorkspace', 'saveProfile', 'createAccount'])}
