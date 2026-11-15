@@ -136,6 +136,12 @@ def test_case_alias_login_retains_the_managed_business_activation_boundary(clien
 @pytest.mark.parametrize('path', ['/chat_ui', '/widget.js', '/chat/actions'])
 def test_case_alias_cannot_enable_an_inactive_public_business(client, path):
     TenantService(client.application.container.storage).create_tenant('NEWCO', 'New company')
+    if path == '/widget.js':
+        # An inactive business serves an empty script (no widget, no error on its site).
+        for tenant in ('NEWCO', 'newco'):
+            response = client.get(path + '?tenant=' + tenant)
+            assert response.status_code in {200, 403, 404} and 'chat_ui' not in response.text
+        return
     assert client.get(path + '?tenant=NEWCO').status_code == 403
     assert client.get(path + '?tenant=newco').status_code in {403, 404}
 

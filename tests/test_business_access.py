@@ -141,4 +141,11 @@ def test_activation_requires_both_verified_payments_and_blocks_all_agent_paths(c
     assert client.get('/chat_ui?tenant=SHOP').status_code==200
     sub['status']='past_due'
     subscriptions.sync_subscription('sub_shop')
-    assert tenant_access.activation('SHOP')['active'] is False
+    # A failed renewal keeps service for seven days from the first failure, then stops it.
+    assert tenant_access.activation('SHOP')['status'] == 'payment_recovery'
+    real_time = time.time
+    try:
+        time.time = lambda: real_time() + 7 * 86400 + 1
+        assert tenant_access.activation('SHOP')['active'] is False
+    finally:
+        time.time = real_time
