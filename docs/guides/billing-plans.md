@@ -12,8 +12,7 @@ is selected by an authenticated business owner or platform administrator.
 New subscriptions choose **Pay monthly** or **Pay yearly**. The yearly checkout
 uses the server's yearly price and a yearly Stripe interval, and its reference is
 bound to that interval in `billing_interval_choices` (no row means monthly, so
-every existing subscription stays monthly). Plan changes keep the current
-interval; switching between monthly and yearly is not built yet. One-off
+every existing subscription stays monthly). One-off
 first-month offers and referral month credits are refused on yearly billing, so
 a month-sized percentage can never discount a whole year. The 50% recurring code
 applies to either. Allowances and AI credit work the same either way.
@@ -31,9 +30,24 @@ Public and dashboard prices show the final payable total. Discounts apply before
 any configured VAT; recorded invoices keep their original financial amounts.
 
 Owners can use **Change plan or cancel** in Billing for eligible active tiered
-subscriptions. Plan changes open a Stripe confirmation for the exact existing
-subscription item and server-catalog price. Stripe invoices prorations immediately
-and keeps the billing date. The dashboard changes entitlements only after a fresh
+subscriptions. A move to a higher plan or from monthly to yearly opens a Stripe
+confirmation for the exact existing subscription item and server-catalog price;
+Stripe shows and invoices the prorated amount immediately. A plan change keeps the
+billing date; a move to yearly starts a new yearly period today.
+
+A move to a lower plan or from yearly to monthly is scheduled for the renewal date
+with a Stripe subscription schedule (`from_subscription`, two phases, released at
+the end; tax rates and discounts carry over). Nothing is charged today and the
+current plan stays until renewal. The owner confirms the date in the console and
+can choose **Keep my current plan** before then, which releases the schedule. The
+change is recorded as a `scheduled` row in `billing_plan_changes` before Stripe is
+touched. When Stripe moves the subscription to that price at renewal, a lower or
+equal plan applies without payment evidence (entitlements only go down); a higher
+plan still needs its paid invoice. A finished V7 schedule is released on the next
+billing action. Schedules use `iterations`, as the pinned Stripe-Version
+`2025-06-30.basil` requires; newer versions use `duration` instead.
+
+For an immediate change the dashboard changes entitlements only after a fresh
 provider read verifies the requested price and its paid invoice against a
 tenant-bound, expiring `billing_plan_changes` authorization. The original checkout
 binding and any paid assistance remain intact; switching plans does not require
@@ -43,6 +57,8 @@ An unpaid change cannot replace the last verified active plan.
 Cancellation opens Stripe's hosted review and takes effect at the end of the
 current paid period. Returning to the dashboard does not itself change access;
 verified subscription events update the cancellation status and effective date.
+Until that date the owner can choose **Keep my subscription**, which clears the
+scheduled cancellation in Stripe; nothing is charged.
 This does not cancel separately billed legacy WhatsApp contracts. Legacy plans,
 scheduled or pending changes, and unsupported subscription shapes require review.
 The Stripe key must permit reading subscriptions/invoices and creating prices,

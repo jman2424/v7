@@ -25,7 +25,7 @@
   type ChannelAllowance={used:number;limit:number;paused:boolean;enforced?:boolean;measured_by?:string};
   type Allowance={month:string;mode:string;website_conversations:ChannelAllowance;whatsapp_messages:ChannelAllowance;alerts:UsageAlert[]};
   type PlanState={selected_plan:string|null;active_plan:string|null;setup_plan:string|null;whatsapp_paused:boolean;checkout_pending:boolean;checkout_expires:number|null};
-  type Report={billing_interval?:'month'|'year';business_purchase_allowed?:boolean;business_application?:{status:string}|null;discount_percent:number;setup_discount_percent?:number;first_month_discount_percent?:number;promotion_applied?:boolean;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null;management?:{can_change_plan:boolean;can_cancel:boolean}};
+  type Report={billing_interval?:'month'|'year';business_purchase_allowed?:boolean;business_application?:{status:string}|null;discount_percent:number;setup_discount_percent?:number;first_month_discount_percent?:number;promotion_applied?:boolean;configured:boolean;vat_percent:number;contracts:Contract[];invoices:Invoice[];totals:{paid:number;due:number;approved_api_due:number};usage:{month:string;calls:number;unpriced:number;estimated_pence:number|null}[];approved_api_charges:{month:string;amount:number}[];whatsapp_enabled:boolean;plans?:Plan[];pricing_version?:string;internal?:boolean;complimentary?:boolean;plan_state?:PlanState|null;allowance?:Allowance|null;management?:{can_change_plan:boolean;can_cancel:boolean;can_reactivate?:boolean;scheduled_change?:{plan_id:string;interval:'month'|'year';effective:number}|null}};
   type Company={key:string;name:string;contracts:Contract[];totals:{paid:number;due:number};plan_state?:PlanState|null;allowance?:Allowance|null};
   const dispatch=createEventDispatcher<{company:string;creditstatus:{tenant:string;alerts:{code:string;message:string}[]}}>();
   let data:(Report&{referral_setup_percent?:number})|null=null;
@@ -41,6 +41,9 @@
   let invoicePage=1;
   let discountCode='';
   let interval:'month'|'year'='month';
+  let intervalChosen=false;
+  let pendingChange:{plan:Plan;interval:'month'|'year'}|undefined;
+  const planRank:Record<string,number>={starter:0,business:1,scale:2};
   let reviewPlanId='';
   let initialBudgetTotal=0;
   let controller:AbortController|undefined;
@@ -68,7 +71,15 @@
   $: checkoutPending=Boolean(data?.plan_state?.checkout_pending);
   $: reviewPlan=canManageBilling&&!planLocked&&!checkoutPending
     ? data?.plans?.find(plan=>plan.id===reviewPlanId) : undefined;
-  $: shownInterval=activePlan?(data?.billing_interval==='year'?'year':'month'):interval;
+  let activeInterval:'month'|'year'='month';
+  $: activeInterval=data?.billing_interval==='year'?'year':'month';
+  $: if(data&&!intervalChosen)interval=activeInterval;
+  $: shownInterval=interval;
+  $: scheduledChange=data?.management?.scheduled_change||null;
+  $: scheduledPlan=data?.plans?.find(plan=>plan.id===scheduledChange?.plan_id);
+  // Higher plan or longer interval: charged now in Stripe. Otherwise: at renewal, nothing charged today.
+  $: changesNow=(plan:Plan)=>Boolean(activePlan&&planRank[plan.id]>=planRank[activePlan.id]&&(interval==='year'||activeInterval==='month'));
+  $: isCurrent=(plan:Plan)=>activePlan?.id===plan.id&&interval===activeInterval;
   $: planPrice=(plan:Plan)=>shownInterval==='year'?plan.annual_pence:plan.monthly_pence;
   $: monthlyPrice=activePlan?planPrice(activePlan):40000;
   $: discounted=(pence:number)=>subscriptionPrice(pence,data?.discount_percent||0,data?.vat_percent||0).beforeVat;
@@ -118,7 +129,7 @@
       if(disposed||controller!==request||request.signal.aborted)return;
       if(result.url){window.location.assign(result.url);return;}
       if(path==='discount')discountCode='';
-      message=path==='discount'?'Offer saved. Review the assistance and subscription amounts below. Existing invoices are unchanged.':path==='select-plan'?'Plan selected. Subscribe to activate your business. One-time assistance is optional.':path==='cancel-checkout'?'Pending unpaid checkout cancelled. Paid assistance and existing subscriptions remain unchanged.':path==='whatsapp'?'WhatsApp setting saved.':'Saved. Payment status updates after Stripe confirms it.';
+      message=path==='change-plan'&&result.scheduled?'Change scheduled for your renewal date. Nothing is charged today.':path==='cancel-scheduled-change'?'Scheduled change cancelled. Your current plan continues.':path==='reactivate-subscription'?'Cancellation withdrawn. Your subscription renews as normal.':path==='discount'?'Offer saved. Review the assistance and subscription amounts below. Existing invoices are unchanged.':path==='select-plan'?'Plan selected. Subscribe to activate your business. One-time assistance is optional.':path==='cancel-checkout'?'Pending unpaid checkout cancelled. Paid assistance and existing subscriptions remain unchanged.':path==='whatsapp'?'WhatsApp setting saved.':'Saved. Payment status updates after Stripe confirms it.';
       await refresh();
     }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'The billing update could not be confirmed. Refresh payments before trying again.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
@@ -139,7 +150,7 @@
     <div class="controls"><button disabled={page===1||busy||companyBusy} on:click={()=>{page--;listCompanies();}}>{$t('Previous')}</button><span>{$t('Page {page}',{page:count(page)})}</span><button disabled={!hasNext||busy||companyBusy} on:click={()=>{page++;listCompanies();}}>{$t('Next')}</button></div>
   </article>
   {/if}
-  <header><div><h2><bdi>{$businessLabel || tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.' : 'Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices.')}</p></div><div class="controls">{#if data}<a href="#cancel-subscription">{$t('Cancel subscription')}</a>{/if}{#if canViewCosts && (!data?.internal || isPlatform)}<a href={showBudget || !activePlan ? '#ai-budget' : sectionHref(base,'budget',tenant)}>{$t('AI Budget')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
+  <header><div><h2><bdi>{$businessLabel || tenant}</bdi> · {$t('Subscription and payments')}</h2><p>{$t(data?.vat_percent ? 'Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.' : 'Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices.')}</p></div><div class="controls">{#if data}<a href="#cancel-subscription">{$t('Cancel subscription')}</a>{/if}{#if canViewCosts && (!data?.internal || isPlatform)}<a href={showBudget || !activePlan ? '#ai-budget' : sectionHref(base,'budget',tenant)}>{$t('AI Budget')}</a>{/if}{#if canManageBilling && baseContract && !['not_started','incomplete_expired'].includes(baseContract.status)}<button disabled={busy||!data?.configured} on:click={()=>action('portal',{})}>{$t('Manage payments in Stripe')}</button>{/if}<button disabled={busy} on:click={refresh}>{$t('Refresh payments')}</button></div></header>
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice loading" role="status">{$t('Updating billing…')}</p>{/if}
   {#if data}
@@ -151,6 +162,8 @@
         <p class="notice">{$t('This business has complimentary access. There is no paid platform subscription to cancel.')}</p>
       {:else if baseContract?.cancel_at_end && baseContract.status!=='canceled'}
         <p class="notice" role="status"><strong>{$t('Cancellation scheduled')}</strong><br/>{baseContract.next_due ? $t('Your platform subscription ends on {date}.',{date:date(baseContract.next_due)}) : $t('Your platform subscription will end at the close of the current billing period.')}</p>
+        <p>{$t('Your AI assistants keep working until then. Changed your mind? Keep your subscription and it renews as normal.')}</p>
+        {#if canManageBilling && data.management?.can_reactivate}<button disabled={busy||!data.configured} on:click={()=>action('reactivate-subscription',{})}>{$t('Keep my subscription')}</button>{/if}
         <p>{$t('Refresh payments after returning from Stripe to see the latest status.')}</p>
       {:else if baseContract?.status==='canceled'}
         <p class="notice" role="status"><strong>{$t('Subscription cancelled')}</strong><br/>{$t('Your platform subscription is already cancelled. Existing invoices remain in Payment history.')}</p>
@@ -189,11 +202,13 @@
     {/if}
     {#if !legacyBilling && !data.internal && !data.complimentary}
       {#if reviewPlan}<p class="notice" role="status"><strong>{$t('Review {plan}',{plan:reviewPlan.name})}.</strong> {$t('Opening this link does not select a plan or take payment.')}</p>{/if}
-      {#if !activePlan}<fieldset class="billing-interval"><legend>{$t('Billing')}</legend><label><input type="radio" bind:group={interval} value="month" disabled={busy} /> {$t('Pay monthly')}</label><label><input type="radio" bind:group={interval} value="year" disabled={busy} /> {$t('Pay yearly (2 months free)')}</label></fieldset>{:else if shownInterval==='year'}<p class="notice">{$t('Billed yearly. Plan changes keep yearly billing.')}</p>{/if}
+      <fieldset class="billing-interval"><legend>{$t('Billing')}</legend><label><input type="radio" bind:group={interval} on:change={()=>{intervalChosen=true;pendingChange=undefined;}} value="month" disabled={busy} /> {$t('Pay monthly')}</label><label><input type="radio" bind:group={interval} on:change={()=>{intervalChosen=true;pendingChange=undefined;}} value="year" disabled={busy} /> {$t('Pay yearly (2 months free)')}</label></fieldset>
+      {#if scheduledChange}<div class="notice" role="status"><p><strong>{$t('Plan change scheduled')}</strong><br/>{$t(scheduledChange.interval==='year'?'{plan}, billed yearly, starts on {date}. You keep {current} until then.':'{plan}, billed monthly, starts on {date}. You keep {current} until then.',{plan:scheduledPlan?.name||scheduledChange.plan_id,date:date(scheduledChange.effective),current:activePlan?.name||''})}</p>{#if canManageBilling}<button disabled={busy||!data.configured} on:click={()=>action('cancel-scheduled-change',{})}>{$t('Keep my current plan')}</button>{/if}</div>{/if}
+      {#if pendingChange}<div class="notice" role="alertdialog" aria-labelledby="pending-change-title"><p><strong id="pending-change-title">{$t(pendingChange.interval==='year'?'Move to {plan}, billed yearly, on {date}?':'Move to {plan}, billed monthly, on {date}?',{plan:pendingChange.plan.name,date:date(baseContract?.next_due)})}</strong><br/>{$t('You keep {current} until then. Nothing is charged today.',{current:activePlan?.name||''})}</p><button disabled={busy} on:click={()=>{const change=pendingChange;pendingChange=undefined;if(change)action('change-plan',{plan_id:change.plan.id,interval:change.interval});}}>{$t('Confirm change')}</button> <button disabled={busy} on:click={()=>pendingChange=undefined}>{$t('Back')}</button></div>{/if}
       <div class="cards plans tiered-plans">
         {#each data.plans||[] as plan}
           <article class="panel" class:selected={selectedPlan?.id===plan.id} class:reviewing={reviewPlan?.id===plan.id}>
-            <p class="plan-audience">{$t(plan.audience)}</p><div class="plan-title"><h3><bdi>{plan.name}</bdi></h3>{#if activePlan?.id===plan.id}<span class="plan-badge">{$t('Current plan')}</span>{:else if selectedPlan?.id===plan.id}<span class="plan-badge">{$t('Selected')}</span>{/if}</div>
+            <p class="plan-audience">{$t(plan.audience)}</p><div class="plan-title"><h3><bdi>{plan.name}</bdi></h3>{#if activePlan?.id===plan.id}<span class="plan-badge">{$t(activeInterval==='year'?'Current plan · yearly':'Current plan · monthly')}</span>{:else if selectedPlan?.id===plan.id}<span class="plan-badge">{$t('Selected')}</span>{/if}</div>
             {#if reviewPlan?.id===plan.id}<p class="plan-badge">{$t('Review {plan}',{plan:plan.name})}</p>{/if}
             {#if shownInterval==='year'}
             <strong class="price"><bdi>{money(discounted(plan.annual_pence))}</bdi><small>{$t(data?.vat_percent ? 'per year before VAT' : 'per year')}</small></strong>
@@ -205,7 +220,8 @@
             {#if data.first_month_discount_percent && shownInterval==='year'}<p class="setup-price">{$t('First-month offers apply to monthly billing only.')}</p>{:else if data.first_month_discount_percent}<p class="setup-price">{$t('First month {price}; normal monthly price applies afterwards.',{price:money(firstMonthTotal(plan.monthly_pence))})}</p>{/if}
             {#if activePlan && implementationPaid}<p class="setup-price">{$t('Assistance paid.')}</p>{:else}<p class="setup-price">{$t(data?.vat_percent ? '{price} optional one-time assistance before VAT' : '{price} optional one-time assistance',{price:money(setupDiscounted(plan.setup_pence))})}<small class="tax-total">{$t(data?.vat_percent ? '{price} assistance including {percent}% VAT' : '{price} assistance — no VAT charged',{price:money(setupTotal(plan.setup_pence)),percent:count(data.vat_percent)})}</small></p>{/if}
             <ul class="plan-features"><li>{$t(plan.channel_summary)}</li><li>{$t('Messages are limited by your prepaid AI credit')}</li><li>{$t('AI processing paid separately with prepaid usage credit')}</li><li>{$t('{count} locations / service areas',{count:count(plan.locations)})}</li><li>{$t('{count} staff accounts, plus the owner',{count:count(plan.staff)})}</li><li>{$t('{analytics} analytics · {access} API access',{analytics:$t(plan.analytics),access:$t(plan.api_access)})}</li><li>{$t('{support} onboarding support',{support:$t(plan.onboarding)})}</li></ul>
-            <button disabled={!canManageBilling||busy||checkoutPending||selectedPlan?.id===plan.id||(activePlan?!data.management?.can_change_plan:planLocked)} on:click={()=>action(activePlan?'change-plan':'select-plan',{plan_id:plan.id})}>{activePlan?.id===plan.id?$t('Current subscription'):activePlan?$t('Review {plan}',{plan:plan.name}):selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>
+            {#if activePlan}<button disabled={!canManageBilling||busy||isCurrent(plan)||!data.management?.can_change_plan} on:click={()=>changesNow(plan)?action('change-plan',{plan_id:plan.id,interval}):(pendingChange={plan,interval})}>{isCurrent(plan)?$t('Current subscription'):plan.id===activePlan.id?$t(interval==='year'?'Switch to yearly billing':'Switch to monthly billing at renewal'):changesNow(plan)?$t('Review {plan}',{plan:plan.name}):$t('Move to {plan} at renewal',{plan:plan.name})}</button>
+            {:else}<button disabled={!canManageBilling||busy||checkoutPending||selectedPlan?.id===plan.id||planLocked} on:click={()=>action('select-plan',{plan_id:plan.id})}>{selectedPlan?.id===plan.id?$t('Selected'):$t('Choose {plan}',{plan:plan.name})}</button>{/if}
           </article>
         {/each}
       </div>

@@ -219,6 +219,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/billing/ai-budget/rates` | GET | `routes/ai_budget_routes.py` · `rates_get` |
 | `/billing/api-charge` | POST | `routes/billing_routes.py` · `api_charge_post` |
 | `/billing/cancel-checkout` | POST | `routes/billing_routes.py` · `cancel_checkout_post` |
+| `/billing/cancel-scheduled-change` | POST | `routes/billing_routes.py` · `cancel_scheduled_change_post` |
 | `/billing/cancel-subscription` | POST | `routes/billing_routes.py` · `cancel_subscription_post` |
 | `/billing/change-plan` | POST | `routes/billing_routes.py` · `change_plan_post` |
 | `/billing/checkout` | POST | `routes/billing_routes.py` · `checkout_post` |
@@ -226,6 +227,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/billing/complimentary-plan` | POST | `routes/billing_routes.py` · `complimentary_plan_post` |
 | `/billing/discount` | POST | `routes/billing_routes.py` · `discount_post` |
 | `/billing/portal` | POST | `routes/billing_routes.py` · `portal_post` |
+| `/billing/reactivate-subscription` | POST | `routes/billing_routes.py` · `reactivate_subscription_post` |
 | `/billing/referrals` | GET | `routes/billing_routes.py` · `referrals_get` |
 | `/billing/referrals/<action>` | POST | `routes/billing_routes.py` · `referrals_post` |
 | `/billing/select-plan` | POST | `routes/billing_routes.py` · `select_plan_post` |

@@ -25,7 +25,8 @@ _SUBSCRIPTION_ERRORS = (
     'subscription_required', 'active_platform_subscription_required', 'subscription_already_cancelling',
     'scheduled_subscription_requires_review', 'subscription_change_requires_review',
     'payment_processing_refresh_soon', 'subscription_plan_already_active', 'existing_setup_requires_review',
-    'unknown_billing_reference', 'unknown_billing_plan',
+    'unknown_billing_reference', 'unknown_billing_plan', 'scheduled_change_pending', 'no_scheduled_change',
+    'subscription_not_cancelling', 'invalid_billing_interval', 'yearly_billing_unavailable',
 )
 _CHECKOUT_ERRORS = (
     'invalid_billing_item', 'plan_not_applicable_to_billing_item', 'whatsapp_included_in_subscription',
@@ -72,14 +73,48 @@ def change_plan_post():
     from service import billing_management
     tenant, data = _tenant(), _body()
     try:
-        result = billing_management.change_plan(tenant, data.get('plan_id'), get_container().settings.BASE_URL.rstrip('/'))
+        result = billing_management.change_plan(tenant, data.get('plan_id'), get_container().settings.BASE_URL.rstrip('/'),
+                                                data.get('interval'))
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return validation_error(exc, 'billing_request_failed',
                                 public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS + _PLAN_ERRORS)
     from routes.admin_api_routes import _audit
-    _audit('billing.change_plan_review', tenant, after={'plan_id': data.get('plan_id')})
+    _audit('billing.change_plan_scheduled' if result.get('scheduled') else 'billing.change_plan_review', tenant,
+           after={'plan_id': data.get('plan_id'), 'interval': data.get('interval')})
+    return jsonify(result)
+
+
+@bp.post('/cancel-scheduled-change')
+def cancel_scheduled_change_post():
+    from service import billing_management
+    tenant = _tenant()
+    _body()
+    try:
+        result = billing_management.cancel_scheduled_change(tenant)
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
+    except ValueError as exc:
+        return validation_error(exc, 'billing_request_failed', public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS)
+    from routes.admin_api_routes import _audit
+    _audit('billing.cancel_scheduled_change', tenant)
+    return jsonify(result)
+
+
+@bp.post('/reactivate-subscription')
+def reactivate_subscription_post():
+    from service import billing_management
+    tenant = _tenant()
+    _body()
+    try:
+        result = billing_management.reactivate_subscription(tenant)
+    except ApplicationError as exc:
+        return jsonify(error=exc.code), exc.status
+    except ValueError as exc:
+        return validation_error(exc, 'billing_request_failed', public_messages=_PROVIDER_ERRORS + _SUBSCRIPTION_ERRORS)
+    from routes.admin_api_routes import _audit
+    _audit('billing.reactivate_subscription', tenant)
     return jsonify(result)
 
 
