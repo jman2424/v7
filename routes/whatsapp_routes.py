@@ -158,11 +158,37 @@ def _reply(c, event, source):
     return reply
 
 
+def _unavailable(c, event, source):
+    """Tell the customer once a day how to reach the business; no AI is used."""
+    from service.tenant_access import notice_due, unavailable_notice
+    raw = event.get("raw", {})
+    message_id = raw.get("id") if source == "cloud" else raw.get("MessageSid")
+    sender = event.get("from") or raw.get("from") or raw.get("From") or ""
+    if (not isinstance(message_id, str) or not message_id or len(message_id) > 200
+            or not isinstance(sender, str) or not sender):
+        return ''
+    tenant = c.settings.BUSINESS_KEY
+    state, _ = webhook_inbox.claim(tenant, source, message_id)
+    if state != "new":
+        return ''
+    notice = unavailable_notice(c.business_profile) if notice_due(tenant, sender) else ''
+    try:
+        if notice and source == "cloud":
+            phone_id = event.get("metadata", {}).get("phone_number_id")
+            send_reply(event, notice, settings=replace(c.settings, WHATSAPP_PHONE_ID=phone_id))
+    except Exception as error:
+        log_error(tenant=tenant, channel="whatsapp", session_id="provider",
+                  error_code="wa_unavailable_notice_failed", error_type=type(error).__name__)
+        notice = ''
+    webhook_inbox.finish(tenant, source, message_id, '')
+    return notice
+
+
 def _process(c, event, source):
     from service.subscriptions import whatsapp_enabled
     from service.tenant_access import activation
     if not activation(c.settings.BUSINESS_KEY)['active']:
-        return ''
+        return _unavailable(c, event, source)
     if not whatsapp_enabled(c.settings.BUSINESS_KEY):
         return ''
     raw = event.get("raw", {})

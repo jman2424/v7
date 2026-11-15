@@ -341,7 +341,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         campaign = ''
     if kind=='implementation' and campaign:
         from service import referrals
-        # The joining business's free setup is stronger than the campaign.
+        # The joining business's free assistance is stronger than the campaign.
         # Keep the campaign on its subscription, without stacking coupons.
         if referrals.has_stronger_reward(tenant,kind,campaign_terms['percent'] if campaign_terms else 50):
             campaign = ''
@@ -476,9 +476,9 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     items = [(kind, amount, not one_time)]
     for index, (item,amount,recurring) in enumerate(items):
         prefix = f'line_items[{index}]'
-        name = {'platform':'V7 monthly subscription','implementation':'V7 setup (one time)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
+        name = {'platform':'V7 monthly subscription','implementation':'V7 assistance (one time, optional)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
         if plan:
-            name = 'V7 '+plan['name']+(' setup (one time)' if one_time else ' monthly subscription')
+            name = 'V7 '+plan['name']+(' assistance (one time, optional)' if one_time else ' monthly subscription')
         data.update({prefix+'[quantity]':1,prefix+'[price_data][currency]':'gbp',prefix+'[price_data][unit_amount]':amount,
                      prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name})
         if tax:
@@ -607,7 +607,7 @@ def sync_invoice(invoice_id):
 
 
 def sync_zero_setup_checkout(checkout_id):
-    """Fulfil a verified free setup order even when Stripe created no invoice.
+    """Fulfil a verified free assistance order even when Stripe created no invoice.
 
     Free Checkout orders have no PaymentIntent. A redirect or event metadata
     alone cannot waive a fee: retrieve the canonical session and match its

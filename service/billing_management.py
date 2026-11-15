@@ -167,8 +167,8 @@ def _verified_subscription(tenant, *, change=False):
         raise ValueError('scheduled_subscription_requires_review')
     if change:
         state = subscriptions.plan_state(tenant)
-        if (not plan or not state or not state['active_plan'] or not state['setup_plan']
-                or not contract['implementation_paid']):
+        # Optional assistance is not a condition of changing plan.
+        if not plan or not state or not state['active_plan']:
             raise ValueError('existing_setup_requires_review')
         items = (data.get('items') or {}).get('data') or []
         if (data.get('status') != 'active' or data.get('pending_update')
@@ -247,7 +247,7 @@ def change_plan(tenant, plan_id, base_url):
                    '(ref,tenant,billing_ref,subscription,from_plan,plan_id,price_id,setup_plan,status,created,expires) '
                    "VALUES (?,?,?,?,?,?,?,?,'pending',?,?)",
                    (ref, tenant, contract['ref'], contract['subscription'], state['active_plan'], plan_id,
-                    price_id, state['setup_plan'], now, now + 86400))
+                    price_id, state['setup_plan'] or '', now, now + 86400))
     return _session(tenant, contract, base_url, config, 'subscription_update_confirm', {
         'flow_data[subscription_update_confirm][subscription]': contract['subscription'],
         'flow_data[subscription_update_confirm][items][0][id]': data['items']['data'][0]['id'],

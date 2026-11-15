@@ -5,7 +5,7 @@
 1. Create the business workspace, verify the owner's email and complete account
    security setup. Use the assigned company key; do not share operator access.
 2. Choose Starter, Business or Scale in Subscription. Review the monthly and
-   separate one-time setup prices before paying. Only confirmed Stripe payments
+   optional one-time assistance prices before paying. Only confirmed Stripe payments
    activate a managed company.
 3. Add current products or services, prices, FAQs, policies, contact paths,
    opening hours and the intended response style. Save changes before testing.

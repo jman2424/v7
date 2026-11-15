@@ -269,7 +269,7 @@ def test_simultaneous_reviewers_cannot_overwrite_a_decision(workspace, app):
     assert sorted(results) == [200, 409]
 
 
-def test_full_approved_application_to_verified_subscription_and_setup(workspace, stripe, monkeypatch):
+def test_full_approved_application_to_verified_subscription_and_optional_assistance(workspace, stripe, monkeypatch):
     from tests.test_subscriptions import signature
     client, _, tenant = workspace
     apply(workspace)
@@ -300,7 +300,8 @@ def test_full_approved_application_to_verified_subscription_and_setup(workspace,
                                headers={'Stripe-Signature':signature(body)})
         assert response.status_code == 200, response.json
     deliver('in_applicationmonthly')
-    assert not tenant_access.activation(tenant)['active']
+    # The paid subscription activates the business; assistance stays optional.
+    assert tenant_access.activation(tenant)['active']
     assert client.post('/billing/checkout?tenant=' + tenant,json={'kind':'implementation'}).status_code == 200
     invoices['in_applicationsetup'] = {'id':'in_applicationsetup','currency':'gbp','created':int(time.time()),
         'customer':'cus_application','metadata':metadata['implementation'],'total':29900,'amount_paid':29900,

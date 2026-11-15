@@ -435,11 +435,26 @@ def _public_action_payload(result: Dict[str, Any], *, tenant: str = "", session_
 
 
 
+def _unavailable_notice(tenant):
+    """The contact wording for an existing business whose assistant is off, else None."""
+    from service.tenant_access import activation, unavailable_notice
+    try:
+        container = get_container().for_tenant(tenant)
+    except (ValueError, FileNotFoundError):
+        return None
+    if activation(container.settings.BUSINESS_KEY)['active']:
+        return None
+    return unavailable_notice(container.business_profile)
+
+
 def _tenant_container(tenant):
     try:
         container = get_container().for_tenant(tenant)
-        from service.tenant_access import require_active
-        require_active(container.settings.BUSINESS_KEY)
+        notice = _unavailable_notice(tenant)
+        if notice:
+            response = jsonify(error="business_awaiting_activation", message=notice)
+            response.status_code = 403
+            abort(response)
         return container
     except (ValueError, FileNotFoundError):
         response = jsonify(error="unknown_tenant")
@@ -700,6 +715,13 @@ def _safe_log_error(**kwargs) -> None:
 @bp.get("/chat_ui")
 def chat_ui():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    notice = _unavailable_notice(tenant)
+    if notice:
+        from markupsafe import escape
+        page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Assistant unavailable</title>'
+                '</head><body><p role="status">' + str(escape(notice)) + '</p></body></html>')
+        return Response(page, status=403, mimetype="text/html")
     c = _tenant_container(tenant)
     tenant = c.settings.BUSINESS_KEY
     from urllib.parse import urlsplit
@@ -741,6 +763,12 @@ def chat_ui():
 @bp.get("/widget.js")
 def widget_embed():
     tenant = request.args.get("tenant") or get_container().settings.BUSINESS_KEY
+    if _unavailable_notice(tenant):
+        # An unpaid or unapproved business shows no widget and no script error
+        # on its own website.
+        response = Response("/* V7 assistant unavailable */\n", mimetype="application/javascript")
+        response.headers["Cache-Control"] = "no-cache, max-age=0"
+        return response
     c = _tenant_container(tenant)
     tenant = c.settings.BUSINESS_KEY
     response = Response(_embed_javascript(tenant, _branding(c)), mimetype="application/javascript")

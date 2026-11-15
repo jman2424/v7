@@ -38,16 +38,16 @@
   {#if error}<p role="alert">{$t(error)}</p>{/if}{#if message}<p role="status">{$t(message)}</p>{/if}
   {#if data}
     <p>{$t('Both businesses receive {percent}% off one subscription month.',{percent:data.program.percent})}</p>
-    {#if data.program.joining_setup_percent===100}<p>{$t('The new business gets its first subscription month discounted and pays no setup fee.')}</p>
-    {:else}<p>{$t('The new business gets {percent}% off its unpaid setup fee.',{percent:data.program.joining_setup_percent})}</p>{/if}
-    <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid setup only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
-    <p class="hint">{$t('Already-paid setup fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
+    {#if data.program.joining_setup_percent===100}<p>{$t('The new business gets its first subscription month discounted and pays no assistance fee.')}</p>
+    {:else}<p>{$t('The new business gets {percent}% off its unpaid assistance fee.',{percent:data.program.joining_setup_percent})}</p>{/if}
+    <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid assistance only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
+    <p class="hint">{$t('Already-paid assistance fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
     <label for="referral-link">{$t('Your referral link')}</label><input id="referral-link" readonly value={data.link} dir="ltr" on:focus={(event)=>event.currentTarget.select()}/>
-    {#if data.claim}<p>{$t('Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid setup.',{percent:data.claim.percent,setup_percent:data.claim.joining_setup_percent})}</p>
+    {#if data.claim}<p>{$t('Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid assistance.',{percent:data.claim.percent,setup_percent:data.claim.joining_setup_percent})}</p>
     {:else if data.program.enabled}<form on:submit|preventDefault={()=>action('claim',{code})}><label for="referral-code">{$t('Have a referral code?')}</label><div><input id="referral-code" bind:value={code} maxlength="35" dir="ltr" required/><button disabled={busy}>{$t('Accept referral')}</button></div></form>{/if}
-    {#if data.rewards.length}<ul>{#each data.rewards as reward}<li>{$t(reward.kind==='platform'?'Subscription month':'Unpaid setup fee')} · {reward.percent}% · {$t(({available:'Available',reserved:'Checkout pending',applied:'Applied to next invoice',used:'Used',review:'Under review'} as Record<string,string>)[reward.status]||'Under review')}</li>{/each}</ul>
+    {#if data.rewards.length}<ul>{#each data.rewards as reward}<li>{$t(reward.kind==='platform'?'Subscription month':'Unpaid assistance fee')} · {reward.percent}% · {$t(({available:'Available',reserved:'Checkout pending',applied:'Applied to next invoice',used:'Used',review:'Under review'} as Record<string,string>)[reward.status]||'Under review')}</li>{/each}</ul>
       <button disabled={busy||!(configured||data.payments_configured)||data.rewards.some(reward=>reward.kind==='platform'&&['reserved','applied'].includes(reward.status))||!data.rewards.some(reward=>reward.kind==='platform'&&reward.status==='available')} on:click={()=>action('apply',{})}>{$t('Apply reward to next subscription month')}</button>
-      <p class="hint">{$t('Welcome and unpaid setup discounts are applied at checkout. Only one subscription reward can be applied at a time.')}</p>
+      <p class="hint">{$t('Welcome and unpaid assistance discounts are applied at checkout. Only one subscription reward can be applied at a time.')}</p>
     {/if}
     {#if isPlatform}<div class="settings"><button disabled={busy} on:click={()=>action('program',{enabled:!data?.program.enabled})}>{$t(data.program.enabled?'Pause new referrals':'Enable new referrals')}</button><p class="hint">{$t('Pausing stops new claims. Accepted offers and earned rewards stay saved.')}</p></div>{/if}
   {/if}

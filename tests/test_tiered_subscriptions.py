@@ -134,13 +134,17 @@ def test_setup_cannot_use_a_cheaper_plan_while_monthly_checkout_is_open(client,s
     assert client.post('/billing/select-plan',json={'plan_id':'starter'}).status_code==200
 
 
-def test_tiered_activation_requires_matching_paid_setup(client):
+def test_tiered_activation_needs_only_a_paid_subscription(client):
     from service import tenant_access
     tenant_access.register('EXAMPLE')
     subscriptions.select_plan('EXAMPLE','scale')
     subscriptions._contract('EXAMPLE','platform')
     with subscriptions.connection('EXAMPLE') as db:
         db.execute("UPDATE billing_plan_state SET active_plan='scale',setup_plan='starter' WHERE tenant='EXAMPLE'")
-        db.execute("UPDATE billing_contracts SET status='active',implementation_paid=1 WHERE tenant='EXAMPLE' AND kind='platform'")
-        db.execute("INSERT INTO billing_invoices VALUES ('in_scale','EXAMPLE','platform','2025-01',1,NULL,100,100,0,'paid','[]',NULL)")
+        db.execute("UPDATE billing_contracts SET status='active',implementation_paid=0 WHERE tenant='EXAMPLE' AND kind='platform'")
+    # No paid subscription invoice yet: still awaiting payment.
     assert not tenant_access.activation('EXAMPLE')['active']
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("INSERT INTO billing_invoices VALUES ('in_scale','EXAMPLE','platform','2025-01',1,NULL,100,100,0,'paid','[]',NULL)")
+    # One-time assistance is an optional add-on and never gates activation.
+    assert tenant_access.activation('EXAMPLE')['active']

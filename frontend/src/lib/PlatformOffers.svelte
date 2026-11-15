@@ -8,8 +8,8 @@
   let settings={setup_enabled:true,highstreet_enabled:true},revision='';
   let referral={enabled:false,percent:0,joining_setup_percent:0};
   const controllers=new Set<AbortController>();
-  const offers=[{key:'setup_enabled' as const,code:'SETUP',title:'Free one-time setup',details:'Waives unpaid business and agent setup. Monthly subscriptions keep their normal price.'},
-    {key:'highstreet_enabled' as const,code:'MHIGHSTREET',title:'Free setup + 50% off the first month',details:'Waives unpaid setup and discounts the first subscription month only. Later months keep their normal price.'}];
+  const offers=[{key:'setup_enabled' as const,code:'SETUP',title:'Free one-time assistance',details:'Waives the optional one-time assistance fee. Monthly subscriptions keep their normal price.'},
+    {key:'highstreet_enabled' as const,code:'MHIGHSTREET',title:'Free assistance + 50% off the first month',details:'Waives unpaid assistance and discounts the first subscription month only. Later months keep their normal price.'}];
   async function request(path:string,method='GET',body?:unknown) {
     const controller=new AbortController();controllers.add(controller);
     const timeout=setTimeout(()=>controller.abort(),20000);
@@ -73,7 +73,7 @@
       <button type="button" disabled={!canManage||Boolean(busy)} on:click={()=>toggle(offer.key)}>{busy===offer.key?'Updating…':`${settings[offer.key]?'Disable':'Enable'} ${offer.code}`}</button>
     </article>{/each}
     <article><div class="row"><strong>Referrals</strong><span class:active={referral.enabled}>{referral.enabled?'Active':'Paused'}</span></div>
-      <h3>Refer a business</h3><p>{referral.percent}% off the joining business’s first subscription month, with {referral.joining_setup_percent}% off its unpaid setup. The referrer earns its reward after verified payment.</p>
+      <h3>Refer a business</h3><p>{referral.percent}% off the joining business’s first subscription month, with {referral.joining_setup_percent}% off its unpaid assistance. The referrer earns its reward after verified payment.</p>
       <button type="button" disabled={!canManage||Boolean(busy)} on:click={toggleReferral}>{busy==='referral'?'Updating…':`${referral.enabled?'Disable':'Enable'} referrals`}</button>
     </article></div>
     <p class="hint">Switches save immediately. These billing offers exclude AI credit and provider charges. Catalogue promotions below are managed separately.</p>

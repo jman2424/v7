@@ -112,7 +112,7 @@ def coupon(stripe, tenant, campaign, kind, reference):
         _save(db, tenant, {**current, 'bindings': bindings})
     result = stripe.stripe_request('POST', '/v1/coupons',
         {'id': identifier, 'percent_off': offer['percent'], 'duration': 'once',
-         'name': 'V7 free setup' if kind == 'implementation' else 'V7 first month 50% off'},
+         'name': 'V7 free assistance' if kind == 'implementation' else 'V7 first month 50% off'},
         idempotency_key=identifier)
     if (result.get('id') != identifier or result.get('percent_off') != offer['percent']
             or result.get('duration') != 'once' or result.get('valid') is not True):

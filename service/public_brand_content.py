@@ -5,12 +5,12 @@ from service.plan_catalog import VAT_PERCENT, vat_percent, public_plans
 
 def _plan_prices() -> str:
     if not vat_percent():
-        return '; '.join(f"{plan['name']} £{plan['monthly_pence'] // 100}/month, with £{plan['setup_pence'] // 100} one-time setup"
+        return '; '.join(f"{plan['name']} £{plan['monthly_pence'] // 100}/month, with £{plan['setup_pence'] // 100} optional one-time assistance"
                          for plan in public_plans())
     return "; ".join(
         f"{plan['name']} £{plan['monthly_pence'] // 100}/month before VAT "
         f"(£{plan['monthly_pence'] * (100 + VAT_PERCENT) / 10000:.2f}/month including {VAT_PERCENT}% VAT, where applicable), "
-        f"with £{plan['setup_pence'] // 100} one-time setup before VAT "
+        f"with £{plan['setup_pence'] // 100} optional one-time assistance before VAT "
         f"(£{plan['setup_pence'] * (100 + VAT_PERCENT) / 10000:.2f} including {VAT_PERCENT}% VAT, where applicable)"
         for plan in public_plans()
     )
@@ -54,7 +54,7 @@ SETUP_GUIDE: Solution = {
         ]},
         {"heading": "Test before embedding on your website", "paragraphs": [
             "Use the widget section to test a known fact, missing information, an out-of-scope request and a request needing your team. Compare answers with your source material. Try follow-up questions, a changed product choice and a declined callback. Check the welcome message, brand colours, mobile layout and contact links. Select a supported model and check the prepaid AI credit balance when testing model-powered replies; saved-knowledge fallback is available when paid processing cannot run.",
-            "We provide implementation support and the workspace's generated embed instructions. Your team or website developer installs the widget; website editing and custom development are separate. Configure the approved website origin. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp and call handling are included in the Scale plan and need their own provider setup. Phone numbers are not included; number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit.",
+            "The workspace provides generated embed instructions and guidance; optional one-time assistance is a paid add-on. Your team or website developer installs the widget; website editing and custom development are separate. Configure the approved website origin. Test on the actual website before launch. Knowledge configuration does not automatically connect payments, inventory or booking systems. WhatsApp and call handling are included in the Scale plan and need their own provider setup. Phone numbers are not included; number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit.",
         ]},
         {"heading": "Review actual conversations after launch", "paragraphs": [
             "Review available conversation and enquiry records in your authorised workspace. Look for unanswered questions, unclear next steps and outdated facts, then update the relevant business information and retest.",
@@ -87,7 +87,7 @@ ABOUT: Solution = {
             "Quotes, callbacks, consultation slots and other customer actions depend on configuration. Listing a service does not automatically connect a booking system, payment service or shop inventory. WhatsApp and call handling are included in the Scale plan and need a configured Meta or Twilio provider connection. Phone numbers are not included; number rental and WhatsApp provider charges are separate.",
         ]},
         {"heading": "What does the platform cost?", "paragraphs": [
-            _plan_prices() + ". Prices are in GBP, with final payable totals also displayed. Every plan includes the website agent; Business adds the email assistant and Scale adds WhatsApp and calls. Messages are limited by prepaid AI credit rather than a fixed cap. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. Setup is paid separately and does not repeat with the monthly subscription.",
+            _plan_prices() + ". Prices are in GBP, with final payable totals also displayed. Every plan includes the website agent; Business adds the email assistant and Scale adds WhatsApp and calls. Messages are limited by prepaid AI credit rather than a fixed cap. " + _prepaid_processing() + " WhatsApp usage is measured by AI processing cost rather than a fixed number of messages. One-time assistance is an optional add-on, paid separately, and does not repeat with the monthly subscription.",
             "Paid AI calls across website and WhatsApp pause when the available prepaid AI credit cannot safely cover a request or its cost is unknown; saved business knowledge remains available. Owners choose one-time prepaid top-ups; automatic recharge is off unless explicitly authorised and available on the platform; there are no automatic overage invoices. WhatsApp requires a configured provider connection. Phone numbers are not included: number rental and WhatsApp provider charges are separate and are not covered by prepaid AI credit. Review the homepage comparison and final checkout totals before purchasing.",
         ]},
         {"heading": "What should a business test before launch?", "paragraphs": [

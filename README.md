@@ -368,9 +368,10 @@ access until a valid code is confirmed. Local preview credentials are not live
 Render credentials. Existing server-configured admin passwords and authenticators
 are unchanged. See [security and recovery](docs/operations/security.md).
 
-The `/console/subscription` page shows Starter at GBP 99/month plus GBP 149
-setup, Business at GBP 199/month plus GBP 299 setup, and Scale at GBP 349/month
-plus GBP 599 setup, before VAT. All three include website and WhatsApp agents,
+The `/console/subscription` page shows Starter at GBP 99/month, Business at GBP 199/month and Scale at GBP
+349/month, before VAT. Starter includes website chat, Business adds email and
+Scale adds WhatsApp and calls. One-time assistance (GBP 149, 299 or 599) is an
+optional add-on. Plans come
 with plan-specific conversations, messages, AI-cost budgets, locations and staff
 allowances. When an allowance runs out, the affected service pauses and durable
 in-app alerts notify owners and platform administrators. No extra usage is charged
@@ -381,7 +382,7 @@ Only platform administrators create tenants and see the all-company subscription
 list. Owners see their own billing; staff need explicit view_costs and/or
 view_subscriptions permissions, with read-only subscription access. All accounts
 require authenticator 2FA. New businesses can be configured before launch, but
-only activate after the monthly invoice and matching setup payment are confirmed.
+only activate after the monthly invoice is confirmed.
 Ownership, activation and usage records need durable storage and protected backups.
 No real Stripe charge is taken by tests or by deploying the code. See
 [monthly plans](docs/guides/billing-plans.md) for allowance definitions and limitations.

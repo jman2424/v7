@@ -114,11 +114,11 @@ def test_pause_updates_homepage_current_ai_policy_and_stale_copy(client, app, ma
         current = platform_offer_knowledge.public_setup_policy('EXAMPLE')['answer']
         assert 'SETUP is paused for new claims.' in current
         assert 'Use SETUP for free' not in current
-        text = platform_offer_knowledge.current_promotion_reply('EXAMPLE', 'Starter is £99 monthly. Use SETUP for free setup.')
+        text = platform_offer_knowledge.current_promotion_reply('EXAMPLE', 'Starter is £99 monthly. Use SETUP for free assistance.')
         assert '£99' in text and 'paused for new claims' in text and 'Use SETUP' not in text
-        assert platform_offer_knowledge.current_promotion_reply('OTHER', 'Use SETUP for free setup.') == 'Use SETUP for free setup.'
+        assert platform_offer_knowledge.current_promotion_reply('OTHER', 'Use SETUP for free assistance.') == 'Use SETUP for free assistance.'
         assert platform_offer_knowledge.current_promotion_reply('EXAMPLE', text) == text
-        knowledge = {'faq:old': {'answer': 'Use SETUP for free setup.'}, 'product:a': {'price': 99},
+        knowledge = {'faq:old': {'answer': 'Use SETUP for free assistance.'}, 'product:a': {'price': 99},
                      'policy:platform_setup': {'answer': current}}
         filtered = platform_offer_knowledge.current_promotion_knowledge('EXAMPLE', knowledge)
         assert 'faq:old' not in filtered and filtered['product:a']['price'] == 99
@@ -136,7 +136,7 @@ def test_malformed_policy_fails_closed_without_exposing_details(client, app, mar
 
 def test_actual_website_chat_does_not_advertise_a_paused_code_from_a_saved_faq(client, app, marketing):
     marketing.write_json('EXAMPLE', 'faq.json', [{
-        'q': 'What is the SETUP offer?', 'a': 'Use SETUP for free setup.', 'tags': ['setup', 'offer']}])
+        'q': 'What is the SETUP offer?', 'a': 'Use SETUP for free assistance.', 'tags': ['setup', 'offer']}])
     assert update(client, setup_enabled=False).status_code == 200
     app.container.for_tenant('EXAMPLE').handler.h_v7.rewriter = None
     response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'What is the SETUP offer?'})
@@ -149,7 +149,7 @@ def test_platform_offer_fallback_uses_live_codes_without_hijacking_setup_help(cl
     with app.app_context():
         assert platform_offer_knowledge.automatic_setup_answer('How do I set up my widget?', 'EXAMPLE') is None
         assert platform_offer_knowledge.automatic_setup_answer('What offers do you have?', 'OTHER', all_offers=True) is None
-        assert 'free unpaid one-time setup' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
+        assert 'free unpaid optional one-time assistance' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
     assert update(client, setup_enabled=False, highstreet_enabled=False).status_code == 200
     monkeypatch.setattr(referrals, 'public_offer', lambda tenant: {'enabled': False})
     with app.app_context():

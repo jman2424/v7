@@ -5,11 +5,11 @@ from service.public_site_content import Solution
 
 def public_pricing() -> Solution:
     return {
-        'title': 'V7 Agents Pricing: Plans, Setup & AI Costs | Vertex Seven',
-        'description': 'Compare V7 Agents Starter, Business and Scale plans, one-time setup fees, separate AI credit and WhatsApp costs. Choose a website chatbot plan for your business.',
+        'title': 'V7 Agents Pricing: Plans, Assistance & AI Costs | Vertex Seven',
+        'description': 'Compare V7 Agents Starter, Business and Scale plans, optional one-time assistance fees, separate AI credit and WhatsApp costs. Choose a website chatbot plan for your business.',
         'label': 'Pricing',
         'h1': 'V7 Agents pricing, with every cost explained',
-        'intro': 'Compare the platform subscription, one-time setup and separate AI processing costs before choosing a plan. Every plan includes the website agent. Business adds the email assistant and Scale adds WhatsApp and calls; the plans also differ in locations, team size and service level.',
+        'intro': 'Compare the platform subscription, optional one-time assistance and separate AI processing costs before choosing a plan. Every plan includes the website agent. Business adds the email assistant and Scale adds WhatsApp and calls; the plans also differ in locations, team size and service level.',
         'audience': 'GBP pricing for businesses choosing an AI sales assistant. No AI credit is included in the subscription.',
         'sections': [
             {'heading': 'Which plan should you choose?', 'paragraphs': [
@@ -22,7 +22,7 @@ def public_pricing() -> Solution:
                 'Your workspace shows available models, their prices, the usage ledger and the remaining balance. Paid model requests pause when credit cannot safely cover the next request or its cost is unknown. Saved business knowledge remains available. Purchased credit carries forward; automatic recharge is optional and requires explicit authorisation and platform availability; no automatic overage charge is made.',
             ]},
             {'heading': 'What is separate from the monthly plan?', 'paragraphs': [
-                'Setup is a one-time payment shown separately from the monthly subscription. AI processing is funded separately with prepaid credit. WhatsApp needs a suitable business number and a configured provider connection; number rental and Meta or provider messaging fees are additional costs outside V7 credit.',
+                'One-time assistance is an optional add-on shown separately from the monthly subscription. AI processing is funded separately with prepaid credit. WhatsApp needs a suitable business number and a configured provider connection; number rental and Meta or provider messaging fees are additional costs outside V7 credit.',
                 'If you need access to customer orders, stock, a payment provider or an external booking system, discuss the specific integration and permissions before buying. Importing public website information does not connect private customer records or enable every business action.',
             ]},
             {'heading': 'Can you change or cancel a subscription?', 'paragraphs': [
@@ -31,7 +31,7 @@ def public_pricing() -> Solution:
             ]},
         ],
         'steps': [
-            {'title': 'Compare the total', 'description': 'Include monthly subscription, setup, AI processing and any separate WhatsApp provider costs.'},
+            {'title': 'Compare the total', 'description': 'Include monthly subscription, any optional assistance, AI processing and any separate WhatsApp provider costs.'},
             {'title': 'Check the fit', 'description': 'Confirm your locations, staff access, business knowledge and required integrations.'},
             {'title': 'Review before paying', 'description': 'Your workspace and final Stripe checkout show the prices and terms that apply to your purchase.'},
         ],
@@ -64,7 +64,7 @@ BUYING_GUIDE: Solution = {
             'For an action that changes data, test permissions, customer identity, confirmation, repeated clicks and provider failure. Get the integration requirements in writing before depending on order changes, refunds or other private account operations. V7 provides configured website destinations and enabled enquiry flows; further business-system access depends on the integration and permissions available.',
         ]},
         {'heading': '5. Compare the complete cost', 'paragraphs': [
-            'Compare the subscription and setup separately from usage. Ask whether usage is billed by messages, conversations or model tokens, whether context counts, which model is used and whether one customer turn can trigger several paid calls. Ask for the exact behaviour when the budget runs out.',
+            'Compare the subscription and any optional assistance separately from usage. Ask whether usage is billed by messages, conversations or model tokens, whether context counts, which model is used and whether one customer turn can trigger several paid calls. Ask for the exact behaviour when the budget runs out.',
             'For V7, AI processing uses separately purchased prepaid credit, with no fixed message cap; automatic recharge requires explicit authorisation and platform availability. Website and WhatsApp share the credit balance. Phone numbers and WhatsApp provider fees are separate. Compare real conversations of different lengths rather than assuming that every message costs the same.',
         ]},
         {'heading': '6. Check the customer and team experience', 'paragraphs': [

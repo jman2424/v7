@@ -29,7 +29,7 @@ data do not guarantee indexing, rich results or ranking.
 
 The homepage product schema describes Starter, Business and Scale monthly plans.
 The shared `service/plan_catalog.py` supplies the website, checkout and dashboard
-prices: £99, £199 and £349/month, with separate one-time setup fees of
+prices: £99, £199 and £349/month, with optional one-time assistance fees of
 £149, £299 and £599. Each schema offer identifies its monthly billing unit,
 matching the visible cards. `V7_VAT_REGISTERED` controls the tax wording and
 calculation. With the current unregistered configuration, no VAT is added and

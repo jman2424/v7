@@ -45,7 +45,7 @@
       budget_authorisation_required:'Review the recharge amount and monthly limit, then confirm your authorisation.',
       budget_authorisation_mismatch:'Your authorisation could not be confirmed. Refresh and try again.',
       budget_authorisation_needs_review:'This authorisation needs review. Contact support before trying again.',
-      budget_active_business_required:'Activate your business subscription and setup before adding AI funds.',
+      budget_active_business_required:'Activate your business subscription before adding AI funds.',
       budget_checkout_unavailable:'Checkout is unavailable. Check your subscription and business approval, then try again.',
       business_approval_required:'Your business needs approval before making a payment.',
       unauthorized:'Your sign-in has expired. Sign in again.',forbidden:'You do not have permission to change billing settings.',

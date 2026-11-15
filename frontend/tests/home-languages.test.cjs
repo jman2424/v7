@@ -5,7 +5,7 @@ test('homepage switches all four languages, restores English, preserves amounts 
  let language='en';const events={};
  const parent=(excluded=false,source='')=>({dataset:{i18nSource:source},closest:selector=>selector==='[data-i18n]'?(source?{dataset:{i18nSource:source}}:null):(excluded?{}:null)});
  const nodes=[{nodeValue:'Request a demo',parentElement:parent()},
- {nodeValue:'  £199 one-time setup  ',parentElement:parent()},
+ {nodeValue:'  £199 optional one-time assistance  ',parentElement:parent()},
  {nodeValue:'The right plan.',parentElement:parent(false,'The right plan.')},
  {nodeValue:'Untouched executable content',parentElement:parent(true)}];
  const title={tagName:'TITLE',textContent:'Vertex Seven | V7 Agents — AI chatbot for business',matches:()=>false,hasAttribute:()=>false};
@@ -18,7 +18,7 @@ test('homepage switches all four languages, restores English, preserves amounts 
  for(language of ['es','fr','ar','en']){
    nodes[2].nodeValue='A marker recreated by the shared translator';events['v7-language-changed']();
    assert.equal(nodes[0].nodeValue,language==='en'?'Request a demo':dictionary[language]['Request a demo']);
-   assert.equal(nodes[1].nodeValue,language==='en'?'  £199 one-time setup  ':'  '+dictionary[language]['£{0} one-time setup'].replace('{0}','199')+'  ');
+   assert.equal(nodes[1].nodeValue,language==='en'?'  £199 optional one-time assistance  ':'  '+dictionary[language]['£{0} optional one-time assistance'].replace('{0}','199')+'  ');
    assert.equal(nodes[2].nodeValue,language==='en'?'The right plan.':dictionary[language]['The right plan.']);
    assert.equal(nodes[3].nodeValue,'Untouched executable content');
    assert.equal(iframe.values.title,language==='en'?'Chat with Vertex Seven':dictionary[language]['Chat with Vertex Seven']);

@@ -1025,7 +1025,9 @@ class MessageHandlerV7:
                         facts.pop('price', None)
                     if billing_plans and currency == 'GBP':
                         unit = str(facts.get('unit') or '').strip().lower()
-                        component = {'month': 'monthly_pence', 'one-time setup': 'setup_pence'}.get(unit)
+                        component = {'month': 'monthly_pence', 'one-time setup': 'setup_pence',
+                                     'one-time assistance': 'setup_pence',
+                                     'optional one-time assistance': 'setup_pence'}.get(unit)
                         for billing in billing_plans if component else []:
                             if (facts.get('price') == billing[component] / 100
                                     and re.search(r'\b' + re.escape(billing['name']) + r'\b',

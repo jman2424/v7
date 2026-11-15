@@ -60,7 +60,7 @@
       {#if application.public_message}<p class="message">{application.public_message}</p>{/if}
       {#if application.accepted_policy_text}<details><summary>Policy accepted with this application</summary><p class="message">{application.accepted_policy_text}</p></details>{/if}
       {#if application.existing_service_preserved}<p>Existing services and prepaid balances remain subject to their current billing and permissions. This review does not automatically cancel your subscription.</p>{/if}
-      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and setup fees are separate from prepaid AI usage credit. Activation follows verified payment.</p>{/if}
+      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and assistance fees are separate from prepaid AI usage credit. Activation follows verified payment.</p>{/if}
       <div class="actions"><button disabled={busy} on:click={load}>Refresh status</button>{#if canEdit}<button disabled={busy} on:click={()=>{editing=!editing;fill();}}>Correct details / request reconsideration</button>{#if application.status!=='CANCELLED'}<button disabled={busy} on:click={withdraw}>Withdraw application</button>{/if}{/if}</div>
     {/if}
     {#if canEdit&&(!application||editing)}
@@ -71,7 +71,7 @@
           <label>Business name<input bind:value={businessName} maxlength="120" required/></label>
           <label>Business website (optional)<input type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
           <label>Business description {website?'(optional)':''}<textarea bind:value={description} maxlength="2000" rows="3" required={!website}></textarea></label>
-          <label>Selected plan<select bind:value={planId}>{#each policy.plans as plan}<option value={plan.id}>{plan.name} · £{plan.monthly_pence/100}/month + £{plan.setup_pence/100} setup</option>{/each}</select></label>
+          <label>Selected plan<select bind:value={planId}>{#each policy.plans as plan}<option value={plan.id}>{plan.name} · £{plan.monthly_pence/100}/month + £{plan.setup_pence/100} optional assistance</option>{/each}</select></label>
           <label class="check"><input type="checkbox" bind:checked={acceptedTerms} required/><span>I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
           <button type="submit" class="primary">{busy?'Saving…':application?'Submit for another review':'Submit application'}</button>
         </fieldset>

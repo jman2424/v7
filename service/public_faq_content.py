@@ -6,7 +6,7 @@ def public_faq():
     sections = [
         ("What is V7 Agents and who provides it?", "V7 Agents is the configurable AI sales assistant platform provided by Vertex Seven. Vertex Seven is the brand; V7 Agents is the product. Our official website is vertex-seven.com. We operate online and serve businesses across the United Kingdom without in-person customer appointments."),
         ("Which businesses can use V7 Agents?", "Retailers, online stores, service businesses and multi-branch companies can configure V7 with their own products or services, prices, FAQs, policies, opening hours and contact paths. A service business can explain its quote process; a retailer can help visitors compare supplied products. Suitability depends on the knowledge and integrations your business configures."),
-        ("How much does V7 Agents cost?", _plan_prices() + ". The subscription pays for the platform and the setup fee is separate from recurring monthly billing. Review the homepage comparison and final checkout before purchasing."),
+        ("How much does V7 Agents cost?", _plan_prices() + ". The subscription pays for the platform and the assistance fee is separate from recurring monthly billing. Review the homepage comparison and final checkout before purchasing."),
         ("Are AI tokens included in the subscription?", _prepaid_processing() + " Subscription payments and prepaid usage credit are separate. Customers choose their supported model and purchase processing credit through their workspace."),
         ("How many messages can my AI credit cover?", "There is no fixed message allowance. The cost depends on the selected model, input tokens, output tokens and applicable cached-token pricing. Longer context or responses can use more credit. Your authorised workspace shows available models, pricing, usage history and charges; a message count alone does not determine the bill."),
         ("What happens when prepaid credit runs out?", "Chargeable model requests pause when available credit cannot safely cover the next request. Saved business knowledge remains available. Business owners can buy another one-time top-up. No automatic usage overages or recharges are enabled."),
@@ -25,7 +25,7 @@ def public_faq():
         "audience": "For UK businesses comparing website chat assistants and preparing their first agent.",
         "sections": [{"heading": question, "paragraphs": [answer]} for question, answer in sections],
         "steps": [
-            {"title": "Compare", "description": "Review the platform subscription, setup fee and separate provider costs."},
+            {"title": "Compare", "description": "Review the platform subscription, assistance fee and separate provider costs."},
             {"title": "Prepare", "description": "Collect current business knowledge and a monitored human contact path."},
             {"title": "Test", "description": "Check the chosen model, credit balance, widget and integrations before launch."},
         ],

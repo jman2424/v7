@@ -141,6 +141,13 @@ def _phone_context():
     source = request.form.get('From', '')
     if not channels.PHONE.fullmatch(source):
         source = 'anonymous'
+    from service.tenant_access import activation, unavailable_notice
+    if not activation(tenant)['active']:
+        # A verified call to an unpaid business hears how to reach it; no AI runs.
+        response = VoiceResponse()
+        response.say(unavailable_notice(container.for_tenant(tenant).business_profile), language='en-GB')
+        response.hangup()
+        abort(_xml(response))
     if not channels.active(container.storage, tenant, 'phone'):
         abort(503)
     return container, _PhoneCall(tenant, called, call, source)

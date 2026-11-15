@@ -201,7 +201,8 @@ class MessageHandler:
         from service.chat_diagnostics import phase, emit
         with phase('activation'):
             if not activation(tenant)['active']:
-                return {'reply': 'This business is awaiting activation.', 'intent': 'business_inactive'}
+                from service.tenant_access import unavailable_notice
+                return {'reply': unavailable_notice(self.sales_agent.business_profile), 'intent': 'business_inactive'}
         ctx = MessageContext(
             tenant=tenant,
             session_id=session_id,

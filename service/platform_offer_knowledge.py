@@ -16,17 +16,18 @@ from service.website_destinations import validate
 def setup_support() -> str:
     from service.platform_promotions import public_flags
     flags = public_flags()
-    text = ('Vertex Seven provides business and agent setup with implementation support. '
-            'We provide the embed snippet and help your team or website developer add it and test it. '
+    text = ('Your workspace includes the embed snippet and step-by-step guidance; your team or website developer adds and tests it. '
+            'Optional one-time assistance is a paid add-on: guided help with setup, without Vertex Seven signing in to your accounts. '
+            'A business that sets itself up does not need it. '
             'Website editing, installation by Vertex Seven, custom development and third-party integrations '
             'are not included as a done-for-you implementation service. ')
-    text += ('Use SETUP for free one-time setup; the normal monthly subscription price still applies. '
+    text += ('Use SETUP for free optional one-time assistance; the normal monthly subscription price still applies. '
              if flags['setup_enabled'] else 'SETUP is paused for new claims. ')
-    text += ('MHIGHSTREET gives free one-time setup and 50% off the first subscription month only; '
+    text += ('MHIGHSTREET gives free optional one-time assistance and 50% off the first subscription month only; '
              'later months use the normal plan price. ' if flags['highstreet_enabled']
              else 'MHIGHSTREET is paused for new claims. ')
     return text + ('Enter an active code in Subscription before checkout. Business approval and verified checkout completion are still required. '
-                   'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid setup. '
+                   'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid assistance. '
                    'Previously accepted offers keep their saved terms.')
 
 
@@ -36,7 +37,7 @@ def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = Fal
         return None
     requested = []
     if (re.search(r'\bSETUP\b', question)
-            or re.search(r'\b(?:code\s+setup|setup\s+(?:offer|code)|free\s+setup)\b', question, re.I)):
+            or re.search(r'\b(?:code\s+setup|setup\s+(?:offer|code)|free\s+setup|free\s+assistance|assistance\s+(?:offer|code|fee))\b', question, re.I)):
         requested.append('SETUP')
     if re.search(r'\bMHIGHSTREET\b', question, re.I):
         requested.append('MHIGHSTREET')
@@ -49,8 +50,8 @@ def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = Fal
         key = 'setup_enabled' if code == 'SETUP' else 'highstreet_enabled'
         if flags[key]:
             active = True
-            rows.append(('SETUP: free unpaid one-time setup; normal monthly subscription prices apply.'
-                         if code == 'SETUP' else 'MHIGHSTREET: free unpaid setup and 50% off the first subscription month only; later months use the normal price.'))
+            rows.append(('SETUP: free unpaid optional one-time assistance; normal monthly subscription prices apply.'
+                         if code == 'SETUP' else 'MHIGHSTREET: free unpaid assistance and 50% off the first subscription month only; later months use the normal price.'))
         elif requested:
             rows.append(code+' is paused for new claims.')
     if not requested:
@@ -62,7 +63,7 @@ def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = Fal
         rows.append('New promotional claims are currently paused.')
     if active:
         rows.append('Accept an active code before checkout. Business approval and verified checkout completion are required. '
-                    'Offers do not stack or cover AI credit or provider fees, and paid setup is not refunded.')
+                    'Offers do not stack or cover AI credit or provider fees, and paid assistance is not refunded.')
     else:
         rows.append('Previously accepted offers keep their saved terms.')
     return '\n\n'.join(rows)
@@ -71,7 +72,7 @@ def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = Fal
 def public_setup_policy(tenant):
     if not tenant or not subscriptions.internal_business(tenant):
         return None
-    return {'question': 'What do setup, implementation support and setup codes include?',
+    return {'question': 'What do setup guidance, optional assistance and assistance codes include?',
             'answer': setup_support(), 'answer_complete': True,
             'authority': 'Current platform service scope and billing offers override older imported implementation claims.'}
 
@@ -90,8 +91,8 @@ def public_knowledge(tenant):
     return {**offer, 'authority':'Current platform billing rules; override older imported referral descriptions.',
             'scope':'V7 platform referral programme, not a discount on other businesses products.',
             'eligibility':'New business accepts a valid referral code before its first checkout.',
-            'joining_business':'First subscription month discounted; the accepted joining setup percentage applies only to unpaid setup.',
-            'referrer':'Reward earned only after verified first subscription payment. Applies to its next subscription month and any unpaid setup.',
+            'joining_business':'First subscription month discounted; the accepted joining assistance percentage applies only to unpaid assistance.',
+            'referrer':'Reward earned only after verified first subscription payment. Applies to its next subscription month and any unpaid assistance.',
             'pause_rule':'Disabling stops new claims. Previously accepted offers and earned rewards retain their saved terms.',
             'payment_action':'Sign in and explicitly accept the referral in Account & security or Subscription before checkout. Chat cannot grant discounts or take payment.',
             'prices':plans}
@@ -105,7 +106,7 @@ def public_destinations(tenant, configured):
         {'id':'platform_referrals','label':'Referral settings','url':origin+'/console/account#business-referrals',
          'purpose':'Sign in to share or accept a referral before checkout; this does not apply a discount by itself.'},
         {'id':'platform_plans','label':'Compare subscription plans','url':origin+'/#pricing',
-         'purpose':'Compare current platform subscription plans, setup fees and public referral terms.'},
+         'purpose':'Compare current platform subscription plans, assistance fees and public referral terms.'},
     ]
     for plan in public_plans():
         candidates.append({'id':'platform_plan_'+plan['id'], 'label':'Choose '+plan['name'],
@@ -144,11 +145,11 @@ def automatic_offer_answer(question, knowledge):
         return None
     if not knowledge['enabled']:
         return 'New referrals are paused. Previously accepted offers and earned rewards keep their saved terms. Sign in to Account & security to view your referral.'
-    setup = 'no setup fee (£0)' if knowledge['joining_setup_percent']==100 else f"{knowledge['joining_setup_percent']}% off unpaid setup"
+    setup = 'no assistance fee (£0)' if knowledge['joining_setup_percent']==100 else f"{knowledge['joining_setup_percent']}% off unpaid assistance"
     return (f"A new referred business receives {knowledge['percent']}% off its first subscription month and {setup}. "
             'It must accept a valid referral code before its first checkout. '
-            f"The referrer earns {knowledge['percent']}% off its next subscription month and {knowledge['sponsor_setup_percent']}% off any unpaid setup after the first subscription payment is verified. "
-            'AI credit is separate. Existing setup payments are not refunded and discounts do not stack. '
+            f"The referrer earns {knowledge['percent']}% off its next subscription month and {knowledge['sponsor_setup_percent']}% off any unpaid assistance after the first subscription payment is verified. "
+            'AI credit is separate. Existing assistance payments are not refunded and discounts do not stack. '
             'Sign in to Account & security or Subscription to share or accept a referral.')
 
 
@@ -177,19 +178,19 @@ def automatic_plan_answer(question, knowledge, history=None):
         return None
     named = [plan for plan in plans if re.search(r'\b'+re.escape(plan['name'])+r'\b', question, re.I)]
     selected = named or plans
-    lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month plus £{plan['setup_pence']/100:.2f} one-time setup; "
+    lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month plus £{plan['setup_pence']/100:.2f} optional one-time assistance; "
              f"{plan['channel_summary']}; {plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
              for plan in selected]
     from service.plan_catalog import vat_percent
     tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ''
     if not tax and re.search(r'\b(?:vat|tax|taxes)\b', question, re.I):
         tax = ' No VAT is added to the published prices.'
-    lines.append('Subscription and setup fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
+    lines.append('Subscription and assistance fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
                  'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overage charges. Optional £5 automatic recharge requires explicit authorisation, a monthly purchase cap and platform availability.' + tax)
     from service.platform_promotions import public_flags
     if public_flags()['setup_enabled']:
-        lines.append('Use code SETUP for free one-time setup. Monthly subscription prices are unchanged.')
-    lines.append('Implementation support is included; your team or website developer installs the widget.')
+        lines.append('Use code SETUP for free optional one-time assistance. Monthly subscription prices are unchanged.')
+    lines.append('One-time assistance is an optional add-on and is not needed to activate; your team or website developer installs the widget.')
     return '\n\n'.join(lines)
 
 

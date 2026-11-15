@@ -99,15 +99,52 @@ def activation(tenant):
     if complimentary_plan(tenant):
         return {'active': True, 'status': 'complimentary'}
     with connection(tenant) as db:
-        row = db.execute("SELECT status,implementation_paid FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
+        row = db.execute("SELECT status FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
         paid = db.execute("SELECT 1 FROM billing_invoices WHERE tenant=? AND kind='platform' AND status='paid' AND paid>0 LIMIT 1", (tenant,)).fetchone()
-    active = bool(row and row['status']=='active' and row['implementation_paid'] and paid)
-    from service.subscriptions import plan_state
-    state = plan_state(tenant)
-    if state:
-        from service.billing_management import paid_setup_covers
-        active = active and paid_setup_covers(tenant, state['active_plan'], state['setup_plan'])
+    # The one-time assistance fee is an optional add-on: a confirmed, paid
+    # subscription alone activates the business.
+    active = bool(row and row['status']=='active' and paid)
     return {'active': active, 'status': 'active' if active else 'awaiting_payments'}
+
+
+def unavailable_notice(profile):
+    """Fixed customer wording for a business whose assistant is switched off.
+
+    Uses only the business's own saved public name and contact email. It never
+    says why the assistant is unavailable.
+    """
+    from service.business_channels import address
+    profile = profile if isinstance(profile, dict) else {}
+    name = profile.get('name')
+    name = ' '.join(name.split())[:80] if isinstance(name, str) else ''
+    name = name if name and all(ch.isprintable() and ch not in '<>' for ch in name) else 'the business'
+    try:
+        email = address(profile.get('email'))
+    except ValueError:
+        email = ''
+    if email:
+        return f'This assistant is currently unavailable. Please contact {name} by email at {email}.'
+    return f'This assistant is currently unavailable. Please contact {name} directly.'
+
+
+_notified: dict[str, float] = {}
+
+
+def notice_due(tenant, sender, *, now=None, interval=86400):
+    """Best-effort limit: one unavailable notice per sender per day per worker."""
+    import hashlib
+    import time
+    now = time.time() if now is None else now
+    key = hashlib.sha256(f'{tenant}\0{sender}'.encode()).hexdigest()
+    if len(_notified) > 5000:
+        for old in [k for k, seen in _notified.items() if now - seen >= interval]:
+            _notified.pop(old, None)
+        if len(_notified) > 5000:
+            return False
+    if key in _notified and now - _notified[key] < interval:
+        return False
+    _notified[key] = now
+    return True
 
 
 def require_active(tenant):

@@ -537,6 +537,7 @@
     tester_daily_limit: "You’ve used today’s 10 free test messages. The allowance resets at 00:00 UTC. Sign in with a paid account to continue.",
     conversation_expired: "This chat session expired. Send your message again to start a new conversation.",
     website_allowance_paused: "Chat is temporarily unavailable. Please contact the business directly.",
+    business_unavailable: "This assistant is currently unavailable. Please contact the business directly.",
     rate_limited: "Too many messages. Please wait a moment before trying again.",
     service_unavailable: "The chat service is temporarily unavailable or starting up. Please wait a moment and try again."
   };
@@ -640,6 +641,7 @@
           throw new Error("website_allowance_paused");
         }
         if (data && data.error === "tester_daily_limit") throw new Error("tester_daily_limit");
+        if (data && data.error === "business_awaiting_activation") throw new Error("business_unavailable");
         if (response.status === 429) throw new Error("rate_limited");
         throw new Error("request_failed");
       }

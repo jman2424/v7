@@ -13,7 +13,7 @@ def test_setup_scope_and_codes_override_old_installation_promises_for_platform_o
     assert policy['answer_complete'] is True
     assert 'your team or website developer' in policy['answer']
     assert 'not included as a done-for-you implementation service' in policy['answer']
-    assert 'Use SETUP for free one-time setup' in policy['answer']
+    assert 'Use SETUP for free optional one-time assistance' in policy['answer']
     assert '50% off the first subscription month only' in policy['answer']
     assert 'do not cover AI credit' in policy['answer']
     from service.grounded_statements import statement_catalog
@@ -54,8 +54,8 @@ def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(clien
     with client.application.app_context():
         knowledge = platform_offer_knowledge.public_knowledge('VERTEX')
         answer = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', knowledge)
-        assert 'Starter: £99.00/month plus £149.00 one-time setup' in answer
-        assert 'Business: £199.00/month plus £299.00 one-time setup' in answer
+        assert 'Starter: £99.00/month plus £149.00 optional one-time assistance' in answer
+        assert 'Business: £199.00/month plus £299.00 optional one-time assistance' in answer
         assert '5 staff accounts' in answer and 'No AI credit is included' in answer
         assert 'available' not in answer and 'Scale:' not in answer
         followup = platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge,
@@ -81,7 +81,7 @@ def test_platform_pricing_cannot_fall_into_retail_compare_or_model(client, monke
         monkeypatch.setattr(handler, '_grounded_answer', unexpected)
         result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
         assert result['facts']['source'] == 'current_platform_plans'
-        assert '£99.00/month' in result['reply'] and '£299.00 one-time setup' in result['reply']
+        assert '£99.00/month' in result['reply'] and '£299.00 optional one-time assistance' in result['reply']
         monkeypatch.setattr(client.application.container, 'settings',
             replace(client.application.container.settings, BASE_URL='https://example.com'))
         handler.website_destinations = [{'id': 'owner-pricing', 'label': 'Compare plans',
@@ -129,7 +129,7 @@ def test_live_pause_and_saved_knowledge_fallback_reflect_current_terms(client,mo
     with client.application.app_context():
         knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
         text=platform_offer_knowledge.automatic_offer_answer('How does your referral work?',knowledge)
-        assert 'no setup fee (£0)' in text and '40%' in text
+        assert 'no assistance fee (£0)' in text and '40%' in text
         referrals.set_program('VERTEX',False,'')
         knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
         assert 'paused' in platform_offer_knowledge.automatic_offer_answer('referrals',knowledge)
@@ -143,7 +143,7 @@ def test_automatic_referral_policy_not_catalogue_shortcut(client,monkeypatch):
     monkeypatch.setattr(handler,'_grounded_answer',lambda *args,**kwargs:None)
     monkeypatch.setattr(platform_offer_knowledge,'public_knowledge',lambda tenant:{'enabled':1,'percent':40,'joining_setup_percent':100,'sponsor_setup_percent':40})
     reply=handler.handle('Tell me about referrals',SimpleNamespace(tenant='VERTEX',channel='web'),{})
-    assert reply['intent']=='faq' and 'no setup fee (£0)' in reply['reply']
+    assert reply['intent']=='faq' and 'no assistance fee (£0)' in reply['reply']
 
 
 def test_contact_handoff_is_recorded_before_ai_prose(client,monkeypatch):

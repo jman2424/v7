@@ -152,18 +152,19 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         assert specification["unitText"] == "month"
         assert "referenceQuantity" not in specification
         assert f"£{plan['monthly_pence'] // 100} / month" in visible
-        assert f"£{plan['setup_pence'] // 100} one-time setup" in visible
+        assert f"£{plan['setup_pence'] // 100} optional one-time assistance" in visible
         monthly_with_vat = Decimal(plan['monthly_pence']) * (100 + VAT_PERCENT) / 10000
         setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
         assert f"£{monthly_with_vat:.2f} / month including {VAT_PERCENT}% VAT, where applicable" in visible
-        assert f"£{setup_with_vat:.2f} setup including {VAT_PERCENT}% VAT, where applicable" in visible
+        assert f"£{setup_with_vat:.2f} assistance including {VAT_PERCENT}% VAT, where applicable" in visible
         assert f"{plan['website_conversations']:,} website conversations" not in visible
         assert "Messages are limited by your prepaid AI credit" in visible
         assert f"{plan['whatsapp_messages']:,} WhatsApp messages" not in visible
         assert "AI processing credit purchased separately" in visible
-        assert f"one-time setup £{plan['setup_pence'] // 100} before VAT" in offer["description"]
+        assert f"optional one-time assistance £{plan['setup_pence'] // 100} before VAT" in offer["description"]
         assert f"Monthly price including {VAT_PERCENT}% VAT £{monthly_with_vat:.2f}" in offer["description"]
-        assert f"setup including VAT £{setup_with_vat:.2f}" in offer["description"]
+        assert f"optional assistance including VAT £{setup_with_vat:.2f}" in offer["description"]
+        assert f"monthly subscription. Channels: {plan['channel_summary']}." in offer["description"]
         assert "Phone numbers and separate WhatsApp provider charges are not included" in offer["description"]
         assert "AI processing credit is purchased separately and shared across website and WhatsApp" in offer["description"]
         assert "No automatic recharge is enabled" in offer["description"]
@@ -182,7 +183,7 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
     description = product["description"]
     assert "Starter, Business and Scale" in description
     assert "before VAT, where applicable" in description
-    assert "separate one-time setup fee" in description
+    assert "separate optional one-time assistance fee" in description
     assert "WhatsApp requires a configured provider connection" in description
     assert product["url"] == ORIGIN + "/#pricing"
     assert product["@id"] == ORIGIN + "/#monthly-plan"
@@ -205,9 +206,9 @@ def test_about_prices_follow_shared_plan_catalog_without_old_addon_pricing(seo_c
     assert 'not VAT-registered' not in response.text
     for plan in public_plans():
         assert f"{plan['name']} £{plan['monthly_pence'] // 100}/month" in response.text
-        assert f"with £{plan['setup_pence'] // 100} one-time setup" in response.text
+        assert f"with £{plan['setup_pence'] // 100} optional one-time assistance" in response.text
         assert f"£{plan['monthly_pence'] // 100}/month" in response.text
-        assert f"£{plan['setup_pence'] // 100} one-time setup" in response.text
+        assert f"£{plan['setup_pence'] // 100} optional one-time assistance" in response.text
     assert "No AI credit is included in the monthly subscription" in response.text
     assert "automatic recharge is off unless explicitly authorised and available on the platform" in response.text
     assert "Phone numbers are not included" in response.text
@@ -228,7 +229,7 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     page.feed(response.text)
     visible=' '.join(' '.join(page.visible_text).split())
     assert '£99 / month' in visible
-    assert '£149 one-time setup' in visible
+    assert '£149 optional one-time assistance' in visible
     assert visible.count('VAT')==1
     assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
 
@@ -331,7 +332,7 @@ def test_dedicated_pricing_uses_current_catalogue_and_separates_usage(seo_client
         visible = ' '.join(' '.join(page.visible_text).split())
         for plan in public_plans():
             assert f"£{plan['monthly_pence'] // 100} / month" in visible
-            assert f"£{plan['setup_pence'] // 100} one-time setup" in visible
+            assert f"£{plan['setup_pence'] // 100} optional one-time assistance" in visible
         if registered:
             assert '£130.80 / month including 20% VAT' in visible
         else:

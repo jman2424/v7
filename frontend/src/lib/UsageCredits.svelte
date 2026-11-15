@@ -194,7 +194,7 @@
 </script>
 
 <section id="ai-usage-credit" class="credits" aria-label={$t('AI usage credit')}>
-  <header><div><h2>{$t('Top up AI credit')}</h2><p>{$t('Subscription and setup pay for the platform. AI processing is paid separately from a prepaid GBP balance; no AI credit is included in your plan.')}</p></div><button disabled={busy||!canViewCosts} on:click={refresh}>{$t('Refresh usage credit')}</button></header>
+  <header><div><h2>{$t('Top up AI credit')}</h2><p>{$t('Your subscription pays for the platform. AI processing is paid separately from a prepaid GBP balance; no AI credit is included in your plan.')}</p></div><button disabled={busy||!canViewCosts} on:click={refresh}>{$t('Refresh usage credit')}</button></header>
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}{#if message}<p class="notice" role="status">{$t(message)}</p>{/if}
   {#if busy}<p class="notice" role="status">{$t('Updating usage credit…')}</p>{/if}
   {#if !canViewCosts}<p>{$t('Your account can see AI availability. Detailed usage credit and costs require cost-view permission.')}</p>{/if}

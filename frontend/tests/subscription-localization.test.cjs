@@ -73,7 +73,7 @@ test('all subscription labels, conditional statuses and plan service levels have
 });
 
 test('language changes translate a pending success message and interpolate formatted amounts', () => {
-  const message = 'Plan selected. Subscribe and pay its one-time setup to activate your business.';
+  const message = 'Plan selected. Subscribe to activate your business. One-time assistance is optional.';
   for (const language of ['en', 'es', 'fr', 'ar']) {
     i18n.language.set(language);
     const translate = stores.get(i18n.t);

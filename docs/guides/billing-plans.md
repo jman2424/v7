@@ -1,18 +1,20 @@
 # Monthly V7 plans
 
 `service/plan_catalog.py` is the authoritative GBP catalog, before VAT. Starter
-is £99/month plus £149 setup; Business £199 plus £299 setup; Scale £349 plus
-£599 setup. Existing Stripe contracts retain their financial terms. A new plan
+is £99/month, Business £199 and Scale £349. Each plan lists the channels it
+includes: Starter website chat, Business adds email, Scale adds WhatsApp and
+calls. One-time assistance (£149, £299, £599) is an optional add-on. Existing Stripe contracts retain their financial terms. A new plan
 is selected by an authenticated business owner or platform administrator.
 
 ## Billing and activation
 
-The monthly subscription and setup have separate Stripe checkouts and invoices.
+The monthly subscription and the optional one-time assistance have separate
+Stripe checkouts and invoices.
 Checkout amounts come from the server catalog, never a submitted amount. Each
 checkout reference is bound to its plan in `billing_plan_choices`. Verified
 Stripe reads must match that binding. A return URL never activates access.
-Activation requires a paid monthly invoice, an active subscription and matching
-paid setup. Existing discounts remain in use. New prices charge no VAT by default
+Activation requires a paid monthly invoice and an active subscription. One-time
+assistance is never required to activate. Existing discounts remain in use. New prices charge no VAT by default
 because Vertex Seven is not VAT-registered. Set `V7_VAT_REGISTERED=true` only after
 registration is effective, with a verified exclusive 20% Stripe tax rate.
 Public and dashboard prices show the final payable total. Discounts apply before
@@ -24,7 +26,8 @@ subscription item and server-catalog price. Stripe invoices prorations immediate
 and keeps the billing date. The dashboard changes entitlements only after a fresh
 provider read verifies the requested price and its paid invoice against a
 tenant-bound, expiring `billing_plan_changes` authorization. The original checkout
-binding and paid setup remain intact; switching plans does not charge setup again.
+binding and any paid assistance remain intact; switching plans does not require
+or charge assistance.
 An unpaid change cannot replace the last verified active plan.
 
 Cancellation opens Stripe's hosted review and takes effect at the end of the

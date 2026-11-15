@@ -28,7 +28,9 @@ def test_only_explicit_platform_owned_business_is_exempt_and_disabling_revokes(c
     assert activation(client, 'INTERNAL') == {'active': True, 'status': 'platform_internal'}
     assert activation(client, 'CUSTOMER')['active'] is False
     assert client.get('/chat_ui?tenant=CUSTOMER').status_code == 403
-    assert client.get('/widget.js?tenant=CUSTOMER').status_code == 403
+    # An inactive business serves an empty script, so its website shows no widget.
+    script = client.get('/widget.js?tenant=CUSTOMER')
+    assert script.status_code == 200 and 'chat_ui' not in script.text
     with subscriptions.connection() as db:
         assert db.execute('SELECT COUNT(*) FROM billing_contracts').fetchone()[0] == 0
         assert db.execute('SELECT COUNT(*) FROM billing_invoices').fetchone()[0] == 0
@@ -42,7 +44,9 @@ def test_owner_assigned_business_cannot_use_the_exemption(client):
     create(client, 'CUSTOMER', owner=owner)
     configure(client, 'CUSTOMER')
     assert activation(client, 'CUSTOMER')['active'] is False
-    assert client.get('/widget.js?tenant=CUSTOMER').status_code == 403
+    # An inactive business serves an empty script, so its website shows no widget.
+    script = client.get('/widget.js?tenant=CUSTOMER')
+    assert script.status_code == 200 and 'chat_ui' not in script.text
     # Even an empty owner string is not a platform-admin NULL ownership record.
     with session_store.connection() as db:
         db.execute('UPDATE managed_businesses SET owner=? WHERE tenant=?', ('', 'CUSTOMER'))
@@ -54,7 +58,7 @@ def test_exact_configuration_does_not_exempt_another_case_or_company(client):
     create(client, 'INTERNAL_OTHER')
     configure(client, 'internal')
     assert activation(client, 'INTERNAL')['active'] is False
-    assert client.get('/widget.js?tenant=INTERNAL').status_code == 403
+    assert 'chat_ui' not in client.get('/widget.js?tenant=INTERNAL').text
     configure(client, 'INTERNAL')
     assert client.get('/chat_ui?tenant=internal').status_code in {200, 404}
     assert activation(client, 'INTERNAL_OTHER')['active'] is False
