@@ -7,7 +7,7 @@ import time
 from urllib.parse import urlencode
 
 from service import subscriptions
-from service.plan_catalog import get_plan
+from service.plan_catalog import get_plan, price_pence
 
 
 def schema(db):
@@ -31,12 +31,12 @@ def _price(item):
     return price if isinstance(price, dict) else {}
 
 
-def _valid_price(price, plan):
+def _valid_price(price, plan, interval='month'):
     recurring = price.get('recurring') or {}
     return (price.get('currency') == 'gbp' and type(price.get('unit_amount')) is int
-            and price['unit_amount'] == plan['monthly_pence']
+            and price['unit_amount'] == price_pence(plan, interval)
             and price.get('tax_behavior') == 'exclusive'
-            and recurring.get('interval') == 'month'
+            and recurring.get('interval') == interval
             and recurring.get('interval_count', 1) == 1
             and recurring.get('usage_type', 'licensed') == 'licensed')
 
@@ -48,6 +48,18 @@ def _invoice_price(line):
     if isinstance(price, str):
         return price
     return ((line.get('pricing') or {}).get('price_details') or {}).get('price')
+
+
+def applied_interval(db, tenant, billing_ref, subscription_id=None):
+    """The interval of the latest paid plan change, else the one chosen at checkout."""
+    schema(db)
+    if subscription_id:
+        row = db.execute("SELECT ref FROM billing_plan_changes WHERE tenant=? AND billing_ref=? AND subscription=? "
+                         "AND status='applied' ORDER BY created DESC,ref DESC LIMIT 1",
+                         (tenant, billing_ref, subscription_id)).fetchone()
+        if row:
+            return subscriptions.bound_interval(db, tenant, row['ref'])
+    return subscriptions.bound_interval(db, tenant, billing_ref)
 
 
 def locked_subscription(db, tenant, subscription_id, data):
@@ -87,7 +99,7 @@ def confirmed_plan(db, tenant, billing_ref, subscription_id, data, original_plan
         raise ValueError('unknown_billing_plan')
     row = matching[0]
     plan = get_plan(row['plan_id'])
-    if not _valid_price(price, plan):
+    if not _valid_price(price, plan, subscriptions.bound_interval(db, tenant, row['ref'])):
         raise ValueError('unknown_billing_plan')
     if row['status'] == 'applied' and state and state['active_plan'] == plan['id']:
         return plan
@@ -176,8 +188,11 @@ def _verified_subscription(tenant, *, change=False):
                 or len(items) != 1 or not _identifier(items[0].get('id'), 'si')
                 or items[0].get('quantity', 1) != 1):
             raise ValueError('subscription_change_requires_review')
-        if not _valid_price(_price(items[0]), get_plan(state['active_plan'])):
+        with subscriptions.connection(tenant) as db:
+            interval = applied_interval(db, tenant, contract['ref'], contract['subscription'])
+        if not _valid_price(_price(items[0]), get_plan(state['active_plan']), interval):
             raise ValueError('payment_processing_refresh_soon')
+        contract['billing_interval'] = interval
     return contract, data
 
 
@@ -224,14 +239,17 @@ def change_plan(tenant, plan_id, base_url):
     state = subscriptions.plan_state(tenant)
     if state['active_plan'] == plan_id:
         raise ValueError('subscription_plan_already_active')
-    amount = plan['monthly_pence']
+    # A plan change keeps the current billing interval.
+    interval = contract['billing_interval']
+    amount = price_pence(plan, interval)
     result = subscriptions.client().stripe_request('POST', '/v1/prices', {
-        'currency': 'gbp', 'unit_amount': amount, 'recurring[interval]': 'month',
+        'currency': 'gbp', 'unit_amount': amount, 'recurring[interval]': interval,
         'tax_behavior': 'exclusive', 'product_data[name]': 'V7 ' + plan['name'],
         'metadata[v7_plan_id]': plan['id']},
-        idempotency_key='v7-management-price-' + plan['id'] + '-' + str(amount))
+        idempotency_key='v7-management-price-' + plan['id'] + '-' + str(amount) + ('' if interval == 'month' else '-' + interval))
     subscriptions._verify_payment_environment(result)
-    if not _identifier(result.get('id'), 'price') or not _identifier(result.get('product'), 'prod') or not _valid_price(result, plan):
+    if (not _identifier(result.get('id'), 'price') or not _identifier(result.get('product'), 'prod')
+            or not _valid_price(result, plan, interval)):
         raise ValueError('stripe_response_invalid')
     price_id = result['id']
     config = _configuration({'features[subscription_update][enabled]': 'true',
@@ -248,6 +266,9 @@ def change_plan(tenant, plan_id, base_url):
                    "VALUES (?,?,?,?,?,?,?,?,'pending',?,?)",
                    (ref, tenant, contract['ref'], contract['subscription'], state['active_plan'], plan_id,
                     price_id, state['setup_plan'] or '', now, now + 86400))
+        if interval != 'month':
+            db.execute('INSERT INTO billing_interval_choices (ref,tenant,billing_interval) VALUES (?,?,?)',
+                       (ref, tenant, interval))
     return _session(tenant, contract, base_url, config, 'subscription_update_confirm', {
         'flow_data[subscription_update_confirm][subscription]': contract['subscription'],
         'flow_data[subscription_update_confirm][items][0][id]': data['items']['data'][0]['id'],

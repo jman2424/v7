@@ -1,4 +1,4 @@
-"""Server-owned monthly V7 prices, included channels and allowances (GBP before VAT)."""
+"""Server-owned V7 prices (monthly or yearly), included channels and allowances (GBP before VAT)."""
 
 VAT_PERCENT = 20
 
@@ -11,7 +11,7 @@ def vat_percent():
 PLANS = {
     'starter': {
         'id': 'starter', 'name': 'Starter', 'audience': 'Small businesses',
-        'monthly_pence': 9900, 'setup_pence': 14900,
+        'monthly_pence': 9900, 'annual_pence': 99000, 'setup_pence': 14900,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 300, 'whatsapp_messages': 500,
         'ai_budget_pence': 0, 'locations': 1, 'staff': 2, 'staff_accounts': 2,
@@ -20,7 +20,7 @@ PLANS = {
     },
     'business': {
         'id': 'business', 'name': 'Business', 'audience': 'Growing businesses',
-        'monthly_pence': 19900, 'setup_pence': 29900,
+        'monthly_pence': 19900, 'annual_pence': 199000, 'setup_pence': 29900,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 1000, 'whatsapp_messages': 2000,
         'ai_budget_pence': 0, 'locations': 5, 'staff': 5, 'staff_accounts': 5,
@@ -29,7 +29,7 @@ PLANS = {
     },
     'scale': {
         'id': 'scale', 'name': 'Scale', 'audience': 'Busy businesses',
-        'monthly_pence': 34900, 'setup_pence': 59900,
+        'monthly_pence': 34900, 'annual_pence': 349000, 'setup_pence': 59900,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 3000, 'whatsapp_messages': 5000,
         'ai_budget_pence': 0, 'locations': 15, 'staff': 15, 'staff_accounts': 15,
@@ -45,6 +45,17 @@ def get_plan(plan_id):
         raise ValueError('invalid_subscription_plan')
     return {**PLANS[plan_id], 'website_conversations_enforced': False,
             'whatsapp_messages_enforced': False}
+
+
+# Stripe recurring intervals. Yearly is paid up front; allowances stay monthly.
+INTERVALS = ('month', 'year')
+
+
+def price_pence(plan, interval):
+    """The recurring price for ``interval``; anything else is refused."""
+    if interval not in INTERVALS:
+        raise ValueError('invalid_billing_interval')
+    return plan['monthly_pence'] if interval == 'month' else plan['annual_pence']
 
 
 def includes_channel(plan, channel):

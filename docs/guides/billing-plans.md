@@ -1,12 +1,22 @@
-# Monthly V7 plans
+# V7 plans
 
 `service/plan_catalog.py` is the authoritative GBP catalog, before VAT. Starter
-is £99/month, Business £199 and Scale £349. Each plan lists the channels it
+is £99/month, Business £199 and Scale £349. Paid yearly, they are £990, £1,990
+and £3,490 (ten months' price, shown as "2 months free"). Each plan lists the channels it
 includes: Starter website chat, Business adds email, Scale adds WhatsApp and
 calls. One-time assistance (£149, £299, £599) is an optional add-on. Existing Stripe contracts retain their financial terms. A new plan
 is selected by an authenticated business owner or platform administrator.
 
 ## Billing and activation
+
+New subscriptions choose **Pay monthly** or **Pay yearly**. The yearly checkout
+uses the server's yearly price and a yearly Stripe interval, and its reference is
+bound to that interval in `billing_interval_choices` (no row means monthly, so
+every existing subscription stays monthly). Plan changes keep the current
+interval; switching between monthly and yearly is not built yet. One-off
+first-month offers and referral month credits are refused on yearly billing, so
+a month-sized percentage can never discount a whole year. The 50% recurring code
+applies to either. Allowances and AI credit work the same either way.
 
 The monthly subscription and the optional one-time assistance have separate
 Stripe checkouts and invoices.
@@ -104,6 +114,9 @@ Apply `20261010015021_tiered_subscription_plans.sql` before deploying the new
 runtime, followed by `20261011042205_ai_usage_wallet.sql` for prepaid accounting.
 Apply `20261017192010_conversation_memory_and_plan_changes.sql` before deploying
 conversation memory and hosted plan-management controls.
+Apply `20261115110000_billing_intervals.sql` for yearly billing. Until it is
+applied, monthly billing works as before and yearly checkout returns
+`yearly_billing_unavailable`.
 All tables use forced tenant RLS in `v7_private` and grant only the
 restricted backend role access. Startup checks reject a missing migration.
 Backup preparation includes plan state, immutable choices, counters, wallet

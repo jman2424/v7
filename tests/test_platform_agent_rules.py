@@ -54,8 +54,8 @@ def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(clien
     with client.application.app_context():
         knowledge = platform_offer_knowledge.public_knowledge('VERTEX')
         answer = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', knowledge)
-        assert 'Starter: £99.00/month plus £149.00 optional one-time assistance' in answer
-        assert 'Business: £199.00/month plus £299.00 optional one-time assistance' in answer
+        assert 'Starter: £99.00/month, or £990.00/year paid yearly, plus £149.00 optional one-time assistance' in answer
+        assert 'Business: £199.00/month, or £1,990.00/year paid yearly, plus £299.00 optional one-time assistance' in answer
         assert '5 staff accounts' in answer and 'No AI credit is included' in answer
         assert 'available' not in answer and 'Scale:' not in answer
         followup = platform_offer_knowledge.automatic_plan_answer('Which one allows five staff?', knowledge,

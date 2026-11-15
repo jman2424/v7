@@ -140,7 +140,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/openai_completion.py` | Adapt the existing grounded Chat requests to the Responses API when required. |
 | `service/payment_recovery.py` | Seven-day grace after a failed subscription renewal, anchored to the first failure. |
 | `service/performance_metrics.py` | Bounded per-worker timing aggregates, with no messages or identities. |
-| `service/plan_catalog.py` | Server-owned monthly V7 prices, included channels and allowances (GBP before VAT). |
+| `service/plan_catalog.py` | Server-owned V7 prices (monthly or yearly), included channels and allowances (GBP before VAT). |
 | `service/plan_usage.py` | Atomic monthly plan allowances. Usage identities are hashes, never chat text. |
 | `service/platform_offer_knowledge.py` | Live public V7 terms for the configured internal marketing agent only. |
 | `service/platform_overview.py` | Read-only inventory of configured businesses and their recorded analytics. |

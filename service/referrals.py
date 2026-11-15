@@ -301,6 +301,9 @@ def apply_next_month(tenant):
     contract = subscriptions._contract(tenant,'platform')
     if contract['status'] != 'active':
         raise ValueError('active_paid_subscription_required')
+    if subscriptions.billing_interval(tenant) != 'month':
+        # A one-off percentage is sized for a month, never a yearly invoice.
+        raise ValueError('referral_reward_monthly_billing_only')
     reward = reserve(tenant,'platform',contract['ref'])
     if not reward:
         raise ValueError('no_available_referral_reward')

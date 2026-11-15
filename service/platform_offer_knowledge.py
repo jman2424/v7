@@ -87,6 +87,7 @@ def public_knowledge(tenant):
         first = int((Decimal(regular) * (100-offer['percent']) / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         setup = int((Decimal(plan['setup_pence']) * (100-offer['joining_setup_percent']) / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         plans.append({'name':plan['name'], 'standard_monthly':f'£{regular/100:.2f}',
+                      'standard_yearly':f"£{plan['annual_pence']/100:,.2f}",
                       'referred_first_month':f'£{first/100:.2f}', 'referred_setup':f'£{setup/100:.2f}'})
     return {**offer, 'authority':'Current platform billing rules; override older imported referral descriptions.',
             'scope':'V7 platform referral programme, not a discount on other businesses products.',
@@ -178,7 +179,8 @@ def automatic_plan_answer(question, knowledge, history=None):
         return None
     named = [plan for plan in plans if re.search(r'\b'+re.escape(plan['name'])+r'\b', question, re.I)]
     selected = named or plans
-    lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month plus £{plan['setup_pence']/100:.2f} optional one-time assistance; "
+    lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month, or £{plan['annual_pence']/100:,.2f}/year paid yearly, "
+             f"plus £{plan['setup_pence']/100:.2f} optional one-time assistance; "
              f"{plan['channel_summary']}; {plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
              for plan in selected]
     from service.plan_catalog import vat_percent

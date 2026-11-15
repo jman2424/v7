@@ -32,12 +32,13 @@ _CHECKOUT_ERRORS = (
     'extra_usage_charges_disabled', 'active_platform_subscription_required', 'api_charge_not_approved',
     'subscription_already_exists', 'checkout_plan_changed_refresh', 'checkout_creation_in_progress',
     'payment_processing_refresh_soon', 'stripe_tax_rate_must_be_20_percent_exclusive',
+    'invalid_billing_interval', 'first_month_offer_monthly_only', 'yearly_billing_unavailable',
 )
 _REFERRAL_ERRORS = (
     'invalid_referral_setting', 'invalid_referral_code', 'referral_already_accepted',
     'referral_program_disabled', 'invalid_or_self_referral', 'referral_requires_new_business_before_checkout',
     'referral_does_not_stack_with_existing_discount', 'active_paid_subscription_required',
-    'no_available_referral_reward', 'referral_discount_not_confirmed', 'invalid_referral_coupon',
+    'no_available_referral_reward', 'referral_reward_monthly_billing_only', 'referral_discount_not_confirmed', 'invalid_referral_coupon',
 )
 
 
@@ -203,14 +204,14 @@ def complimentary_plan_post():
 def checkout_post():
     tenant, data = _tenant(), _body()
     try:
-        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''),plan_id=data.get('plan_id'))
+        result = subscriptions.checkout(tenant,session['user']['email'],data.get('kind'),get_container().settings.BASE_URL.rstrip('/'),data.get('month',''),discount_code=data.get('discount_code',''),plan_id=data.get('plan_id'),interval=data.get('interval','month'))
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status
     except ValueError as exc:
         return validation_error(exc, 'billing_request_failed',
                                 public_messages=_PROVIDER_ERRORS + _PLAN_ERRORS + _DISCOUNT_ERRORS + _CHECKOUT_ERRORS)
     from routes.admin_api_routes import _audit
-    _audit('billing.checkout',tenant,after={'kind':data.get('kind'),'plan_id':data.get('plan_id')})
+    _audit('billing.checkout',tenant,after={'kind':data.get('kind'),'plan_id':data.get('plan_id'),'interval':data.get('interval','month')})
     return jsonify(result)
 
 
