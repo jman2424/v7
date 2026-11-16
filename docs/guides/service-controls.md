@@ -44,5 +44,10 @@ tool) but stops under any platform suspension of that business.
 Apply `supabase/migrations/20261115120000_service_controls.sql` before relying
 on these controls in production.
 
+Platform administrators can also sign out one business, or every business
+account, from the same screen (*Emergency sign-out*): sessions, remembered
+devices and MCP connections end; platform administrators are never signed out
+this way. See the [incident response runbook](../operations/incident-response.md).
+
 Not built yet: disconnecting a channel's provider connection (removing its
 credentials or number) and suspending a group of businesses at once.

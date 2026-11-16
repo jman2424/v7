@@ -59,6 +59,14 @@ current paid period. Returning to the dashboard does not itself change access;
 verified subscription events update the cancellation status and effective date.
 Until that date the owner can choose **Keep my subscription**, which clears the
 scheduled cancellation in Stripe; nothing is charged.
+
+When Stripe reports the subscription ended, the end date is recorded in
+`business_retention` and the owner sees "Your subscription has ended" with the
+date until which their data and AI credit are kept. For 30 days nothing changes
+except that the assistants are off; subscribing again removes the record. After
+30 days the business appears under **Ended subscriptions → Awaiting your review**
+for platform administrators, who can mark it to keep. No business data is ever
+deleted automatically, and deletion itself is not automated yet.
 This does not cancel separately billed legacy WhatsApp contracts. Legacy plans,
 scheduled or pending changes, and unsupported subscription shapes require review.
 The Stripe key must permit reading subscriptions/invoices and creating prices,

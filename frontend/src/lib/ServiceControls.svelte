@@ -8,10 +8,14 @@
   type Channel='web'|'whatsapp'|'email'|'phone';
   type State={all_paused:boolean;suspended_by_platform:boolean;can_pause:boolean;channels:Record<Channel,{paused:boolean;suspended_by_platform:boolean}>};
   type Control={scope:string;reason:string;actor:string;updated:number};
+  type Retained={tenant:string;ended:number;retention_ends:number;decided:number|null};
+  type Retention={retained:Retained[];awaiting_review:Retained[];kept:Retained[];retention_days:number};
   const names:Record<Channel,string>={web:'Website chat',whatsapp:'WhatsApp',email:'Email',phone:'Phone calls'};
   const channels:Channel[]=['web','whatsapp','email','phone'];
   let state:State|undefined, controls:Control[]=[], loading=true, busy=false, disposed=false, message='', error=false;
   let target:'all'|'channel'|'business'|'business_channel'='business', targetChannel:Channel='web', reason='';
+  let retention:Retention|undefined, signOutScope:'business'|'all'='business', signOutReason='';
+  const day=(seconds:number)=>new Date(seconds*1000).toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'});
   const controllers=new Set<AbortController>();
 
   async function call(path:string, method='GET', body?:unknown) {
@@ -22,7 +26,7 @@
         headers:{'X-CSRF-Token':csrf,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
       const data=await response.json().catch(()=>({}));
       if(!response.ok){
-        if(data.error==='service_control_reason_required')throw new Error('Write a short reason (at least 5 characters). It is kept with the suspension.');
+        if(data.error==='service_control_reason_required'||data.error==='revocation_reason_required')throw new Error('Write a short reason (at least 5 characters). It is kept with the suspension.');
         if(data.error==='service_controls_unavailable')throw new Error('Service controls are not available yet. The database update for them has not been applied.');
         if(response.status===403)throw new Error('You do not have permission to change this.');
         throw new Error('The change could not be saved. Refresh and try again.');
@@ -39,7 +43,8 @@
     try {
       const own=await call(ownPath());
       const all=platform?await call('platform/service-controls'):undefined;
-      if(!disposed){state=own;if(all)controls=all.controls;}
+      const kept=platform?await call('platform/retention'):undefined;
+      if(!disposed){state=own;if(all)controls=all.controls;if(kept)retention=kept;}
     } catch(err){if(!disposed){error=true;message=err instanceof Error?err.message:'Service controls are unavailable.';}}
     finally{if(!disposed)loading=false;}
   }
@@ -83,6 +88,23 @@
     const channel=parts.includes('channel')?parts[parts.indexOf('channel')+1] as Channel:null;
     void platformChange(tenantKey,channel,false);
   }
+  async function signOut() {
+    const who=signOutScope==='all'?'every business account on the platform':'everyone signed in to this business';
+    if(busy||!window.confirm(`Sign out ${who}? This also removes remembered devices and MCP connections. Passwords and authenticators are unchanged, and platform administrators stay signed in.`))return;
+    busy=true;message='';error=false;
+    try {
+      const data=await call('platform/revoke-access','POST',{tenant:signOutScope==='all'?null:tenant,reason:signOutReason});
+      signOutReason='';
+      message=`Signed out: ${data.sessions} sessions, ${data.trusted_devices} remembered devices and ${data.mcp_connections} MCP connections.`;
+    } catch(err){error=true;message=err instanceof Error?err.message:'Could not sign out.';}
+    finally{busy=false;}
+  }
+  async function keep(tenantKey:string, decision:'keep'|'pending') {
+    if(busy)return;busy=true;message='';error=false;
+    try {retention=await call('platform/retention','PUT',{tenant:tenantKey,decision});message=decision==='keep'?'Marked to keep. It leaves the review list.':'Back on the review list.';}
+    catch(err){error=true;message=err instanceof Error?err.message:'Could not save.';}
+    finally{busy=false;}
+  }
   onMount(load);
   onDestroy(()=>{disposed=true;for(const controller of controllers)controller.abort();});
 </script>
@@ -121,6 +143,28 @@
       <label>Reason (kept with the suspension)<input bind:value={reason} maxlength="500" required minlength="5" disabled={busy}/></label>
       <button class="danger" type="submit" disabled={busy||reason.trim().length<5}>Suspend</button>
     </form>
+  {/if}
+  {#if platform && !loading}
+    <h3>Emergency sign-out</h3>
+    <p class="hint">Ends sign-in sessions, remembered devices and MCP connections. People sign in again with their password and authenticator. The reason is kept in the audit log.</p>
+    <form on:submit|preventDefault={signOut}>
+      <label>Who<select bind:value={signOutScope} disabled={busy}><option value="business">Everyone signed in to this business</option><option value="all">Every business account on the platform</option></select></label>
+      <label>Reason<input bind:value={signOutReason} maxlength="500" required minlength="5" disabled={busy}/></label>
+      <button class="danger" type="submit" disabled={busy||signOutReason.trim().length<5}>Sign out</button>
+    </form>
+    {#if retention}
+      <h3>Ended subscriptions</h3>
+      <p class="hint">When a subscription ends, the business’s data and AI credit are kept for {retention.retention_days} days. After that it appears here for your review. Nothing is deleted automatically.</p>
+      {#if retention.awaiting_review.length}<p><strong>Awaiting your review</strong></p><ul>{#each retention.awaiting_review as row}
+        <li><span>{row.tenant}</span><span class="status">Ended {day(row.ended)} · kept until {day(row.retention_ends)}</span><button disabled={busy} on:click={()=>keep(row.tenant,'keep')}>Keep data</button></li>
+      {/each}</ul>{:else}<p class="hint">Nothing is waiting for review.</p>{/if}
+      {#if retention.retained.length}<p><strong>Within {retention.retention_days} days</strong></p><ul>{#each retention.retained as row}
+        <li><span>{row.tenant}</span><span class="status">Ended {day(row.ended)} · review from {day(row.retention_ends)}</span></li>
+      {/each}</ul>{/if}
+      {#if retention.kept.length}<p><strong>Kept</strong></p><ul>{#each retention.kept as row}
+        <li><span>{row.tenant}</span><span class="status">Ended {day(row.ended)}</span><button disabled={busy} on:click={()=>keep(row.tenant,'pending')}>Review again</button></li>
+      {/each}</ul>{/if}
+    {/if}
   {/if}
   {#if message}<p role="status" class:error>{message}</p>{/if}
 </section>

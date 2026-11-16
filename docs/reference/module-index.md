@@ -108,6 +108,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/business_management.py` | Reusable catalogue and offer operations; no MCP or HTTP business logic. |
 | `service/business_operations.py` | Durable tenant-scoped inbox, draft approval and confirmed action outcomes. |
 | `service/business_read_cache.py` | Version-checked public business snapshots, never authentication/billing state. |
+| `service/business_retention.py` | Thirty days of kept data after a subscription ends, then a platform review; nothing is deleted automatically. |
 | `service/business_sync.py` | Plan, review, apply and undo business-information changes from imports and connected sources. |
 | `service/business_validation.py` | Validation for editable settings that do not yet have a full JSON schema. |
 | `service/channel_intelligence.py` | Delivery guidance over the shared business brain; never permission grants. |
@@ -127,6 +128,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/grounded_conversation.py` | One accounted, tenant-grounded answer before deterministic V7 fallbacks. |
 | `service/grounded_money.py` | Currency-aware validation of quoted amounts against cited public facts. |
 | `service/grounded_statements.py` | Render consequential policy/process replies from complete public source units. |
+| `service/incident_response.py` | Emergency access revocation: sign out a business (or every business) everywhere at once. |
 | `service/knowledge_review.py` | On-demand, deterministic review of configured public business knowledge. |
 | `service/login_discovery.py` | Private account routing only; callers still verify credentials and MFA. |
 | `service/login_limiter.py` | Shared account attempt bounds without storing email addresses or IPs. |

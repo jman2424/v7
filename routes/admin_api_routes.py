@@ -1884,6 +1884,66 @@ def api_platform_service_controls_put():
     except ValueError as exc:
         return _validation_failure(exc, 'invalid_service_control',
                                    public_messages=('invalid_service_control', 'service_controls_unavailable'))
-    _audit('platform.service_suspended' if data['paused'] else 'platform.service_restored', scope,
-           after={'active': not data['paused']})
+    _incident_audit('platform.service_suspended' if data['paused'] else 'platform.service_restored', scope, reason)
     return jsonify(controls=service_controls.platform_state(), channels=list(service_controls.CHANNELS))
+
+
+def _incident_audit(action: str, target: str, reason: str, **details: Any) -> None:
+    """Platform emergency actions keep their written reason in the audit log."""
+    user = management_user()
+    AuditService().record(user=user["id"], role=user["roles"][0], ip=request.remote_addr or "", action=action,
+                          target=target, extra={"source": "API", "result": "success", "reason": reason[:500], **details})
+
+
+@bp.post('/platform/revoke-access')
+def api_platform_revoke_access():
+    """Emergency: sign out one business, or every business, everywhere at once."""
+    require_platform_operator()
+    require_permission('platform.read')
+    require_permission('business_settings.write')
+    from service.incident_response import revoke_business_access
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'tenant', 'reason'} or not isinstance(data['reason'], str)
+            or (data['tenant'] is not None and not isinstance(data['tenant'], str))):
+        return jsonify(error='invalid_revocation'), 400
+    if not 5 <= len(data['reason'].strip()) <= 500:
+        return jsonify(error='revocation_reason_required'), 400
+    if data['tenant'] is not None and not _storage().tenant_exists(data['tenant']):
+        return jsonify(error='unknown_tenant'), 404
+    try:
+        counts = revoke_business_access(data['tenant'])
+    except ValueError:
+        return jsonify(error='invalid_revocation'), 400
+    _incident_audit('platform.access_revoked', data['tenant'] or 'all_businesses', data['reason'].strip(), **counts)
+    return jsonify(ok=True, **counts)
+
+
+@bp.get('/platform/retention')
+def api_platform_retention_get():
+    """Platform administrators only: ended businesses, their 30 days, and those awaiting review."""
+    require_platform_operator()
+    require_permission('platform.read')
+    from service.business_retention import RETENTION_SECONDS, review_queue
+    response = jsonify(**review_queue(), retention_days=RETENTION_SECONDS // 86400)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/platform/retention')
+def api_platform_retention_put():
+    """Record a review decision. Deleting a business's data is not automated."""
+    require_platform_operator()
+    require_permission('platform.read')
+    require_permission('business_settings.write')
+    from service import business_retention
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'tenant', 'decision'} or not isinstance(data['tenant'], str)
+            or data['decision'] not in business_retention.DECISIONS):
+        return jsonify(error='invalid_retention_decision'), 400
+    try:
+        business_retention.decide(data['tenant'], data['decision'], management_user()['id'])
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_retention_decision', public_messages=(
+            'invalid_retention_decision', 'retention_unavailable', 'unknown_retention_record'))
+    _audit('platform.retention_decision', data['tenant'])
+    return jsonify(**business_retention.review_queue(), retention_days=business_retention.RETENTION_SECONDS // 86400)

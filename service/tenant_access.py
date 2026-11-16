@@ -115,6 +115,13 @@ def activation(tenant):
             return {'active': True, 'status': 'payment_recovery', 'grace_ends': window['ends']}
         return {'active': False, 'status': 'billing_suspended',
                 'grace_ends': window['ends'] if window else None}
+    if row and paid and row['status'] == 'canceled':
+        from service import business_retention
+        kept = business_retention.current(tenant)
+        if kept:
+            # Ended: no service, data kept for 30 days and then reviewed, never deleted automatically.
+            return {'active': False, 'status': 'subscription_ended', 'ended': kept['ended'],
+                    'retention_ends': kept['retention_ends']}
     return {'active': False, 'status': 'awaiting_payments'}
 
 

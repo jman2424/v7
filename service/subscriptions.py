@@ -584,6 +584,7 @@ def sync_subscription(subscription_id):
     tenant = metadata.get('tenant')
     if not isinstance(tenant, str) or not session_store._TENANT_KEY.fullmatch(tenant):
         raise ValueError('unknown_billing_reference')
+    current_subscription = False
     with connection(tenant) as db:
         from service.billing_management import locked_subscription
         data = locked_subscription(db, tenant, subscription_id, data)
@@ -607,9 +608,18 @@ def sync_subscription(subscription_id):
                     db.execute('UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant=?', (plan['id'],plan['id'],tenant))
                 from service import payment_recovery
                 payment_recovery.observe(db, tenant, subscription_id, str(data.get('status', 'unknown')))
+                current_subscription = True
     if row['kind'] == 'platform':
         from service import billing_promotions
         billing_promotions.mark_subscription_started(tenant, metadata['billing_ref'])
+    if row['kind'] == 'platform' and current_subscription:
+        # After the billing transaction: retention lives in the platform-level store.
+        from service import business_retention
+        try:
+            business_retention.observe(tenant, str(data.get('status', 'unknown')), data.get('ended_at'))
+        except Exception as exc:
+            from service.chat_diagnostics import emit
+            emit('chat_optional_failure', phase='business_retention', error_type=type(exc).__name__)
     return {**dict(row),'billing_ref':metadata['billing_ref']}
 
 

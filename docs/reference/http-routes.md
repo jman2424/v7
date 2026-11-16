@@ -173,6 +173,9 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/platform` | GET | `routes/admin_api_routes.py` · `api_platform` |
 | `/admin/api/platform-promotions` | GET | `routes/admin_api_routes.py` · `api_platform_promotions_get` |
 | `/admin/api/platform-promotions` | PUT | `routes/admin_api_routes.py` · `api_platform_promotions_put` |
+| `/admin/api/platform/retention` | GET | `routes/admin_api_routes.py` · `api_platform_retention_get` |
+| `/admin/api/platform/retention` | PUT | `routes/admin_api_routes.py` · `api_platform_retention_put` |
+| `/admin/api/platform/revoke-access` | POST | `routes/admin_api_routes.py` · `api_platform_revoke_access` |
 | `/admin/api/platform/service-controls` | GET | `routes/admin_api_routes.py` · `api_platform_service_controls_get` |
 | `/admin/api/platform/service-controls` | PUT | `routes/admin_api_routes.py` · `api_platform_service_controls_put` |
 | `/admin/api/profile` | GET | `routes/admin_api_routes.py` · `api_profile_get` |

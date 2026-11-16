@@ -40,7 +40,7 @@ SECURITY_TABLES = {
     'billing_discounts', 'billing_api_charges', 'billing_references', 'webhook_inbox', 'mcp_grants', 'mcp_rate', 'totp_steps',
     'billing_plan_state', 'billing_plan_choices', 'billing_plan_usage',
     'billing_plan_events', 'billing_plan_reservations',
-    'billing_interval_choices', 'billing_payment_recovery', 'service_controls',
+    'billing_interval_choices', 'billing_payment_recovery', 'service_controls', 'business_retention',
     'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
     'usage_wallet_entries', 'usage_checkout_requests',
     'ai_budget_settings','ai_budget_authorisations','ai_budget_recharges','ai_budget_work_tenants',

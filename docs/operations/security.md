@@ -353,3 +353,5 @@ Use `pytest tests/test_request_hardening.py` alongside the existing security sui
 Dependency and static scans supplement these tests; they do not establish that every
 possible attack is prevented. Hosting access, backups and provider secrets remain
 operator responsibilities.
+
+For a live incident, follow the [incident response runbook](incident-response.md).
