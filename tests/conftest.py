@@ -116,6 +116,9 @@ def app(tmp_business: Path, monkeypatch):
     monkeypatch.setenv("BUSINESS_KEY", "EXAMPLE")
     monkeypatch.setenv("MODE", "V7")
     monkeypatch.setenv("TESTING", "1")
+    # Each test has its own database; never reuse another test's cached pauses.
+    from service import service_controls
+    service_controls.invalidate()
 
     # Redirect business path for this test run
     monkeypatch.chdir(tmp_business.parent.parent)

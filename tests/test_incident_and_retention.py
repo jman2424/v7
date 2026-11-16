@@ -51,6 +51,22 @@ def test_only_platform_admins_can_sign_businesses_out_and_must_say_why(client):
     assert response.status_code == 200 and response.json['ok'] is True
 
 
+def test_emergency_controls_use_the_stored_business_key_whatever_its_case(client):
+    from service import service_controls
+    _people()
+    identity(client)
+    response = client.post('/admin/api/platform/revoke-access', json={'tenant': 'example', 'reason': 'Leaked password'})
+    assert response.status_code == 200 and response.json['sessions'] == 1
+    assert 'owner-a' not in _left()[0]
+    response = client.put('/admin/api/platform/service-controls',
+                          json={'tenant': 'example', 'channel': None, 'paused': True, 'reason': 'Abuse report'})
+    assert response.status_code == 200
+    assert [row['scope'] for row in response.json['controls']] == ['platform:tenant:EXAMPLE']
+    assert service_controls.blocked('EXAMPLE', 'web') == 'suspended_by_platform'
+    assert client.post('/admin/api/platform/revoke-access',
+                       json={'tenant': '../EXAMPLE', 'reason': 'Leaked password'}).status_code == 404
+
+
 def test_ended_business_is_kept_thirty_days_then_awaits_review(client):
     _paid_business('canceled')
     ended = int(time.time()) - 5

@@ -204,7 +204,8 @@ def install_rate_limit(app, settings):
 def install_csrf(app, settings):
     @app.before_request
     def csrf():
-        if request.path in {'/channels/email/webhook', '/channels/phone/incoming', '/channels/phone/turn', '/channels/phone/poll'}:
+        if request.path in {'/channels/email/webhook', '/channels/phone/incoming', '/channels/phone/turn',
+                            '/channels/phone/poll', '/channels/phone/handover'}:
             return  # Each exact provider endpoint verifies its own signature.
         if request.method == 'POST' and request.path.startswith('/sync/hooks/'):
             return  # Verified with the data source's own signing secret.

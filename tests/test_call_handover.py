@@ -80,6 +80,19 @@ def test_missed_transfer_falls_back_to_a_message_and_answered_call_ends(client, 
     assert [node.tag for node in ElementTree.fromstring(answered.data)] == ['Hangup']
 
 
+def test_transfer_result_reaches_the_route_without_a_browser_session(client, app, configured):
+    """Twilio posts the transfer result with no cookie or CSRF token; its signature is the proof."""
+    from flask.testing import FlaskClient
+    _set(configured, handover_number=TEAM)
+    response = phone(client, app, _gather_path(phone(client, app)), Digits='0')
+    action = ElementTree.fromstring(response.data).find('Dial').attrib['action']
+    provider = FlaskClient(app, app.response_class, use_cookies=False)
+    missed = _post(provider, app, action, DialCallStatus='no-answer')
+    assert missed.status_code == 200
+    assert phone_copy('en-GB', 'no_answer', handover=True) in missed.text
+    assert _post(provider, app, '/channels/phone/handover?token=forged', DialCallStatus='no-answer').status_code == 403
+
+
 def test_transfer_result_needs_a_valid_signed_proof(client, app, configured):
     _set(configured, handover_number=TEAM)
     response = phone(client, app, _gather_path(phone(client, app)), Digits='0')

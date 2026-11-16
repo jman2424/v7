@@ -1876,16 +1876,30 @@ def api_platform_service_controls_put():
     reason = data['reason'].strip()
     if data['paused'] and not 5 <= len(reason) <= 500:
         return jsonify(error='service_control_reason_required'), 400
-    if data['tenant'] is not None and not _storage().tenant_exists(data['tenant']):
+    tenant = data['tenant'] if data['tenant'] is None else _platform_target(data['tenant'])
+    if data['tenant'] is not None and tenant is None:
         return jsonify(error='unknown_tenant'), 404
     try:
-        scope = service_controls.key('platform', data['tenant'], data['channel'])
+        scope = service_controls.key('platform', tenant, data['channel'])
         service_controls.set_control(scope, data['paused'], management_user()['id'], reason)
     except ValueError as exc:
         return _validation_failure(exc, 'invalid_service_control',
                                    public_messages=('invalid_service_control', 'service_controls_unavailable'))
     _incident_audit('platform.service_suspended' if data['paused'] else 'platform.service_restored', scope, reason)
     return jsonify(controls=service_controls.platform_state(), channels=list(service_controls.CHANNELS))
+
+
+def _platform_target(tenant: str) -> str | None:
+    """The stored spelling of a business key, or None if there is no such business.
+
+    Controls match keys exactly, so a differently-cased alias accepted by a
+    case-insensitive filesystem must never become a control that matches nothing.
+    """
+    try:
+        key = _storage().canonical_tenant_key(tenant)
+        return key if _storage().tenant_exists(key) else None
+    except ValueError:
+        return None
 
 
 def _incident_audit(action: str, target: str, reason: str, **details: Any) -> None:
@@ -1908,13 +1922,14 @@ def api_platform_revoke_access():
         return jsonify(error='invalid_revocation'), 400
     if not 5 <= len(data['reason'].strip()) <= 500:
         return jsonify(error='revocation_reason_required'), 400
-    if data['tenant'] is not None and not _storage().tenant_exists(data['tenant']):
+    tenant = data['tenant'] if data['tenant'] is None else _platform_target(data['tenant'])
+    if data['tenant'] is not None and tenant is None:
         return jsonify(error='unknown_tenant'), 404
     try:
-        counts = revoke_business_access(data['tenant'])
+        counts = revoke_business_access(tenant)
     except ValueError:
         return jsonify(error='invalid_revocation'), 400
-    _incident_audit('platform.access_revoked', data['tenant'] or 'all_businesses', data['reason'].strip(), **counts)
+    _incident_audit('platform.access_revoked', tenant or 'all_businesses', data['reason'].strip(), **counts)
     return jsonify(ok=True, **counts)
 
 
