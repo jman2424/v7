@@ -12,7 +12,7 @@ import secrets
 import time
 from urllib.parse import urlencode
 
-from service import subscriptions
+from service import plan_catalog, subscriptions
 from service.plan_catalog import INTERVALS, PLANS, get_plan, price_pence
 
 PLAN_RANK = {plan_id: rank for rank, plan_id in enumerate(PLANS)}
@@ -283,6 +283,9 @@ def change_plan(tenant, plan_id, base_url, interval=None):
     if state['active_plan'] == plan_id and interval == current_interval:
         raise ValueError('subscription_plan_already_active')
     if interval != 'month':
+        # A business already billed yearly may change plan; nobody may newly move to yearly.
+        if interval != current_interval and not plan_catalog.interval_offered(interval):
+            raise ValueError('yearly_billing_unavailable')
         with subscriptions.connection(tenant) as db:
             if not subscriptions.intervals_ready(db):
                 raise ValueError('yearly_billing_unavailable')

@@ -49,6 +49,14 @@ def get_plan(plan_id):
 
 # Stripe recurring intervals. Yearly is paid up front; allowances stay monthly.
 INTERVALS = ('month', 'year')
+# Yearly billing is not offered: new checkouts and plan changes are monthly only.
+# The yearly code stays so a subscription already billed yearly keeps renewing.
+YEARLY_OFFERED = False
+
+
+def interval_offered(interval):
+    """Whether a business may newly choose ``interval``."""
+    return interval == 'month' or (interval == 'year' and YEARLY_OFFERED)
 
 
 def price_pence(plan, interval):

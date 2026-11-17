@@ -7,8 +7,9 @@
   export let canEdit=true;
   type Application={status:string;revision:number;business_name:string;website:string;description:string;plan_id:string;public_message:string;existing_service_preserved:boolean;accepted_policy_text?:string};
   let application:Application|null=null;
-  let policy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;annual_pence:number;setup_pence:number}[]}={intake_enabled:false,guidance:'',policy_version:'',plans:[]};
+  let policy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;setup_pence:number}[]}={intake_enabled:false,guidance:'',policy_version:'',plans:[]};
   const pounds=(pence:number)=>'£'+(pence/100).toLocaleString('en-GB',{maximumFractionDigits:2});
+  let chosenPlan:{setup_pence:number}|undefined;
   $: chosenPlan=policy.plans.find(plan=>plan.id===planId);
   let businessName='', website='', description='', planId='starter', acceptedTerms=false;
   let busy=false, loaded=false, editing=false, error='', notice='';
@@ -73,8 +74,8 @@
           <label>Business name<input bind:value={businessName} maxlength="120" required/></label>
           <label>Business website (optional)<input type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
           <label>Business description {website?'(optional)':''}<textarea bind:value={description} maxlength="2000" rows="3" required={!website}></textarea></label>
-          <label>Selected plan<select bind:value={planId}>{#each policy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month or {pounds(plan.annual_pence)}/year</option>{/each}</select>
-            {#if chosenPlan}<small>Pay monthly, or yearly and get 2 months free. You choose when you pay, after approval. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered then too; you can skip it.</small>{/if}</label>
+          <label>Selected plan<select bind:value={planId}>{#each policy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month</option>{/each}</select>
+            {#if chosenPlan}<small>Billed monthly. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered when you pay, after approval; you can skip it.</small>{/if}</label>
           <label class="check"><input type="checkbox" bind:checked={acceptedTerms} required/><span>I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
           <button type="submit" class="primary">{busy?'Saving…':application?'Submit for another review':'Submit application'}</button>
         </fieldset>

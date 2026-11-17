@@ -1,7 +1,7 @@
-"""Yearly billing uses server-owned yearly prices and never takes month-sized offers."""
+"""Yearly billing is not offered; its dormant code uses server-owned yearly prices and never takes month-sized offers."""
 import pytest
 
-from service import billing_promotions, referrals, subscriptions
+from service import billing_promotions, plan_catalog, referrals, subscriptions
 from service.plan_catalog import get_plan
 from tests.test_billing_management import confirm_plan, managed_subscription  # noqa: F401
 from tests.test_subscriptions import identity, stripe as stripe_fixture
@@ -12,6 +12,35 @@ TAX = {'active': True, 'inclusive': False, 'percentage': 20}
 
 def _session(name):
     return {'id': 'cs_' + name, 'url': 'https://checkout.stripe.com/c/pay/' + name}
+
+
+@pytest.fixture(autouse=True)
+def yearly_offered(monkeypatch):
+    # The tests below cover the yearly code as if it were switched back on.
+    monkeypatch.setattr(plan_catalog, 'YEARLY_OFFERED', True)
+
+
+def test_yearly_is_not_offered_so_new_yearly_checkouts_never_reach_stripe(client, stripe, monkeypatch):
+    monkeypatch.setattr(plan_catalog, 'YEARLY_OFFERED', False)
+    identity(client, 'business_owner')
+    response = client.post('/billing/checkout', json={'kind': 'platform', 'plan_id': 'starter', 'interval': 'year'})
+    assert response.json == {'error': 'yearly_billing_unavailable'}
+    stripe.assert_not_called()
+    assert client.get('/billing/subscription').json['yearly_offered'] is False
+
+
+def test_a_monthly_subscription_cannot_move_to_yearly(client, stripe, managed_subscription, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(plan_catalog, 'YEARLY_OFFERED', False)
+    calls = len(stripe.call_args_list)
+    response = client.post('/billing/change-plan', json={'plan_id': 'business', 'interval': 'year'})
+    assert response.json == {'error': 'yearly_billing_unavailable'}
+    assert not any(call.args[1] == '/v1/prices' for call in stripe.call_args_list[calls:])
+
+
+def test_a_business_already_billed_yearly_can_still_change_plan(client, stripe, managed_subscription, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(plan_catalog, 'YEARLY_OFFERED', False)
+    _yearly(managed_subscription, stripe)
+    assert client.post('/billing/change-plan', json={'plan_id': 'business'}).status_code == 200
 
 
 @pytest.mark.parametrize('plan_id,pence', [('starter', 99000), ('business', 199000), ('scale', 349000)])

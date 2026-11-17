@@ -792,8 +792,8 @@
     "Change scheduled for your renewal date. Nothing is charged today.": "Change scheduled for your renewal date. Nothing is charged today.",
     "Scheduled change cancelled. Your current plan continues.": "Scheduled change cancelled. Your current plan continues.",
     "Cancellation withdrawn. Your subscription renews as normal.": "Cancellation withdrawn. Your subscription renews as normal.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices."
+    "Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.",
+    "Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices."
   },
   "es": {
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1588,8 +1588,8 @@
     "Change scheduled for your renewal date. Nothing is charged today.": "Cambio programado para tu fecha de renovación. Hoy no se cobra nada.",
     "Scheduled change cancelled. Your current plan continues.": "Cambio programado cancelado. Tu plan actual continúa.",
     "Cancellation withdrawn. Your subscription renews as normal.": "Cancelación retirada. Tu suscripción se renueva con normalidad.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Facturación mensual o anual en libras, con asistencia opcional única. Los totales con IVA aparecen bajo cada precio y antes del pago.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Facturación mensual o anual en libras, con asistencia opcional única. No se añade IVA a estos precios."
+    "Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Facturación mensual en libras, con asistencia opcional única. Los totales con IVA aparecen bajo cada precio y antes del pago.",
+    "Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Facturación mensual en libras, con asistencia opcional única. No se añade IVA a estos precios."
   },
   "fr": {
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -2384,8 +2384,8 @@
     "Change scheduled for your renewal date. Nothing is charged today.": "Changement programmé à votre date de renouvellement. Rien n’est facturé aujourd’hui.",
     "Scheduled change cancelled. Your current plan continues.": "Changement programmé annulé. Votre forfait actuel continue.",
     "Cancellation withdrawn. Your subscription renews as normal.": "Résiliation retirée. Votre abonnement se renouvelle normalement.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Facturation mensuelle ou annuelle en livres, avec une assistance ponctuelle facultative. Les totaux TTC apparaissent sous chaque prix et avant le paiement.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Facturation mensuelle ou annuelle en livres, avec une assistance ponctuelle facultative. Aucune TVA n’est ajoutée à ces prix."
+    "Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "Facturation mensuelle en livres, avec une assistance ponctuelle facultative. Les totaux TTC apparaissent sous chaque prix et avant le paiement.",
+    "Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "Facturation mensuelle en livres, avec une assistance ponctuelle facultative. Aucune TVA n’est ajoutée à ces prix."
   },
   "ar": {
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",
@@ -3180,7 +3180,7 @@
     "Change scheduled for your renewal date. Nothing is charged today.": "تمت جدولة التغيير في تاريخ التجديد. لن يتم تحصيل أي مبلغ اليوم.",
     "Scheduled change cancelled. Your current plan continues.": "تم إلغاء التغيير المجدول. تستمر خطتك الحالية.",
     "Cancellation withdrawn. Your subscription renews as normal.": "تم سحب الإلغاء. يتجدد اشتراكك كالمعتاد.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "فوترة شهرية أو سنوية بالجنيه الإسترليني، مع مساعدة اختيارية لمرة واحدة. تظهر الإجماليات شاملة ضريبة القيمة المضافة أسفل كل سعر وقبل الدفع.",
-    "Monthly or yearly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "فوترة شهرية أو سنوية بالجنيه الإسترليني، مع مساعدة اختيارية لمرة واحدة. لا تُضاف ضريبة القيمة المضافة إلى هذه الأسعار."
+    "Monthly billing in pounds, with optional one-time assistance. VAT-inclusive totals appear below each price and before payment.": "فوترة شهرية بالجنيه الإسترليني، مع مساعدة اختيارية لمرة واحدة. تظهر الإجماليات شاملة ضريبة القيمة المضافة أسفل كل سعر وقبل الدفع.",
+    "Monthly billing in pounds, with optional one-time assistance. No VAT is added to these prices.": "فوترة شهرية بالجنيه الإسترليني، مع مساعدة اختيارية لمرة واحدة. لا تُضاف ضريبة القيمة المضافة إلى هذه الأسعار."
   }
 }

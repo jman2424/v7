@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from connectors.billing import BillingClient
-from service import session_store, analytics_db, api_usage
+from service import session_store, analytics_db, api_usage, plan_catalog
 from service.plan_catalog import VAT_PERCENT, INTERVALS, vat_percent, get_plan, price_pence, public_plans
 
 PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
@@ -351,6 +351,8 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     if interval not in INTERVALS or (interval != 'month' and kind != 'platform'):
         raise ValueError('invalid_billing_interval')
     if interval != 'month':
+        if not plan_catalog.interval_offered(interval):
+            raise ValueError('yearly_billing_unavailable')
         with connection(tenant) as db:
             if not intervals_ready(db):
                 raise ValueError('yearly_billing_unavailable')
@@ -820,5 +822,5 @@ def report(tenant, include_api=True):
     from service.billing_management import summary as management_summary
     from service import billing_promotions
     return {'tenant':tenant, **billing_promotions.preview(tenant), 'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) == _PLATFORM_CAMPAIGN else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
-            'plans':public_plans(), 'plan_state':state, 'billing_interval':billing_interval(tenant), 'pricing_version':'tiered_v1' if state else 'legacy',
+            'plans':public_plans(), 'plan_state':state, 'billing_interval':billing_interval(tenant), 'yearly_offered':plan_catalog.YEARLY_OFFERED, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'management':management_summary(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

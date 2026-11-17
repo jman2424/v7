@@ -131,7 +131,8 @@ def test_lower_price_never_grants_a_plan_that_was_not_scheduled(client, stripe, 
     assert subscriptions.plan_state('EXAMPLE')['active_plan'] == 'business'
 
 
-def test_monthly_to_yearly_is_charged_now_with_a_new_billing_period(client, stripe, managed_subscription):  # noqa: F811
+def test_monthly_to_yearly_is_charged_now_with_a_new_billing_period(client, stripe, managed_subscription, monkeypatch):  # noqa: F811
+    monkeypatch.setattr('service.plan_catalog.YEARLY_OFFERED', True)  # Yearly is not offered today.
     original = stripe.side_effect
 
     def provider(method, path, body=None, **kwargs):

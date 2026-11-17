@@ -1,15 +1,19 @@
 # V7 plans
 
 `service/plan_catalog.py` is the authoritative GBP catalog, before VAT. Starter
-is £99/month, Business £199 and Scale £349. Paid yearly, they are £990, £1,990
-and £3,490 (ten months' price, shown as "2 months free"). Each plan lists the channels it
+is £99/month, Business £199 and Scale £349, billed monthly. Each plan lists the channels it
 includes: Starter website chat, Business adds email, Scale adds WhatsApp and
 calls. One-time assistance (£149, £299, £599) is an optional add-on. Existing Stripe contracts retain their financial terms. A new plan
 is selected by an authenticated business owner or platform administrator.
 
 ## Billing and activation
 
-New subscriptions choose **Pay monthly** or **Pay yearly**. The yearly checkout
+Yearly billing is switched off (`YEARLY_OFFERED = False` in `plan_catalog`): new
+checkouts and moves to yearly return `yearly_billing_unavailable`, and no screen,
+public page or sales answer mentions it. The code below is kept so a subscription
+already billed yearly would keep renewing and changing plan; none exist. When it
+is switched on, new subscriptions choose **Pay monthly** or **Pay yearly** (ten
+months' price, shown as "2 months free"). The yearly checkout
 uses the server's yearly price and a yearly Stripe interval, and its reference is
 bound to that interval in `billing_interval_choices` (no row means monthly, so
 every existing subscription stays monthly). One-off

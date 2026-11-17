@@ -4,7 +4,6 @@
           <span class="card-number">{{ plan.audience }}</span><h3 class="plan-name">{{ plan.name }}</h3>
           <p class="plan-price">£{{ '%.0f' | format(plan.monthly_pence / 100) }} <small>/ month{% if subscription_vat_percent %} before VAT{% endif %}</small></p>
           {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000) }} / month</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
-          <p class="plan-setup">Or £{{ '{:,.0f}'.format(plan.annual_pence / 100) }} / year{% if subscription_vat_percent %} before VAT{% endif %}, paid yearly · 2 months free</p>
           <p class="plan-setup">£{{ '%.0f' | format(plan.setup_pence / 100) }} optional one-time assistance{% if subscription_vat_percent %} before VAT{% endif %}</p>
           {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000) }} assistance</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
           <ul class="plan-highlights"><li>{{ plan.channel_summary }}</li><li>Messages are limited by your prepaid AI credit</li><li>AI processing credit purchased separately · usage depends on model and tokens</li><li>{{ plan.locations }} location{% if plan.locations != 1 %}s{% endif %} / service area{% if plan.locations != 1 %}s{% endif %} · {{ plan.staff }} staff accounts</li></ul>
