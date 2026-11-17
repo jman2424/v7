@@ -41,6 +41,7 @@ SECURITY_TABLES = {
     'billing_plan_state', 'billing_plan_choices', 'billing_plan_usage',
     'billing_plan_events', 'billing_plan_reservations',
     'billing_interval_choices', 'billing_payment_recovery', 'service_controls', 'business_retention',
+    'customer_message_limits', 'customer_message_counts',
     'usage_wallets', 'usage_wallet_payments', 'usage_wallet_reservations',
     'usage_wallet_entries', 'usage_checkout_requests',
     'ai_budget_settings','ai_budget_authorisations','ai_budget_recharges','ai_budget_work_tenants',
@@ -53,7 +54,7 @@ ANALYTICS_TABLES = {
 }
 EXTRA_TABLES = {'tenants', 'business_documents', 'document_versions', 'operator_accounts', 'crm_records', 'audit_records'}
 DATA_TABLES = SECURITY_TABLES | ANALYTICS_TABLES | EXTRA_TABLES
-TRANSIENT_TABLES = {'management_sessions', 'mfa_challenges', 'mcp_grants', 'sales_action_attempts',
+TRANSIENT_TABLES = {'management_sessions', 'mfa_challenges', 'mcp_grants', 'sales_action_attempts', 'customer_message_counts',
                     'trusted_devices', 'oidc_states', 'conversation_memory'}
 TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}')
 FILENAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,100}')

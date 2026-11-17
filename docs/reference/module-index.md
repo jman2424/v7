@@ -122,6 +122,7 @@ Business logic: conversation, accounts, security, billing, channels, analytics.
 | `service/conversion_actions.py` | Tenant-scoped, owner-configured sales requests and appointment slots. |
 | `service/crm_service.py` | CRM service: leads + conversations. |
 | `service/customer_intent.py` | Conservative form intent shared by local routing and model-selected actions. |
+| `service/customer_message_limits.py` | Each business's daily cap on messages one customer can send by website chat or WhatsApp. |
 | `service/data_sources.py` | A business's authorised data sources: connect, import, synchronise and disconnect. |
 | `service/email_campaigns.py` | Private campaign workflow using Resend's marketing audience and delivery controls. |
 | `service/faq_integrity.py` | Exact curated-FAQ integrity checks, without a model or semantic assumptions. |

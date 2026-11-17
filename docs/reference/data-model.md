@@ -42,7 +42,7 @@ Created on demand by the owning service module (search for the table name).
 | Area | Tables |
 |---|---|
 | Sessions and sign-in | `management_sessions`, `login_attempts`, `auth_login_failures`, `mfa_challenges`, `mfa_code_uses`, `totp_steps`, `account_authenticators`, `trusted_devices`, `oidc_links`, `oidc_states` |
-| Accounts and tenants | `managed_businesses`, `registration_requests`, `service_controls`, `business_retention` |
+| Accounts and tenants | `managed_businesses`, `registration_requests`, `service_controls`, `business_retention`, `customer_message_limits`, `customer_message_counts` |
 | Subscriptions | `billing_contracts`, `billing_invoices`, `billing_references`, `billing_discounts`, `billing_api_charges`, `billing_plan_state`, `billing_plan_choices`, `billing_interval_choices`, `billing_payment_recovery`, `billing_plan_changes`, `billing_plan_events`, `billing_plan_reservations`, `billing_plan_usage` |
 | Prepaid AI usage | `usage_wallets`, `usage_wallet_entries`, `usage_wallet_payments`, `usage_wallet_reservations`, `usage_checkout_requests`, `usage_exchange_rate`, `api_usage` |
 | AI budget | `ai_budget_settings`, `ai_budget_authorisations`, `ai_budget_recharges`, `ai_budget_events`, `ai_budget_notifications`, `ai_budget_payment_costs`, `ai_budget_work_tenants`, `ai_provider_funding_settings`, `ai_provider_cost_snapshots`, `ai_provider_limit_snapshots`, `ai_provider_health` |

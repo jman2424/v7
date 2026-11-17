@@ -871,6 +871,13 @@ def chat_api():
          elapsed_ms=round((time.monotonic()-authentication_started)*1000, 2))
 
     with phase('request_limits'):
+        from service import customer_message_limits as message_limits
+        visitor = [(message_limits.subject('session', session_id), 1),
+                   (message_limits.subject('ip', request.remote_addr or 'unknown'), message_limits.CONNECTION_VISITORS)]
+        if not message_limits.allow(tenant, 'web', visitor):
+            # Checked before any AI or plan allowance is used.
+            return _cors(jsonify(error="message_limit_reached", conversation_token=token,
+                                reply=message_limits.limit_reached_notice(c.business_profile))), 429
         from service.tester_limits import enforce
         limited = enforce(tenant)
         if limited is not None:

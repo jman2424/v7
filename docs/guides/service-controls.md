@@ -49,5 +49,30 @@ account, from the same screen (*Emergency sign-out*): sessions, remembered
 devices and MCP connections end; platform administrators are never signed out
 this way. See the [incident response runbook](../operations/incident-response.md).
 
+## Customer message limits
+
+`service/customer_message_limits.py` caps how many messages one customer can
+send per day (UTC) by website chat and by WhatsApp. Each business sets the
+two limits separately with a slider (5–200) or chooses **Unlimited**, under
+**Channels → Website → Website installation** and **Channels → WhatsApp**.
+Changing them needs `business_settings.write`; every change is audited
+(`business.message_limit_changed`). With no saved choice the limit is 40.
+
+- A website visitor is counted by chat and by internet connection. Restarting
+  the chat does not reset the count; one connection (an office, a mobile
+  network) may send up to five customers' worth.
+- A WhatsApp customer is counted by phone number.
+- The check runs before any AI or plan allowance is used. Over the limit, the
+  website shows "You've reached today's message limit for this chat. Please try
+  again tomorrow." with the business's contact email; a WhatsApp customer is
+  told once a day and later messages get no reply.
+- Counts store only keyed digests, never raw addresses or phone numbers, and
+  are deleted after two days. If the counts cannot be read, messages are
+  allowed (this is a cost control, unlike the kill switch).
+
+Apply `supabase/migrations/20261117090000_customer_message_limits.sql` before
+relying on limits in production; until then the default of 40 is not enforced
+on PostgreSQL and the screen says the setting is unavailable when saving.
+
 Not built yet: disconnecting a channel's provider connection (removing its
 credentials or number) and suspending a group of businesses at once.

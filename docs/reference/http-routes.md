@@ -166,6 +166,8 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/kpis` | GET | `routes/admin_api_routes.py` · `api_kpis` |
 | `/admin/api/leads` | GET | `routes/admin_api_routes.py` · `api_leads` |
 | `/admin/api/leads/<string:lead_id>` | PUT | `routes/admin_api_routes.py` · `api_lead_status_put` |
+| `/admin/api/message-limits` | GET | `routes/admin_api_routes.py` · `api_message_limits_get` |
+| `/admin/api/message-limits` | PUT | `routes/admin_api_routes.py` · `api_message_limits_put` |
 | `/admin/api/mode` | POST | `routes/admin_api_routes.py` · `api_mode_set` |
 | `/admin/api/offers` | GET | `routes/admin_api_routes.py` · `api_offers_get` |
 | `/admin/api/offers` | PUT | `routes/admin_api_routes.py` · `api_offers_put` |

@@ -1894,6 +1894,7 @@
               <section class="surface"><div class="surface-head"><div><p class="eyebrow">Website access</p><h2>Approve your websites</h2><p>Only approved website origins can host this company's chat.</p></div></div><form class="settings-form" on:submit|preventDefault={saveWidget}><label>Approved website origins<textarea bind:value={originText} class="origins" rows="5" disabled={!canEditWidget || widgetSaving} spellcheck="false" placeholder="https://www.yourcompany.com&#10;https://shop.yourcompany.com"></textarea><small>One exact origin per line. HTTPS is required except for local development. Include www and other subdomains separately. Leave blank to block external embedding.</small></label><div class="form-footer"><span class:error={formError} class="form-status" role={formError ? 'alert' : 'status'}>{formStatus}</span><button class="primary" type="submit" disabled={!canEditWidget || widgetSaving}>{widgetSaving ? 'Saving…' : 'Save widget & websites'}</button></div></form></section>
               {#if mayOpenScreen('implementation')}{#key tenant}{#await import('./Implementation.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedImplementation}<svelte:component this={loadedImplementation.default} {tenant} apiPrefix={import.meta.env.DEV?'/api':''} savedSetup={{widget,embed:{snippet,iframe_snippet:iframeSnippet,chat_url:widgetChatUrl}}} embedded/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{:else}<section class="surface"><div class="surface-body"><p>Your business owner can provide website installation access.</p></div></section>{/if}
             </div>
+            {#key tenant}{#await import('./MessageLimit.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedMessageLimit}<svelte:component this={loadedMessageLimit.default} {tenant} {csrf} channel="web" canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
           {/if}
         </section>
       {/if}
@@ -1907,6 +1908,7 @@
       {/if}
       {#if section === 'whatsapp-qr'}
         {#key tenant}{#await import('./WhatsAppQr.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedWhatsAppQr}<svelte:component this={loadedWhatsAppQr.default} {tenant} {csrf} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}
+        {#if user?.permissions?.includes('business_settings.read')}{#key tenant}{#await import('./MessageLimit.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedMessageLimit}<svelte:component this={loadedMessageLimit.default} {tenant} {csrf} channel="whatsapp" canEdit={canEditWidget} apiPrefix={import.meta.env.DEV ? '/api' : ''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {/if}
 
       {#if section === 'companies' && (isPlatform || isOwner)}

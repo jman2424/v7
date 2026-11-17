@@ -537,6 +537,7 @@
     tester_daily_limit: "You’ve used today’s 10 free test messages. The allowance resets at 00:00 UTC. Sign in with a paid account to continue.",
     conversation_expired: "This chat session expired. Send your message again to start a new conversation.",
     website_allowance_paused: "Chat is temporarily unavailable. Please contact the business directly.",
+    message_limit_reached: "You've reached today's message limit for this chat. Please try again tomorrow.",
     business_unavailable: "This assistant is currently unavailable. Please contact the business directly.",
     rate_limited: "Too many messages. Please wait a moment before trying again.",
     service_unavailable: "The chat service is temporarily unavailable or starting up. Please wait a moment and try again."
@@ -640,6 +641,12 @@
         if (data && data.error === "website_allowance_paused") {
           throw new Error("website_allowance_paused");
         }
+        if (data && data.error === "message_limit_reached") {
+          // The server's wording adds the business's own contact details.
+          const limited = new Error("message_limit_reached");
+          if (typeof data.reply === "string" && data.reply.trim() && data.reply.length <= 500) limited.reply = data.reply;
+          throw limited;
+        }
         if (data && data.error === "tester_daily_limit") throw new Error("tester_daily_limit");
         if (data && data.error === "business_awaiting_activation") throw new Error("business_unavailable");
         if (response.status === 429) throw new Error("rate_limited");
@@ -666,6 +673,7 @@
       if (progressRow) progressRow.remove();
       const message = error && error.name === "AbortError"
         ? "The reply took too long. Please try again."
+        : error instanceof Error && typeof error.reply === "string" ? error.reply
         : error instanceof Error && Object.prototype.hasOwnProperty.call(chatErrors, error.message)
           ? chatErrors[error.message] : "The message could not be completed. Please try again.";
       add(message + (reference ? ' Reference: ' + reference : ''), "bot");

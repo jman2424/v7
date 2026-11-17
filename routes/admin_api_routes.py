@@ -101,7 +101,7 @@ def _require_admin_session() -> None:
         "api_agent_settings_get", "api_agent_settings_put", "api_knowledge_review", "api_widget_get", "api_widget_put",
         "api_website_knowledge_get", "api_website_knowledge_import", "api_sales_actions_get",
         "api_website_destinations_get", "api_website_destinations_put",
-        "api_sales_actions_put", "api_mode_set",
+        "api_sales_actions_put", "api_mode_set", "api_message_limits_get", "api_message_limits_put",
     }
     analytics_endpoints = {
         "api_insights", "api_statistics", "api_kpis", "api_timeseries", "api_sessions_timeseries",
@@ -1804,6 +1804,44 @@ def api_platform():
     from service.platform_overview import get_platform_overview
     return jsonify(get_platform_overview(get_container(), minutes=_int_arg("minutes", 1440, maximum=43200),
                                          page=_int_arg("page", 1, maximum=100000)))
+
+
+def _message_limits_payload(values):
+    from service import customer_message_limits as message_limits
+    return {'limits': values, 'default': message_limits.DEFAULT_LIMIT,
+            'minimum': message_limits.MIN_LIMIT, 'maximum': message_limits.MAX_LIMIT}
+
+
+@bp.get('/message-limits')
+def api_message_limits_get():
+    """How many messages one customer may send per day by website chat and WhatsApp (None: unlimited)."""
+    from service import customer_message_limits as message_limits
+    try:
+        values = message_limits.limits(_tenant())
+    except Exception as exc:
+        logger.error('Message limits unavailable (%s)', type(exc).__name__)
+        return jsonify(error='message_limits_unavailable'), 503
+    response = jsonify(_message_limits_payload(values))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.put('/message-limits')
+def api_message_limits_put():
+    """Set one channel's daily limit per customer for this business only."""
+    from service import customer_message_limits as message_limits
+    data = request.get_json(silent=True)
+    if (not isinstance(data, dict) or set(data) != {'channel', 'limit'}
+            or data['channel'] not in message_limits.CHANNELS):
+        return jsonify(error='invalid_message_limit'), 400
+    tenant = _tenant()
+    try:
+        values = message_limits.save(tenant, data['channel'], data['limit'], management_user()['id'])
+    except ValueError as exc:
+        return _validation_failure(exc, 'invalid_message_limit',
+                                   public_messages=('invalid_message_limit', 'message_limits_unavailable'))
+    _audit('business.message_limit_changed', tenant + ':' + data['channel'])
+    return jsonify(_message_limits_payload(values))
 
 
 @bp.get('/service-controls')

@@ -203,6 +203,20 @@ def _process(c, event, source):
     if state == "busy":
         abort(503, description="message_processing")
     try:
+        from service import customer_message_limits as message_limits
+        _, sender = _validate_event(event, source)
+        if not message_limits.allow(c.settings.BUSINESS_KEY, 'whatsapp',
+                                    [(message_limits.subject('whatsapp', sender), 1)]):
+            # Over the business's daily limit: no AI and no plan allowance used.
+            # The customer is told once a day; later messages get no reply.
+            from service.tenant_access import notice_due
+            notice = (message_limits.limit_reached_notice(c.business_profile)
+                      if notice_due(c.settings.BUSINESS_KEY, 'message-limit:' + sender) else '')
+            if notice and source == "cloud":
+                phone_id = event.get("metadata", {}).get("phone_number_id")
+                send_reply(event, notice, settings=replace(c.settings, WHATSAPP_PHONE_ID=phone_id))
+            webhook_inbox.finish(*key, notice)
+            return message_reply(notice) if notice else ''
         from service.plan_usage import use_resource
         if not use_resource(c.settings.BUSINESS_KEY, "whatsapp_messages", source + ":" + message_id):
             webhook_inbox.finish(*key, "")
