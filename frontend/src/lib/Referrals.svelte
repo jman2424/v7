@@ -38,7 +38,7 @@
   {#if error}<p role="alert">{$t(error)}</p>{/if}{#if message}<p role="status">{$t(message)}</p>{/if}
   {#if data}
     <p>{$t('Both businesses receive {percent}% off one subscription month.',{percent:data.program.percent})}</p>
-    {#if data.program.joining_setup_percent===100}<p>{$t('The new business gets its first subscription month discounted and pays no assistance fee.')}</p>
+    {#if data.program.joining_setup_percent===100}<p>{$t('The new business gets its first subscription month discounted and can claim free setup assistance.')}</p>
     {:else}<p>{$t('The new business gets {percent}% off its unpaid assistance fee.',{percent:data.program.joining_setup_percent})}</p>{/if}
     <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid assistance only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
     <p class="hint">{$t('Already-paid assistance fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>

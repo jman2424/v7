@@ -59,7 +59,7 @@ def setup_checkout(client, stripe):
     assert client.post('/billing/checkout', json={'kind': 'implementation', 'plan_id': 'starter'}).status_code == 200
     body = stripe.call_args.args[2]
     return {'id': 'cs_offer', 'mode': 'payment', 'status': 'complete', 'payment_status': 'no_payment_required',
-            'currency': 'gbp', 'amount_total': 0, 'amount_subtotal': 14900, 'customer': 'cus_offer',
+            'currency': 'gbp', 'amount_total': 0, 'amount_subtotal': 10000, 'customer': 'cus_offer',
             'discounts': [{'coupon': body['discounts[0][coupon]']}],
             'metadata': {key[9:-1]: value for key, value in body.items() if key.startswith('metadata[')}}
 

@@ -304,7 +304,7 @@ def test_full_approved_application_to_verified_subscription_and_optional_assista
     assert tenant_access.activation(tenant)['active']
     assert client.post('/billing/checkout?tenant=' + tenant,json={'kind':'implementation'}).status_code == 200
     invoices['in_applicationsetup'] = {'id':'in_applicationsetup','currency':'gbp','created':int(time.time()),
-        'customer':'cus_application','metadata':metadata['implementation'],'total':29900,'amount_paid':29900,
+        'customer':'cus_application','metadata':metadata['implementation'],'total':10000,'amount_paid':10000,
         'amount_remaining':0,'status':'paid','lines':{'data':[]}}
     deliver('in_applicationsetup')
     deliver('in_applicationsetup')

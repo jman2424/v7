@@ -1,6 +1,7 @@
 """Server-owned V7 prices (monthly or yearly), included channels and allowances (GBP before VAT)."""
 
 VAT_PERCENT = 20
+SETUP_ASSISTANCE_PENCE = 10000
 
 
 def vat_percent():
@@ -11,29 +12,29 @@ def vat_percent():
 PLANS = {
     'starter': {
         'id': 'starter', 'name': 'Starter', 'audience': 'Small businesses',
-        'monthly_pence': 9900, 'annual_pence': 99000, 'setup_pence': 14900,
+        'monthly_pence': 9900, 'annual_pence': 99000, 'setup_pence': SETUP_ASSISTANCE_PENCE,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 300, 'whatsapp_messages': 500,
         'ai_budget_pence': 0, 'locations': 1, 'staff': 2, 'staff_accounts': 2,
-        'analytics': 'Basic', 'api_access': 'Basic', 'onboarding': 'Basic',
+        'analytics': 'Basic', 'api_access': 'Basic', 'onboarding': 'Self-service',
         'channels': ('web',), 'channel_summary': 'Website chat',
     },
     'business': {
         'id': 'business', 'name': 'Business', 'audience': 'Growing businesses',
-        'monthly_pence': 19900, 'annual_pence': 199000, 'setup_pence': 29900,
+        'monthly_pence': 19900, 'annual_pence': 199000, 'setup_pence': SETUP_ASSISTANCE_PENCE,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 1000, 'whatsapp_messages': 2000,
         'ai_budget_pence': 0, 'locations': 5, 'staff': 5, 'staff_accounts': 5,
-        'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Assisted',
+        'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Self-service',
         'channels': ('web', 'email'), 'channel_summary': 'Website chat and email',
     },
     'scale': {
         'id': 'scale', 'name': 'Scale', 'audience': 'Busy businesses',
-        'monthly_pence': 34900, 'annual_pence': 349000, 'setup_pence': 59900,
+        'monthly_pence': 34900, 'annual_pence': 349000, 'setup_pence': SETUP_ASSISTANCE_PENCE,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 3000, 'whatsapp_messages': 5000,
         'ai_budget_pence': 0, 'locations': 15, 'staff': 15, 'staff_accounts': 15,
-        'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Priority',
+        'analytics': 'Advanced', 'api_access': 'Standard', 'onboarding': 'Self-service',
         'channels': ('web', 'email', 'whatsapp', 'phone'),
         'channel_summary': 'Website chat, email, WhatsApp and calls',
     },

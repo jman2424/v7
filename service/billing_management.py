@@ -139,23 +139,6 @@ def confirmed_plan(db, tenant, billing_ref, subscription_id, data, original_plan
     return plan
 
 
-def paid_setup_covers(tenant, active_plan, setup_plan, *, db=None):
-    if active_plan == setup_plan:
-        return bool(active_plan)
-    if db is None:
-        with subscriptions.connection(tenant) as connection:
-            return paid_setup_covers(tenant, active_plan, setup_plan, db=connection)
-    schema(db)
-    # Paid plan-change proof remains tenant-bound across cancellation and a new
-    # checkout generation. Pending requests cannot waive a different plan's setup.
-    row = db.execute("SELECT 1 FROM billing_plan_changes c JOIN billing_references r "
-                     "ON r.tenant=c.tenant AND r.ref=c.billing_ref AND r.kind='platform' "
-                     "JOIN billing_plan_choices p ON p.tenant=c.tenant AND p.ref=c.billing_ref "
-                     "AND p.kind='platform' WHERE c.tenant=? AND c.plan_id=? AND c.setup_plan=? "
-                     "AND c.status='applied' LIMIT 1", (tenant, active_plan, setup_plan)).fetchone()
-    return bool(row)
-
-
 def summary(tenant):
     with subscriptions.connection(tenant) as db:
         contract = db.execute("SELECT subscription,status,cancel_at_end FROM billing_contracts "
@@ -318,7 +301,7 @@ def change_plan(tenant, plan_id, base_url, interval=None):
                    '(ref,tenant,billing_ref,subscription,from_plan,plan_id,price_id,setup_plan,status,created,expires) '
                    "VALUES (?,?,?,?,?,?,?,?,'pending',?,?)",
                    (ref, tenant, contract['ref'], contract['subscription'], state['active_plan'], plan_id,
-                    price_id, state['setup_plan'] or '', now, now + 86400))
+                    price_id, state['setup_plan'] or state['active_plan'], now, now + 86400))
         if interval != 'month':
             db.execute('INSERT INTO billing_interval_choices (ref,tenant,billing_interval) VALUES (?,?,?)',
                        (ref, tenant, interval))
@@ -404,7 +387,7 @@ def _schedule_change(tenant, contract, data, state, plan, interval, price_id):
                    '(ref,tenant,billing_ref,subscription,from_plan,plan_id,price_id,setup_plan,status,created,expires) '
                    "VALUES (?,?,?,?,?,?,?,?,'scheduled',?,?)",
                    (ref, tenant, contract['ref'], contract['subscription'], state['active_plan'], plan['id'],
-                    price_id, state['setup_plan'] or '', now, period_end + SCHEDULE_WINDOW))
+                    price_id, state['setup_plan'] or state['active_plan'], now, period_end + SCHEDULE_WINDOW))
         if interval != 'month':
             db.execute('INSERT INTO billing_interval_choices (ref,tenant,billing_interval) VALUES (?,?,?)',
                        (ref, tenant, interval))

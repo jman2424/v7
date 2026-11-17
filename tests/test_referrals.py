@@ -271,7 +271,7 @@ def free_setup_checkout(client,stripe,monkeypatch):
     payload=stripe.call_args.args[2]
     stripe.side_effect=None
     return {'id':'cs_free','mode':'payment','status':'complete','payment_status':'no_payment_required','currency':'gbp',
-            'amount_total':0,'amount_subtotal':14900,'customer':'cus_new','discounts':[{'coupon':'coupon_free'}],
+            'amount_total':0,'amount_subtotal':10000,'customer':'cus_new','discounts':[{'coupon':'coupon_free'}],
             'metadata':{'tenant':'EXAMPLE','kind':'implementation','plan_id':'starter','billing_ref':payload['metadata[billing_ref]'],'referral_reward':payload['metadata[referral_reward]']}}
 
 

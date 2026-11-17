@@ -44,7 +44,7 @@ def test_unregistered_checkout_never_attaches_a_vat_rate(client,stripe,monkeypat
     payload=stripe.call_args.args[2]
     assert not any('tax_rates' in key for key in payload)
     assert payload['automatic_tax[enabled]']=='false'
-    assert payload['line_items[0][price_data][unit_amount]']==(9900 if kind=='platform' else 14900)
+    assert payload['line_items[0][price_data][unit_amount]']==(9900 if kind=='platform' else 10000)
     assert client.get('/billing/subscription').json['vat_percent']==0
 
 
@@ -111,7 +111,7 @@ def test_implementation_has_one_time_checkout_and_separate_paid_invoice(client,s
     assert client.post('/billing/checkout',json={'kind':'implementation','amount':1}).status_code==200
     body=stripe.call_args.args[2]
     assert body['mode']=='payment'
-    assert body['line_items[0][price_data][unit_amount]']==14900
+    assert body['line_items[0][price_data][unit_amount]']==10000
     assert not any('recurring' in key or key.startswith('subscription_data') for key in body)
     assert body['invoice_creation[enabled]']=='true'
     assert body['customer_creation']=='always'
@@ -279,7 +279,7 @@ def test_discount_is_saved_and_applies_to_implementation_and_every_platform_rene
         assert response.status_code == 200, response.json
         body = stripe.call_args.args[2]
         assert body['discounts[0][coupon]'] == 'coupon_test'
-        assert body['line_items[0][price_data][unit_amount]'] == (9900 if kind=='platform' else 14900)
+        assert body['line_items[0][price_data][unit_amount]'] == (9900 if kind=='platform' else 10000)
         assert body['mode'] == ('payment' if kind=='implementation' else 'subscription')
         assert private_discount not in json.dumps(body)
         coupon = [call for call in stripe.call_args_list if call.args[1]=='/v1/coupons'][-1]

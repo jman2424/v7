@@ -74,9 +74,9 @@ def test_native_plan_tables_force_rls_and_hide_other_tenant(pg_runtime):
     assert subscriptions.plan_state(other)['selected_plan'] == 'scale'
 
 
-@pytest.mark.parametrize('plan_id,monthly,setup', [('starter', 9900, 14900),
-                                                 ('business', 19900, 29900),
-                                                 ('scale', 34900, 59900)])
+@pytest.mark.parametrize('plan_id,monthly,setup', [('starter', 9900, 10000),
+                                                 ('business', 19900, 10000),
+                                                 ('scale', 34900, 10000)])
 @pytest.mark.parametrize('vat_registered', [False, True])
 def test_native_checkout_binds_server_plan_prices_and_vat(pg_runtime, stripe_plan_provider, plan_id, monthly, setup, monkeypatch, vat_registered):
     monkeypatch.setenv('V7_VAT_REGISTERED', 'true' if vat_registered else 'false')

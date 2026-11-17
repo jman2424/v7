@@ -229,7 +229,7 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     page.feed(response.text)
     visible=' '.join(' '.join(page.visible_text).split())
     assert '£99 / month' in visible
-    assert '£149 optional one-time assistance' in visible
+    assert '£100 optional one-time assistance' in visible
     assert visible.count('VAT')==1
     assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
 
