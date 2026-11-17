@@ -18,7 +18,9 @@ test('the administrator is told plainly how many applications are waiting',()=>{
 test('asking for more information needs a question; other decisions do not',()=>{
   assert.match(text.decisionProblem('request_information','  '),/Write what you need/);
   assert.equal(text.decisionProblem('request_information','Which products do you sell?'),'');
-  for(const decision of ['approve','reject','note','expire'])assert.equal(text.decisionProblem(decision,''),'');
+  assert.match(text.decisionProblem('reject','  '),/eligibility rule/);
+  assert.equal(text.decisionProblem('reject','Section 3: the business primarily offers alcohol sales.'),'');
+  for(const decision of ['approve','note','expire'])assert.equal(text.decisionProblem(decision,''),'');
   assert.match(text.decisionNotice('approve','Corner Shop'),/Corner Shop is approved/);
   assert.match(text.decisionNotice('note','Corner Shop'),/applicant was not contacted/);
 });

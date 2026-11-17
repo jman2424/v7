@@ -53,6 +53,8 @@ def apply(workspace):
 
 
 def decide(workspace, decision, **kwargs):
+    if decision == 'reject':
+        kwargs.setdefault('message', 'The business primarily offers an excluded activity under the eligibility policy.')
     _, operator, tenant = workspace
     row = operator.get('/business-applications/review?tenant=' + tenant).json['application']
     return operator.post('/business-applications/review?tenant=' + tenant,
@@ -148,6 +150,18 @@ def test_duplicate_application_and_stale_decision_are_conflicts(workspace):
     assert decide(workspace, 'approve').status_code == 200
     assert operator.post('/business-applications/review?tenant=' + tenant, json={'revision': 1, 'decision': 'reject'}).status_code == 409
     assert client.get('/business-applications/current?tenant=' + tenant).json['application']['status'] == 'APPROVED'
+
+
+def test_rejection_requires_a_public_reason_and_keeps_internal_notes_private(workspace):
+    client, _, tenant = workspace
+    apply(workspace)
+    assert decide(workspace, 'reject', message=' ').status_code == 400
+    reason = 'The business primarily offers gambling, which is excluded under the eligibility policy.'
+    assert decide(workspace, 'reject', message=reason, note='Internal evidence notes').status_code == 200
+    public = client.get('/business-applications/current?tenant=' + tenant).json['application']
+    assert reason in public['public_message']
+    assert 'request reconsideration' in public['public_message']
+    assert 'Internal evidence notes' not in str(public)
 
 
 def test_open_checkout_and_uncertain_creation_prevent_revocation(workspace, stripe):
@@ -263,7 +277,8 @@ def test_simultaneous_reviewers_cannot_overwrite_a_decision(workspace, app):
         client = app.test_client()
         client.set_cookie('session', cookies.value)
         return client.post('/business-applications/review?tenant=' + tenant,
-                           json={'revision': 1, 'decision': decision}).status_code
+                           json={'revision': 1, 'decision': decision,
+                                 'message': 'The named activity is outside the eligibility policy.'}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(submit, ['approve', 'reject']))
     assert sorted(results) == [200, 409]

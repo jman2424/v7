@@ -380,7 +380,8 @@ def review(tenant, data):
         if row['status'] in {'CANCELLED', 'EXPIRED'} or row['status'] == target:
             raise ApplicationError('invalid_application_transition', 409)
         if target == 'REJECTED':
-            message = 'We cannot offer services under the current activity-based eligibility policy. You may correct your details or request reconsideration here.'
+            reason = _text(message, 2000, required=True)
+            message = f'{reason}\n\nYou may correct your details or request reconsideration from your application page.'
         elif target == 'APPROVED':
             message = 'Your business has been approved. Continue to Subscription to complete secure checkout.'
         revision = row['revision'] + 1

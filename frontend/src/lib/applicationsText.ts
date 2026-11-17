@@ -14,6 +14,7 @@ export type Decision = 'approve' | 'request_information' | 'reject' | 'note' | '
 /** What must be true before a decision can be sent; returns a message to show, or '' when it may proceed. */
 export function decisionProblem(decision: Decision, message: string): string {
   if (decision === 'request_information' && !message.trim()) return 'Write what you need from the applicant first. It is sent to them.';
+  if (decision === 'reject' && !message.trim()) return 'Explain which eligibility rule applies and why. The applicant will see this reason.';
   return '';
 }
 

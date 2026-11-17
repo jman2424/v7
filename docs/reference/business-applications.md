@@ -97,6 +97,10 @@ has been performed as part of preparing this document.
   (configurable 30–730). Existing-service and pending records are not silently
   erased. Minimal decision metadata remains, private notes are redacted and sent
   notification payloads are removed after 30 days. Run the maintenance worker.
+  During intake, review the waiting queue weekly. Follow up on requests for information
+  and use Mark as expired when an inactive application no longer needs to be held open.
+  Verify worker execution and redaction before enabling intake. Record the purpose and
+  retention criteria for residual decision and security metadata separately.
 
 ## Payment reconciliation and rollout checks
 

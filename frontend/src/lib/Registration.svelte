@@ -93,6 +93,7 @@
         <button disabled={busy} type="button" on:click={()=>{state=null;code='';}}>{$t("Start again")}</button>
       {:else}
         {#if state}<p>Your previous request could not be completed or has expired. Start a new request.</p>{/if}
+        <p>See our <a href="/privacy#purposes">privacy notice</a> for how we use signup and application information. If you need help using this form, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>
         <label>I want to<select disabled={busy} bind:value={kind}><option value="owner">Create my business workspace</option><option value="join">Request to join an existing business</option></select></label>
         {#if kind==='owner'&&!applicationPolicy.intake_enabled}
           <p role="status">New business applications are paused. Existing customers can sign in and staff can still request to join an existing business.</p>

@@ -68,6 +68,7 @@
     {/if}
     {#if canEdit&&(!application||editing)}
       <form on:submit|preventDefault={submit}>
+        <p>See our <a href="/privacy#purposes">privacy notice</a> for how we use application information. If you need help using this form, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>
         <p>{policy.guidance}</p>
         {#if application}<p>Changing the business name, website, activities or selected application plan returns it to manual review before further purchases. Resolve open checkouts first.</p>{:else if !policy.intake_enabled}<p>New business applications are currently closed.</p>{/if}
         <fieldset disabled={busy||(!application&&!policy.intake_enabled)}>
