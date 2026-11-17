@@ -13,7 +13,6 @@
   catch { return; }
   if (!configuration || typeof configuration !== 'object') return;
   const measurementId = configuration.measurement_id;
-  if (typeof measurementId !== 'string' || !/^G-[A-Z0-9]{6,20}$/.test(measurementId)) return;
   const disableKey = 'ga-disable-' + measurementId;
   const consentGranted = () => {
     const item = document.cookie.split('; ').find(value => value.startsWith('v7_analytics_consent='));
@@ -28,6 +27,21 @@
     (source === 'instagram' || source === 'tiktok') &&
     query.get('utm_medium') === 'social' && query.get('utm_campaign') === 'profile';
   const campaignQuery = profileCampaign ? '?utm_source=' + source + '&utm_medium=social&utm_campaign=profile' : '';
+  let savedCampaign;
+  const syncCampaign = () => {
+    const desired = consentGranted() && profileCampaign ? source : null;
+    // Ordinary page navigation must not replace a consented campaign. Withdrawal clears it.
+    if (consentGranted() && !profileCampaign) return;
+    if (savedCampaign === desired || typeof configuration.csrf !== 'string' || !configuration.csrf) return;
+    savedCampaign = desired;
+    fetch('/marketing/attribution', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':configuration.csrf},
+      body:JSON.stringify({source:desired})}).catch(() => { savedCampaign = undefined; });
+  };
+  window.addEventListener('v7-analytics-consent-changed', syncCampaign);
+  window.addEventListener('pageshow', syncCampaign);
+  syncCampaign();
+  if (typeof measurementId !== 'string' || !/^G-[A-Z0-9]{6,20}$/.test(measurementId)) return;
   const page = {
     page_location: location.origin + location.pathname + campaignQuery,
     page_referrer: '',

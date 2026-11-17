@@ -88,6 +88,12 @@ def queue_get():
                    search=request.args.get('search', ''), sort=request.args.get('sort', 'newest'), page=int(page)))
 
 
+@bp.get('/acquisition')
+def acquisition_get():
+    management_user(platform_only=True)
+    return jsonify(applications.acquisition_report())
+
+
 @bp.get('/review')
 def review_get():
     tenant, _ = _tenant(operator=True)

@@ -18,7 +18,7 @@ from service import session_store
 from service.account_service import valid_account_email
 from service.plan_catalog import get_plan
 
-APPLICATION_TERMS_VERSION = 'application-terms-20261117'
+APPLICATION_TERMS_VERSION = 'application-terms-20261117-2'
 
 STATES = ('PENDING_REVIEW', 'NEEDS_INFORMATION', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED')
 DEFAULT_POLICY = (
@@ -278,6 +278,12 @@ def _submit(db, tenant, email, data, *, preserved=False):
     if not valid_account_email(email) or len(email) > 254:
         raise ApplicationError('invalid_application_email')
     details = validate_details(data, policy=policy)
+    from flask import has_request_context, request, session
+    campaign = session.get('profile_campaign') if has_request_context() else None
+    if (isinstance(campaign, dict) and campaign.get('source') in ('instagram', 'tiktok')
+            and type(campaign.get('created')) is int and 0 <= time.time()-campaign['created'] <= 30*86400
+            and request.cookies.get('v7_analytics_consent') == 'v1:granted'):
+        details['acquisition_source'] = campaign['source']
     if _lock(db, tenant):
         raise ApplicationError('application_already_exists', 409)
     _limit_submissions(db, email)
@@ -332,6 +338,9 @@ def update(tenant, data, email, *, actor=None):
             raise ApplicationError('application_update_rate_limited', 429)
         _limit_submissions(db, email)
         details = validate_details(data, policy=settings(db=db))
+        source = json.loads(row['details']).get('acquisition_source')
+        if source in ('instagram', 'tiktok'):
+            details['acquisition_source'] = source
         revision = row['revision'] + 1
         _execute(db, "UPDATE business_applications SET details=?,status='PENDING_REVIEW',revision=?,"
                  "public_message='',research='{}',updated=?,policy_version=?,contact_email=? WHERE tenant=?",
@@ -425,6 +434,29 @@ def list_applications(*, status='', search='', sort='newest', page=1):
         rows = [{**public_application(row), 'tenant': row['tenant']} for row in _rows(cursor)]
         pending = _execute(db, "SELECT COUNT(*) FROM business_applications WHERE status IN ('PENDING_REVIEW','NEEDS_INFORMATION')").fetchone()[0]
     return {'applications': rows, 'total': total, 'pending': pending, 'page': page, 'has_next': page * 50 < total}
+
+
+def acquisition_report():
+    """Operator-only aggregate of consented sources and recorded first payments."""
+    _operator()
+    from service import subscriptions
+    totals = {source: {'source': source, 'applications': 0, 'approved': 0,
+                       'paid_subscriptions': 0, 'first_payment_pence': 0}
+              for source in ('instagram', 'tiktok', 'unattributed')}
+    with database(operator=True) as db:
+        rows = _rows(_execute(db, 'SELECT tenant,status,details FROM business_applications ORDER BY created DESC,tenant LIMIT 1001'))
+    for row in rows[:1000]:
+        source = json.loads(row['details']).get('acquisition_source', 'unattributed')
+        bucket = totals.get(source, totals['unattributed'])
+        bucket['applications'] += 1
+        bucket['approved'] += int(row['status'] == 'APPROVED')
+        with subscriptions.connection(row['tenant']) as db:
+            invoice = db.execute("SELECT paid FROM billing_invoices WHERE tenant=? AND kind='platform' AND status='paid' AND paid>0 ORDER BY issued,id LIMIT 1", (row['tenant'],)).fetchone()
+        if invoice:
+            bucket['paid_subscriptions'] += 1
+            bucket['first_payment_pence'] += invoice['paid']
+    return {'sources': list(totals.values()), 'partial': len(rows) > 1000,
+            'applications_reviewed': min(len(rows), 1000)}
 
 
 def save_settings(data):

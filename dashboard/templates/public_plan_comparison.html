@@ -4,22 +4,20 @@
           <span class="card-number">{{ plan.audience }}</span><h3 class="plan-name">{{ plan.name }}</h3>
           <p class="plan-price">£{{ '%.0f' | format(plan.monthly_pence / 100) }} <small>/ month{% if subscription_vat_percent %} before VAT{% endif %}</small></p>
           {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000) }} / month</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
-          <p class="plan-setup">£{{ '%.0f' | format(plan.setup_pence / 100) }} optional one-time assistance{% if subscription_vat_percent %} before VAT{% endif %}</p>
-          {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000) }} assistance</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
           <ul class="plan-highlights"><li>{{ plan.channel_summary }}</li><li>Messages are limited by your prepaid AI credit</li><li>AI processing credit purchased separately · usage depends on model and tokens</li><li>{{ plan.locations }} location{% if plan.locations != 1 %}s{% endif %} / service area{% if plan.locations != 1 %}s{% endif %} · {{ plan.staff }} staff accounts</li></ul>
           <p class="plan-exclusion">{% if "whatsapp" in plan.channels %}WhatsApp phone numbers are not included. Provider and number rental charges are separate.{% else %}WhatsApp and calls are part of the Scale plan.{% endif %}</p>
           <a class="button button-dark" href="/console/?apply=1&amp;next=application&amp;plan={{ plan.id }}">Apply for {{ plan.name }} <span aria-hidden="true">→</span></a>
         </article>
         {% endfor %}
       </div>
-      {% if setup_offer_enabled is not defined or setup_offer_enabled %}<aside class="referral-offer" aria-labelledby="setup-offer-title"><div><h3 id="setup-offer-title" data-i18n>Free assistance</h3><p data-i18n>Use code SETUP in your Subscription section before checkout. Your monthly subscription price is unchanged.</p><p class="referral-terms" data-i18n>For unpaid optional assistance only. Business approval is required. Offers do not stack or cover AI credit, and paid assistance is not refunded.</p></div></aside>{% endif %}
+      <aside class="referral-offer" aria-labelledby="assistance-title"><div><h3 id="assistance-title">Optional setup assistance — £100 once</h3><p>Help importing your business data, improving AI answers, and guidance for phone, email and WhatsApp setup where included in your plan.</p><p>Website scraping requires your permission to import public content and your review before use. Assistance is a separate, optional one-time purchase after approval. You can set up V7 yourself.</p>{% if subscription_vat_percent %}<p>£120 including 20% VAT, before any accepted discount.</p>{% else %}<p>No VAT is currently charged.</p>{% endif %}<a href="/terms#setup-assistance">Setup assistance and website import terms</a></div></aside>
       <p class="pricing-note" data-i18n>Your workspace includes the embed snippet and guidance; your team or website developer adds it to your website. One-time assistance is an optional add-on.</p>
       <p class="pricing-note">A short business application and personal approval are required before payment. Existing customers can manage subscriptions from their workspace.</p>
       {% if not subscription_vat_percent %}<p class="pricing-note">Prices shown are final GBP amounts. VAT is not currently charged.</p>{% endif %}
       {% if referral_offer is defined and referral_offer.enabled %}
       <aside class="referral-offer" aria-labelledby="referral-offer-title">
         <div><p class="offer-label" data-i18n>REFER A BUSINESS</p><h3 id="referral-offer-title"><span>{{ referral_offer.percent }}%</span> <span data-i18n>off one subscription month for both businesses</span></h3>
-        {% if referral_offer.joining_setup_percent == 100 %}<p data-i18n>The new business gets its first subscription month discounted and can claim free setup assistance.</p>{% endif %}
+        <p><span>New businesses also receive</span> {{ referral_offer.joining_setup_percent }}% <span>off unpaid setup assistance.</span></p>
         <p><span data-i18n>You earn your reward after its first successful subscription payment, including</span> {{ referral_offer.percent }}% <span data-i18n>off your unpaid assistance fee.</span></p>
         <p class="referral-terms" data-i18n>To claim a referral discount, accept the referral before your first checkout. Discounts do not stack or apply to AI credit. Already-paid assistance fees are not refunded.</p></div>
         <a class="button button-dark" href="/console/account" data-i18n>Get your referral link</a>

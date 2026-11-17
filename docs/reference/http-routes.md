@@ -16,6 +16,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/admin/api/privacy` | PUT | `routes/privacy_routes.py` · `privacy_put` |
 | `/ai-usage-pricing` | GET | `routes/public_seo_routes.py` · `ai_usage_pricing_page` |
 | `/auth/privacy/export` | GET | `routes/privacy_routes.py` · `own_account_export` |
+| `/contact` | GET, POST | `routes/public_seo_routes.py` · `contact_page` |
 | `/cookies` | GET | `routes/privacy_routes.py` · `cookies_page` |
 | `/faqs` | GET | `routes/public_seo_routes.py` · `faq_page` |
 | `/favicon.ico` | GET | `routes/public_seo_routes.py` · `favicon` |
@@ -24,6 +25,7 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/guides/choosing-a-website-chatbot` | GET | `routes/public_seo_routes.py` · `buying_guide` |
 | `/guides/getting-started` | GET | `routes/public_seo_routes.py` · `setup_guide` |
 | `/integrations` | GET | `routes/public_seo_routes.py` · `resource_page` |
+| `/marketing/attribution` | POST | `routes/public_seo_routes.py` · `campaign_attribution` |
 | `/pricing` | GET | `routes/public_seo_routes.py` · `pricing_page` |
 | `/privacy` | GET | `routes/privacy_routes.py` · `privacy_page` |
 | `/robots.txt` | GET | `routes/public_seo_routes.py` · `robots` |
@@ -242,12 +244,16 @@ tenant checks live in the handler named in the last column and in `service/secur
 | `/billing/select-plan` | POST | `routes/billing_routes.py` · `select_plan_post` |
 | `/billing/stripe/webhook` | POST | `routes/billing_routes.py` · `stripe_webhook` |
 | `/billing/subscription` | GET | `routes/billing_routes.py` · `subscription_get` |
+| `/billing/support` | GET | `routes/billing_routes.py` · `support_get` |
+| `/billing/support` | POST | `routes/billing_routes.py` · `support_post` |
+| `/billing/support/<request_id>` | POST | `routes/billing_routes.py` · `support_update` |
 | `/billing/usage-credit` | GET | `routes/usage_billing_routes.py` · `credit_get` |
 | `/billing/usage-credit/adjust` | POST | `routes/usage_billing_routes.py` · `adjustment_post` |
 | `/billing/usage-credit/checkout` | POST | `routes/usage_billing_routes.py` · `checkout_post` |
 | `/billing/usage-credit/companies` | GET | `routes/usage_billing_routes.py` · `companies_get` |
 | `/billing/usage-credit/waive-unconfirmed` | POST | `routes/usage_billing_routes.py` · `waive_unconfirmed_post` |
 | `/billing/whatsapp` | POST | `routes/billing_routes.py` · `whatsapp_post` |
+| `/business-applications/acquisition` | GET | `routes/business_application_routes.py` · `acquisition_get` |
 | `/business-applications/cancel` | POST | `routes/business_application_routes.py` · `cancel_post` |
 | `/business-applications/close-payments` | POST | `routes/business_application_routes.py` · `close_payments_post` |
 | `/business-applications/current` | GET | `routes/business_application_routes.py` · `current_get` |

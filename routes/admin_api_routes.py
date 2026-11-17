@@ -620,6 +620,7 @@ def _platform_promotions_report():
     tenant = _tenant()
     raw = platform_promotions.document(_storage(), tenant)
     settings = platform_promotions.validate(raw) if raw is not None else platform_promotions.DEFAULTS.copy()
+    settings['setup_enabled'] = False
     response = jsonify(available=True, settings=settings, revision=revision(raw),
                        referral=referrals.public_offer(tenant))
     response.headers['Cache-Control'] = 'no-store'
@@ -654,6 +655,8 @@ def api_platform_promotions_put():
         settings = platform_promotions.validate(body['settings'])
     except ValueError:
         return jsonify(error='invalid_platform_promotions'), 400
+    if settings['setup_enabled']:
+        return jsonify(error='setup_campaign_retired'), 400
     _audited_json_write(_storage(), _tenant(), platform_promotions.FILENAME, settings,
                         action='platform_promotions.update', expected_revision=body['revision'])
     request.environ.pop('v7.platform_promotions', None)
@@ -1392,6 +1395,8 @@ def api_business_operations_decision(operation_id):
         job = operations.get(tenant, operation_id)
         if job is None:
             abort(404)
+        if job['conversation_id'] == 'platform-support':
+            abort(403)
         if data.get('decision') == 'approve' and not channels.active(_storage(), tenant, job['channel']):
             return jsonify(error='channel_disabled'), 409
         # Audit the authorised instruction before mutating the queue. An audit

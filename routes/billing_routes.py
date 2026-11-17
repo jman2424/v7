@@ -1,5 +1,6 @@
 """Owner-scoped billing, platform oversight, and verified Stripe callbacks."""
 import json
+import re
 from flask import Blueprint, abort, jsonify, request, session
 from service.business_applications import ApplicationError, require_eligible
 from routes import get_container
@@ -263,6 +264,50 @@ def select_plan_post():
     from routes.admin_api_routes import _audit
     _audit('billing.select_plan',tenant,after={'plan_id':state['selected_plan']})
     return jsonify(ok=True,plan_state=state)
+
+
+@bp.get('/support')
+def support_get():
+    from service.business_operations import support_requests
+    tenant = _tenant(read_only=True)
+    return jsonify(requests=support_requests(tenant))
+
+
+@bp.post('/support')
+def support_post():
+    from service import business_operations
+    tenant, data, actor = _tenant(), _body(), _owner()
+    if data.get('kind') not in {'setup', 'billing', 'access'}:
+        return jsonify(error='invalid_support_request'), 400
+    try:
+        reference = business_operations.request_support(tenant, actor.get('email', ''), data.get('kind'),
+                                                       data.get('message'), data.get('request_id'))
+    except ValueError as exc:
+        return validation_error(exc, 'invalid_support_request', public_messages=('invalid_support_request', 'support_daily_limit'))
+    from routes.admin_api_routes import _audit
+    _audit('support.request', tenant, after={'reference': reference, 'kind': data.get('kind')})
+    return jsonify(reference=reference), 201
+
+
+@bp.post('/support/<request_id>')
+def support_update(request_id):
+    from service import business_operations
+    management_user(platform_only=True)
+    if not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        abort(400)
+    tenant, data = _tenant(), _body()
+    row = business_operations.get(tenant, request_id)
+    if not row or row['conversation_id'] != 'platform-support':
+        abort(404)
+    if data.get('decision') not in {'complete', 'reject'}:
+        abort(400)
+    try:
+        business_operations.decide(tenant, request_id, data.get('version'), data['decision'], reply=data.get('reply', ''))
+    except ValueError:
+        return jsonify(error='support_request_changed'), 409
+    from routes.admin_api_routes import _audit
+    _audit('support.update', tenant, after={'reference': request_id, 'decision': data['decision']})
+    return jsonify(ok=True)
 
 
 @bp.post('/cancel-checkout')

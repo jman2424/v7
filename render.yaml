@@ -1,7 +1,7 @@
 services:
   - type: web
     name: ai-sales-assistant
-    env: python
+    runtime: python
     plan: starter
     disk:
       name: v7-data
@@ -64,5 +64,5 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
-    healthCheckPath: /health
+    healthCheckPath: /ready
     autoDeploy: true

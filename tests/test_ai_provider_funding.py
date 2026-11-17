@@ -107,6 +107,14 @@ def test_small_recharge_fixed_fees_and_vat_are_in_break_even():
     assert Decimal(taxed['gross_contribution_pence'])<Decimal(result['gross_contribution_pence'])
 
 
+def test_manual_funding_uses_credit_excluding_tax_for_provider_cost():
+    policy = {**funding.DEFAULTS, **{key:0 for key in ('stripe_percent_bps','stripe_fixed_pence','climate_bps','fx_cost_bps','refund_dispute_risk_bps','infrastructure_bps','target_margin_bps')}, 'financial_review_completed':True}
+    result = funding.break_even(policy, amount_pence=1200, credit_pence=1000, vat_percent=20, markup=25)
+    assert Decimal(result['net_revenue_pence']) == 1000
+    assert Decimal(result['estimated_provider_cost_pence']) == 800
+    assert Decimal(result['gross_contribution_pence']) == 200
+
+
 def test_spend_limits_are_allowlisted_and_invalid_limits_unavailable(ledger,monkeypatch):
     monkeypatch.setattr(funding,'_get',lambda *args:{'object':'organization.spend_limit','currency':'USD','interval':'month','threshold_amount':10000,'enforcement':{'status':'enforcing'}})
     assert funding.sync_limits()['scopes']>=1

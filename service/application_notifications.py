@@ -95,12 +95,17 @@ def process_one(container):
 
 
 def retention_once():
-    from service import tenant_access
+    from service import tenant_access, business_operations
+    from flask import current_app
     with tenant_access._database() as db:
         tenant_access._schema(db)
         tenants = [row[0] for row in tenant_access._execute(db, 'SELECT tenant FROM managed_businesses')]
+    marketing = current_app.container.settings.PLATFORM_MARKETING_TENANT
+    if marketing and marketing not in tenants:
+        tenants.append(marketing)
     for tenant in tenants:
         try:
+            business_operations.purge_closed_support(tenant)
             applications.purge_closed(tenant)
         except applications.ApplicationError:
             continue  # An unresolved payment always takes priority over purge.

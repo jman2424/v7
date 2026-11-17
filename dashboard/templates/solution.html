@@ -26,10 +26,8 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css', v='20261111') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/site.css', v='20261111') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/home.css', v='20261111') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/solutions.css', v='20261111') }}">
   <script defer src="{{ url_for('static', filename='js/ui-i18n.js') }}"></script>
-  {% if ga4_measurement_id %}
-  <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id} | tojson }}</script>
-  <script defer src="{{ url_for('static', filename='js/public-analytics.js') }}"></script>
-  {% endif %}
+  <script id="v7-public-analytics-config" type="application/json" nonce="{{ g.csp_nonce }}">{{ {'measurement_id': ga4_measurement_id, 'csrf': session.get('_csrf', '')} | tojson }}</script>
+  <script defer src="{{ url_for('static', filename='js/public-analytics.js', v='20261117') }}"></script>
   <script type="application/ld+json" nonce="{{ g.csp_nonce }}">{{ {
     '@context': 'https://schema.org', '@type': 'WebPage', 'name': solution.title,
     'description': solution.description, 'url': canonical_url,

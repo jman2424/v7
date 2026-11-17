@@ -8,7 +8,7 @@ from typing import Any
 from flask import current_app, has_app_context, has_request_context, request
 
 FILENAME = 'platform_promotions.json'
-DEFAULTS = {'setup_enabled': True, 'highstreet_enabled': True}
+DEFAULTS = {'setup_enabled': False, 'highstreet_enabled': True}
 logger = logging.getLogger(__name__)
 
 
@@ -58,6 +58,9 @@ def public_flags() -> dict[str, bool]:
         if cached is not None:
             return validate(cached)
     flags = _load_flags()
+    # The public SETUP campaign is retired. Existing accepted promotions are
+    # read from their billing snapshot, not this new-claim switch.
+    flags['setup_enabled'] = False
     if has_request_context():
         request.environ['v7.platform_promotions'] = flags.copy()
     return flags

@@ -16,7 +16,7 @@ RESOURCE_PAGES: dict[str, Solution] = {
                 'Approved destinations let the assistant offer a button to a relevant product, checkout, booking or support page. A visitor clicking a button opens that destination; it does not prove that an order, payment or booking was completed there.',
             ]},
             {'heading': 'WhatsApp needs a provider connection', 'paragraphs': [
-                'Website and WhatsApp agent software are included in the plans. WhatsApp also requires an eligible business number and a configured Meta or Twilio provider connection. Phone numbers, number rental and provider messaging charges are separate from the V7 subscription and prepaid AI credit.',
+                'Website chat is included in every plan. Business adds email; Scale adds WhatsApp and call handling. WhatsApp also requires an eligible business number and a configured Meta or Twilio provider connection. Phone numbers, number rental and provider messaging charges are separate from the V7 subscription and prepaid AI credit.',
                 'Confirm number eligibility and provider configuration during onboarding, then test inbound messages and replies. Website chat works independently of WhatsApp. A plan purchase alone does not finish provider setup.',
             ]},
             {'heading': 'Enquiries and V7-native consultation bookings', 'paragraphs': [
@@ -148,3 +148,13 @@ RESOURCE_PAGES: dict[str, Solution] = {
         'caution': 'Results depend on your information, configuration and team follow-up. V7 does not guarantee sales, staff savings or successful outcomes, and additional business-system operations need an implemented connection.',
     },
 }
+
+# Illustrations use fictional enquiries and do not imply a completed integration.
+RESOURCE_PAGES['/guides/business-use-cases']['sections'].extend([
+    {'heading': 'Retail example: compare two products before checkout', 'paragraphs': [
+        'A visitor asks, "Which jacket is waterproof and under £80?" Load current catalogue prices, waterproof ratings, sizes and a delivery policy. Test the same question with one product out of stock and with a lower budget. A useful answer states the supported differences and links to the matching product page; it does not invent stock or complete a purchase.',
+        'Then ask, "Will it arrive by Friday?" Keep delivery estimates and dispatch cut-offs in a reviewed policy. If the necessary location or deadline is missing, the assistant should ask or route the question to your team. Check the actual product link, answer accuracy and processing cost in your own test conversation. This is a fictional test scenario, not a customer result.']},
+    {'heading': 'Service example: qualify an enquiry without promising a booking', 'paragraphs': [
+        'For a vehicle-detailing business, supply service areas, package descriptions, starting prices, exclusions and a working contact destination. Test an enquiry for a large vehicle with heavy staining. The assistant should explain the relevant package, request the details your team needs for a quote and distinguish a starting price from a confirmed quote.',
+        'Ask for a specific appointment next. Unless an authorised booking integration actually confirms availability and saves the booking, the response should offer a contact or enquiry route and describe it as a request. Submit the form, find the saved lead and complete the human follow-up before launch. This example is illustrative and does not promise more sales.']}
+])

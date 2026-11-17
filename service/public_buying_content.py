@@ -13,8 +13,8 @@ def public_pricing() -> Solution:
         'audience': 'GBP pricing for businesses choosing an AI sales assistant. No AI credit is included in the subscription.',
         'sections': [
             {'heading': 'Which plan should you choose?', 'paragraphs': [
-                'Start with the comparison above: count the branches or service areas you need to configure and the staff who need workspace access, then compare onboarding and analytics. The business owner is separate from the staff allowance. A higher plan does not automatically connect a shop, booking system or other external service.',
-                'Plan labels such as Basic and Advanced describe the service level. Access to business data and tools still follows the account permissions and integrations enabled for your workspace.',
+                'Start with the comparison above: count the branches or service areas you need to configure and the staff who need workspace access, then check which customer channels are included. The business owner is separate from the staff allowance. A higher plan does not automatically connect a shop, booking system or other external service.',
+                'All plans include business analytics and API access, subject to account permissions. Channel access, locations and staff allowances distinguish the packages.',
             ]},
             {'heading': 'How much does AI processing cost?', 'paragraphs': [
                 _prepaid_processing(),

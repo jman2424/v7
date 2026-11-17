@@ -18,7 +18,7 @@
     const timer=setTimeout(()=>controller.abort(),20000);
     try{
       const response=await fetch(apiPrefix+'/business-applications/'+path+'?tenant='+encodeURIComponent(tenant),{method,credentials:'same-origin',signal:controller.signal,headers:{'X-CSRF-Token':csrf,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
-      const result=await response.json();if(!response.ok)throw new Error(result.error||'application_request_failed');return result;
+      const result=await response.json();if(!response.ok){if(response.status===401||result.error==='csrf_failed')throw new Error('Your session expired before we could save. Sign in again, review your settings and save.');if(response.status===403)throw new Error('Your account cannot perform this action. Sign in with the business owner or platform administrator account.');throw new Error(result.error||'application_request_failed');}return result;
     }finally{clearTimeout(timer);requests.delete(controller);}
   }
   function fill(){if(application){businessName=application.business_name;website=application.website;description=application.description;}}

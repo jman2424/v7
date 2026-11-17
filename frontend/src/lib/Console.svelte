@@ -1812,7 +1812,7 @@
 
       <fieldset class="workspace-content" disabled={workspaceBusy || Boolean(workspaceError)} aria-busy={workspaceBusy}>
       <legend class="sr-only">{$t(pageTitle)}</legend>
-      {#each (['home','budget','spending','billing-overview'].includes(section)?[]:usageCreditAlerts) as alert}
+      {#each (['home','budget','spending','billing-overview','subscription'].includes(section)?[]:usageCreditAlerts) as alert}
         <section class="activation-notice" aria-label={$t('AI Budget')}><div><strong>{$t('AI Budget')}</strong><p role="alert">{usageCreditWarning(alert.code)}</p></div>{#if canViewCosts}<a href={sectionHref(base,'budget',tenant)}>{$t('Open AI Budget')} <span aria-hidden="true">↗</span></a>{/if}</section>
       {/each}
       {#if activation && activation.status==='payment_recovery' && activation.grace_ends}

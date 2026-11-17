@@ -206,7 +206,53 @@ def listing(tenant, limit=50):
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('invalid_operation_limit')
     with connection(tenant) as db:
-        return [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND state!='expired' ORDER BY created DESC LIMIT ?", (tenant, limit)).fetchall()]
+        return [_decode(row) for row in db.execute("SELECT * FROM business_operations WHERE tenant=? AND state!='expired' AND conversation_id!='platform-support' ORDER BY created DESC LIMIT ?", (tenant, limit)).fetchall()]
+
+
+def support_requests(tenant):
+    """Return only platform-support requests, without provider or private metadata."""
+    with connection(tenant) as db:
+        rows = db.execute("SELECT id,state,reply,created,version,payload FROM business_operations "
+                          "WHERE tenant=? AND conversation_id='platform-support' ORDER BY created DESC LIMIT 50",
+                          (tenant,)).fetchall()
+    return [{**{key: row[key] for key in ('id', 'state', 'reply', 'created', 'version')},
+             **{key: json.loads(row['payload']).get(key, '') for key in ('kind', 'message', 'contact')}} for row in rows]
+
+
+def request_support(tenant, contact, kind, message, request_id):
+    """Save a manual support task atomically without dispatching AI or an email."""
+    if kind not in {'setup', 'billing', 'access', 'demo'} or not isinstance(message, str) or not 10 <= len(message.strip()) <= 2000 or '\x00' in message:
+        raise ValueError('invalid_support_request')
+    if not isinstance(request_id, str) or not _ID.fullmatch(request_id):
+        raise ValueError('invalid_support_request')
+    event_key = hashlib.sha256(('support:' + request_id).encode()).hexdigest()
+    with connection(tenant, write=True) as db:
+        existing = db.execute("SELECT id,payload FROM business_operations WHERE tenant=? AND channel='workflow' AND event_key=?",
+                              (tenant, event_key)).fetchone()
+        if existing:
+            if json.loads(existing['payload']) != {'kind': kind, 'message': message.strip(), 'contact': contact}:
+                raise ValueError('invalid_support_request')
+            return existing['id']
+        recent = db.execute("SELECT COUNT(*) AS n FROM business_operations WHERE tenant=? AND conversation_id='platform-support' AND created>?",
+                            (tenant, time.time() - 86400)).fetchone()['n']
+        contact_recent = db.execute("SELECT COUNT(*) AS n FROM business_operations WHERE tenant=? AND conversation_id='platform-support' AND source_address=? AND created>?", (tenant, contact, time.time()-86400)).fetchone()['n']
+        if recent >= (100 if kind == 'demo' else 5) or contact_recent >= 5:
+            raise ValueError('support_daily_limit')
+        identifier, now = secrets.token_hex(16), time.time()
+        payload = json.dumps({'kind': kind, 'message': message.strip(), 'contact': contact})
+        db.execute('INSERT INTO business_operations(id,tenant,channel,event_key,conversation_id,source_address,payload,state,created,updated) '
+                   "VALUES(?,?,'workflow',?,'platform-support',?,?,'needs_review',?,?)",
+                   (identifier, tenant, event_key, contact, payload, now, now))
+    return identifier
+
+
+def purge_closed_support(tenant):
+    """Remove closed platform support content 180 days after its last update."""
+    with connection(tenant, write=True) as db:
+        return db.execute("DELETE FROM business_operations WHERE tenant=? AND id IN ("
+                          "SELECT id FROM business_operations WHERE tenant=? AND conversation_id='platform-support' "
+                          "AND state IN ('completed','rejected') AND updated<? ORDER BY updated LIMIT 100)",
+                          (tenant, tenant, time.time()-180*86400)).rowcount
 
 
 def begin_action(tenant, operation_id, version, payload):
@@ -217,6 +263,8 @@ def begin_action(tenant, operation_id, version, payload):
         row = db.execute('SELECT * FROM business_operations WHERE tenant=? AND id=?', (tenant, operation_id)).fetchone()
         if row is None:
             raise LookupError('operation_not_found')
+        if row['conversation_id'] == 'platform-support':
+            raise ValueError('operation_requires_platform_support')
         if row['state'] != 'needs_review' or row['version'] != version:
             raise ValueError('operation_changed')
         job = _decode(row)

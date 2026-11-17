@@ -30,6 +30,13 @@ def ready():
     try:
         c = getattr(current_app, "container")
         _ = c.catalog.count_items() if hasattr(c.catalog, "count_items") else True
+        from service import session_store
+        if session_store._using_postgres():
+            with session_store.postgres_connection() as db:
+                db.execute("SELECT 1").fetchone()
+        else:
+            with session_store.connection() as db:
+                db.execute("SELECT 1").fetchone()
         return jsonify({"ready": True}), 200
     except Exception:
         current_app.logger.exception("Readiness check failed")

@@ -210,10 +210,11 @@ test('a real billing read/action failure keeps the friendly error through normal
 });
 
 test('plan cards disclose tax totals and separate phone costs without advertising a WhatsApp message quota', () => {
-  const plans = component.slice(component.indexOf('<div class="cards plans tiered-plans">'), component.indexOf('{#if planLocked}'));
+  const plans = component.slice(component.indexOf('<div class="cards plans tiered-plans"'), component.indexOf('{#if planLocked}'));
   assert.match(plans, /totalWithVat\(plan\.monthly_pence\)/);
-  assert.match(plans, /setupTotal\(plan\.setup_pence\)/);
-  assert.match(plans, /AI processing paid separately with prepaid usage credit/);
+  assert.match(component, /id="setup-assistance"/);
+  assert.match(component, /setupTotal\(data\.setup_assistance_pence\)/);
+  assert.match(plans, /AI processing credit is purchased separately. Setup assistance is optional./);
   assert.match(plans, /WhatsApp phone numbers are not included/);
   assert.doesNotMatch(plans, /plan\.whatsapp_messages/);
   const usage = component.slice(component.indexOf('{#if data.allowance}'), component.indexOf('{#if legacyBilling}', component.indexOf('{#if data.allowance}')));

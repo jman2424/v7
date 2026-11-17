@@ -768,8 +768,15 @@ def whatsapp_enabled(tenant):
     if state:
         with connection(tenant) as db:
             base = db.execute("SELECT status,next_due FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
-        return bool(state['active_plan'] and 'whatsapp' in get_plan(state['active_plan'])['channels']
-                    and not state['whatsapp_paused'] and base and base['status'] in {'active','trialing'} and (base['next_due'] or 0)>time.time())
+        if not state['active_plan'] or 'whatsapp' not in get_plan(state['active_plan'])['channels'] or state['whatsapp_paused'] or not base:
+            return False
+        if base['status'] in {'active', 'trialing'}:
+            return (base['next_due'] or 0) > time.time()
+        from service import payment_recovery
+        if base['status'] in payment_recovery.FAILED_STATUSES:
+            from service.tenant_access import activation
+            return activation(tenant).get('status') == 'payment_recovery'
+        return False
     with connection(tenant) as db:
         row = db.execute("SELECT paused,status,next_due FROM billing_contracts WHERE tenant=? AND kind='whatsapp'",(tenant,)).fetchone()
     # Enforce purchased access when a billing contract exists. Preserve legacy integrations until migrated.
