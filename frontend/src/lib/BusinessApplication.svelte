@@ -63,7 +63,7 @@
       {#if application.public_message}<p class="message">{application.public_message}</p>{/if}
       {#if application.accepted_policy_text}<details><summary>Policy accepted with this application</summary><p class="message">{application.accepted_policy_text}</p></details>{/if}
       {#if application.existing_service_preserved}<p>Existing services and prepaid balances remain subject to their current billing and permissions. This review does not automatically cancel your subscription.</p>{/if}
-      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and assistance fees are separate from prepaid AI usage credit. Activation follows verified payment.</p>{/if}
+      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and assistance fees are separate from prepaid AI usage credit. Activation follows verified payment.</p><p>If you need help with your service, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>{/if}
       <div class="actions"><button disabled={busy} on:click={load}>Refresh status</button>{#if canEdit}<button disabled={busy} on:click={()=>{editing=!editing;fill();}}>Correct details / request reconsideration</button>{#if application.status!=='CANCELLED'}<button disabled={busy} on:click={withdraw}>Withdraw application</button>{/if}{/if}</div>
     {/if}
     {#if canEdit&&(!application||editing)}

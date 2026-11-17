@@ -94,22 +94,26 @@
       {:else}
         {#if state}<p>Your previous request could not be completed or has expired. Start a new request.</p>{/if}
         <label>I want to<select disabled={busy} bind:value={kind}><option value="owner">Create my business workspace</option><option value="join">Request to join an existing business</option></select></label>
-        <label>{$t("Email")}<input disabled={busy} type="email" maxlength="254" autocomplete="email" bind:value={email} required/></label>
-        {#if sender}<p>Verification codes are sent from <strong>{sender}</strong>.</p>{/if}
-        <label>{$t("Password")}<input disabled={busy} type="password" minlength="12" maxlength="256" autocomplete="new-password" bind:value={password} required/><small>At least 12 characters. An authenticator is also required at sign-in.</small></label>
-        {#if kind==='join'}<label>Company key from your business owner<input disabled={busy} bind:value={tenant} maxlength="64" pattern={'[A-Za-z0-9][A-Za-z0-9_\\-]{0,63}'} required/></label>{/if}
-        {#if kind==='owner'}
-          <p>{applicationPolicy.guidance}</p>
-          {#if !applicationPolicy.intake_enabled}<p role="status">New business applications are currently closed. Existing accounts can still sign in.</p>{/if}
-          <label>Business name<input disabled={busy} bind:value={businessName} maxlength="120" required/></label>
-          <label>Business website (optional)<input disabled={busy} type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
-          <label>What does your business do? {website?'(optional)':''}<textarea disabled={busy} bind:value={description} maxlength="2000" required={!website} rows="3"></textarea></label>
-          <label>Selected plan<select disabled={busy} bind:value={planId}>{#each applicationPolicy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month</option>{/each}</select>
-            {#if chosenPlan}<small>Billed monthly. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered when you pay, after approval; you can skip it.</small>{/if}</label>
-          <label><span><input disabled={busy} type="checkbox" bind:checked={acceptedTerms} required/> I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
-          <p>No payment now. After manual approval, complete secure checkout. AI usage credit is purchased separately.</p>
-        {:else}<p>Your verified request goes to this business’s owner. Approval grants staff access only, with no billing permissions by default.</p>{/if}
-        <button disabled={busy||(kind==='owner'&&!applicationPolicy.intake_enabled)} type="submit">{busy?'Sending…':kind==='owner'?'Apply and verify email':'Send verification code'}</button>
+        {#if kind==='owner'&&!applicationPolicy.intake_enabled}
+          <p role="status">New business applications are paused. Existing customers can sign in and staff can still request to join an existing business.</p>
+          <p>If your business has already been approved and you need help with your service, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>
+        {:else}
+          <label>{$t("Email")}<input disabled={busy} type="email" maxlength="254" autocomplete="email" bind:value={email} required/></label>
+          {#if sender}<p>Verification codes are sent from <strong>{sender}</strong>.</p>{/if}
+          <label>{$t("Password")}<input disabled={busy} type="password" minlength="12" maxlength="256" autocomplete="new-password" bind:value={password} required/><small>At least 12 characters. An authenticator is also required at sign-in.</small></label>
+          {#if kind==='join'}<label>Company key from your business owner<input disabled={busy} bind:value={tenant} maxlength="64" pattern={'[A-Za-z0-9][A-Za-z0-9_\\-]{0,63}'} required/></label>{/if}
+          {#if kind==='owner'}
+            <p>{applicationPolicy.guidance}</p>
+            <label>Business name<input disabled={busy} bind:value={businessName} maxlength="120" required/></label>
+            <label>Business website (optional)<input disabled={busy} type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
+            <label>What does your business do? {website?'(optional)':''}<textarea disabled={busy} bind:value={description} maxlength="2000" required={!website} rows="3"></textarea></label>
+            <label>Selected plan<select disabled={busy} bind:value={planId}>{#each applicationPolicy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month</option>{/each}</select>
+              {#if chosenPlan}<small>Billed monthly. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered when you pay, after approval; you can skip it.</small>{/if}</label>
+            <label><span><input disabled={busy} type="checkbox" bind:checked={acceptedTerms} required/> I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
+            <p>No payment now. After manual approval, complete secure checkout. AI usage credit is purchased separately.</p>
+          {:else}<p>Your verified request goes to this business’s owner. Approval grants staff access only, with no billing permissions by default.</p>{/if}
+          <button disabled={busy} type="submit">{busy?'Sending…':kind==='owner'?'Apply and verify email':'Send verification code'}</button>
+        {/if}
       {/if}
     </form>
   {/if}
