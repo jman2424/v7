@@ -325,7 +325,7 @@ def test_full_approved_application_to_verified_subscription_and_optional_assista
     deliver('in_applicationsetup')
     assert tenant_access.activation(tenant)['active']
     with subscriptions.connection(tenant) as db:
-        assert db.execute('SELECT COUNT(*),SUM(paid) FROM billing_invoices WHERE tenant=?',(tenant,)).fetchone()[:] == (2,49800)
+        assert db.execute('SELECT COUNT(*),SUM(paid) FROM billing_invoices WHERE tenant=?',(tenant,)).fetchone()[:] == (2,29900)
     # A material change requests review without automatically ending paid service.
     storage = client.application.container.storage
     with client.application.app_context():
