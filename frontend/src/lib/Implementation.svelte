@@ -76,25 +76,27 @@
   {#if busy}<p class="loading" role="status"><span class="loading-indicator" aria-hidden="true"></span>Loading saved setup…</p>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if data && connection}
+  <div class="steps" class:embedded>
     {#if view === 'install'||embedded}
-      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><h3>Start with your business information</h3></div><p>Add your products or services, prices, FAQs and contact details before launch. The agent uses the saved information for this company; website installation does not automatically import your website or shop inventory.</p><div class="links"><a href={sectionHref(base,'profile',tenant)}>{$t("Business profile")}</a><a href={sectionHref(base,'catalog',tenant)}>Products &amp; services</a><a href={sectionHref(base,'agent',tenant)}>{$t("Agent playbook")}</a></div></article>
-      {#if !embedded}      <article class="panel"><div class="heading"><div class="panel-heading"><span class="step-number" aria-hidden="true">02</span><h3>Approve your website</h3></div><a href={sectionHref(base,'website',tenant)} data-sveltekit-reload>Edit website settings</a></div><p>Approve each exact website address that will host the chat. Addresses with and without “www” are different; include both if customers use both.</p>
+      <article class="panel" class:wide={embedded} class:compact={embedded}><div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><h3>Start with your business information</h3></div><p>Add your products or services, prices, FAQs and contact details before launch. The agent uses the saved information for this company; website installation does not automatically import your website or shop inventory.</p><div class="links"><a href={sectionHref(base,'profile',tenant)}>{$t("Business profile")}</a><a href={sectionHref(base,'catalog',tenant)}>Products &amp; services</a><a href={sectionHref(base,'agent',tenant)}>{$t("Agent playbook")}</a></div></article>
+      {#if embedded}<article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">02</span><h3>Approve your websites</h3></div><p>Only approved website addresses can show this company’s chat. Addresses with and without “www” are different; add both if customers use both.</p><slot name="approve" /></article><div class="slot-cell"><slot name="settings" /></div>
+      {:else}<article class="panel"><div class="heading"><div class="panel-heading"><span class="step-number" aria-hidden="true">02</span><h3>Approve your website</h3></div><a href={sectionHref(base,'website',tenant)} data-sveltekit-reload>Edit website settings</a></div><p>Approve each exact website address that will host the chat. Addresses with and without “www” are different; include both if customers use both.</p>
         <div class="origins">{#each data.widget.allowed_origins as origin}<code>{origin}</code>{:else}<p class="notice">No websites approved yet. Add your website before installing an embedded chat.</p>{/each}</div>
         <form on:submit|preventDefault={checkOrigin}><label for="setup-site">Check a website address<input id="setup-site" type="url" bind:value={website} placeholder="https://www.yourcompany.com" required /></label><button type="submit">Check approval</button></form>
         <p class="hint">This checks the saved domain list only. It does not scan or verify installation on your website.</p>{#if originResult}<p class="result" role="status">{originResult}</p>{/if}
       </article>{/if}
-      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">{embedded?'02':'03'}</span><h3>Add the chat</h3></div><label class="platform-picker">Website platform<select bind:value={platform}>{#each Object.entries(guides) as [key, guide]}<option value={key}>{guide.name}</option>{/each}</select></label>
+      <article class="panel wide"><div class="panel-heading"><span class="step-number" aria-hidden="true">03</span><h3>Add the chat</h3></div><div class="chat-columns"><div><label class="platform-picker">Website platform<select bind:value={platform}>{#each Object.entries(guides) as [key, guide]}<option value={key}>{guide.name}</option>{/each}</select></label>
         <ol>{#each guides[platform].steps as step}<li>{step}</li>{/each}</ol>
-        {#if guides[platform].url}<a href={guides[platform].url} target="_blank" rel="noreferrer">Official {guides[platform].name} instructions ↗</a>{/if}
-        <div class="code-tools"><label>Installation type<select bind:value={format}><option value="floating">Floating chat button</option><option value="panel">Embedded panel</option><option value="link">Direct chat link</option></select></label><button disabled={!code} on:click={copy}>{format === 'link' ? 'Copy link' : 'Copy code'}</button></div>
+        {#if guides[platform].url}<a href={guides[platform].url} target="_blank" rel="noreferrer">Official {guides[platform].name} instructions ↗</a>{/if}</div>
+        <div><div class="code-tools"><label>Installation type<select bind:value={format}><option value="floating">Floating chat button</option><option value="panel">Embedded panel</option><option value="link">Direct chat link</option></select></label><button disabled={!code} on:click={copy}>{format === 'link' ? 'Copy link' : 'Copy code'}</button></div>
         <label>{format === 'link' ? 'Public customer chat link' : 'Company installation code'}<textarea readonly value={code} rows={format === 'panel' ? 5 : 3} spellcheck="false"></textarea></label>
         {#if copyStatus}<p class="result" role="status">{copyStatus}</p>{/if}
-        <p class="hint">{format === 'floating' ? 'Adds a floating button. Install it once per page.' : format === 'panel' ? 'Place this in an HTML area where the chat should appear. Adjust the height to fit your page.' : 'Use this as the destination of a website button, or share it with customers. No script installation is needed.'} The code contains a public company identifier, never an API key.</p>
+        <p class="hint">{format === 'floating' ? 'Adds a floating button. Install it once per page.' : format === 'panel' ? 'Place this in an HTML area where the chat should appear. Adjust the height to fit your page.' : 'Use this as the destination of a website button, or share it with customers. No script installation is needed.'} The code contains a public company identifier, never an API key.</p></div></div>
       </article>
     {/if}
     {#if view === 'test'||embedded}
-      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">{embedded?'03':'01'}</span><h3>Test the agent’s answers</h3></div><p>Use Website widget → Test conversation for private setup conversations. These do not create sales leads, but AI calls still appear in API usage.</p><ul><li>Ask about a product or service, then ask a follow-up price question.</li><li>Check your hours, locations, policies and delivery conditions where relevant.</li><li>Ask something you have not configured. The agent should ask for clarification or offer human help rather than invent details.</li><li>Try typing and speech in a supported browser.</li></ul><a class="primary" href={sectionHref(base,'test',tenant)} data-sveltekit-reload>Open Test conversation</a></article>
-      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">{embedded?'04':'02'}</span><h3>Check the published website</h3></div><ol><li>Open your published website on desktop and mobile. Check that the chat fits without covering essential controls.</li><li>Open and close the widget, send a sample message and check the company name and reply.</li><li>Confirm the expected conversation appears in Conversations. Public chat tests count as customer activity.</li><li>Verify your human contact path. A quote or booking request is not a confirmed booking or payment unless you have connected that workflow.</li></ol><div class="links"><a href={data.embed.chat_url} target="_blank" rel="noreferrer">Open public chat ↗</a><a href={sectionHref(base,'conversations',tenant)}>{$t("Conversations")}</a><a href={sectionHref(base,'faqs',tenant)}>Update answers</a></div></article>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">{embedded?'04':'01'}</span><h3>Test the agent’s answers</h3></div><p>Use Website widget → Test conversation for private setup conversations. These do not create sales leads, but AI calls still appear in API usage.</p><ul><li>Ask about a product or service, then ask a follow-up price question.</li><li>Check your hours, locations, policies and delivery conditions where relevant.</li><li>Ask something you have not configured. The agent should ask for clarification or offer human help rather than invent details.</li><li>Try typing and speech in a supported browser.</li></ul><a class="primary" href={sectionHref(base,'test',tenant)} data-sveltekit-reload>Open Test conversation</a></article>
+      <article class="panel"><div class="panel-heading"><span class="step-number" aria-hidden="true">{embedded?'05':'02'}</span><h3>Check the published website</h3></div><ol><li>Open your published website on desktop and mobile. Check that the chat fits without covering essential controls.</li><li>Open and close the widget, send a sample message and check the company name and reply.</li><li>Confirm the expected conversation appears in Conversations. Public chat tests count as customer activity.</li><li>Verify your human contact path. A quote or booking request is not a confirmed booking or payment unless you have connected that workflow.</li></ol><div class="links"><a href={data.embed.chat_url} target="_blank" rel="noreferrer">Open public chat ↗</a><a href={sectionHref(base,'conversations',tenant)}>{$t("Conversations")}</a><a href={sectionHref(base,'faqs',tenant)}>Update answers</a></div></article>
     {/if}
     {#if view === 'channels'&&!embedded}
       <article class="panel"><h3>Website and AI</h3><p>Website installation is independent of WhatsApp. {connection.ai_configured ? 'An AI provider key is configured; use Test agent to verify responses.' : 'An AI provider key is not configured. Saved-data responses can still work; ask the platform operator to enable AI planning when needed.'}</p><p class="hint">Configuration status is not a live provider connection test.</p><a href={sectionHref(base,'integrations',tenant)}>Open integration settings</a></article>
@@ -102,7 +104,7 @@
       <article class="panel"><h3>Bookings, payments and live inventory</h3><p>The agent can explain saved information and collect enquiries. Automatic bookings, payments and inventory updates need their own connected systems and validation. Adding the widget does not enable these integrations by itself.</p></article>
     {/if}
     {#if view==='help'||embedded}
-      <article class="panel"><h3>Common setup problems</h3>
+      <article class="panel wide"><h3>Common setup problems</h3><div class="questions">
         <details><summary>The chat does not appear</summary><p>Check that the code is on the published site, not only in the editor. Use a code-injection area that allows scripts, then clear your site cache. If scripts are unavailable, use a Direct chat link. Some website builders restrict custom code by plan.</p></details>
         <details><summary>The frame is blocked or says Forbidden</summary><p>Check the exact website origin, including https, www and any subdomain. Add it in Website widget settings and save. Your website’s security policy must also allow the V7 host for scripts and frames; ask your developer to add that host without disabling the policy.</p></details>
         <details><summary>The agent uses the wrong company or old information</summary><p>Copy fresh installation code while the correct company is selected. Save your business changes, start a new Test agent conversation and reload the widget. Widget branding may be cached for up to five minutes. Each company needs its own code.</p></details>
@@ -110,9 +112,10 @@
         <details><summary>Replies are slow or fail</summary><p>Check Errors &amp; health and retry once. The platform operator should check provider configuration, limits and hosting. A sleeping free hosting instance may take time to start.</p></details>
         <details><summary>There are two chat buttons</summary><p>Remove the extra installation from your theme or code tool. Install one floating widget per company per page. An inline panel and a floating widget are separate installations.</p></details>
         <details><summary>How do I remove the widget?</summary><p>Remove the script or iframe from the website and republish. Remove an unused website from Approved website origins as well. This does not delete the company’s saved conversations.</p></details>
-        <div class="links"><a href={sectionHref(base,'website',tenant)} data-sveltekit-reload>Website widget settings</a><a href={sectionHref(base,'errors',tenant)}>{$t("Errors & health")}</a></div>
+        </div><div class="links"><a href={sectionHref(base,'website',tenant)} data-sveltekit-reload>Website widget settings</a><a href={sectionHref(base,'errors',tenant)}>{$t("Errors & health")}</a></div>
       </article>
     {/if}
+  </div>
   {/if}
 </section>
 
@@ -128,6 +131,21 @@
   h3 { font-size:var(--v7-text-lg); letter-spacing:-.015em; }
   p, li { font-size:var(--v7-text-sm); line-height:1.7; color:var(--v7-muted, var(--v7-muted)); }
   p { margin:12px 0; }
+  .steps { display:grid; gap:20px; min-width:0; }
+  .steps.embedded { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+  .steps.embedded .wide { grid-column:1 / -1; }
+  .steps.embedded .panel { display:flex; flex-direction:column; }
+  .steps.embedded .compact { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:32px; align-items:center; }
+  .steps.embedded .compact > .links { grid-column:2; grid-row:1 / span 2; margin:0; }
+  .steps.embedded .compact > p { margin-bottom:0; }
+  .steps.embedded .questions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:32px; align-items:start; margin-top:8px; }
+  .steps.embedded .questions details:first-of-type { margin-top:0; }
+  .slot-cell { display:grid; min-width:0; }
+  .slot-cell > :global(*) { margin:0; }
+  .slot-cell > :global(.limit) { padding:24px; }
+  .steps.embedded .panel > .primary { align-self:flex-start; }
+  .chat-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:12px 32px; align-items:start; }
+  .chat-columns .code-tools { margin-top:20px; padding-top:0; border-top:0; }
   .panel { min-width:0; padding:24px; border:1px solid var(--v7-line, var(--v7-line)); background:var(--v7-surface, #fff); border-radius:var(--v7-radius-panel); }
   .panel > p:last-child { margin-bottom:0; }
   .panel-heading { flex-wrap:nowrap; gap:12px; }
@@ -173,5 +191,6 @@
   :is(button, a, input, textarea, select, summary):focus-visible { outline:3px solid var(--v7-focus); outline-offset:3px; }
   @keyframes setup-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion:reduce) { .loading-indicator { animation:none; } }
+  @media (max-width:1180px) { .steps.embedded, .chat-columns, .steps.embedded .questions { grid-template-columns:minmax(0,1fr); } .steps.embedded .compact { display:flex; } .steps.embedded .compact > .links { margin-top:18px; } .chat-columns .code-tools { margin-top:8px; padding-top:20px; border-top:1px solid var(--v7-line, var(--v7-line)); } }
   @media (max-width:600px) { .implementation { gap:16px; } .panel { padding:18px; } .intro > button { width:100%; } nav button { flex:1 1 130px; } form { padding:12px; } form > button { width:100%; } .code-tools > button { width:100%; } .platform-picker { max-width:none; } }
 </style>
