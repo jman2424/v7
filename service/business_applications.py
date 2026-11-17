@@ -30,13 +30,13 @@ DEFAULT_POLICY = (
     'Applicants may correct information or request reconsideration through their signed-in application page.'
 )
 DEFAULT_SETTINGS = {
-    'revision': 1, 'intake_enabled': False, 'research_enabled': False,
+    'revision': 1, 'intake_enabled': True, 'research_enabled': False,
     'guidance': 'Apply once. We review your business before you can pay. No payment is taken with your application.',
     'policy': DEFAULT_POLICY, 'policy_version': 'draft-2', 'legal_review_completed': False,
     'categories': {'general': ['Retail and professional services'],
                    'closer_review': ['Mixed activities; review individually'],
                    'excluded': ['Primary alcohol sales', 'Gambling', 'Sexually explicit adult content or services']},
-    'owner_email_enabled': True, 'owner_email': '', 'retention_days': 180,
+    'owner_email_enabled': False, 'owner_email': '', 'retention_days': 180,
 }
 
 
@@ -273,7 +273,7 @@ def submit_verified(tenant, email, details, *, db=None):
 
 def _submit(db, tenant, email, data, *, preserved=False):
     policy = settings(db=db)
-    if not policy['intake_enabled'] or not policy['legal_review_completed']:
+    if not policy['intake_enabled']:
         raise ApplicationError('business_application_intake_closed', 503)
     if not valid_account_email(email) or len(email) > 254:
         raise ApplicationError('invalid_application_email')
@@ -449,8 +449,7 @@ def save_settings(data):
             updated[field] = _text(data.get(field, ''), maximum, required=field != 'owner_email')
         if updated['owner_email'] and not valid_account_email(updated['owner_email']):
             raise ApplicationError('invalid_application_settings')
-        if updated['intake_enabled'] and (not updated['legal_review_completed'] or
-                (updated['owner_email_enabled'] and not updated['owner_email'])):
+        if updated['intake_enabled'] and updated['owner_email_enabled'] and not updated['owner_email']:
             raise ApplicationError('application_policy_and_notifications_required')
         categories = data.get('categories')
         if not isinstance(categories, dict) or set(categories) != {'general', 'closer_review', 'excluded'}:

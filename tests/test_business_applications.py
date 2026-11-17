@@ -261,12 +261,13 @@ def test_notification_outbox_survives_failure_and_omits_private_notes(workspace,
     assert sum(call.kwargs['idempotency_key'] == first_key for call in sent.call_args_list) == 2
 
 
-def test_settings_are_typed_and_cannot_enable_unreviewed_policy(workspace):
+def test_intake_switch_does_not_require_recorded_legal_review(workspace):
     _, operator, _ = workspace
     value = operator.get('/business-applications/settings').json['settings']
     response = operator.put('/business-applications/settings', json={**value, 'legal_review_completed': False})
-    assert response.status_code == 400
-    assert operator.put('/business-applications/settings', json={**value, 'research_enabled': 'true'}).status_code == 400
+    assert response.status_code == 200
+    apply(workspace)
+    assert operator.put('/business-applications/settings', json={**response.json['settings'], 'research_enabled': 'true'}).status_code == 400
 
 
 def test_simultaneous_reviewers_cannot_overwrite_a_decision(workspace, app):

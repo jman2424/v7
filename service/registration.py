@@ -90,7 +90,7 @@ def start(data):
     if kind == 'owner':
         from service import business_applications as applications
         policy = applications.settings(public=True)
-        if not policy['intake_enabled'] or not policy['legal_review_completed']:
+        if not policy['intake_enabled']:
             raise applications.ApplicationError('business_application_intake_closed', 503)
         application = applications.validate_details(data, policy=policy)
         application.update(accepted_terms=True, policy_version=policy['policy_version'])

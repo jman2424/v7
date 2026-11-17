@@ -7,7 +7,7 @@
 </head><body><a class="skip" href="#main">Skip to content</a>
 <header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/privacy">Privacy</a><a href="/acceptable-use">Acceptable use</a><a href="/terms">Terms</a><a href="/cookies">Cookies</a><a href="/console/">Workspace</a></nav></header>
 <main id="main" class="policy"><h1>{{ 'Application and service terms' if terms else 'Acceptable Use Policy' }}</h1>
-{% if not policy.legal_review_completed %}<p role="note"><strong>Draft for UK legal review. New business application intake is closed until the policy and rejection procedure have been reviewed and configured.</strong></p>{% endif %}
+{% if not policy.intake_enabled %}<p role="note">New business applications are currently paused.</p>{% endif %}
 {% if not terms %}<p>Policy version: {{ policy.policy_version }}</p>
 {% for paragraph in policy.policy.split('\n') %}{% if paragraph.strip() %}<p>{{ paragraph }}</p>{% endif %}{% endfor %}
 <h2>Human review and corrections</h2><p>Applications are reviewed personally by an authorised platform operator. Optional AI-generated public-source research is advisory and cannot approve or reject an application. A lack of identified concerns does not establish eligibility.</p>

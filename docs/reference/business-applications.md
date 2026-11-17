@@ -48,8 +48,8 @@ obligations. Do not infer protected characteristics or religious identity. Mixed
 activities require individual human review; business eligibility is distinct from
 the existing per-agent action grants and permissions.
 
-Keep application intake disabled until the platform owner has configured and
-reviewed the policy and notification recipient. Apply the reviewed migration before
+The platform owner can pause or open application intake from application settings.
+Legal review status is recorded separately. Configure a recipient if owner email notifications are enabled. Apply the reviewed migration before
 deploying application code. Snapshot/back up first. Do not automatically cancel
 existing subscriptions or retroactively revoke prepaid credit. Audit unmanaged
 legacy workspaces and external Stripe Payment Links: disable unscoped external
