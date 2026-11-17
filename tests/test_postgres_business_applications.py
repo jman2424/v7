@@ -11,7 +11,7 @@ from tests.test_business_applications import details
 
 def configure(runtime):
     value = {**applications.DEFAULT_SETTINGS, 'intake_enabled': True,
-             'legal_review_completed': True, 'owner_email': 'owner@example.test'}
+             'legal_review_completed': True, 'owner_email_enabled': True, 'owner_email': 'owner@example.test'}
     runtime['admin'].execute('INSERT INTO v7_private.business_application_settings VALUES (1,%s) '
         'ON CONFLICT(id) DO UPDATE SET value=excluded.value', (applications._json(value),))
 
