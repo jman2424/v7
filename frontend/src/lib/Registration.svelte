@@ -9,7 +9,9 @@
   let error = '', email = '', password = '', tenant = '', businessName = '', code = '';
   let kind = 'owner';
   let website = '', description = '', planId = 'starter', acceptedTerms = false;
-  let applicationPolicy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;setup_pence:number}[]} = {intake_enabled:false, guidance:'', policy_version:'',plans:[]};
+  let applicationPolicy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;annual_pence:number;setup_pence:number}[]} = {intake_enabled:false, guidance:'', policy_version:'',plans:[]};
+  const pounds = (pence:number) => '£' + (pence/100).toLocaleString('en-GB', {maximumFractionDigits:2});
+  $: chosenPlan = applicationPolicy.plans.find(plan => plan.id === planId);
   let state:RequestState|null = null;
   let alive = true;
   const requests = new Set<AbortController>();
@@ -101,7 +103,8 @@
           <label>Business name<input disabled={busy} bind:value={businessName} maxlength="120" required/></label>
           <label>Business website (optional)<input disabled={busy} type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
           <label>What does your business do? {website?'(optional)':''}<textarea disabled={busy} bind:value={description} maxlength="2000" required={!website} rows="3"></textarea></label>
-          <label>Selected plan<select disabled={busy} bind:value={planId}>{#each applicationPolicy.plans as plan}<option value={plan.id}>{plan.name} · £{plan.monthly_pence/100}/month + £{plan.setup_pence/100} optional assistance</option>{/each}</select></label>
+          <label>Selected plan<select disabled={busy} bind:value={planId}>{#each applicationPolicy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month or {pounds(plan.annual_pence)}/year</option>{/each}</select>
+            {#if chosenPlan}<small>Pay monthly, or yearly and get 2 months free. You choose when you pay, after approval. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered then too; you can skip it.</small>{/if}</label>
           <label><span><input disabled={busy} type="checkbox" bind:checked={acceptedTerms} required/> I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
           <p>No payment now. After manual approval, complete secure checkout. AI usage credit is purchased separately.</p>
         {:else}<p>Your verified request goes to this business’s owner. Approval grants staff access only, with no billing permissions by default.</p>{/if}
