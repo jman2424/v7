@@ -527,9 +527,18 @@ def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
 
 def test_home_search_branding_agrees_with_visible_brand_and_public_icon(seo_client):
     page = HomeStructuredData()
-    page.feed(seo_client.get("/", base_url="https://untrusted.example").text)
+    html = seo_client.get("/", base_url="https://untrusted.example").text
+    page.feed(html)
     graph = json.loads(page.scripts[0]["text"])["@graph"]
     organization = next(item for item in graph if item["@type"] == "Organization")
+    social_profiles = {
+        "Instagram": "https://www.instagram.com/vertex_seven/",
+        "TikTok": "https://www.tiktok.com/@vertexseven",
+    }
+    assert organization["sameAs"] == list(social_profiles.values())
+    anchors = PublicAnchors()
+    anchors.feed(html)
+    assert all({"href": url, "text": name} in anchors.links for name, url in social_profiles.items())
     website = next(item for item in graph if item["@type"] == "WebSite")
     assert website["name"] == organization["name"] == "Vertex Seven"
     assert website["alternateName"] == ["V7 Agents by Vertex Seven", "vertex-seven.com"]

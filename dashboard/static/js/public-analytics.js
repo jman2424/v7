@@ -21,8 +21,15 @@
     try { return decodeURIComponent(item.slice('v7_analytics_consent='.length)) === 'v1:granted'; }
     catch { return false; }
   };
+  // Only the two published profile campaigns may survive URL sanitization.
+  const query = new URLSearchParams(location.search);
+  const source = query.get('utm_source');
+  const profileCampaign = location.pathname === '/' &&
+    (source === 'instagram' || source === 'tiktok') &&
+    query.get('utm_medium') === 'social' && query.get('utm_campaign') === 'profile';
+  const campaignQuery = profileCampaign ? '?utm_source=' + source + '&utm_medium=social&utm_campaign=profile' : '';
   const page = {
-    page_location: location.origin + location.pathname,
+    page_location: location.origin + location.pathname + campaignQuery,
     page_referrer: '',
     page_title: document.title
   };
