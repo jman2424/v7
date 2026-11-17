@@ -31,7 +31,7 @@ _INSTRUCTION = re.compile(
     r'ignore (?:all |any |the )?(?:previous|prior|above|earlier)|disregard (?:all|any|the|your|previous)|'
     r'system prompt|new instructions|you are now|you must now|as an ai\b|act as (?:a|an|the)\b|'
     r'\b(?:assistant|system|developer)\s*:|reveal (?:your|the) (?:prompt|instructions)|'
-    r'<\s*/?\s*(?:system|instructions?|script)\b', re.I)
+    r'<\s*(?:/\s*)?(?:system|instructions?|script)\b', re.I)  # one way to match spaces: linear time
 
 
 class SyncError(Exception):
@@ -65,7 +65,9 @@ def _price(value):
     if isinstance(value, bool):
         return None
     if isinstance(value, str):
-        match = re.fullmatch(r'\s*[£$€]?\s*(\d{1,9}(?:,\d{3})*(?:\.\d{1,4})?|\d{1,9},\d{2})\s*(?:GBP|USD|EUR)?\s*', value, re.I)
+        # Each run of spaces has one place to match, so long padding cannot cause quadratic backtracking.
+        match = re.fullmatch(r'\s*(?:[£$€]\s*)?(\d{1,9}(?:,\d{3})*(?:\.\d{1,4})?|\d{1,9},\d{2})\s*(?:(?:GBP|USD|EUR)\s*)?',
+                             value, re.I)
         if not match:
             return None
         text = match.group(1)

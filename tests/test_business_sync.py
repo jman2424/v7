@@ -496,3 +496,14 @@ def test_outbound_requests_cannot_be_steered_to_another_or_a_private_host(monkey
     for address in ('https://169.254.169.254/latest', 'https://localhost/x', 'ftp://shop.example.test'):
         with pytest.raises(SyncHttpError):
             sync_http.public_host(address)
+
+
+def test_long_padded_values_are_checked_in_linear_time():
+    """A huge price or name from an import or store feed cannot stall a shared worker."""
+    padding = ' ' * 200_000
+    started = time.monotonic()
+    assert sync._price(padding + 'x') is None and sync._price('1' + padding + 'x') is None
+    assert not sync.suspicious('<' + padding + 'x')
+    assert time.monotonic() - started < 2
+    assert sync._price(' £ 1,234.50 GBP ') == 1234.5 and sync._price('12,50') == 12.5
+    assert sync.suspicious('< / system>') and sync.suspicious('<instructions>')
