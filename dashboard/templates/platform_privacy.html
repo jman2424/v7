@@ -53,7 +53,7 @@
     </section>
     {% if processors|selectattr('name', 'equalto', 'Google Analytics')|list %}
     <section id="analytics"><h2>Optional Google Analytics</h2>
-      <p>Google Analytics loads only after explicit analytics opt-in, on the public homepage and solution pages. It does not run on account, sign-in or customer-chat pages. V7's page-view configuration excludes query strings, URL fragments, referrers, form contents, account details and chat content. Google receives technical information needed to handle permitted measurement requests. Advertising storage, advertising personalisation and Google Signals are disabled.</p>
+      <p>Google Analytics loads only after explicit analytics opt-in, on the public homepage and solution pages. It does not run on account, sign-in or customer-chat pages. For visits from our official Instagram and TikTok profile links, V7 sends the fixed campaign labels for source, medium and campaign so we can compare visits. V7 excludes other query parameters, URL fragments, referrers, form contents, account details and chat content from its page-view configuration. Google receives technical information needed to handle permitted measurement requests. Advertising storage, advertising personalisation and Google Signals are disabled.</p>
       <p>Changing your choice stops future measurement and removes this site's Analytics cookies; it does not erase information already received by Google. See <a href="https://policies.google.com/privacy" rel="noopener noreferrer">Google's privacy policy</a> and <a href="https://support.google.com/analytics/answer/7667196" rel="noopener noreferrer">data-retention information</a>. Browser-cookie expiry and Google's retention of received data are separate.</p>
     </section>
     {% endif %}
