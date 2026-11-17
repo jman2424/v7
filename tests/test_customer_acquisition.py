@@ -1,7 +1,11 @@
 """Campaign labels require consent and never let customers choose approval."""
 import json
 from service import business_applications as applications, subscriptions
-from tests.test_business_applications import intake, workspace, details
+from tests import test_business_applications as application_tests
+
+intake = application_tests.intake
+workspace = application_tests.workspace
+details = application_tests.details
 
 
 def test_campaign_requires_consent_csrf_and_fixed_labels(client):
