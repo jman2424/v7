@@ -177,3 +177,19 @@ def test_reset_and_change_require_csrf(client, account):
     assert client.post('/auth/password/reset', json={'email': EMAIL, 'tenant': 'EXAMPLE'}, headers={'X-CSRF-Token': 'wrong'}).status_code == 403
     assert login(client).status_code == 200
     assert client.post('/auth/password/change', json={'current_password': OLD, 'password': NEW}, headers={'X-CSRF-Token': 'wrong'}).status_code == 403
+
+
+def test_reset_reply_does_not_wait_for_mail_so_timing_hides_real_accounts(client, app, account, monkeypatch):
+    import threading
+    release, finished = threading.Event(), threading.Event()
+    def slow_mail(email, code):
+        release.wait(timeout=10)
+        account[1].append((email, code))
+        finished.set()
+    monkeypatch.setattr(registration_mail, 'send_reset_code', slow_mail)
+    monkeypatch.setattr(account_passwords, '_dispatch', account_passwords._background)
+    # The reply for a real account comes back while its mail is still being sent.
+    assert begin(client).status_code == 202 and account[1] == []
+    release.set()
+    assert finished.wait(timeout=10) and account[1][0][0] == EMAIL
+    assert complete(client, account[1][0][1]).status_code == 200

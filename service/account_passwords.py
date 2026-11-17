@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -130,15 +131,31 @@ def start(data):
         registration._execute(db, "INSERT INTO registration_requests (id,email,password_hash,kind,tenant,business_name,code_hash,expires,status,created) VALUES (?,?,?,?,?,?,?,?,?,?)",
                               (request_id, email, revision, 'password_reset', tenant, '', registration._code_hash(request_id, code), now+600, 'reset_pending', now))
     session['password_reset_request'] = request_id
-    if found:
+    # Mail is sent after the response for every request, so the reply takes the
+    # same time whether or not the account exists.
+    app = current_app._get_current_object()  # type: ignore[attr-defined]
+    _dispatch(lambda: _deliver(app, email if found else None, code, request_id))
+    return GENERIC_NOTICE
+
+
+def _background(job):
+    threading.Thread(target=job, name='password-reset-mail', daemon=True).start()
+
+
+_dispatch = _background
+
+
+def _deliver(app, email, code, request_id):
+    if email is None:
+        return
+    with app.app_context():
         try:
             registration_mail.send_reset_code(email, code)
         except Exception as exc:
             # Do not reveal account existence or provider details on delivery failure.
-            current_app.logger.warning('Password reset mail failed (%s)', type(exc).__name__)
+            app.logger.warning('Password reset mail failed (%s)', type(exc).__name__)
             with registration._database() as db:
                 registration._execute(db, "UPDATE registration_requests SET status='reset_failed',password_hash='',code_hash='' WHERE id=?", (request_id,))
-    return GENERIC_NOTICE
 
 
 def _finish(identity):

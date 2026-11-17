@@ -82,6 +82,13 @@ def pytest_configure(config):
 # Fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _reset_mail_inline(monkeypatch):
+    """Tests read the mailed reset code straight away; production sends it after the reply."""
+    from service import account_passwords
+    monkeypatch.setattr(account_passwords, "_dispatch", lambda job: job())
+
+
 @pytest.fixture(scope="session")
 def root_dir() -> Path:
     """Root of repo."""
