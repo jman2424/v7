@@ -63,7 +63,7 @@ has been performed as part of preparing this document.
 - `/console/applications` is platform-only. Configure the activity policy, legal
   review acknowledgement, owner notification email and intake switch there.
 - `/console/application` is the signed-in applicant status/correction page.
-  Pricing links retain the chosen server-owned plan and open the short application.
+  Applicants choose a server-priced plan in Billing after approval. Setup assistance is an optional separate checkout.
 - `V7_APPLICATION_WORKER=true` runs the durable notification/research/retention
   loop in the existing service. It defaults to `V7_CHANNEL_WORKER` when unset;
   no additional Render service is required. Multiple processes claim work with

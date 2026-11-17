@@ -1,7 +1,7 @@
 """Owner-scoped billing, platform oversight, and verified Stripe callbacks."""
 import json
 from flask import Blueprint, abort, jsonify, request, session
-from service.business_applications import ApplicationError
+from service.business_applications import ApplicationError, require_eligible
 from routes import get_container
 from routes.public_errors import validation_error
 from service.security import management_user, authorized_tenant, is_platform_admin, require_permission, account_permissions
@@ -254,6 +254,7 @@ def checkout_post():
 def select_plan_post():
     tenant, data = _tenant(), _body()
     try:
+        require_eligible(tenant)
         state = subscriptions.select_plan(tenant, data.get('plan_id'))
     except ApplicationError as exc:
         return jsonify(error=exc.code), exc.status

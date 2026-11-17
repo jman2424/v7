@@ -8,11 +8,8 @@
   let enabled = false, loaded = false, busy = false, sender = '';
   let error = '', email = '', password = '', tenant = '', businessName = '', code = '';
   let kind = 'owner';
-  let website = '', description = '', planId = 'starter', acceptedTerms = false;
-  let applicationPolicy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;setup_pence:number}[]} ={intake_enabled:false, guidance:'', policy_version:'',plans:[]};
-  const pounds = (pence:number) => '£' + (pence/100).toLocaleString('en-GB', {maximumFractionDigits:2});
-  let chosenPlan:{setup_pence:number}|undefined;
-  $: chosenPlan = applicationPolicy.plans.find(plan => plan.id === planId);
+  let website = '', description = '', acceptedTerms = false;
+  let applicationPolicy:{intake_enabled:boolean;guidance:string;policy_version:string} ={intake_enabled:false, guidance:'', policy_version:''};
   let state:RequestState|null = null;
   let alive = true;
   const requests = new Set<AbortController>();
@@ -40,8 +37,6 @@
       if(!alive)return;
       enabled=data.enabled; sender=typeof data.sender==='string'?data.sender:''; state=data.request; loaded=true;
       if(data.application_policy)applicationPolicy=data.application_policy;
-      const selected=new URLSearchParams(window.location.search).get('plan');
-      if(selected&&['starter','business','scale'].includes(selected))planId=selected;
     } catch {if(alive)error='Signup status could not be loaded. Try again.';}
     finally {if(alive)busy=false;}
   }
@@ -60,7 +55,7 @@
       const {response,data}=await requestJson(verifying?'/auth/register/confirm':'/auth/register',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
         body:JSON.stringify(verifying?{code}:{email,password,tenant:kind==='join'?tenant:'',business_name:businessName,kind,
-          website,description,plan_id:planId,accepted_terms:acceptedTerms,policy_version:applicationPolicy.policy_version})});
+          website,description,accepted_terms:acceptedTerms,policy_version:applicationPolicy.policy_version})});
       if(!alive)return;
       if(!response.ok)throw new Error(data.error || 'The request could not be completed.');
       state=data.request;password='';code='';
@@ -108,10 +103,8 @@
             <label>Business name<input disabled={busy} bind:value={businessName} maxlength="120" required/></label>
             <label>Business website (optional)<input disabled={busy} type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
             <label>What does your business do? {website?'(optional)':''}<textarea disabled={busy} bind:value={description} maxlength="2000" required={!website} rows="3"></textarea></label>
-            <label>Selected plan<select disabled={busy} bind:value={planId}>{#each applicationPolicy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month</option>{/each}</select>
-              {#if chosenPlan}<small>Billed monthly. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered when you pay, after approval; you can skip it.</small>{/if}</label>
             <label><span><input disabled={busy} type="checkbox" bind:checked={acceptedTerms} required/> I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
-            <p>No payment now. After manual approval, complete secure checkout. AI usage credit is purchased separately.</p>
+            <p>No payment now. After approval, choose a plan and complete secure checkout. AI usage credit is purchased separately.</p>
           {:else}<p>Your verified request goes to this business’s owner. Approval grants staff access only, with no billing permissions by default.</p>{/if}
           <button disabled={busy} type="submit">{busy?'Sending…':kind==='owner'?'Apply and verify email':'Send verification code'}</button>
         {/if}

@@ -165,7 +165,7 @@ def validate_details(data, *, policy=None):
         if urlsplit(website).fragment:
             raise ApplicationError('invalid_application_website')
     try:
-        plan = get_plan(data.get('plan_id'))['id']
+        plan = get_plan(data['plan_id'])['id'] if data.get('plan_id') is not None else None
     except ValueError:
         raise ApplicationError('invalid_subscription_plan') from None
     if data.get('accepted_terms') is not True or data.get('policy_version') != policy['policy_version']:
@@ -190,7 +190,7 @@ def _notify(db, row, stage):
     policy = settings(db=db)
     detail = json.loads(row['details'])
     common = {'stage': stage, 'tenant': row['tenant'], 'revision': row['revision'], 'business_name': detail['business_name'],
-              'website': detail['website'], 'plan_id': detail['plan_id'], 'submitted': row['created'],
+              'website': detail['website'], 'submitted': row['created'],
               'public_message': row['public_message']}
     recipients = [(row['contact_email'], False)]
     if stage == 'PENDING_REVIEW' and policy['owner_email_enabled'] and policy['owner_email']:
@@ -409,7 +409,7 @@ def list_applications(*, status='', search='', sort='newest', page=1):
     if search:
         # Escape wildcard characters; input is a literal search, never SQL.
         term = search.replace('!', '!!').replace('%', '!%').replace('_', '!_')
-        fields = ('business_name', 'website', 'description', 'plan_id')
+        fields = ('business_name', 'website', 'description')
         expressions = [("details::jsonb->>'" + field + "'" if session_store._using_postgres()
                         else "json_extract(details,'$." + field + "')") for field in fields]
         expressions.append('contact_email')

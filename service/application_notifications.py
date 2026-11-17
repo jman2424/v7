@@ -30,7 +30,7 @@ def render(payload, base_url, platform_tenant):
         subject = 'New Vertex Seven business application'
         submitted = datetime.fromtimestamp(payload['submitted'], timezone.utc).strftime('%d %b %Y, %H:%M UTC')
         body = (f"{payload['business_name']} has applied.\nWebsite: {payload['website'] or 'Not provided'}\n"
-                f"Plan: {payload['plan_id'].title()}\nSubmitted: {submitted}\n\n"
+                f"Submitted: {submitted}\n\n"
                 'Sign in to review the application. No decision has been made and no payment has been taken.')
     else:
         subject = SUBJECTS[stage]

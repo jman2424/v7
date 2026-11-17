@@ -16,14 +16,14 @@ stripe = stripe_fixture
 
 def details(**changes):
     return {'business_name': 'Synthetic detailing company', 'website': '',
-            'description': 'Vehicle detailing and paint correction', 'plan_id': 'business',
+            'description': 'Vehicle detailing and paint correction',
             'accepted_terms': True, 'policy_version': 'draft-2', **changes}
 
 
 @pytest.fixture
 def intake(app):
     value = json.loads(applications._json(applications.DEFAULT_SETTINGS))
-    value.update(intake_enabled=True, legal_review_completed=True, owner_email='operator@example.test')
+    value.update(intake_enabled=True, legal_review_completed=True, owner_email_enabled=True, owner_email='operator@example.test')
     with applications.database(write=True) as db:
         applications._execute(db, 'INSERT INTO business_application_settings VALUES (1,?)', (applications._json(value),))
     return value
@@ -182,13 +182,19 @@ def test_open_checkout_and_uncertain_creation_prevent_revocation(workspace, stri
         applications.verify_payment(tenant, 'uncertain-reference', 'platform')
 
 
-def test_approved_checkout_reuses_plan_but_does_not_activate(workspace, stripe, monkeypatch):
+def test_approved_application_can_choose_a_plan_before_checkout(workspace, stripe, monkeypatch):
     client, _, tenant = workspace
-    apply(workspace)
+    assert apply(workspace)['plan_id'] is None
+    select_url = '/billing/select-plan?tenant=' + tenant
+    assert client.post(select_url, json={'plan_id': 'business'}).status_code == 403
     assert decide(workspace, 'approve').status_code == 200
     monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
     stripe.return_value = {'id': 'cs_application', 'url': 'https://checkout.stripe.com/c/pay/application'}
-    response = client.post('/billing/checkout?tenant=' + tenant, json={'kind': 'platform'})
+    url = '/billing/checkout?tenant=' + tenant
+    assert client.post(url, json={'kind': 'platform'}).status_code == 400
+    stripe.assert_not_called()
+    assert client.post(select_url, json={'plan_id': 'business'}).status_code == 200
+    response = client.post(url, json={'kind': 'platform'})
     assert response.status_code == 200, response.json
     payload = stripe.call_args.args[2]
     assert payload['metadata[tenant]'] == tenant and payload['metadata[plan_id]'] == 'business'
@@ -196,8 +202,6 @@ def test_approved_checkout_reuses_plan_but_does_not_activate(workspace, stripe, 
     with client.application.app_context():
         assert not tenant_access.activation(tenant)['active']
         applications.verify_payment(tenant, payload['metadata[billing_ref]'], 'platform')
-    wrong_plan = client.post('/billing/checkout?tenant=' + tenant, json={'kind': 'implementation', 'plan_id': 'starter'})
-    assert wrong_plan.status_code == 409
 
 
 def test_changed_details_reopen_review_without_resetting_account(workspace):
@@ -305,7 +309,7 @@ def test_full_approved_application_to_verified_subscription_and_optional_assista
             return invoices[path.rsplit('/', 1)[1]]
         raise AssertionError('Unexpected synthetic provider call')
     stripe.side_effect = provider
-    assert client.post('/billing/checkout?tenant=' + tenant, json={'kind': 'platform'}).status_code == 200
+    assert client.post('/billing/checkout?tenant=' + tenant, json={'kind': 'platform', 'plan_id': 'business'}).status_code == 200
     assert not tenant_access.activation(tenant)['active']
     invoices['in_applicationmonthly'] = {'id':'in_applicationmonthly','currency':'gbp','created':int(time.time()),
         'subscription':'sub_application','total':19900,'amount_paid':19900,'amount_remaining':0,
@@ -436,6 +440,7 @@ def test_checkout_retry_recovers_binding_after_interrupted_persistence(workspace
     client, _, tenant = workspace
     apply(workspace)
     assert decide(workspace, 'approve').status_code == 200
+    assert client.post('/billing/select-plan?tenant=' + tenant, json={'plan_id': 'business'}).status_code == 200
     monkeypatch.setenv('V7_VAT_REGISTERED', 'false')
     created = {'id':'cs_recovery','url':'https://checkout.stripe.com/c/pay/recovery'}
     stripe.return_value = created
