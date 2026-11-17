@@ -34,7 +34,7 @@ function element() {
   });
 }
 
-function harness({cookies = {}, pathname = '/', config = {measurement_id: measurementId}, missingConfig = false} = {}) {
+function harness({cookies = {}, pathname = '/', search = '?email=private@example.test', config = {measurement_id: measurementId}, missingConfig = false} = {}) {
   const jar = new Map(Object.entries({session: 'synthetic-session', v7_trusted_device: 'synthetic-proof', ...cookies}));
   const writes = [], scripts = [], intervals = [], broadcasts = [];
   const banner = element(), opener = element(), close = element(), language = element(), analytics = element();
@@ -80,8 +80,8 @@ function harness({cookies = {}, pathname = '/', config = {measurement_id: measur
     close() { this.closed = true; }
   }
   const location = {protocol: 'https:', origin: 'https://vertex-seven.com', pathname,
-    href: `https://vertex-seven.com${pathname}?email=private@example.test#private`, search: '?email=private@example.test', hash: '#private'};
-  const context = vm.createContext({document, window, location, navigator: {language: 'en-GB'}, URL,
+    href: `https://vertex-seven.com${pathname}${search}#private`, search, hash: '#private'};
+  const context = vm.createContext({document, window, location, navigator: {language: 'en-GB'}, URL, URLSearchParams,
     CustomEvent: Event, Event, BroadcastChannel, fetch: async () => ({ok: false})});
   const runUI = () => vm.runInContext(preferences, context);
   const runLoader = () => vm.runInContext(loader, context);
@@ -159,6 +159,20 @@ test('explicit consent loads once and sends one sanitized public page view', () 
   state.window.emit('focus'); state.window.emit('pageshow'); state.document.emit('visibilitychange');
   assert.equal(state.calls().length, callCount);
   assert.equal(state.scripts.length, 1);
+});
+
+test('consented social profile visits keep only the two published UTM campaigns', () => {
+  for (const source of ['instagram', 'tiktok', 'unlisted']) {
+    const campaign = '?utm_source=' + source + '&utm_medium=social&utm_campaign=profile';
+    const state = harness({search: campaign + '&email=private@example.test'});
+    state.runLoader();
+    assert.equal(state.scripts.length, 0);
+    state.jar.set('v7_analytics_consent', 'v1%3Agranted');
+    state.window.emit('v7-analytics-consent-changed');
+    state.scripts[0].onload();
+    const view = state.calls().find(call => call[0] === 'event');
+    assert.equal(view[2].page_location, 'https://vertex-seven.com/' + (source === 'unlisted' ? '' : campaign));
+  }
 });
 
 test('withdrawal while tag is loading prevents configuration and page views', () => {
