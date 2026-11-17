@@ -11,6 +11,7 @@ import re
 import secrets
 import struct
 import time
+from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
@@ -43,10 +44,24 @@ def hash_password(password: str) -> str:
     return generate_password_hash(password or "", method="scrypt")
 
 
+# Set whenever a real stored hash is checked, so sign-in can tell whether it
+# must spend the same time on a decoy hash.
+_password_checked: ContextVar[bool] = ContextVar('password_checked', default=False)
+_decoy_hash: list[str] = []
+
+
+def _check_decoy(password: str) -> None:
+    """Spend one password check so unknown emails take as long as real accounts."""
+    if not _decoy_hash:
+        _decoy_hash.append(hash_password(secrets.token_urlsafe(32)))
+    verify_password(password, _decoy_hash[0])
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a plaintext password against a bcrypt or scrypt hash."""
     if not isinstance(password, str) or not password or len(password) > 1024 or not isinstance(password_hash, str):
         return False
+    _password_checked.set(True)
     try:
         if password_hash.startswith("scrypt:"):
             return _verify_password(password, password_hash)
@@ -384,7 +399,14 @@ def _registry_users(c: Any) -> list[dict[str, Any]]:
 def authenticate_user(
     c: Any = None, *, email: str = "", password: str = "", tenant: str = ""
 ) -> Optional[Dict[str, Any]]:
-    user = _authenticate_user(c, email=email, password=password, tenant=tenant)
+    checked = _password_checked.set(False)
+    try:
+        user = _authenticate_user(c, email=email, password=password, tenant=tenant)
+        if user is None and not _password_checked.get():
+            # No account matched: still do the slow check, or response time reveals which emails exist.
+            _check_decoy(password)
+    finally:
+        _password_checked.reset(checked)
     return _bind_authenticated_user(user, c, tenant) if user else None
 
 

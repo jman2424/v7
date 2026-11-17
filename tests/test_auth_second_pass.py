@@ -288,3 +288,22 @@ def test_postgres_totp_steps_are_single_use(pg_runtime):
     assert session_store.consume_totp(account, "test-only-normalized-secret", 501)
     key = session_store._digest(account + ":test-only-normalized-secret")
     assert pg_runtime["admin"].execute("SELECT step FROM v7_private.totp_steps WHERE account_hash=%s", (key,)).fetchone()[0] == 501
+
+
+def test_unknown_email_costs_one_password_check_like_a_real_account(auth_context, monkeypatch):
+    app, _ = auth_context
+    checked = []
+    original = security._verify_password
+    monkeypatch.setattr(security, "_verify_password", lambda password, stored: checked.append(stored) or original(password, stored))
+    # Wrong password on a real account: exactly one check, against its own hash.
+    assert security.authenticate_user(app.container, email="owner@example.test", password="Wrong-password-000",
+                                      tenant="COMPANY_A") is None
+    assert len(checked) == 1 and checked[0] not in security._decoy_hash
+    # No such account: the same single check, against the decoy, so timing does not reveal the email.
+    checked.clear()
+    assert security.authenticate_user(app.container, email="nobody@example.test", password="Wrong-password-000",
+                                      tenant="COMPANY_A") is None
+    assert len(checked) == 1 and checked == security._decoy_hash
+    # Correct password still signs in with no extra check.
+    checked.clear()
+    assert authenticated(app) and len(checked) == 1
