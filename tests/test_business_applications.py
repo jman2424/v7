@@ -17,7 +17,7 @@ stripe = stripe_fixture
 def details(**changes):
     return {'business_name': 'Synthetic detailing company', 'website': '',
             'description': 'Vehicle detailing and paint correction', 'plan_id': 'business',
-            'accepted_terms': True, 'policy_version': 'draft-1', **changes}
+            'accepted_terms': True, 'policy_version': 'draft-2', **changes}
 
 
 @pytest.fixture
@@ -53,6 +53,8 @@ def apply(workspace):
 
 
 def decide(workspace, decision, **kwargs):
+    if decision == 'reject':
+        kwargs.setdefault('message', 'The business primarily offers an excluded activity under the eligibility policy.')
     _, operator, tenant = workspace
     row = operator.get('/business-applications/review?tenant=' + tenant).json['application']
     return operator.post('/business-applications/review?tenant=' + tenant,
@@ -148,6 +150,18 @@ def test_duplicate_application_and_stale_decision_are_conflicts(workspace):
     assert decide(workspace, 'approve').status_code == 200
     assert operator.post('/business-applications/review?tenant=' + tenant, json={'revision': 1, 'decision': 'reject'}).status_code == 409
     assert client.get('/business-applications/current?tenant=' + tenant).json['application']['status'] == 'APPROVED'
+
+
+def test_rejection_requires_a_public_reason_and_keeps_internal_notes_private(workspace):
+    client, _, tenant = workspace
+    apply(workspace)
+    assert decide(workspace, 'reject', message=' ').status_code == 400
+    reason = 'The business primarily offers gambling, which is excluded under the eligibility policy.'
+    assert decide(workspace, 'reject', message=reason, note='Internal evidence notes').status_code == 200
+    public = client.get('/business-applications/current?tenant=' + tenant).json['application']
+    assert reason in public['public_message']
+    assert 'request reconsideration' in public['public_message']
+    assert 'Internal evidence notes' not in str(public)
 
 
 def test_open_checkout_and_uncertain_creation_prevent_revocation(workspace, stripe):
@@ -247,12 +261,13 @@ def test_notification_outbox_survives_failure_and_omits_private_notes(workspace,
     assert sum(call.kwargs['idempotency_key'] == first_key for call in sent.call_args_list) == 2
 
 
-def test_settings_are_typed_and_cannot_enable_unreviewed_policy(workspace):
+def test_intake_switch_does_not_require_recorded_legal_review(workspace):
     _, operator, _ = workspace
     value = operator.get('/business-applications/settings').json['settings']
     response = operator.put('/business-applications/settings', json={**value, 'legal_review_completed': False})
-    assert response.status_code == 400
-    assert operator.put('/business-applications/settings', json={**value, 'research_enabled': 'true'}).status_code == 400
+    assert response.status_code == 200
+    apply(workspace)
+    assert operator.put('/business-applications/settings', json={**response.json['settings'], 'research_enabled': 'true'}).status_code == 400
 
 
 def test_simultaneous_reviewers_cannot_overwrite_a_decision(workspace, app):
@@ -263,7 +278,8 @@ def test_simultaneous_reviewers_cannot_overwrite_a_decision(workspace, app):
         client = app.test_client()
         client.set_cookie('session', cookies.value)
         return client.post('/business-applications/review?tenant=' + tenant,
-                           json={'revision': 1, 'decision': decision}).status_code
+                           json={'revision': 1, 'decision': decision,
+                                 'message': 'The named activity is outside the eligibility policy.'}).status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(submit, ['approve', 'reject']))
     assert sorted(results) == [200, 409]
@@ -304,13 +320,13 @@ def test_full_approved_application_to_verified_subscription_and_optional_assista
     assert tenant_access.activation(tenant)['active']
     assert client.post('/billing/checkout?tenant=' + tenant,json={'kind':'implementation'}).status_code == 200
     invoices['in_applicationsetup'] = {'id':'in_applicationsetup','currency':'gbp','created':int(time.time()),
-        'customer':'cus_application','metadata':metadata['implementation'],'total':29900,'amount_paid':29900,
+        'customer':'cus_application','metadata':metadata['implementation'],'total':10000,'amount_paid':10000,
         'amount_remaining':0,'status':'paid','lines':{'data':[]}}
     deliver('in_applicationsetup')
     deliver('in_applicationsetup')
     assert tenant_access.activation(tenant)['active']
     with subscriptions.connection(tenant) as db:
-        assert db.execute('SELECT COUNT(*),SUM(paid) FROM billing_invoices WHERE tenant=?',(tenant,)).fetchone()[:] == (2,49800)
+        assert db.execute('SELECT COUNT(*),SUM(paid) FROM billing_invoices WHERE tenant=?',(tenant,)).fetchone()[:] == (2,29900)
     # A material change requests review without automatically ending paid service.
     storage = client.application.container.storage
     with client.application.app_context():

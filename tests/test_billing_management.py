@@ -185,12 +185,7 @@ def test_confirmed_setup_proof_survives_cancel_and_new_subscription_generation(c
     subject['data']['status'] = 'canceled'
     subscriptions.sync_subscription('sub_managed')
     assert not tenant_access.activation('EXAMPLE')['active']
-    assert billing_management.paid_setup_covers('EXAMPLE', 'business', 'starter')
-    assert not billing_management.paid_setup_covers('OTHER', 'business', 'starter')
-    assert not billing_management.paid_setup_covers('EXAMPLE', 'scale', 'starter')
-    assert not billing_management.paid_setup_covers('EXAMPLE', 'business', 'scale')
-    with pytest.raises(ValueError, match='paid_setup_plan_requires_review'):
-        subscriptions.select_plan('EXAMPLE', 'scale')
+    assert subscriptions.select_plan('EXAMPLE', 'scale')['selected_plan'] == 'scale'
     original_provider = stripe.side_effect
     new_sub, invoice = {}, {}
 

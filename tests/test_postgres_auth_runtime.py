@@ -150,7 +150,7 @@ def test_postgres_owner_signup_and_mfa_roundtrip(pg_runtime, monkeypatch):
     password = 'Native-owner-test-password-123'
     with app.test_request_context():
         assert registration.start({'email': email, 'password': password, 'kind': 'owner',
-                                   'tenant': tenant, 'business_name': 'Native test business', 'description': 'Vehicle detailing', 'plan_id': 'starter', 'accepted_terms': True, 'policy_version': 'draft-1'})['status'] == 'verification'
+                                   'tenant': tenant, 'business_name': 'Native test business', 'description': 'Vehicle detailing', 'plan_id': 'starter', 'accepted_terms': True, 'policy_version': 'draft-2'})['status'] == 'verification'
         assert registration.confirm(sent[email])['status'] == 'approved'
         user = authenticate_user(app.container, email=email, password=password, tenant=tenant)
         assert user is not None
@@ -296,7 +296,7 @@ def test_postgres_owner_creation_rolls_back_when_final_status_fails(pg_runtime, 
     execute = registration._execute
     with app.test_request_context():
         registration.start({'email':email, 'password':'Native-owner-test-password-123',
-                            'kind':'owner', 'tenant':tenant, 'business_name':'Atomic owner', 'description':'Vehicle detailing', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-1'})
+                            'kind':'owner', 'tenant':tenant, 'business_name':'Atomic owner', 'description':'Vehicle detailing', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-2'})
         request_id = session['registration_request']
         before = pg_runtime['admin'].execute('SELECT status,password_hash,code_hash FROM '
             'v7_private.registration_requests WHERE id=%s', (request_id,)).fetchone()
@@ -327,7 +327,7 @@ def test_postgres_concurrent_owner_confirmations_create_one_complete_workspace(p
         email = tenant.lower() + suffix + '@example.test'
         with app.test_request_context():
             registration.start({'email':email, 'password':'Native-owner-test-password-123',
-                                'kind':'owner', 'tenant':tenant, 'business_name':'Concurrent owner', 'description':'Vehicle detailing', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-1'})
+                                'kind':'owner', 'tenant':tenant, 'business_name':'Concurrent owner', 'description':'Vehicle detailing', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-2'})
             requests.append((session['registration_request'], sent[email], email))
     ready = Barrier(2)
     def confirm(request):

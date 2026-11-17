@@ -48,8 +48,8 @@ obligations. Do not infer protected characteristics or religious identity. Mixed
 activities require individual human review; business eligibility is distinct from
 the existing per-agent action grants and permissions.
 
-Keep application intake disabled until the platform owner has configured and
-reviewed the policy and notification recipient. Apply the reviewed migration before
+The platform owner can pause or open application intake from application settings.
+Legal review status is recorded separately. Configure a recipient if owner email notifications are enabled. Apply the reviewed migration before
 deploying application code. Snapshot/back up first. Do not automatically cancel
 existing subscriptions or retroactively revoke prepaid credit. Audit unmanaged
 legacy workspaces and external Stripe Payment Links: disable unscoped external
@@ -97,6 +97,10 @@ has been performed as part of preparing this document.
   (configurable 30–730). Existing-service and pending records are not silently
   erased. Minimal decision metadata remains, private notes are redacted and sent
   notification payloads are removed after 30 days. Run the maintenance worker.
+  During intake, review the waiting queue weekly. Follow up on requests for information
+  and use Mark as expired when an inactive application no longer needs to be held open.
+  Verify worker execution and redaction before enabling intake. Record the purpose and
+  retention criteria for residual decision and security metadata separately.
 
 ## Payment reconciliation and rollout checks
 

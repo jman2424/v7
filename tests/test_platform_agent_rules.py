@@ -54,8 +54,8 @@ def test_platform_plan_comparison_uses_billing_catalogue_and_keeps_context(clien
     with client.application.app_context():
         knowledge = platform_offer_knowledge.public_knowledge('VERTEX')
         answer = platform_offer_knowledge.automatic_plan_answer('Compare Starter and Business pricing plans', knowledge)
-        assert 'Starter: £99.00/month, billed monthly, plus £149.00 optional one-time assistance' in answer
-        assert 'Business: £199.00/month, billed monthly, plus £299.00 optional one-time assistance' in answer
+        assert 'Starter: £99.00/month, billed monthly, plus £100.00 optional one-time assistance' in answer
+        assert 'Business: £199.00/month, billed monthly, plus £100.00 optional one-time assistance' in answer
         assert 'year' not in answer
         assert '5 staff accounts' in answer and 'No AI credit is included' in answer
         assert 'available' not in answer and 'Scale:' not in answer
@@ -82,7 +82,7 @@ def test_platform_pricing_cannot_fall_into_retail_compare_or_model(client, monke
         monkeypatch.setattr(handler, '_grounded_answer', unexpected)
         result = handler.handle('Compare Starter and Business pricing plans', SimpleNamespace(tenant='VERTEX', channel='web'), {})
         assert result['facts']['source'] == 'current_platform_plans'
-        assert '£99.00/month' in result['reply'] and '£299.00 optional one-time assistance' in result['reply']
+        assert '£99.00/month' in result['reply'] and '£100.00 optional one-time assistance' in result['reply']
         monkeypatch.setattr(client.application.container, 'settings',
             replace(client.application.container.settings, BASE_URL='https://example.com'))
         handler.website_destinations = [{'id': 'owner-pricing', 'label': 'Compare plans',

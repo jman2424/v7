@@ -21,7 +21,7 @@ def test_all_plan_checkout_amounts_and_metadata_are_server_owned(client,stripe,p
     assert result.status_code==200, result.json
     data=stripe.call_args.args[2]
     plan=get_plan(plan_id)
-    assert data['line_items[0][price_data][unit_amount]']==plan['monthly_pence' if kind=='platform' else 'setup_pence']
+    assert data['line_items[0][price_data][unit_amount]']==(plan['monthly_pence'] if kind=='platform' else 10000)
     assert data['metadata[plan_id]']==plan_id
     assert data['metadata[tenant]']=='EXAMPLE'
     prefix='subscription_data[metadata]' if kind=='platform' else 'invoice_creation[invoice_data][metadata]'
@@ -78,12 +78,11 @@ def test_provider_metadata_cannot_upgrade_plan_or_activate_without_confirmation(
     assert client.post('/billing/select-plan',json={'plan_id':'scale'}).json['error']=='existing_subscription_requires_review'
 
 
-def test_paid_setup_cannot_be_reused_for_another_plan(client,stripe):
+def test_paid_setup_does_not_lock_plan_selection(client,stripe):
     subscriptions.select_plan('EXAMPLE','starter')
     with subscriptions.connection('EXAMPLE') as db:
         db.execute("UPDATE billing_plan_state SET setup_plan='starter' WHERE tenant='EXAMPLE'")
-    with pytest.raises(ValueError,match='paid_setup_plan_requires_review'):
-        subscriptions.select_plan('EXAMPLE','scale')
+    assert subscriptions.select_plan('EXAMPLE','scale')['selected_plan'] == 'scale'
     stripe.assert_not_called()
 
 

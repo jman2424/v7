@@ -199,7 +199,7 @@ def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch
     assert data["providers"]["meta"]["configured"] is True
     assert data["billing"]["kind"] == "tiered"
     assert data["billing"]["plan"] == {"id": "scale", "name": "Scale", "monthly_pence": 34900,
-        "setup_pence": 59900, "whatsapp_messages": 5000, "ai_budget_pence": 0}
+        "setup_pence": 10000, "whatsapp_messages": 5000, "ai_budget_pence": 0}
     assert data["billing"]["allowance"] == {"month": "2026-10", "used": 500, "limit": 500, "paused": True}
     assert data["billing"]["notifications"] == "dashboard"
     assert {row["code"] for row in data["blockers"]} == {"whatsapp_allowance_exhausted"}

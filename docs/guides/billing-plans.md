@@ -3,7 +3,7 @@
 `service/plan_catalog.py` is the authoritative GBP catalog, before VAT. Starter
 is £99/month, Business £199 and Scale £349, billed monthly. Each plan lists the channels it
 includes: Starter website chat, Business adds email, Scale adds WhatsApp and
-calls. One-time assistance (£149, £299, £599) is an optional add-on. Existing Stripe contracts retain their financial terms. A new plan
+calls. Optional setup assistance costs £100 once on every plan. Existing Stripe contracts retain their financial terms. A new plan
 is selected by an authenticated business owner or platform administrator.
 
 ## Billing and activation

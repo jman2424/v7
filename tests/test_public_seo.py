@@ -229,7 +229,7 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     page.feed(response.text)
     visible=' '.join(' '.join(page.visible_text).split())
     assert '£99 / month' in visible
-    assert '£149 optional one-time assistance' in visible
+    assert '£100 optional one-time assistance' in visible
     assert visible.count('VAT')==1
     assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
 
@@ -406,6 +406,22 @@ def test_resource_pages_are_discoverable_from_home_and_keep_capability_boundarie
     assert len({page['title'] for page in RESOURCE_PAGES.values()}) == 4
     assert seo_client.get('/guides/not-a-public-resource').status_code == 404
     assert seo_client.get('/integrations/EXAMPLE').status_code == 404
+
+
+def test_legal_pages_are_findable_and_show_the_current_application_terms(seo_client):
+    from service.business_applications import APPLICATION_TERMS_VERSION
+
+    home = PublicAnchors()
+    home.feed(seo_client.get('/').text)
+    assert {'/acceptable-use', '/terms', '/privacy', '/cookies'} <= {link['href'] for link in home.links}
+    acceptable_use = seo_client.get('/acceptable-use')
+    assert acceptable_use.status_code == 200
+    assert 'sexually explicit adult content or services' in acceptable_use.text
+    terms = seo_client.get('/terms')
+    assert terms.status_code == 200
+    assert APPLICATION_TERMS_VERSION in terms.text
+    assert '£100.00 optional one-time assistance' in terms.text
+    assert 'separate opt-in and payment authorisation' in terms.text
 
 
 def test_faq_schema_matches_visible_answers_and_current_prices(seo_client, monkeypatch):

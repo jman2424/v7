@@ -25,7 +25,7 @@ def request_account(client, kind='owner', tenant='NEWCO'):
     return client.post('/auth/register', json={
         'email':'new@testing.test', 'password':'Signup-test-password-123',
         'kind':kind, 'tenant':tenant, 'business_name':'New company',
-        'description':'A retail business', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-1',
+        'description':'A retail business', 'plan_id':'starter', 'accepted_terms':True, 'policy_version':'draft-2',
         'roles':['platform_admin'], 'active':True, 'permissions':['view_costs']})
 
 

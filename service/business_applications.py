@@ -18,23 +18,25 @@ from service import session_store
 from service.account_service import valid_account_email
 from service.plan_catalog import get_plan
 
+APPLICATION_TERMS_VERSION = 'application-terms-20261117'
+
 STATES = ('PENDING_REVIEW', 'NEEDS_INFORMATION', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED')
 DEFAULT_POLICY = (
     'Vertex Seven reviews applications according to the business activities and the intended use of its services. '
-    'Businesses primarily offering alcohol sales, gambling or pornographic services are outside the proposed service policy. '
+    'Businesses primarily offering alcohol sales, gambling or sexually explicit adult content or services are outside the proposed service policy. '
     'Mixed activities are reviewed individually. Approval of a business does not authorise every agent action: '
     'separate permissions, consent and approval requirements still apply. '
     'Decisions must not be based on an owner’s protected personal characteristics. '
     'Applicants may correct information or request reconsideration through their signed-in application page.'
 )
 DEFAULT_SETTINGS = {
-    'revision': 1, 'intake_enabled': False, 'research_enabled': False,
+    'revision': 1, 'intake_enabled': True, 'research_enabled': False,
     'guidance': 'Apply once. We review your business before you can pay. No payment is taken with your application.',
-    'policy': DEFAULT_POLICY, 'policy_version': 'draft-1', 'legal_review_completed': False,
+    'policy': DEFAULT_POLICY, 'policy_version': 'draft-2', 'legal_review_completed': False,
     'categories': {'general': ['Retail and professional services'],
                    'closer_review': ['Mixed activities; review individually'],
-                   'excluded': ['Primary alcohol sales', 'Gambling', 'Pornographic services']},
-    'owner_email_enabled': True, 'owner_email': '', 'retention_days': 180,
+                   'excluded': ['Primary alcohol sales', 'Gambling', 'Sexually explicit adult content or services']},
+    'owner_email_enabled': False, 'owner_email': '', 'retention_days': 180,
 }
 
 
@@ -169,7 +171,7 @@ def validate_details(data, *, policy=None):
     if data.get('accepted_terms') is not True or data.get('policy_version') != policy['policy_version']:
         raise ApplicationError('application_policy_acceptance_required')
     return {'business_name': name, 'website': website, 'description': description, 'plan_id': plan,
-            'accepted_terms_version': 'application-terms-20261031', 'accepted_policy_text': policy['policy']}
+            'accepted_terms_version': APPLICATION_TERMS_VERSION, 'accepted_policy_text': policy['policy']}
 
 
 def _event(db, tenant, revision, kind, actor, note=''):
@@ -271,7 +273,7 @@ def submit_verified(tenant, email, details, *, db=None):
 
 def _submit(db, tenant, email, data, *, preserved=False):
     policy = settings(db=db)
-    if not policy['intake_enabled'] or not policy['legal_review_completed']:
+    if not policy['intake_enabled']:
         raise ApplicationError('business_application_intake_closed', 503)
     if not valid_account_email(email) or len(email) > 254:
         raise ApplicationError('invalid_application_email')
@@ -380,7 +382,8 @@ def review(tenant, data):
         if row['status'] in {'CANCELLED', 'EXPIRED'} or row['status'] == target:
             raise ApplicationError('invalid_application_transition', 409)
         if target == 'REJECTED':
-            message = 'We cannot offer services under the current activity-based eligibility policy. You may correct your details or request reconsideration here.'
+            reason = _text(message, 2000, required=True)
+            message = f'{reason}\n\nYou may correct your details or request reconsideration from your application page.'
         elif target == 'APPROVED':
             message = 'Your business has been approved. Continue to Subscription to complete secure checkout.'
         revision = row['revision'] + 1
@@ -446,8 +449,7 @@ def save_settings(data):
             updated[field] = _text(data.get(field, ''), maximum, required=field != 'owner_email')
         if updated['owner_email'] and not valid_account_email(updated['owner_email']):
             raise ApplicationError('invalid_application_settings')
-        if updated['intake_enabled'] and (not updated['legal_review_completed'] or
-                (updated['owner_email_enabled'] and not updated['owner_email'])):
+        if updated['intake_enabled'] and updated['owner_email_enabled'] and not updated['owner_email']:
             raise ApplicationError('application_policy_and_notifications_required')
         categories = data.get('categories')
         if not isinstance(categories, dict) or set(categories) != {'general', 'closer_review', 'excluded'}:

@@ -34,7 +34,7 @@ following:
 
 - (a) the sale, production or promotion of alcohol;
 - (b) gambling, betting, lotteries or games of chance played for money;
-- (c) pornography or sexually explicit entertainment or services;
+- (c) sexually explicit adult content or services;
 - (d) interest-based lending as a main line of business, including payday lending;
 - (e) tobacco, vaping products or recreational drugs;
 - (f) weapons intended for use against people;

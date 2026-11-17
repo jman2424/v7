@@ -15,7 +15,7 @@ from connectors.billing import BillingClient
 from service import session_store, analytics_db, api_usage, plan_catalog
 from service.plan_catalog import VAT_PERCENT, INTERVALS, vat_percent, get_plan, price_pence, public_plans
 
-PRICES = {'platform': 40000, 'implementation': 20000, 'whatsapp': 20000}
+PRICES = {'platform': 40000, 'implementation': plan_catalog.SETUP_ASSISTANCE_PENCE, 'whatsapp': 20000}
 
 
 # Store only a verifier; the private redemption code is never sent to the browser.
@@ -203,10 +203,6 @@ def select_plan(tenant, plan_id):
             if not state or state['active_plan'] != plan_id:
                 raise ValueError('existing_subscription_requires_review')
             return dict(state)
-        if state and state['setup_plan'] and state['setup_plan'] != plan_id:
-            from service.billing_management import paid_setup_covers
-            if not paid_setup_covers(tenant, plan_id, state['setup_plan'], db=db):
-                raise ValueError('paid_setup_plan_requires_review')
         if row and row['implementation_paid'] and not state:
             raise ValueError('existing_setup_requires_review')
         # Different setup/monthly checkout generations must never be sold for
@@ -342,7 +338,8 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     from service import business_applications as applications
     applications.require_eligible(tenant)
     application = applications.get(tenant)
-    if application and not application['existing_service_preserved'] and kind in {'platform', 'implementation'}:
+    if (application and not application['existing_service_preserved']
+            and (kind == 'platform' or (kind == 'implementation' and not (plan_state(tenant) or {}).get('active_plan')))):
         if plan_id is not None and plan_id != application['plan_id']:
             raise applications.ApplicationError('application_plan_changed_review_required', 409)
         plan_id = application['plan_id']
@@ -445,7 +442,8 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         if previous.get('status') == 'open':
             previous_metadata = previous.get('metadata') or {}
             expected_version = 'tiered_v1' if plan else 'separate_implementation'
-            if (kind=='platform' and previous_metadata.get('billing_version')!=expected_version) or (kind in {'platform','implementation'} and (previous_metadata.get('discount_campaign','') != campaign or previous_metadata.get('plan_id','') != (plan['id'] if plan else '') or (kind=='platform' and previous_metadata.get('billing_interval','month') != interval))):
+            outdated_assistance = kind == 'implementation' and previous_metadata.get('setup_offer') != 'optional_v1'
+            if outdated_assistance or (kind=='platform' and previous_metadata.get('billing_version')!=expected_version) or (kind in {'platform','implementation'} and (previous_metadata.get('discount_campaign','') != campaign or previous_metadata.get('plan_id','') != (plan['id'] if plan else '') or (kind=='platform' and previous_metadata.get('billing_interval','month') != interval))):
                 # Retire old combined checkouts before replacing them with the monthly plan.
                 expired = stripe.stripe_request('POST','/v1/checkout/sessions/'+contract['checkout']+'/expire')
                 if expired.get('status') != 'expired':
@@ -506,6 +504,8 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
             }
     if plan:
         data['metadata[plan_id]'] = plan['id']
+    if kind == 'implementation':
+        data['metadata[setup_offer]'] = 'optional_v1'
     if kind == 'platform' and plan:
         data['metadata[billing_interval]'] = interval
     customer = contract.get('customer') or (_contract(tenant,'platform').get('customer') if kind!='platform' else None)
@@ -533,7 +533,7 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         prefix = f'line_items[{index}]'
         name = {'platform':'V7 monthly subscription','implementation':'V7 assistance (one time, optional)','whatsapp':'V7 WhatsApp monthly add-on','api':'V7 API usage '+month}[item]
         if plan:
-            name = 'V7 '+plan['name']+(' assistance (one time, optional)' if one_time else ' yearly subscription' if interval=='year' else ' monthly subscription')
+            name = 'V7 '+plan['name']+(' setup assistance (one time, optional)' if one_time else ' yearly subscription' if interval=='year' else ' monthly subscription')
         data.update({prefix+'[quantity]':1,prefix+'[price_data][currency]':'gbp',prefix+'[price_data][unit_amount]':amount,
                      prefix+'[price_data][tax_behavior]':'exclusive',prefix+'[price_data][product_data][name]':name})
         if tax:
@@ -708,7 +708,12 @@ def sync_zero_setup_checkout(checkout_id):
             raise ValueError('unknown_billing_reference')
         plan = _confirmed_plan(db,metadata,{'tenant':tenant,'kind':'implementation'})
         subtotal = plan['setup_pence'] if plan else PRICES['implementation']
-        if data.get('amount_subtotal')!=subtotal:
+        accepted_subtotals = {subtotal}
+        if not metadata.get('setup_offer'):
+            # Accept in-flight free offers created before the flat price.
+            historical = {'starter': 14900, 'business': 29900, 'scale': 59900}
+            accepted_subtotals.add(historical[plan['id']] if plan else 20000)
+        if not isinstance(data.get('amount_subtotal'), int) or data['amount_subtotal'] not in accepted_subtotals:
             raise ValueError('invalid_zero_setup_checkout')
         from service import billing_promotions
         promotion = billing_promotions.verifies_free_setup(db, tenant, metadata, coupons)
@@ -822,5 +827,5 @@ def report(tenant, include_api=True):
     from service.billing_management import summary as management_summary
     from service import billing_promotions
     return {'tenant':tenant, **billing_promotions.preview(tenant), 'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) == _PLATFORM_CAMPAIGN else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
-            'plans':public_plans(), 'plan_state':state, 'billing_interval':billing_interval(tenant), 'yearly_offered':plan_catalog.YEARLY_OFFERED, 'pricing_version':'tiered_v1' if state else 'legacy',
+            'plans':public_plans(), 'setup_assistance_pence':plan_catalog.SETUP_ASSISTANCE_PENCE, 'plan_state':state, 'billing_interval':billing_interval(tenant), 'yearly_offered':plan_catalog.YEARLY_OFFERED, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'management':management_summary(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}
