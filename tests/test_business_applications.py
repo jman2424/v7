@@ -17,7 +17,7 @@ stripe = stripe_fixture
 def details(**changes):
     return {'business_name': 'Synthetic detailing company', 'website': '',
             'description': 'Vehicle detailing and paint correction', 'plan_id': 'business',
-            'accepted_terms': True, 'policy_version': 'draft-1', **changes}
+            'accepted_terms': True, 'policy_version': 'draft-2', **changes}
 
 
 @pytest.fixture

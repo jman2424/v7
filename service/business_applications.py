@@ -18,10 +18,12 @@ from service import session_store
 from service.account_service import valid_account_email
 from service.plan_catalog import get_plan
 
+APPLICATION_TERMS_VERSION = 'application-terms-20261117'
+
 STATES = ('PENDING_REVIEW', 'NEEDS_INFORMATION', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED')
 DEFAULT_POLICY = (
     'Vertex Seven reviews applications according to the business activities and the intended use of its services. '
-    'Businesses primarily offering alcohol sales, gambling or pornographic services are outside the proposed service policy. '
+    'Businesses primarily offering alcohol sales, gambling or sexually explicit adult content or services are outside the proposed service policy. '
     'Mixed activities are reviewed individually. Approval of a business does not authorise every agent action: '
     'separate permissions, consent and approval requirements still apply. '
     'Decisions must not be based on an owner’s protected personal characteristics. '
@@ -30,10 +32,10 @@ DEFAULT_POLICY = (
 DEFAULT_SETTINGS = {
     'revision': 1, 'intake_enabled': False, 'research_enabled': False,
     'guidance': 'Apply once. We review your business before you can pay. No payment is taken with your application.',
-    'policy': DEFAULT_POLICY, 'policy_version': 'draft-1', 'legal_review_completed': False,
+    'policy': DEFAULT_POLICY, 'policy_version': 'draft-2', 'legal_review_completed': False,
     'categories': {'general': ['Retail and professional services'],
                    'closer_review': ['Mixed activities; review individually'],
-                   'excluded': ['Primary alcohol sales', 'Gambling', 'Pornographic services']},
+                   'excluded': ['Primary alcohol sales', 'Gambling', 'Sexually explicit adult content or services']},
     'owner_email_enabled': True, 'owner_email': '', 'retention_days': 180,
 }
 
@@ -169,7 +171,7 @@ def validate_details(data, *, policy=None):
     if data.get('accepted_terms') is not True or data.get('policy_version') != policy['policy_version']:
         raise ApplicationError('application_policy_acceptance_required')
     return {'business_name': name, 'website': website, 'description': description, 'plan_id': plan,
-            'accepted_terms_version': 'application-terms-20261031', 'accepted_policy_text': policy['policy']}
+            'accepted_terms_version': APPLICATION_TERMS_VERSION, 'accepted_policy_text': policy['policy']}
 
 
 def _event(db, tenant, revision, kind, actor, note=''):

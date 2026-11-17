@@ -408,6 +408,22 @@ def test_resource_pages_are_discoverable_from_home_and_keep_capability_boundarie
     assert seo_client.get('/integrations/EXAMPLE').status_code == 404
 
 
+def test_legal_pages_are_findable_and_show_the_current_application_terms(seo_client):
+    from service.business_applications import APPLICATION_TERMS_VERSION
+
+    home = PublicAnchors()
+    home.feed(seo_client.get('/').text)
+    assert {'/acceptable-use', '/terms', '/privacy', '/cookies'} <= {link['href'] for link in home.links}
+    acceptable_use = seo_client.get('/acceptable-use')
+    assert acceptable_use.status_code == 200
+    assert 'sexually explicit adult content or services' in acceptable_use.text
+    terms = seo_client.get('/terms')
+    assert terms.status_code == 200
+    assert APPLICATION_TERMS_VERSION in terms.text
+    assert '£100.00 optional one-time assistance' in terms.text
+    assert 'separate opt-in and payment authorisation' in terms.text
+
+
 def test_faq_schema_matches_visible_answers_and_current_prices(seo_client, monkeypatch):
     from service.public_faq_content import public_faq
 

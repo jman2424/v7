@@ -29,10 +29,11 @@ def acceptable_use_page():
 
 @bp.get('/terms')
 def application_terms_page():
-    from service.business_applications import settings
+    from service.business_applications import APPLICATION_TERMS_VERSION, settings
     from service.business_sync import TERMS_VERSION
     return render_template('business_application_policy.html', policy=settings(public=True), terms=True,
-                           subscription_plans=public_plans(), sync_terms_version=TERMS_VERSION)
+                           subscription_plans=public_plans(), sync_terms_version=TERMS_VERSION,
+                           application_terms_version=APPLICATION_TERMS_VERSION, subscription_vat_percent=vat_percent())
 
 
 @bp.get("/favicon.ico")
