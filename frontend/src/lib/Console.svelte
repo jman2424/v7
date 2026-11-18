@@ -1826,10 +1826,10 @@
 
     <main id="workspace" class="workspace" tabindex="-1">
       <header class="workspace-head">
-        <div class="workspace-title">
+        {#key workspace+'/'+workspaceView}<div class="workspace-title">
           <div class="workspace-breadcrumb"><span class="mobile-brand"><PlatformLogo size={26}/></span><span>{businessName}</span><span aria-hidden="true">/</span><span>{$t(workspaceDefinition.label)}</span></div>
           <h1>{$t(viewDefinition.label === 'Overview' ? workspaceDefinition.label : viewDefinition.label)}</h1>
-        </div>
+        </div>{/key}
         <div class="workspace-actions">
           {#key JSON.stringify([tenant,user.email,user.roles,user.permissions,platformMode])}<SectionSearch items={workspaceSearchItems} {tenant} apiPrefix={import.meta.env.DEV?'/api':''} allowCustomers={Boolean(user.permissions?.includes('customers.read'))} label={$t('Find anything')} placeholder={$t('Search pages, settings and records…')} empty={$t('No matches in this workspace.')} />{/key}
           <LanguagePicker />
@@ -2283,6 +2283,11 @@
 <CookiePreferences bind:this={cookiePreferences} bind:open={cookiePreferencesOpen} />
 
 <style>
+  @media(prefers-reduced-motion:no-preference){
+    .workspace-title{animation:destination-enter 150ms ease-out}
+  }
+  @keyframes destination-enter{from{opacity:.7;transform:translateY(2px)}to{opacity:1;transform:translateY(0)}}
+
   .mfa-qr{display:block;width:240px;max-width:100%;height:auto;margin:auto;background:var(--v7-surface)}.mfa-key{display:block;overflow-wrap:anywhere;margin:12px 0}
   .activation-notice {display:flex;align-items:center;gap:14px;padding:16px 20px;margin-bottom:20px;border:1px solid var(--v7-tint-line);border-radius:var(--v7-radius-panel);background:var(--v7-tint);color:var(--v7-brand)}
   .activation-notice>div {flex:1;min-width:0}.activation-notice strong {font-size:var(--v7-text-xs);font-weight:700}.activation-notice p {margin:5px 0 0;font-size:var(--v7-text-xs);line-height:1.6;color:var(--v7-muted)}

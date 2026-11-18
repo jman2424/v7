@@ -64,6 +64,20 @@ export async function loadSearchRecords(items:SectionResult[],tenant:string,apiP
   return outcomes.some(outcome=>outcome.status==='rejected');
 }
 
+export function focusSearchDestination(node:HTMLElement){
+  for(let parent:HTMLElement|null=node;parent;parent=parent.parentElement){
+    if(parent instanceof HTMLDetailsElement)parent.open=true;
+  }
+  if(node.tabIndex<0)node.tabIndex=-1;
+  node.focus({preventScroll:true});
+  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  node.scrollIntoView({block:'nearest',behavior:reduced?'instant':'smooth'});
+  if(!reduced){
+    node.animate?.([{backgroundColor:'var(--v7-tint)'},{backgroundColor:getComputedStyle(node).backgroundColor}],
+      {duration:320,easing:'ease-out'});
+  }
+}
+
 // Resolve after the destination's lazy component and tenant data arrive.
 export function revealSearchTarget(){
   const id=location.hash.slice(1);
@@ -72,12 +86,7 @@ export function revealSearchTarget(){
   const reveal=()=>{
     const node=document.getElementById(targetId);
     if(!node)return false;
-    for(let parent:HTMLElement|null=node;parent;parent=parent.parentElement){
-      if(parent instanceof HTMLDetailsElement)parent.open=true;
-    }
-    node.tabIndex=-1;
-    node.focus({preventScroll:true});
-    node.scrollIntoView({block:'center'});
+    focusSearchDestination(node);
     return true;
   };
   if(reveal())return;

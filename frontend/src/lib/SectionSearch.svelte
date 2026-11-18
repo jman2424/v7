@@ -1,5 +1,7 @@
 <script lang="ts">
-  import {loadSearchRecords} from './workspaceSearch';
+  import {focusSearchDestination,loadSearchRecords} from './workspaceSearch';
+  import {pushState} from '$app/navigation';
+  import {page} from '$app/state';
   import {onMount,onDestroy} from 'svelte';
   import {findSections, type SectionResult} from './sectionSearch';
   export let items:SectionResult[]=[];
@@ -30,11 +32,25 @@
     controls=found;
   }
   function choose(event:MouseEvent,item:SectionResult){
-    const target=targets.get(item.key);
+    if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
+    let target=targets.get(item.key);
+    if(!target){
+      const destination=new URL(item.href,location.href);
+      const current=new URL(location.href);
+      // "focus" identifies a search result; the remaining parameters select the business and view.
+      current.searchParams.delete('focus');
+      destination.searchParams.delete('focus');
+      if(destination.pathname===current.pathname && destination.search===current.search && destination.hash){
+        const node=document.getElementById(destination.hash.slice(1).replace(/^jump-/,''));
+        if(node && node.getClientRects().length){
+          if(new URL(item.href,location.href).href!==location.href)pushState(item.href,page.state);
+          target=node;
+        }
+      }
+    }
     if(target?.isConnected){
       event.preventDefault();
-      if(!target.matches('input,select,textarea,button,summary,a'))target.tabIndex=-1;
-      target.focus({preventScroll:true});target.scrollIntoView({block:'center'});
+      focusSearchDestination(target);
     }
     close();
   }
@@ -117,6 +133,11 @@
   .section-search{position:relative;min-width:230px;max-width:380px;flex:1}
   .search-label{display:block;font-size:.75rem;color:var(--v7-muted);margin-bottom:4px}
   input{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--v7-control-line);border-radius:var(--v7-radius-control);background:var(--v7-surface);color:var(--v7-ink);font:inherit;font-size:var(--v7-text-xs)}input:focus-visible{outline:3px solid var(--v7-focus);outline-offset:3px}
+  @media(prefers-reduced-motion:no-preference){
+    .section-results{animation:search-appear 110ms ease-out}
+    .section-results a{transition:background-color 90ms ease-out}
+  }
+  @keyframes search-appear{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
   .section-results{position:absolute;z-index:40;top:100%;inset-inline:0;background:var(--v7-surface,#fff);border:1px solid var(--v7-line,#dce2df);border-radius:var(--v7-radius-panel);box-shadow:0 12px 30px #0002;max-height:360px;overflow:auto}
   ul{list-style:none;margin:0;padding:6px}a{display:block;padding:10px;text-decoration:none;border-radius:var(--v7-radius-control)}a:hover,a:focus-visible{background:var(--v7-canvas,#f3f6f4)}strong,span{display:block}span,p{font-size:.8rem;color:var(--v7-muted)}p{padding:8px 12px}
   @media(max-width:700px){.section-search{min-width:0;flex-basis:100%;max-width:none}}

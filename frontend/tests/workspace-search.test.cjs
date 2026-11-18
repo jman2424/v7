@@ -5,9 +5,9 @@ const test=require('node:test');
 const vm=require('node:vm');
 const ts=require('../node_modules/typescript');
 
-function searchWith(fetch){
+function searchWith(fetch, globals={}){
   const source=fs.readFileSync(path.join(__dirname,'../src/lib/workspaceSearch.ts'),'utf8');
-  const context={exports:{},fetch,URLSearchParams};
+  const context={exports:{},fetch,URLSearchParams,...globals};
   vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   return context.exports;
 }
@@ -40,4 +40,23 @@ test('message search queries retained history and a cancelled response cannot ad
   assert.equal(url.searchParams.get('minutes'),'43200');
   controller.abort();finish({messages:[{id:2,text:'late order'}]});
   await pending;assert.deepEqual(records,[]);
+});
+
+
+test('search arrival expands the destination, focuses it and honours reduced motion',()=>{
+  class Details {}
+  for(const reduced of [true,false]){
+    const parent=new Details();
+    let focused=false,scroll,animated=false;
+    const node={parentElement:parent,tabIndex:0,focus(options){focused=options.preventScroll;},
+      scrollIntoView(options){scroll=options;},animate(){animated=true;}};
+    const search=searchWith(null,{HTMLDetailsElement:Details,window:{matchMedia:()=>({matches:reduced})},
+      getComputedStyle:()=>({backgroundColor:'white'})});
+    search.focusSearchDestination(node);
+    assert.ok(parent.open && focused);
+    assert.equal(node.tabIndex,0);
+    assert.equal(scroll.block,'nearest');
+    assert.equal(scroll.behavior,reduced?'instant':'smooth');
+    assert.equal(animated,!reduced);
+  }
 });
