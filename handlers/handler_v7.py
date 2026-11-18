@@ -1540,6 +1540,11 @@ class MessageHandlerV7:
             if links:
                 return "You can follow us here:\n\n" + "\n".join(links)
 
+        return self.directory_answer(text, include_description=True)
+
+    def directory_answer(self, user_text: str, *, include_description: bool = False) -> Optional[str]:
+        """Answer from the public branch and contact directory."""
+        text = self._clean_text(user_text)
         if self.geo and re.search(r"\b(opening hours|open hours|business hours|what time.*(?:open|close))\b", text):
             branches = self.geo.branches()
             named = [branch for branch in branches if str(branch.get("name") or "").strip()
@@ -1562,7 +1567,7 @@ class MessageHandlerV7:
             or bool(re.fullmatch(r'(?:contact|phone|telephone|email|website)(?: details| address| number)?', text))
             or bool(re.search(r'\b(?:contact|phone|telephone|email)\s+(?:you|the team|your team|someone)\b', text))
         )
-        is_about_question = "about" in text and any(word in text for word in ("business", "company", "store"))
+        is_about_question = include_description and "about" in text and any(word in text for word in ("business", "company", "store"))
         if not is_contact_question and not is_about_question:
             return None
 

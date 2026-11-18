@@ -218,6 +218,15 @@ class MessageHandler:
         user_text = (user_text or "").strip()
         user_text = _maybe_normalize_postcode_for_dispatch(user_text)
 
+        from service.platform_offer_knowledge import offer_policy_unavailable
+        if offer_policy_unavailable(tenant):
+            # Without visibility metadata, stale FAQs, history and model answers
+            # cannot be vetted. Directory facts have their own public source.
+            handler = self.h_v7.request_copy()
+            directory = handler.directory_answer(user_text)
+            return {'reply': directory or 'Some business information is temporarily unavailable. Please try again shortly.',
+                    'intent': 'store_info' if directory else 'information_unavailable'}
+
         with phase('session_read'):
             sess = self._load_session(ctx)
         emit('chat_context', history_messages=len(sess.get('conversation_history') or []))
@@ -298,9 +307,10 @@ class MessageHandler:
             reply = v7.finalize_navigation(reply, ctx.channel)
         from service.platform_offer_knowledge import current_promotion_reply, current_promotion_knowledge
         reply['reply'] = current_promotion_reply(ctx.tenant, str(reply.get('reply') or ''))
-        for key in ('facts', 'items', 'actions', 'agent'):
-            if key in reply and key not in current_promotion_knowledge(ctx.tenant, {key: reply[key]}):
-                reply[key] = [] if isinstance(reply[key], list) else {}
+        structured = {key: reply[key] for key in ('facts', 'items', 'actions', 'agent') if key in reply}
+        clean = current_promotion_knowledge(ctx.tenant, structured)
+        for key, value in structured.items():
+            reply[key] = clean.get(key, [] if isinstance(value, list) else {})
         from service.reply_formatting import readable_reply, consultation_estimate
         reply['reply'] = readable_reply(consultation_estimate(str(reply.get('reply') or '')))
         self._remember_turn(ctx, sess, user_text, reply)

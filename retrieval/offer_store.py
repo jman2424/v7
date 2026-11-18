@@ -21,7 +21,7 @@ class OfferStore:
     def _load(self) -> List[Dict[str, Any]]:
         try:
             data = self.storage.read_json(self.storage.tenant_key, "offers.json")
-        except (FileNotFoundError, ValueError):
+        except (OSError, ValueError):
             return []
         return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
 

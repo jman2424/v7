@@ -3,6 +3,7 @@
 Other tenants use their own saved offers. No account, referral code or payment
 record is supplied to a public conversation.
 """
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 import re
 from typing import Any
@@ -36,44 +37,86 @@ _PRIVATE_CODE_REPLY = ('Promotional codes are checked privately in Subscription 
                        'I can explain standard plan prices and optional setup assistance.')
 
 
-def _withheld_pattern(tenant):
+_PROMOTION = re.compile(r'\b(?:codes?|offers?|coupons?|promos?|promotions?|campaigns?|discounts?|redeem\w*|checkout|discounted|savings|free|off)\b', re.I)
+
+
+@dataclass(frozen=True)
+class _OfferPrivacy:
+    codes: re.Pattern | None = None
+    names: re.Pattern | None = None
+    word_codes: re.Pattern | None = None
+    unavailable: bool = False
+
+    def matches(self, text: str, *, identifier: bool = False, source: bool = False) -> bool:
+        if self.codes and self.codes.search(text):
+            return True
+        for pattern in (self.word_codes, self.names):
+            if pattern and pattern.search(text):
+                if identifier or (source and pattern is self.word_codes):
+                    return True
+                if pattern.fullmatch(text.strip(' .?!')) or _PROMOTION.search(text):
+                    return True
+                subject = re.sub(r'^(?:what is|what about|tell me about)\s+', '', text, flags=re.I)
+                if pattern.fullmatch(subject.strip(' .?!')):
+                    return True
+        return False
+
+
+def _offer_privacy(tenant):
+    from flask import has_app_context, has_request_context, request
     if not tenant:
-        return None
-    from flask import has_request_context, request
+        return _OfferPrivacy()
     cache = request.environ.setdefault('v7.offer_privacy', {}) if has_request_context() else {}
     if tenant in cache:
         return cache[tenant]
-    parts = []
+    codes, names, word_codes = [], [], []
     if subscriptions.internal_business(tenant):
         from service.platform_promotions import public_flags
         flags = public_flags()
-        parts = [r'(?-i:\bSETUP\b)', r'\b(?:code\s+setup|setup\s+(?:offer|code))\b']
+        # SETUP is also an ordinary word in questions about installation.
+        codes.append(r'\b(?:code\s+setup|setup\s+(?:offer|code)|use\s+setup\s+for|setup\s+was\s+free)\b')
+        codes.append(r'(?-i:\bSETUP\b)(?!\s+(?:assistance|support|help|fees?|costs?|guidance|instructions)\b)')
         if not flags['highstreet_enabled'] or not flags['highstreet_public']:
-            parts.append(r'\b(?:m[\s_-]*high[\s_-]*street|muslim[\s_-]*high[\s_-]*street)\b')
+            codes.append(r'\b(?:m[\s_-]*high[\s_-]*street|muslim[\s_-]*high[\s_-]*street)\b')
         if not flags['referrals_public']:
-            parts.append(r'\breferr?als?\b')
-    from flask import has_app_context
+            codes.append(r'\breferr?als?\b')
+    unavailable = False
     if has_app_context():
         try:
             rows = current_app.container.storage.read_json(tenant, 'offers.json')
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError('invalid_offer_document')
         except FileNotFoundError:
             rows = []
-        if isinstance(rows, list):
-            for row in rows:
-                if isinstance(row, dict) and row.get('agent_visible') is False:
-                    for key in ('code', 'title'):
-                        value = row.get(key)
-                        if isinstance(value, str) and value.strip():
-                            parts.append(r'(?<!\w)'+re.escape(value.strip())+r'(?!\w)')
-    cache[tenant] = re.compile('|'.join(parts), re.I) if parts else None
-    return cache[tenant]
+        except (OSError, ValueError):
+            rows = []
+            unavailable = True
+        for row in rows:
+            if row.get('agent_visible') is False:
+                for key in ('code', 'title'):
+                    value = row.get(key)
+                    if isinstance(value, str) and value.strip():
+                        value = value.strip()
+                        # Codes are identifiers even when they contain only letters.
+                        # Titles often overlap ordinary vocabulary such as Delivery.
+                        parts = names
+                        if key == 'code':
+                            parts = word_codes if value.isalpha() else codes
+                        parts.append(r'(?<!\w)' + re.escape(value) + r'(?!\w)')
+    policy = _OfferPrivacy(re.compile('|'.join(codes), re.I) if codes else None,
+                           re.compile('|'.join(names), re.I) if names else None,
+                           re.compile('|'.join(word_codes), re.I) if word_codes else None, unavailable)
+    cache[tenant] = policy
+    return policy
 
+
+def offer_policy_unavailable(tenant):
+    return _offer_privacy(tenant).unavailable
 
 
 def private_code_answer(question, tenant):
-    """Never confirm a private or retired campaign, even when named by a visitor."""
-    pattern = _withheld_pattern(tenant)
-    if not pattern or not pattern.search(question):
+    """Withhold private promotions without intercepting ordinary service questions."""
+    if not _offer_privacy(tenant).matches(question):
         return None
     if subscriptions.internal_business(tenant):
         return _PRIVATE_CODE_REPLY
@@ -248,15 +291,45 @@ def current_promotion_reply(tenant: str, text: str) -> str:
 
 def current_promotion_knowledge(tenant: str, knowledge: dict[str, Any]) -> dict[str, Any]:
     """Withhold private promotions from every public knowledge source."""
-    pattern = _withheld_pattern(tenant)
-    if not pattern:
+    policy = _offer_privacy(tenant)
+    if not policy.codes and not policy.names and not policy.word_codes:
         return knowledge
-    return {key: value for key, value in knowledge.items() if not pattern.search(str(value))}
+
+    def contains_private(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if policy.matches(key) or contains_private(child):
+                    return True
+                if key in {'title', 'code'} and isinstance(child, str) and policy.matches(child, identifier=True):
+                    return True
+            return False
+        if isinstance(value, list):
+            return any(contains_private(child) for child in value)
+        return isinstance(value, str) and policy.matches(value, source=True)
+
+    def filter_fields(fields):
+        result = {}
+        for key, value in fields.items():
+            if policy.matches(key):
+                continue
+            if isinstance(value, list):
+                result[key] = [row for row in value if not contains_private(row)]
+            elif isinstance(value, dict):
+                if key in {'business', 'facts', 'agent', 'business_core', 'playbook', 'offers'}:
+                    clean = filter_fields(value)
+                    if clean or not value:
+                        result[key] = clean
+                elif not contains_private(value):
+                    result[key] = value
+            elif not contains_private(value):
+                result[key] = value
+        return result
+
+    return filter_fields(knowledge)
 
 
 def current_promotion_history(tenant, history):
-    """Do not reintroduce a private offer through an older conversation turn."""
+    """Keep conversation turns and action records atomic."""
     if not isinstance(history, list):
         return []
-    pattern = _withheld_pattern(tenant)
-    return [row for row in history if not pattern or not pattern.search(str(row))]
+    return current_promotion_knowledge(tenant, {'history': history})['history']

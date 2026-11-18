@@ -170,3 +170,45 @@ def test_catalogue_visibility_requires_a_boolean(client, value):
     response = client.put('/admin/api/offers?tenant=EXAMPLE', json=[{
         'id': 'offer', 'title': 'Offer', 'description': 'Details', 'active': True, 'agent_visible': value}])
     assert response.status_code == 400
+
+def test_unreadable_offers_preserve_branch_hours_and_withhold_stale_promotions(client, marketing):
+    marketing.write_json('EXAMPLE', 'branches.json', [
+        {'id': 'north', 'name': 'North', 'hours': {'Monday': '09:00-17:00'}}])
+    marketing.write_json('EXAMPLE', 'faq.json', [
+        {'q': 'Any offers?', 'a': 'Use PRIVATE30'}])
+    marketing.write_json('EXAMPLE', 'store_info.json', {'name': 'Example', 'email': 'team@example.com'})
+    marketing.file_path('EXAMPLE', 'offers.json').write_text('{', encoding='utf-8')
+    def ask(message):
+        response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': message})
+        assert response.status_code == 200
+        return response.json['reply']
+    assert 'team@example.com' in ask('How do I contact you?')
+    assert '09:00-17:00' in ask('What are your opening hours?')
+    assert 'temporarily unavailable' in ask('Any offers?')
+    marketing.write_json('EXAMPLE', 'offers.json', [])
+    assert 'temporarily unavailable' not in ask('Any offers?')
+
+
+def test_routine_questions_and_public_siblings_survive_private_offer_filter(client, app, marketing):
+    marketing.write_json('EXAMPLE', 'offers.json', [
+        {'title': 'Delivery', 'code': 'SHIP30', 'agent_visible': False},
+        {'title': 'Invitation', 'code': 'SHIP', 'agent_visible': False}])
+    with app.test_request_context():
+        assert knowledge.private_code_answer('What are your delivery times?', 'EXAMPLE') is None
+        assert knowledge.private_code_answer('Do you ship orders?', 'EXAMPLE') is None
+        assert knowledge.private_code_answer('What is SHIP?', 'EXAMPLE')
+        assert knowledge.private_code_answer('Can I redeem the Delivery offer?', 'EXAMPLE')
+        assert knowledge.private_code_answer('What is SHIP30?', 'EXAMPLE')
+        assert knowledge.current_promotion_reply('EXAMPLE', 'Delivery takes two days.') == 'Delivery takes two days.'
+        private = {'title': 'Delivery', 'description': 'Thirty percent off'}
+        public = {'title': 'Summer sale', 'description': 'Ten percent off'}
+        action = {'label': 'View locations', 'url': '/locations'}
+        mixed = {'business': {'hours': '9 to 5', 'old_offer': 'Use SHIP30'},
+                 'facts': {'offers': {'items': [private, public]}},
+                 'items': [private, public], 'actions': [action, {'label': 'Use SHIP30', 'url': '/invite'}]}
+        assert knowledge.current_promotion_knowledge('EXAMPLE', mixed) == {
+            'business': {'hours': '9 to 5'}, 'facts': {'offers': {'items': [public]}},
+            'items': [public], 'actions': [action]}
+    app.container.for_tenant('EXAMPLE').handler.h_v7.rewriter = None
+    response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'HOW MUCH IS SETUP ASSISTANCE?'})
+    assert response.status_code == 200 and '£100' in response.json['reply']
