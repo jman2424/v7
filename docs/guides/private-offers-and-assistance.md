@@ -1,0 +1,11 @@
+# Private offers and setup-assistance capacity
+
+Platform operators can open **Platform administration → Applications → Setup assistance capacity and private offers**. The same controls are available in **My Business → Offers** for the configured Vertex Seven marketing workspace.
+
+- **Pause new setup assistance** stops new assistance checkout creation, including free and discounted assistance. It does not pause applications, plan subscriptions or AI credit. Customers can configure their own workspace. Previously opened Stripe checkout links remain valid until their normal expiry; assistance already paid for remains supported. Resume when capacity is available.
+- **Agent visibility** is separate from whether an offer can be claimed. The partner campaign is private by default and remains redeemable by eligible customers who already have its code. Operators may explicitly allow agents to advertise it or make it private again. Referral-agent visibility has a separate control and does not switch off the referral programme.
+- The retired SETUP code is not advertised or described by customer-facing agents. Previously accepted commercial terms are retained in billing records.
+- The public assistant does not confirm a private code when asked about it. Current knowledge, earlier conversation turns and final replies are filtered so stale copies do not reintroduce private campaign details. The partner code is supplied to the management screen through an authenticated operator API rather than hardcoded in a public JavaScript bundle.
+- Ordinary business offers have a **Customer-facing agents can see this offer** checkbox. Turning it off keeps the record in management but excludes it from agent offer retrieval. Remove independently published copies from websites and other public sources too. Hiding an offer cannot undo a previous disclosure or grant a checkout discount.
+
+Controls are operator-authorized, CSRF-protected, revision-bound and audited. Changes apply on the next request, without a cross-request policy cache. Existing two-field policy documents load with private partner visibility and assistance available; subsequent writes require the complete settings document to avoid resetting a paused control.

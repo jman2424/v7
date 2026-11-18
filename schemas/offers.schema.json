@@ -33,6 +33,10 @@
       "active": {
         "type": "boolean"
       },
+      "agent_visible": {
+        "type": "boolean",
+        "default": true
+      },
       "starts_on": {
         "type": "string",
         "maxLength": 10

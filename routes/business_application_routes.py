@@ -112,7 +112,8 @@ def review_post():
 @bp.get('/settings')
 def settings_get():
     management_user(platform_only=True)
-    return jsonify(settings=applications.settings())
+    return jsonify(settings=applications.settings(),
+                   offers_tenant=get_container().settings.PLATFORM_MARKETING_TENANT)
 
 
 @bp.put('/settings')

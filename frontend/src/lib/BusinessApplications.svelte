@@ -1,8 +1,11 @@
 <script lang="ts">
   import {onMount,onDestroy} from 'svelte';
+  import PlatformOffers from './PlatformOffers.svelte';
   import {statusText,decisionProblem,decisionNotice,waitingText,type Decision} from './applicationsText';
   export let csrf:string;
   export let apiPrefix='';
+  export let canManageOffers=false;
+  let offersTenant='';
   type Application={tenant:string;status:string;revision:number;business_name:string;website:string;description:string;contact_email:string;created:number;public_message:string;research?:{state?:string;summary?:string;sources?:{url:string;title:string}[]};history?:{kind:string;actor:string;note:string;created:number}[]};
   type Settings={revision:number;intake_enabled:boolean;research_enabled:boolean;guidance:string;policy:string;policy_version:string;legal_review_completed:boolean;categories:Record<string,string[]>;owner_email_enabled:boolean;owner_email:string;retention_days:number};
   let rows:Application[]=[], selected:Application|null=null, settings:Settings|null=null;
@@ -20,7 +23,7 @@
     finally{clearTimeout(timer);requests.delete(controller);}
   }
   async function fetchQueue(){const result=await api('queue','GET',undefined,{status,search,sort,page:String(page)});if(!alive)return;rows=result.applications;total=result.total;pending=result.pending;hasNext=result.has_next;}
-  async function load(){if(busy)return;busy=true;error='';try{await fetchQueue();const result=await api('settings');if(!alive)return;settings=result.settings;general=settings!.categories.general.join('\n');closer=settings!.categories.closer_review.join('\n');excluded=settings!.categories.excluded.join('\n');}catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not load applications.';}finally{if(alive)busy=false;}}
+  async function load(){if(busy)return;busy=true;error='';try{await fetchQueue();const result=await api('settings');if(!alive)return;offersTenant=result.offers_tenant||'';settings=result.settings;general=settings!.categories.general.join('\n');closer=settings!.categories.closer_review.join('\n');excluded=settings!.categories.excluded.join('\n');}catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not load applications.';}finally{if(alive)busy=false;}}
   async function open(key:string){if(busy)return;busy=true;error='';notice='';try{const result=await api('review','GET',undefined,{tenant:key});if(alive){selected=result.application;note='';message='';}}catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not load review.';}finally{if(alive)busy=false;}}
   async function decide(choice:Decision=decision){if(!selected||busy)return;decision=choice;const problem=decisionProblem(decision,message);if(problem){error=problem;return;}if(decision==='reject'&&!confirm('Tell '+selected.business_name+' they are not approved? They can still correct their details and ask again.'))return;busy=true;error='';notice='';const name=selected.business_name;try{await api('review','POST',{revision:selected.revision,decision,note,message},{tenant:selected.tenant});const result=await api('review','GET',undefined,{tenant:selected.tenant});if(!alive)return;selected=result.application;note='';message='';notice=decisionNotice(decision,name);await fetchQueue();}catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not save review.';}finally{if(alive)busy=false;}}
   async function saveSettings(){if(!settings||busy)return;busy=true;error='';notice='';try{const result=await api('settings','PUT',{...settings,categories:{general:general.split('\n').filter(Boolean),closer_review:closer.split('\n').filter(Boolean),excluded:excluded.split('\n').filter(Boolean)}});if(alive){settings=result.settings;notice='Application settings saved and audited.';}}catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not save settings.';}finally{if(alive)busy=false;}}
@@ -31,6 +34,7 @@
 </script>
 
 <section class="applications">
+  {#if offersTenant}<details class="surface panel"><summary>Setup assistance capacity and private offers</summary><PlatformOffers tenant={offersTenant} {csrf} {apiPrefix} canManage={canManageOffers}/></details>{/if}
   <details class="surface panel"><summary>Instagram and TikTok customer acquisition</summary><p>Consented application sources recorded after this feature was introduced. First subscription payments include tax and discounts as recorded; they are not profit or lifetime revenue. Historic, expired-consent and untracked applications appear as unattributed. No customer or payment details are sent to social platforms.</p><button disabled={busy} on:click={loadAcquisition}>Refresh acquisition report</button>{#if acquisition}<p>{acquisition.applications_reviewed} most recent applications reviewed.{acquisition.partial?' Report limited to the latest 1,000 applications.':''}</p>{#each acquisition.sources as source}<p><strong>{source.source}</strong>: {source.applications} applications · {source.approved} approved · {source.paid_subscriptions} paid customers · £{(source.first_payment_pence/100).toFixed(2)} recorded first payments</p>{/each}{:else}<p>Report unavailable. Refresh to retry.</p>{/if}</details>
   <div class="surface panel"><h2>Business Applications</h2><p>{#if pending}<strong>{waitingText(pending)}</strong>{:else}No applications are waiting.{/if} Only you can approve or decline a business. AI research is advice, never a decision.</p>
     {#if error}<p role="alert" class="error">{error.replaceAll('_',' ')}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}

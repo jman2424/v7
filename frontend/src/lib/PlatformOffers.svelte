@@ -5,11 +5,12 @@
   export let canManage=false;
   export let apiPrefix='';
   let available:boolean|null=null,loading=true,busy='',status='',error=false,disposed=false;
-  let settings={setup_enabled:false,highstreet_enabled:true},revision='';
+  let settings={setup_enabled:false,highstreet_enabled:true,highstreet_public:false,referrals_public:true,assistance_enabled:true},revision='';
+  let campaignCode='';
   let referral={enabled:false,percent:0,joining_setup_percent:0};
   const controllers=new Set<AbortController>();
   const offers=[{key:'setup_enabled' as const,code:'SETUP',title:'Retired setup offer',details:'Closed to new claims. Previously accepted discounts keep their agreed terms.'},
-    {key:'highstreet_enabled' as const,code:'MHIGHSTREET',title:'Free assistance + 50% off the first month',details:'Waives unpaid assistance and discounts the first subscription month only. Later months keep their normal price.'}];
+    {key:'highstreet_enabled' as const,code:'Partner code',title:'Free assistance + 50% off the first month',details:'Waives unpaid assistance and discounts the first subscription month only. Later months keep their normal price.'}];
   async function request(path:string,method='GET',body?:unknown) {
     const controller=new AbortController();controllers.add(controller);
     const timeout=setTimeout(()=>controller.abort(),20000);
@@ -29,7 +30,7 @@
   }
   function apply(data:any) {
     available=data.available;
-    if(available){settings=data.settings;revision=data.revision;referral=data.referral;}
+    if(available){settings=data.settings;revision=data.revision;referral=data.referral;if(data.campaign_code)campaignCode=data.campaign_code;}
   }
   async function load() {
     if(busy)return;
@@ -38,12 +39,12 @@
     catch {if(!disposed){error=true;status='Could not load platform offer status. Refresh to try again.';}}
     finally {if(!disposed)loading=false;}
   }
-  async function toggle(key:'setup_enabled'|'highstreet_enabled') {
+  async function toggle(key:keyof typeof settings) {
     if(key==='setup_enabled'||!canManage||busy||loading||available!==true)return;
     const enabled=!settings[key];busy=key;status='';error=false;
     try {
       const data=await request('/admin/api/platform-promotions','PUT',{settings:{...settings,[key]:enabled},revision});
-      if(!disposed){apply(data);status=`MHIGHSTREET ${enabled?'enabled':'paused'} for new claims.`;}
+      if(!disposed){apply(data);status=key==='highstreet_enabled'?`Partner campaign ${enabled?'enabled':'paused'} for new claims.`:key==='assistance_enabled'?`New assistance checkouts ${enabled?'enabled':'paused'}.`:`Agent visibility ${enabled?'public':'private'}.`;}
     } catch(err) {if(!disposed){error=true;status=err instanceof Error?err.message:'Could not update the offer.';}}
     finally {if(!disposed)busy='';}
   }
@@ -63,18 +64,24 @@
 {#if available!==false}
 <section class="platform-offers" aria-labelledby="platform-offers-heading">
   <div class="heading"><div><p class="eyebrow">Platform promotions</p><h2 id="platform-offers-heading">Vertex Seven subscription offers</h2></div><button type="button" disabled={loading||Boolean(busy)} on:click={load}>Refresh offer status</button></div>
-  <p>Control which offers new businesses can claim. Pausing updates code acceptance, website promotion and the assistant’s current offer information. Already accepted discounts and earned referral rewards keep their agreed terms.</p>
+  <p>Control which offers new businesses can claim. Availability controls new claims. Agent visibility is separate: private codes remain redeemable but are withheld from customer-facing agents. Already accepted discounts and earned referral rewards keep their agreed terms.</p>
   {#if loading}<p role="status">Loading platform offers…</p>{/if}
   {#if status}<p class:error role={error?'alert':'status'}>{status}</p>{/if}
   {#if available}
+    <article><div class="row"><strong>Setup assistance capacity</strong><span class:active={settings.assistance_enabled}>{settings.assistance_enabled?'Available':'Paused'}</span></div>
+      <p>Pause new £100 setup-assistance checkouts when you are at capacity, including free or discounted assistance. Customers can still subscribe and set up V7 themselves. Already-paid help stays supported; previously opened checkout links remain valid until they expire.</p>
+      <button type="button" disabled={!canManage||Boolean(busy)} on:click={()=>toggle('assistance_enabled')}>{busy==='assistance_enabled'?'Updating…':settings.assistance_enabled?'Pause new setup assistance':'Resume new setup assistance'}</button>
+    </article>
     <div class="offer-grid">{#each offers as offer}<article>
-      <div class="row"><code>{offer.code}</code><span class:active={settings[offer.key]}>{settings[offer.key]?'Active':'Paused'}</span></div>
+      <div class="row"><code>{offer.key==='highstreet_enabled'?campaignCode||offer.code:offer.code}</code><span class:active={settings[offer.key]}>{settings[offer.key]?'Active':'Paused'}</span></div>
       <h3>{offer.title}</h3><p>{offer.details}</p>
       <button type="button" disabled={offer.key==='setup_enabled'||!canManage||Boolean(busy)} on:click={()=>toggle(offer.key)}>{offer.key==='setup_enabled'?'Retired':busy===offer.key?'Updating…':`${settings[offer.key]?'Disable':'Enable'} ${offer.code}`}</button>
+      {#if offer.key==='highstreet_enabled'}<p>Agent visibility: <strong>{settings.highstreet_public?'Public':'Private — hidden from customer-facing agents'}</strong>. Private does not disable redemption.</p><button type="button" disabled={!canManage||Boolean(busy)} on:click={()=>toggle('highstreet_public')}>{settings.highstreet_public?'Make code private':'Allow agents to advertise this code'}</button>{/if}
     </article>{/each}
     <article><div class="row"><strong>Referrals</strong><span class:active={referral.enabled}>{referral.enabled?'Active':'Paused'}</span></div>
       <h3>Refer a business</h3><p>{referral.percent}% off the joining business’s first subscription month, with {referral.joining_setup_percent}% off its unpaid assistance. The referrer earns its reward after verified payment.</p>
       <button type="button" disabled={!canManage||Boolean(busy)} on:click={toggleReferral}>{busy==='referral'?'Updating…':`${referral.enabled?'Disable':'Enable'} referrals`}</button>
+      <p>Agent visibility: <strong>{settings.referrals_public?'Public':'Private'}</strong>.</p><button type="button" disabled={!canManage||Boolean(busy)} on:click={()=>toggle('referrals_public')}>{settings.referrals_public?'Hide referrals from agents':'Allow agents to advertise referrals'}</button>
     </article></div>
     <p class="hint">Switches save immediately. These billing offers exclude AI credit and provider charges. Catalogue promotions below are managed separately.</p>
   {/if}
