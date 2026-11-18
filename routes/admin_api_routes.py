@@ -1583,6 +1583,9 @@ def api_insights():
         "leads": leads,
         "overview_daily": overview_daily,
     }
+    if request.args.get('home_channels') == '1':
+        from service.business_operations import channel_counts
+        payload['home_channel_counts'] = channel_counts(tenant, minutes)
     if has_permission(user,'view_costs'):
         from service.ai_budget import customer_report
         budget=customer_report(tenant)

@@ -110,7 +110,7 @@ const context = vm.createContext({
       'stale-workspace-response':'/admin/api/widget?tenant=OLD',
       'stale-activation-response':'/admin/api/activation?tenant=OLD',
       'stale-accounts-response':'/admin/api/accounts?tenant=OLD',
-      'stale-insights-response':'/admin/api/insights?tenant=OLD&minutes=10080&limit=50',
+      'stale-insights-response':'/admin/api/insights?tenant=OLD&minutes=10080&limit=50&home_channels=1',
       'stale-directory-response':'/admin/api/tenants',
     }[scenario];
     if (path === oldTarget) { announceOld(); return oldResponse; }

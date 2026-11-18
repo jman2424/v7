@@ -107,6 +107,22 @@ def enqueue(tenant, channel, event_key, conversation_id, source_address, payload
     return get(tenant, identifier), True
 
 
+def channel_counts(tenant, minutes):
+    """Count retained inbound emails and distinct calls with activity in the window."""
+    with connection(tenant) as db:
+        rows = db.execute(
+            """SELECT channel, COUNT(DISTINCT conversation_id) AS total,
+                      COUNT(DISTINCT CASE WHEN state='needs_review' THEN conversation_id END) AS pending
+               FROM business_operations WHERE tenant=? AND created>=? AND conversation_id<>'' AND channel IN ('email','phone')
+               GROUP BY channel""", (tenant, time.time() - minutes * 60))
+        counts = {'email': 0, 'phone': 0}
+        counts.update(email_pending=0, phone_pending=0)
+        for row in rows.fetchall():
+            counts[row['channel']] = row['total']
+            counts[row['channel'] + '_pending'] = row['pending']
+        return counts
+
+
 def claim(tenant, *, lane='all'):
     if lane not in {'all', 'phone', 'background'}:
         raise ValueError('invalid_operation_lane')

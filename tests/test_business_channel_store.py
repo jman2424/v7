@@ -107,7 +107,7 @@ def test_retention_removes_content_but_delayed_deliveries_cannot_resend(database
 
 
 @pytest.mark.parametrize('value', ['!'*20000, 'a@'+'a.'*130+'com', 'a@-bad.example', 'a@bad-.example',
-    'a..b@example.com', 'a@example.123', 'a@b@c.example', 'a@éxample.com', '.a@example.com', 'a.@example.com'])
+    'a..b@example.com', 'a@example.123', 'a@b@c.example', 'a@ÃƒÆ’Ã‚Â©xample.com', '.a@example.com', 'a.@example.com'])
 def test_email_parser_rejects_hostile_and_malformed_addresses(value):
     with pytest.raises(ValueError,match='invalid_channel_address'):
         channels.address(value)
@@ -116,3 +116,29 @@ def test_email_parser_rejects_hostile_and_malformed_addresses(value):
 @pytest.mark.parametrize('value', ['info@example.com','a+b@example.co.uk',"valid!local@example.com"])
 def test_linear_email_parser_accepts_normal_addresses(value):
     assert channels.address(value)==value
+
+def test_home_counts_include_only_current_tenant_and_distinct_calls(database):
+    enqueue(key='mail-1')
+    enqueue(key='mail-1')
+    enqueue(tenant='BETA', key='other-mail')
+    for turn in ('1', '2'):
+        operations.enqueue('ALPHA', 'phone', turn, 'phone:call-1', 'caller', {})
+    old, _ = enqueue(key='old-mail')
+    with operations.connection('ALPHA', write=True) as db:
+        db.execute('UPDATE business_operations SET created=? WHERE tenant=? AND id=?',
+                   (time.time()-8*86400, 'ALPHA', old['id']))
+    with operations.connection('ALPHA', write=True) as db:
+        db.execute("UPDATE business_operations SET state='needs_review' WHERE tenant=? AND channel='phone'", ('ALPHA',))
+    assert operations.channel_counts('ALPHA', 10080) == {'phone': 1, 'email': 1, 'phone_pending': 1, 'email_pending': 0}
+    assert operations.channel_counts('BETA', 10080) == {'phone': 0, 'email': 1, 'phone_pending': 0, 'email_pending': 0}
+
+
+def test_owner_home_report_includes_recorded_channel_counts(client):
+    from tests.test_subscriptions import identity
+    identity(client, 'business_owner')
+    enqueue(tenant='EXAMPLE', key='home-email')
+    response = client.get('/admin/api/insights?tenant=EXAMPLE&minutes=10080&home_channels=1')
+    assert response.status_code == 200
+    assert response.json['home_channel_counts']['email'] == 1
+    assert 'web' in response.json['channel_breakdown']
+    assert 'whatsapp' in response.json['sessions_by_channel']

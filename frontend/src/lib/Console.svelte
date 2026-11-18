@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type {HomeChannelActivity} from './statisticsTypes';
   import { businessLabel } from './businessLabel';
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
@@ -238,6 +239,7 @@
   };
 
   type Insights = {
+    channelActivity: HomeChannelActivity[];
     kpis: InsightKpis;
     sales_funnel: SalesFunnel;
     leads: InsightLead[];
@@ -344,6 +346,8 @@
   let formError = false;
   let loading = true;
   const sectionKeywords:Record<string,string>={
+    profile:'business profile company details settings', statistics:'insights stats analytics reports performance metrics dashboard',
+    'whatsapp-qr':'whatsapp setup whats app set up connect number qr code',phone:'calls telephone voice setup',email:'inbox mail setup',
     operations:'business hub email phone calls inbox approvals drafts workflows actions',
     budget:'AI funds balance spending alerts automatic recharge credit',
     'provider-funding':'provider finance reserve OpenAI costs margins',
@@ -354,10 +358,10 @@
     branches:'locations opening times hours',conversations:'chat history messages customers',
     implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
   };
-  function searchableSections(){return [...new Set((platformMode?[platformWorkspace]:workspaces).flatMap(group=>group.views.map(view=>view.section)))].filter(mayOpenScreen);}
-  $: sectionSearchItems=user?searchableSections().map(key=>({
-    key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:sectionKeywords[key]||'',
-    href:platformMode?workspaceHref(base,'platform',platformWorkspace.views.find(view=>view.section===key)?.id||'overview',tenant):sectionHref(base,key,tenant),reload:isWidgetSection(key)
+  function searchableSections(platform:boolean, showDelivery:boolean){return [...new Set((platform?[platformWorkspace]:workspaces).flatMap(group=>group.views.map(view=>view.section)))].filter(key=>mayOpenScreen(key)&&(key!=='delivery'||showDelivery));}
+  $: sectionSearchItems=user?searchableSections(platformMode,deliveryVisible).map(key=>({
+    key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:[sections[key],sectionKeywords[key]].filter(Boolean).join(' '),
+    href:platformMode?workspaceHref(base,'platform',platformWorkspace.views.find(view=>view.section===key)?.id||'overview',tenant):sectionHref(base,key,tenant),reload:isWidgetSection(key)||isWidgetSection(section)
   })):[];
 
   let companyQuery='';
@@ -398,6 +402,7 @@
   let agentError = false;
   let insightsAvailable=false,insightsBusy=false;
   let insights: Insights = {
+    channelActivity: [],
     kpis: { inbound: 0, sessions: 0, leads: 0, fallbacks: 0 },
     sales_funnel: { total: 0, active: 0, open: 0, contacted: 0, qualified: 0, won: 0, lost: 0, other: 0, handoffs: 0, contacts_captured: 0 },
     leads: [],
@@ -681,9 +686,20 @@
     const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
     const kpis = source.kpis && typeof source.kpis === 'object' ? source.kpis as Record<string, unknown> : {};
     const funnel = source.sales_funnel && typeof source.sales_funnel === 'object' ? source.sales_funnel as Record<string, unknown> : {};
+    const counts = source.home_channel_counts as Record<string, unknown> | undefined;
+    const messages = source.channel_breakdown as Record<string, {inbound?:number}> | undefined;
+    const validCount = (n:unknown) => typeof n==='number' && Number.isSafeInteger(n) && n>=0 ? n : null;
+    const sessions = source.sessions_by_channel as Record<string, unknown> | undefined;
+    const channelActivity = [
+      {name:'Website', value:validCount(messages?.web?.inbound), detail:'Incoming messages', secondary:validCount(sessions?.web), secondaryLabel:'Conversations'},
+      {name:'WhatsApp', value:validCount(messages?.whatsapp?.inbound), detail:'Incoming messages', secondary:validCount(sessions?.whatsapp), secondaryLabel:'Conversations'},
+      {name:'Email', value:validCount(counts?.email), detail:'Received emails', secondary:validCount(counts?.email_pending), secondaryLabel:'Awaiting review'},
+      {name:'Phone', value:validCount(counts?.phone), detail:'Calls with recorded activity', secondary:validCount(counts?.phone_pending), secondaryLabel:'Awaiting review'}
+    ];
     const leads = Array.isArray(source.leads) ? source.leads : [];
     const intents = Array.isArray(source.top_intents) ? source.top_intents : [];
     return {
+      channelActivity,
       kpis: { inbound: safeCount(kpis.inbound), sessions: safeCount(kpis.sessions), leads: safeCount(kpis.leads), fallbacks: safeCount(kpis.fallbacks) },
       sales_funnel: {
         total: safeCount(funnel.total), active: safeCount(funnel.active), open: safeCount(funnel.open), contacted: safeCount(funnel.contacted),
@@ -954,7 +970,7 @@
     insights = normalizeInsights({});
     activityStatus = 'Loading activity...';
     try {
-      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=50`, { credentials: 'same-origin' }, activeLoad);
+      const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=50&home_channels=1`, { credentials: 'same-origin' }, activeLoad);
       if (!isCurrentWorkspace(activeLoad)) return;
       if (!response.ok) { activityStatus = 'Sales activity is currently unavailable. Try refreshing.'; return false; }
       insights = normalizeInsights(data);
@@ -1784,7 +1800,7 @@
           <h1>{$t(viewDefinition.label === 'Overview' ? workspaceDefinition.label : viewDefinition.label)}</h1>
         </div>
         <div class="workspace-actions">
-          <SectionSearch items={sectionSearchItems} label={$t('Find anything')} placeholder={$t('Search your workspace…')} empty={$t('No matching sections available to your account.')} />
+          <SectionSearch items={sectionSearchItems} label={$t('Find anything')} placeholder={$t('Profile, WhatsApp setup, statistics…')} empty={$t('No matching sections available to your account.')} />
           <LanguagePicker />
           {#if (isPlatform || isOwner) && tenants.length > 1}
             <label class="tenant-picker">{$t('Business')}<select aria-label={$t('Business')} value={tenant} on:change={async(event)=>{const picker=event.currentTarget;await selectTenant(picker.value);picker.value=tenant;}}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
@@ -1831,7 +1847,7 @@
       {#if !canEditCurrent}<p class="notice" role="status">You have view-only access. Ask your business owner for permission to edit this information.</p>{/if}
       {#if dirtyResources.includes(currentDraftKey)}<div class="draft-strip" role="status"><span>{$t('Unsaved changes · Your draft stays here while you move between business views.')}</span><button on:click={discardDraft}>Discard changes</button></div>{/if}
       {#if oidcNotice}<p class="notice" role="status">{$t(oidcNotice)}</p>{/if}
-      {#if section === 'home'}{#key tenant}<WorkspaceHome {tenant} name={businessName} {activation} configured={tenants.find(item=>item.key===tenant)?.widget_configured??null} permissions={user.permissions||[]} {insights} activityReady={insightsAvailable} activityLoading={insightsBusy} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
+      {#if section === 'home'}{#key tenant}<WorkspaceHome {tenant} name={businessName} {activation} configured={tenants.find(item=>item.key===tenant)?.widget_configured??null} permissions={user.permissions||[]} {insights} refreshActivity={()=>loadInsights(tenant)} activityReady={insightsAvailable} activityLoading={insightsBusy} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
       {#if section === 'billing-overview'}{#key tenant}<BillingOverview {tenant} {canViewCosts} {canViewSubscriptions} apiPrefix={import.meta.env.DEV?'/api':''}/>{/key}{/if}
       {#if section === 'spending' && canViewCosts}{#key tenant}{#await import('./AIBudget.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedAIBudget}<svelte:component this={loadedAIBudget.default} {tenant} {csrf} isPlatform={platformMode&&isPlatform} {canViewCosts} canManageBilling={isPlatform||isOwner} presentation="history" apiPrefix={import.meta.env.DEV?'/api':''}/>{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}{/if}
       {#if section === 'cookies'}<section class="surface"><div class="surface-body"><h2>Make this workspace yours</h2><p>Essential cookies keep sign-in and security working. You choose whether to save language preferences and allow optional analytics.</p><button class="primary" on:click={(event)=>cookiePreferences?.showPreferences(event.currentTarget)}>Manage cookie preferences</button><p><a href="/cookies">Read the cookie policy</a></p></div></section>{/if}

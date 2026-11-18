@@ -14,3 +14,7 @@ export type Stats = {tenant:string;start:string;end:string;previous_start:string
   replies:ReplyReport;previous_replies:ReplyReport;hours:{hour:string;inbound:number;outbound:number}[];
   topics_daily:{day:string;topic:string;count:number}[];commerce:Commerce;
   offers:{offer_replies:number;conversations:number;items:{id:string;title:string;status:string;terms:string;replies:number;conversations:number}[]}};
+
+export type HomeChannelActivity = {
+  name:string; value:number|null; detail:string; secondary:number|null; secondaryLabel:string;
+};

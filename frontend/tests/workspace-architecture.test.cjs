@@ -51,3 +51,16 @@ test('inbox never merges legacy records, channels or separate customers',()=>{
  assert.equal(inbox.conversationThreads(rows,'email').length,1);
  assert.equal(inbox.conversationThreads(rows,'','missing').length,0);
 });
+
+test('workspace search offers permitted shortcuts and ranks destination names over descriptions',()=>{
+ const {findSections}=moduleFor('sectionSearch');
+ const items=[
+   {key:'integrations',label:'Integrations',description:'WhatsApp setup',keywords:''},
+   {key:'whatsapp-qr',label:'WhatsApp',description:'Connect your number',keywords:'whats app setup'},
+   {key:'profile',label:'Business profile',description:'',keywords:''}
+ ];
+ assert.deepEqual(Array.from(findSections(items,'').map(row=>row.key)),['profile','whatsapp-qr']);
+ assert.equal(findSections(items,'WhatsApp setup')[0].key,'whatsapp-qr');
+ assert.equal(findSections(items,'whats app setup')[0].key,'whatsapp-qr');
+ assert.equal(findSections(items,'statistics').length,0);
+});

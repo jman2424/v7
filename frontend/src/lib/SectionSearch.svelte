@@ -6,28 +6,31 @@
   export let placeholder='Search sections…';
   export let empty='No matching sections available to your account.';
   let query='';
+  let open=false;
+  let input:HTMLInputElement;
+  function close(){open=false;query='';}
   let resultsElement:HTMLUListElement;
   let searchElement:HTMLDivElement;
   onMount(()=>{
-    const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!searchElement.contains(event.target))query='';};
+    const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!searchElement.contains(event.target))close();};
     document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);
   });
   function keyboard(event:KeyboardEvent){
-    if(event.key==='Escape')query='';
-    if(event.key==='ArrowDown'&&query.trim()){event.preventDefault();resultsElement?.querySelector('a')?.focus();}
+    if(event.key==='Escape'){event.preventDefault();input.focus();close();}
+    if(event.key==='ArrowDown'&&open){event.preventDefault();resultsElement?.querySelector('a')?.focus();}
   }
   $: results=findSections(items,query);
 </script>
 
-<div class="section-search" bind:this={searchElement}>
+<div class="section-search" bind:this={searchElement} on:focusout={(event)=>{if(!searchElement.contains(event.relatedTarget as Node|null))close();}}>
   <form role="search" aria-label={label} on:submit|preventDefault={()=>resultsElement?.querySelector('a')?.click()}>
-    <label><span class="search-label">{label}</span><input type="search" bind:value={query} {placeholder} autocomplete="off" on:keydown={keyboard} /></label>
+    <label><span class="search-label">{label}</span><input type="search" bind:value={query} bind:this={input} on:focus={()=>open=true} on:input={()=>open=true} on:click={()=>open=true} {placeholder} autocomplete="off" on:keydown={keyboard} /></label>
   </form>
-  {#if query.trim()}
+  {#if open && (results.length || query.trim())}
     <div class="section-results" aria-label={label}>
       <ul bind:this={resultsElement}>
         {#each results as item (item.key)}
-          <li><a href={item.href} data-sveltekit-reload={item.reload?true:undefined} on:click={()=>query=''}><strong>{item.label}</strong><span>{item.description}</span></a></li>
+          <li><a href={item.href} data-sveltekit-reload={item.reload?true:undefined} on:keydown={(event)=>{if(event.key==='Escape')keyboard(event);}} on:click={close}><strong>{item.label}</strong><span>{item.description}</span></a></li>
         {/each}
       </ul>
       {#if !results.length}<p role="status">{empty}</p>{/if}
