@@ -65,6 +65,26 @@ def data(client, token, name, args=None):
     return result["structuredContent"]
 
 
+def test_registered_codex_callback_completes_owner_read(mcp, monkeypatch):
+    client = mcp[0].test_client()
+    registered = "http://127.0.0.1/callback/native-test"
+    monkeypatch.setenv("MCP_OAUTH_CLIENTS", json.dumps({"vertex-codex": {"redirect_uris": [registered]}}))
+    csrf = login(client, email="owner@example.test")
+    _, verifier, args = authorization(client, "business:read")
+    callback = "http://127.0.0.1:55432/callback/native-test"
+    args.update(client_id="vertex-codex", redirect_uri=callback)
+    assert client.get("/oauth/authorize", query_string=args).status_code == 200
+    assert not mcp_auth._matches_redirect("vertex-codex", callback + "-other", [registered])
+    assert not mcp_auth._registered_redirect("other-client", registered)
+    consent = client.post("/oauth/authorize", query_string=args, data={"csrf_token": csrf, "decision": "allow"})
+    assert consent.status_code == 303
+    code = parse_qs(urlsplit(consent.location).query)["code"][0]
+    token = client.post("/oauth/token", data={"client_id": "vertex-codex", "grant_type": "authorization_code",
+                        "code": code, "code_verifier": verifier, "redirect_uri": callback, "resource": args["resource"]})
+    assert token.status_code == 200
+    assert rpc(client, token.json["access_token"], "tools/list").status_code == 200
+
+
 def test_metadata_authentication_and_transport(mcp):
     client = mcp[0].test_client()
     assert client.get("/.well-known/oauth-protected-resource/mcp").json["resource"] == "https://vertex.example/mcp"

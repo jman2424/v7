@@ -77,12 +77,32 @@ def _registered_clients():
     return clients
 
 
-def _valid_client(config):
+# Codex stores a callback path per server and binds an ephemeral loopback port
+# for each login (RFC 8252 section 7.3). Register the path without a port.
+_CODEX_CALLBACK = re.compile(r"http://127\.0\.0\.1/callback/[A-Za-z0-9_-]{1,128}")
+
+
+def _registered_redirect(client_id, uri):
+    return (isinstance(uri, str) and
+            (bool(_https_url(uri)) and '#' not in uri or
+             client_id == 'vertex-codex' and bool(_CODEX_CALLBACK.fullmatch(uri))))
+
+
+def _matches_redirect(client_id, uri, redirects):
+    if uri in redirects and _https_url(uri):
+        return True
+    if client_id != 'vertex-codex':
+        return False
+    match = re.fullmatch(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})(/callback/[A-Za-z0-9_-]{1,128})", uri)
+    return bool(match and int(match[1]) <= 65535 and 'http://127.0.0.1' + match[2] in redirects)
+
+
+def _valid_client(config, client_id):
     if not isinstance(config, dict):
         return False
     redirects = config.get("redirect_uris")
     if (not isinstance(redirects, list) or not redirects
-            or any(not _https_url(uri) or '#' in uri for uri in redirects)):
+            or any(not _registered_redirect(client_id, uri) for uri in redirects)):
         return False
     secret_hash = config.get("secret_hash")
     return secret_hash is None or (isinstance(secret_hash, str)
@@ -93,7 +113,7 @@ def client_config(client_id):
     config = _registered_clients().get(client_id)
     if not isinstance(config, dict):
         abort(400, description="invalid_client")
-    if not _valid_client(config):
+    if not _valid_client(config, client_id):
         abort(503, description="invalid_oauth_configuration")
     return config
 
@@ -152,7 +172,7 @@ def authorization_request(args):
         "client_id", "redirect_uri", "response_type", "scope", "state",
         "code_challenge", "code_challenge_method", "resource")}
     config = client_config(data["client_id"])
-    if data["redirect_uri"] not in config["redirect_uris"]:
+    if not _matches_redirect(data["client_id"], data["redirect_uri"], config["redirect_uris"]):
         abort(400, description="invalid_redirect_uri")
     if data["response_type"] != "code" or data["resource"] != resource():
         abort(400, description="invalid_request")
@@ -312,7 +332,7 @@ def connection_settings(identity):
     except HTTPException:
         issues.append('mcp_invalid_oauth_configuration')
     else:
-        clients = [client_id for client_id, config in entries.items() if _valid_client(config)]
+        clients = [client_id for client_id, config in entries.items() if _valid_client(config, client_id)]
         if not entries:
             issues.append('mcp_no_oauth_clients')
         elif len(clients) != len(entries):

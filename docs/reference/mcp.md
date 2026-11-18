@@ -102,6 +102,13 @@ an activated business and do not execute payments.
    configure the corresponding secret privately in the connector. The token
    endpoint accepts `client_secret_post`, not `client_secret_basic`. Never put
    real secrets in tracked files. Dynamic client registration is not enabled.
+   For Codex, run `codex mcp add vertex-seven --url https://YOUR_HOST/mcp --oauth-client-id vertex-codex`.
+   Register the exact portless callback URL printed by Codex under `vertex-codex` in
+   `MCP_OAUTH_CLIENTS`, preserving existing clients and callbacks. Codex binds
+   a new local port per login. Vertex matches the registered loopback IP and path,
+   then binds the token exchange to the exact port used for consent. Run
+   `codex mcp login vertex-seven --scopes business:read` after registration.
+
 5. In an account/workspace with custom MCP access enabled, add the deployed
    `https://YOUR_HOST/mcp` URL, choose OAuth, and supply the registered client ID
    and optional client secret. Sign in as the business owner and consent to
