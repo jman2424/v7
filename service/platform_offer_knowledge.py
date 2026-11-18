@@ -87,6 +87,9 @@ def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = Fal
     flags = public_flags()
     if re.search(r'\bMHIGHSTREET\b', question, re.I) and flags['highstreet_public'] and flags['highstreet_enabled']:
         return setup_support()
+    assistance = re.search(r'\b(?:assistance|assitance|assitence|assistence|setup\s+(?:help|fee|cost)|set\s*up\s+help)\b', question, re.I)
+    if assistance and re.search(r'\b(?:cost\w*|pric\w*|fees?|how much|what|include\w*|help)\b', question, re.I):
+        return setup_support()
     if not all_offers:
         return None
     rows = []

@@ -42,6 +42,14 @@ def test_private_campaign_remains_redeemable_without_appearing_in_public_agent_c
     stripe.assert_not_called()
 
 
+def test_assistance_price_fallback_uses_current_scope_without_advertising_codes(client, app, marketing):
+    app.container.for_tenant('EXAMPLE').handler.h_v7.rewriter = None
+    response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'how much is assitence'})
+    assert response.status_code == 200
+    assert '£100' in response.json['reply'] and 'one-time' in response.json['reply']
+    assert 'MHIGHSTREET' not in response.json['reply'] and 'SETUP' not in response.json['reply']
+
+
 @pytest.mark.parametrize('message', ['What is MHIGHSTREET?', 'muslim high street discount', 'What is the SETUP code?'])
 def test_private_and_retired_code_questions_never_confirm_a_code_or_call_the_model(client, app, marketing, monkeypatch, message):
     handler = app.container.for_tenant('EXAMPLE').handler.h_v7
