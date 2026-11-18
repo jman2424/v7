@@ -85,12 +85,13 @@ def test_model_receives_no_private_offer_from_business_copy_history_or_remembere
     handler.sales_context['description'] = 'Use MHIGHSTREET for free help'
     seen = []
     def answer(*args, **kwargs):
-        seen.append(json.dumps([args[3], args[4], kwargs['agent_context']]))
+        seen.append(json.dumps([args[3], args[4], {key: value for key, value in kwargs.items() if key != 'agent_state'}]))
         return None
     monkeypatch.setattr(grounded_conversation, 'answer', answer)
     with app.app_context():
-        handler._grounded_answer('How much is assistance?', {
-            'conversation_history': [{'role': 'assistant', 'content': 'Use MHIGHSTREET'}],
+        handler._grounded_answer('What does it include?', {
+            'conversation_history': [{'role': 'assistant', 'content': 'Use MHIGHSTREET'},
+                                     {'role': 'user', 'content': 'I have MHIGHSTREET'}],
             'sales_agent': {'summary': 'SETUP was free'},
             'conversation_customer_statements': ['MHIGHSTREET is free']})
     assert seen and 'MHIGHSTREET' not in seen[0] and 'SETUP' not in seen[0]

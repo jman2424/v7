@@ -73,7 +73,11 @@ def _withheld_pattern(tenant):
 def private_code_answer(question, tenant):
     """Never confirm a private or retired campaign, even when named by a visitor."""
     pattern = _withheld_pattern(tenant)
-    return _PRIVATE_CODE_REPLY if pattern and pattern.search(question) else None
+    if not pattern or not pattern.search(question):
+        return None
+    if subscriptions.internal_business(tenant):
+        return _PRIVATE_CODE_REPLY
+    return 'Please check promotional codes privately with the business. I can help with standard prices and public offers.'
 
 
 def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = False) -> str | None:
@@ -235,9 +239,10 @@ def automatic_plan_answer(question, knowledge, history=None):
 
 def current_promotion_reply(tenant: str, text: str) -> str:
     """Withhold private/retired codes from stale FAQs, history and model output."""
-    pattern = _withheld_pattern(tenant)
-    if pattern and isinstance(text, str) and pattern.search(text):
-        return _PRIVATE_CODE_REPLY
+    if isinstance(text, str):
+        private = private_code_answer(text, tenant)
+        if private:
+            return private
     return text
 
 
@@ -251,5 +256,7 @@ def current_promotion_knowledge(tenant: str, knowledge: dict[str, Any]) -> dict[
 
 def current_promotion_history(tenant, history):
     """Do not reintroduce a private offer through an older conversation turn."""
+    if not isinstance(history, list):
+        return []
     pattern = _withheld_pattern(tenant)
     return [row for row in history if not pattern or not pattern.search(str(row))]
