@@ -21,52 +21,81 @@ def setup_support() -> str:
             'A business that sets itself up does not need it. '
             'Website editing, installation by Vertex Seven, custom development and third-party integrations '
             'are not included as a done-for-you implementation service. ')
-    text += ('Use SETUP for free optional one-time assistance; the normal monthly subscription price still applies. '
-             if flags['setup_enabled'] else 'SETUP is paused for new claims. ')
-    text += ('MHIGHSTREET gives free optional one-time assistance and 50% off the first subscription month only; '
-             'later months use the normal plan price. ' if flags['highstreet_enabled']
-             else 'MHIGHSTREET is paused for new claims. ')
-    return text + ('Enter an active code in Subscription before checkout. Business approval and verified checkout completion are still required. '
-                   'Offers do not stack, do not cover AI credit or provider fees, and do not refund already-paid assistance. '
+    if not flags['assistance_enabled']:
+        text += ('New setup assistance checkouts are temporarily paused while we work through existing requests. '
+                 'You can still subscribe and set up V7 yourself. Already-paid assistance remains supported. ')
+    if flags['highstreet_enabled'] and flags['highstreet_public']:
+        text += ('MHIGHSTREET gives free optional one-time assistance and 50% off the first subscription month only; '
+                 'later months use the normal plan price. ')
+    return text + ('Business approval and verified checkout completion are required. '
+                   'Accepted discounts do not stack or cover AI credit or provider fees. '
                    'Previously accepted offers keep their saved terms.')
 
 
+_PRIVATE_CODE_REPLY = ('Promotional codes are checked privately in Subscription before checkout. '
+                       'I can explain standard plan prices and optional setup assistance.')
+
+
+def _withheld_pattern(tenant):
+    if not tenant:
+        return None
+    from flask import has_request_context, request
+    cache = request.environ.setdefault('v7.offer_privacy', {}) if has_request_context() else {}
+    if tenant in cache:
+        return cache[tenant]
+    parts = []
+    if subscriptions.internal_business(tenant):
+        from service.platform_promotions import public_flags
+        flags = public_flags()
+        parts = [r'(?-i:\bSETUP\b)', r'\b(?:code\s+setup|setup\s+(?:offer|code))\b']
+        if not flags['highstreet_enabled'] or not flags['highstreet_public']:
+            parts.append(r'\b(?:m[\s_-]*high[\s_-]*street|muslim[\s_-]*high[\s_-]*street)\b')
+        if not flags['referrals_public']:
+            parts.append(r'\breferr?als?\b')
+    from flask import has_app_context
+    if has_app_context():
+        try:
+            rows = current_app.container.storage.read_json(tenant, 'offers.json')
+        except FileNotFoundError:
+            rows = []
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict) and row.get('agent_visible') is False:
+                    for key in ('code', 'title'):
+                        value = row.get(key)
+                        if isinstance(value, str) and value.strip():
+                            parts.append(r'(?<!\w)'+re.escape(value.strip())+r'(?!\w)')
+    cache[tenant] = re.compile('|'.join(parts), re.I) if parts else None
+    return cache[tenant]
+
+
+
+def private_code_answer(question, tenant):
+    """Never confirm a private or retired campaign, even when named by a visitor."""
+    pattern = _withheld_pattern(tenant)
+    return _PRIVATE_CODE_REPLY if pattern and pattern.search(question) else None
+
+
 def automatic_setup_answer(question: str, tenant: str, *, all_offers: bool = False) -> str | None:
-    """Current billing terms for explicit code questions or an offers fallback."""
+    """Only public, active promotions can be described to customers."""
     if not tenant or not subscriptions.internal_business(tenant):
         return None
-    requested = []
-    if (re.search(r'\bSETUP\b', question)
-            or re.search(r'\b(?:code\s+setup|setup\s+(?:offer|code)|free\s+setup|free\s+assistance|assistance\s+(?:offer|code|fee))\b', question, re.I)):
-        requested.append('SETUP')
-    if re.search(r'\bMHIGHSTREET\b', question, re.I):
-        requested.append('MHIGHSTREET')
-    if not requested and not all_offers:
-        return None
+    private = private_code_answer(question, tenant)
+    if private:
+        return private
     from service.platform_promotions import public_flags
     flags = public_flags()
-    rows, active = [], False
-    for code in requested or ['SETUP', 'MHIGHSTREET']:
-        key = 'setup_enabled' if code == 'SETUP' else 'highstreet_enabled'
-        if flags[key]:
-            active = True
-            rows.append(('SETUP: free unpaid optional one-time assistance; normal monthly subscription prices apply.'
-                         if code == 'SETUP' else 'MHIGHSTREET: free unpaid assistance and 50% off the first subscription month only; later months use the normal price.'))
-        elif requested:
-            rows.append(code+' is paused for new claims.')
-    if not requested:
-        offer = referrals.public_offer(tenant)
-        if offer['enabled']:
-            active = True
-            rows.append('A referral offer is also available. Ask for its current eligibility and reward terms.')
-    if not rows:
-        rows.append('New promotional claims are currently paused.')
-    if active:
-        rows.append('Accept an active code before checkout. Business approval and verified checkout completion are required. '
-                    'Offers do not stack or cover AI credit or provider fees, and paid assistance is not refunded.')
-    else:
-        rows.append('Previously accepted offers keep their saved terms.')
-    return '\n\n'.join(rows)
+    if re.search(r'\bMHIGHSTREET\b', question, re.I) and flags['highstreet_public'] and flags['highstreet_enabled']:
+        return setup_support()
+    if not all_offers:
+        return None
+    rows = []
+    if flags['highstreet_enabled'] and flags['highstreet_public']:
+        rows.append(setup_support())
+    if flags['referrals_public'] and referrals.public_offer(tenant)['enabled']:
+        rows.append('A referral offer is available. Ask for its current eligibility and reward terms.')
+    return '\n\n'.join(rows) or 'No public promotional offers are currently advertised. Check any code privately in Subscription before checkout.'
+
 
 
 def public_setup_policy(tenant):
@@ -79,6 +108,9 @@ def public_setup_policy(tenant):
 
 def public_knowledge(tenant):
     if not tenant or not subscriptions.internal_business(tenant):
+        return None
+    from service.platform_promotions import public_flags
+    if not public_flags()['referrals_public']:
         return None
     offer = referrals.public_offer(tenant)
     plans = []
@@ -106,12 +138,15 @@ def public_destinations(tenant, configured):
         {'id':'platform_referrals','label':'Referral settings','url':origin+'/console/account#business-referrals',
          'purpose':'Sign in to share or accept a referral before checkout; this does not apply a discount by itself.'},
         {'id':'platform_plans','label':'Compare subscription plans','url':origin+'/#pricing',
-         'purpose':'Compare current platform subscription plans, assistance fees and public referral terms.'},
+         'purpose':'Compare current platform subscription plans and assistance fees.'},
     ]
+    from service.platform_promotions import public_flags
+    if not public_flags()['referrals_public']:
+        candidates = [row for row in candidates if row['id'] != 'platform_referrals']
     for plan in public_plans():
         candidates.append({'id':'platform_plan_'+plan['id'], 'label':'Choose '+plan['name'],
                            'url':origin+'/console/subscription?plan='+plan['id'],
-                           'purpose':'Sign in to select this subscription plan, accept a referral if eligible and review checkout; no payment occurs by opening it.'})
+                           'purpose':'Sign in to select this subscription plan and review checkout; no payment occurs by opening it.'})
     # Explicit owner configuration, including disabled destinations, wins.
     configured_urls = {row['url'] for row in configured}
     configured_ids = {row['id'] for row in configured}
@@ -189,59 +224,29 @@ def automatic_plan_answer(question, knowledge, history=None):
     lines.append('Subscription and assistance fees are separate from prepaid AI processing credit. No AI credit is included and there is no fixed message allowance. '
                  'Usage depends on the selected model and tokens. Paid AI pauses when credit cannot cover the next request; there are no automatic overage charges. Optional £5 automatic recharge requires explicit authorisation, a monthly purchase cap and platform availability.' + tax)
     from service.platform_promotions import public_flags
-    if public_flags()['setup_enabled']:
-        lines.append('Use code SETUP for free optional one-time assistance. Monthly subscription prices are unchanged.')
+    if not public_flags()['assistance_enabled']:
+        lines.append('New setup assistance checkouts are temporarily paused. You can still subscribe and set up V7 yourself.')
     lines.append('One-time assistance is an optional add-on and is not needed to activate; your team or website developer installs the widget.')
     return '\n\n'.join(lines)
 
 
 def current_promotion_reply(tenant: str, text: str) -> str:
-    """Prevent stale saved/imported copy from advertising a paused named code.
-
-    This final public-copy guard never changes another business's own offers.
-    Replacements are current server-owned status, not model-written terms.
-    """
-    if not tenant or not subscriptions.internal_business(tenant):
-        return text
-    from service.platform_promotions import public_flags
-    flags = public_flags()
-    paused = [code for code, key in (('SETUP', 'setup_enabled'), ('MHIGHSTREET', 'highstreet_enabled'))
-              if not flags[key]]
-    if not paused or not isinstance(text, str):
-        return text
-    # SETUP is a common English word: match it as a named code, not ordinary
-    # lower-case prose about implementation or published setup prices.
-    patterns = {code: re.compile(r'\b'+code+r'\b') for code in paused}
-    if not any(pattern.search(text) for pattern in patterns.values()):
-        return text
-    result, mentioned, changed = [], set(), False
-    for part in re.split(r'(?<=[.!?])\s+|\n+', text):
-        found = [code for code, pattern in patterns.items() if pattern.search(part)]
-        if found and part not in {code+' is paused for new claims.' for code in found}:
-            changed = True
-            for code in found:
-                if code not in mentioned:
-                    result.append(code+' is paused for new claims.')
-                    mentioned.add(code)
-        elif part:
-            result.append(part)
-    if not changed:
-        return text
-    result.append('Previously accepted offers keep their saved terms.')
-    return '\n\n'.join(dict.fromkeys(result))
+    """Withhold private/retired codes from stale FAQs, history and model output."""
+    pattern = _withheld_pattern(tenant)
+    if pattern and isinstance(text, str) and pattern.search(text):
+        return _PRIVATE_CODE_REPLY
+    return text
 
 
 def current_promotion_knowledge(tenant: str, knowledge: dict[str, Any]) -> dict[str, Any]:
-    """Withhold stale promotional excerpts while keeping current billing facts."""
-    if not tenant or not subscriptions.internal_business(tenant):
+    """Withhold private promotions from every public knowledge source."""
+    pattern = _withheld_pattern(tenant)
+    if not pattern:
         return knowledge
-    from service.platform_promotions import public_flags
-    flags = public_flags()
-    paused = [code for code, key in (('SETUP', 'setup_enabled'), ('MHIGHSTREET', 'highstreet_enabled'))
-              if not flags[key]]
-    if not paused:
-        return knowledge
-    pattern = re.compile(r'\b(?:'+'|'.join(paused)+r')\b')
-    return {key: value for key, value in knowledge.items()
-            if not (key.startswith(('faq:', 'matched_faq:', 'website:'))
-                    and pattern.search(str(value)))}
+    return {key: value for key, value in knowledge.items() if not pattern.search(str(value))}
+
+
+def current_promotion_history(tenant, history):
+    """Do not reintroduce a private offer through an older conversation turn."""
+    pattern = _withheld_pattern(tenant)
+    return [row for row in history if not pattern or not pattern.search(str(row))]

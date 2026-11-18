@@ -340,6 +340,10 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     application = applications.get(tenant)
     if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
+    if kind == 'implementation':
+        from service.platform_promotions import public_flags
+        if not public_flags()['assistance_enabled']:
+            raise ValueError('setup_assistance_paused')
     if interval not in INTERVALS or (interval != 'month' and kind != 'platform'):
         raise ValueError('invalid_billing_interval')
     if interval != 'month':
@@ -809,6 +813,7 @@ def usage_months(tenant):
 
 
 def report(tenant, include_api=True):
+    from service.platform_promotions import public_flags
     with connection(tenant) as db:
         contracts = [dict(row) for row in db.execute('SELECT kind,status,next_due,paused,cancel_at_end,implementation_paid FROM billing_contracts WHERE tenant=?',(tenant,))]
         invoices = [dict(row) for row in db.execute('SELECT * FROM billing_invoices WHERE tenant=? ORDER BY issued DESC LIMIT 120',(tenant,))]
@@ -831,5 +836,5 @@ def report(tenant, include_api=True):
     from service.billing_management import summary as management_summary
     from service import billing_promotions
     return {'tenant':tenant, **billing_promotions.preview(tenant), 'referral_setup_percent':referrals.setup_preview_percent(tenant),'discount_percent':50 if saved_campaign(tenant) == _PLATFORM_CAMPAIGN else 0,'configured':configured(),'prices':PRICES,'vat_percent':vat_percent(),'contracts':contracts,'invoices':invoices,'totals':totals,'usage':usage,'exchange_rate':rate,'approved_api_charges':approved,'whatsapp_enabled':whatsapp_enabled(tenant),
-            'plans':public_plans(), 'setup_assistance_pence':plan_catalog.SETUP_ASSISTANCE_PENCE, 'plan_state':state, 'billing_interval':billing_interval(tenant), 'yearly_offered':plan_catalog.YEARLY_OFFERED, 'pricing_version':'tiered_v1' if state else 'legacy',
+            'plans':public_plans(), 'setup_assistance_pence':plan_catalog.SETUP_ASSISTANCE_PENCE, 'setup_assistance_available':public_flags()['assistance_enabled'], 'plan_state':state, 'billing_interval':billing_interval(tenant), 'yearly_offered':plan_catalog.YEARLY_OFFERED, 'pricing_version':'tiered_v1' if state else 'legacy',
             'internal':internal_business(tenant), 'complimentary':bool(complimentary_plan(tenant)), 'management':management_summary(tenant), 'allowance':plan_usage.report(tenant, include_costs=include_api)}

@@ -420,9 +420,8 @@ class MessageHandlerV7:
 
             # Current billing plans must not be compared as retail SKUs (where
             # a setup fee and a subscription can share a plan-name keyword).
-            from service.platform_offer_knowledge import public_knowledge, automatic_plan_answer, public_destinations
-            live_offer = public_knowledge(self.tenant_key)
-            plan_answer = automatic_plan_answer(user_text, live_offer, sess.get('conversation_history'))
+            from service.platform_offer_knowledge import public_plan_context, automatic_plan_answer, public_destinations
+            plan_answer = automatic_plan_answer(user_text, public_plan_context(self.tenant_key), sess.get('conversation_history'))
             if plan_answer:
                 from flask import current_app
                 pricing_url = current_app.container.settings.BASE_URL.rstrip('/') + '/#pricing'
@@ -449,6 +448,11 @@ class MessageHandlerV7:
                 return self._wrap_reply(request_id=request_id,t0=t0,reply=clarification,
                     intent='vehicle_model_clarify',plan=None,facts={},entities={},items=[])
 
+            from service.platform_offer_knowledge import private_code_answer
+            private_answer = private_code_answer(user_text, self.tenant_key)
+            if private_answer:
+                return self._wrap_reply(request_id=request_id, t0=t0, reply=private_answer,
+                    intent='faq', plan=None, facts={}, entities={}, items=[])
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
             intelligent = self._grounded_answer(user_text, sess, channel=channel)
@@ -1123,8 +1127,11 @@ class MessageHandlerV7:
             knowledge.update(request_facts(allowed_actions, native_booking_management=True))
         emit('chat_phase', phase='knowledge_retrieval', outcome='completed', knowledge_count=len(knowledge),
              elapsed_ms=round((time.perf_counter()-retrieval_started)*1000, 2))
-        from service.platform_offer_knowledge import current_promotion_knowledge
+        from service.platform_offer_knowledge import current_promotion_knowledge, current_promotion_history
         knowledge = current_promotion_knowledge(self.tenant_key, knowledge)
+        history = current_promotion_history(self.tenant_key, history)
+        previous = previous if current_promotion_history(self.tenant_key, [previous]) else {}
+        older_facts = current_promotion_history(self.tenant_key, older_facts)
         text = answer(client, getattr(self.rewriter, '_model', 'gpt-4o-mini'), question,
                       knowledge, history, self.renderer.tone_style,
                       destinations=destinations, selected_links=selected if channel in {'web', 'test'} else None,
@@ -1133,8 +1140,8 @@ class MessageHandlerV7:
                       response_channel=channel,
                       memory_settings=session.get('_memory_settings'),
                       agent_context={'playbook':self.sales_playbook,'previous_agent':previous,
-                                     'customer_statements': [*older_facts,
-                                         *session.get('conversation_customer_statements', [])[-4:]],
+                                     'customer_statements': current_promotion_history(self.tenant_key, [*older_facts,
+                                         *session.get('conversation_customer_statements', [])[-4:]]),
                                      'selected_offering_id':previous.get('selected_offering_id'),
                                      'offering_ids':previous.get('offering_ids',[])}, agent_state=agent_state)
         if text and agent_state.get('_validated_grounded') is True:

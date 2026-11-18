@@ -43,6 +43,7 @@ const billingErrors: Record<string, string> = {
   stripe_tax_rate_must_be_20_percent_exclusive: 'Payment tax settings need review by your platform administrator.',
   whatsapp_included_in_subscription: 'WhatsApp is already included in this plan.',
   extra_usage_charges_disabled: 'Extra usage charges are disabled for this plan.',
+  setup_assistance_paused: 'New setup assistance is temporarily paused. You can still subscribe and set up V7 yourself. Already-paid assistance remains supported.',
   implementation_already_paid: 'Assistance is already paid.',
   active_platform_subscription_required: 'Activate your platform subscription first.',
   api_charge_not_approved: 'This API charge has not been approved.',

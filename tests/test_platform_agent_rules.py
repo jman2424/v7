@@ -13,9 +13,8 @@ def test_setup_scope_and_codes_override_old_installation_promises_for_platform_o
     assert policy['answer_complete'] is True
     assert 'your team or website developer' in policy['answer']
     assert 'not included as a done-for-you implementation service' in policy['answer']
-    assert 'SETUP is paused for new claims.' in policy['answer']
-    assert '50% off the first subscription month only' in policy['answer']
-    assert 'do not cover AI credit' in policy['answer']
+    assert 'SETUP' not in policy['answer'] and 'MHIGHSTREET' not in policy['answer']
+    assert 'do not stack or cover AI credit' in policy['answer']
     from service.grounded_statements import statement_catalog
     statements = statement_catalog({'policy:platform_setup': policy})
     assert statements['policy:platform_setup:answer']['text'] == policy['answer']

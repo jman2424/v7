@@ -622,7 +622,7 @@ def _platform_promotions_report():
     settings = platform_promotions.validate(raw) if raw is not None else platform_promotions.DEFAULTS.copy()
     settings['setup_enabled'] = False
     response = jsonify(available=True, settings=settings, revision=revision(raw),
-                       referral=referrals.public_offer(tenant))
+                       referral=referrals.public_offer(tenant), campaign_code='MHIGHSTREET')
     response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -652,7 +652,7 @@ def api_platform_promotions_put():
             or not re.fullmatch(r'[a-f0-9]{64}', body['revision'])):
         return jsonify(error='invalid_platform_promotions'), 400
     try:
-        settings = platform_promotions.validate(body['settings'])
+        settings = platform_promotions.validate(body['settings'], allow_legacy=False)
     except ValueError:
         return jsonify(error='invalid_platform_promotions'), 400
     if settings['setup_enabled']:

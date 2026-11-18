@@ -43,6 +43,8 @@ class OfferStore:
             if offer_id in ids:
                 raise ValueError("duplicate_offer_id")
             ids.add(offer_id)
+            if 'agent_visible' in offer and type(offer['agent_visible']) is not bool:
+                raise ValueError('invalid_offer_visibility')
 
             deal = offer.get("deal_type", "custom")
             if not isinstance(deal, str) or deal not in {"custom", "buy_one_get_one", "minimum_spend", "signup_discount"}:
@@ -89,7 +91,8 @@ class OfferStore:
         current_day = today or datetime.now(timezone.utc).date()
         active: List[Dict[str, Any]] = []
         for offer in self._offers:
-            if offer.get("active") is not True or offer.get("archived") is True:
+            if (offer.get("active") is not True or offer.get("archived") is True
+                    or offer.get('agent_visible', True) is not True):
                 continue
             try:
                 self.validate([offer])

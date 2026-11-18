@@ -8,15 +8,18 @@ from typing import Any
 from flask import current_app, has_app_context, has_request_context, request
 
 FILENAME = 'platform_promotions.json'
-DEFAULTS = {'setup_enabled': False, 'highstreet_enabled': True}
+DEFAULTS = {'setup_enabled': False, 'highstreet_enabled': True,
+            'highstreet_public': False, 'referrals_public': True, 'assistance_enabled': True}
+LEGACY_KEYS = {'setup_enabled', 'highstreet_enabled'}
 logger = logging.getLogger(__name__)
 
 
-def validate(value: Any) -> dict[str, bool]:
-    if (not isinstance(value, dict) or set(value) != set(DEFAULTS)
+def validate(value: Any, *, allow_legacy: bool = True) -> dict[str, bool]:
+    allowed_keys = (set(DEFAULTS), LEGACY_KEYS) if allow_legacy else (set(DEFAULTS),)
+    if (not isinstance(value, dict) or set(value) not in allowed_keys
             or any(type(enabled) is not bool for enabled in value.values())):
         raise ValueError('invalid_platform_promotions')
-    return value.copy()
+    return {**DEFAULTS, **value}
 
 
 def document(storage: Any, tenant: str) -> Any:

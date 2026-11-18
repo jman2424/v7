@@ -71,8 +71,7 @@ def test_stale_revision_cannot_overwrite_another_offer_change(client, marketing)
     response = client.put('/admin/api/platform-promotions?tenant=EXAMPLE', json={
         'revision': before['revision'], 'settings': {**policy.DEFAULTS, 'highstreet_enabled': False}})
     assert response.status_code == 409
-    assert client.get('/admin/api/platform-promotions?tenant=EXAMPLE').json['settings'] == {
-        'setup_enabled': False, 'highstreet_enabled': True}
+    assert client.get('/admin/api/platform-promotions?tenant=EXAMPLE').json['settings'] == policy.DEFAULTS
 
 
 @pytest.mark.parametrize('code,key', [('SETUP', 'setup_enabled'), ('MHIGHSTREET', 'highstreet_enabled')])
@@ -118,10 +117,10 @@ def test_pause_updates_homepage_current_ai_policy_and_stale_copy(client, app, ma
     assert 'id="setup-offer-title"' not in client.get('/').text
     with app.app_context():
         current = platform_offer_knowledge.public_setup_policy('EXAMPLE')['answer']
-        assert 'SETUP is paused for new claims.' in current
+        assert 'SETUP' not in current and 'MHIGHSTREET' not in current
         assert 'Use SETUP for free' not in current
         text = platform_offer_knowledge.current_promotion_reply('EXAMPLE', 'Starter is £99 monthly. Use SETUP for free assistance.')
-        assert '£99' in text and 'paused for new claims' in text and 'Use SETUP' not in text
+        assert 'checked privately' in text and 'SETUP' not in text
         assert platform_offer_knowledge.current_promotion_reply('OTHER', 'Use SETUP for free assistance.') == 'Use SETUP for free assistance.'
         assert platform_offer_knowledge.current_promotion_reply('EXAMPLE', text) == text
         knowledge = {'faq:old': {'answer': 'Use SETUP for free assistance.'}, 'product:a': {'price': 99},
@@ -147,7 +146,7 @@ def test_actual_website_chat_does_not_advertise_a_paused_code_from_a_saved_faq(c
     app.container.for_tenant('EXAMPLE').handler.h_v7.rewriter = None
     response = client.post('/chat_api', json={'tenant': 'EXAMPLE', 'message': 'What is the SETUP offer?'})
     assert response.status_code == 200
-    assert 'SETUP is paused for new claims.' in response.json['reply']
+    assert 'checked privately' in response.json['reply'] and 'SETUP' not in response.json['reply']
     assert 'Use SETUP' not in response.json['reply']
 
 
@@ -155,12 +154,12 @@ def test_platform_offer_fallback_uses_live_codes_without_hijacking_setup_help(cl
     with app.app_context():
         assert platform_offer_knowledge.automatic_setup_answer('How do I set up my widget?', 'EXAMPLE') is None
         assert platform_offer_knowledge.automatic_setup_answer('What offers do you have?', 'OTHER', all_offers=True) is None
-        assert 'SETUP is paused for new claims.' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
+        assert 'checked privately' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
     assert update(client, setup_enabled=False, highstreet_enabled=False).status_code == 200
     monkeypatch.setattr(referrals, 'public_offer', lambda tenant: {'enabled': False})
     with app.app_context():
-        assert 'currently paused' in platform_offer_knowledge.automatic_setup_answer('Any offers?', 'EXAMPLE', all_offers=True)
-        assert 'SETUP is paused' in platform_offer_knowledge.automatic_setup_answer('is the setup code active?', 'EXAMPLE')
+        assert 'No public promotional offers' in platform_offer_knowledge.automatic_setup_answer('Any offers?', 'EXAMPLE', all_offers=True)
+        assert 'checked privately' in platform_offer_knowledge.automatic_setup_answer('is the setup code active?', 'EXAMPLE')
 
 
 @pytest.mark.parametrize('extra', [{'percent': 999}, {'tenant': 'OTHER'}, {'coupon': 'forged'}])

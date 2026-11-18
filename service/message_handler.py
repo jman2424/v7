@@ -296,6 +296,11 @@ class MessageHandler:
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
             reply = v7.finalize_navigation(reply, ctx.channel)
+        from service.platform_offer_knowledge import current_promotion_reply, current_promotion_knowledge
+        reply['reply'] = current_promotion_reply(ctx.tenant, str(reply.get('reply') or ''))
+        for key in ('facts', 'items', 'actions', 'agent'):
+            if key in reply and key not in current_promotion_knowledge(ctx.tenant, {key: reply[key]}):
+                reply[key] = [] if isinstance(reply[key], list) else {}
         from service.reply_formatting import readable_reply, consultation_estimate
         reply['reply'] = readable_reply(consultation_estimate(str(reply.get('reply') or '')))
         self._remember_turn(ctx, sess, user_text, reply)

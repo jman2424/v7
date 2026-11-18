@@ -29,7 +29,7 @@ def project(item, fields):
 
 CATALOG_FIELDS = ("sku", "name", "price", "price_str", "unit", "in_stock", "stock", "subcategory")
 OFFER_FIELDS = ('id','title','description','active','starts_on','ends_on','archived','code',
-                'product_skus','deal_type','minimum_spend','discount_type','discount_value')
+                'agent_visible','product_skus','deal_type','minimum_spend','discount_type','discount_value')
 
 
 class BusinessManagement:

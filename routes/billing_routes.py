@@ -30,6 +30,7 @@ _SUBSCRIPTION_ERRORS = (
     'subscription_not_cancelling', 'invalid_billing_interval', 'yearly_billing_unavailable',
 )
 _CHECKOUT_ERRORS = (
+    'setup_assistance_paused',
     'invalid_billing_item', 'plan_not_applicable_to_billing_item', 'whatsapp_included_in_subscription',
     'extra_usage_charges_disabled', 'active_platform_subscription_required', 'api_charge_not_approved',
     'subscription_already_exists', 'checkout_plan_changed_refresh', 'checkout_creation_in_progress',
