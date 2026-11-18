@@ -1705,7 +1705,8 @@ def api_questions():
 @bp.get("/leads")
 def api_leads():
     limit = _int_arg("limit", 50, maximum=200)
-    return jsonify(get_leads(tenant=_tenant(), limit=limit))
+    return jsonify(get_leads(tenant=_tenant(), limit=limit, query=request.args.get('q', '')[:150],
+                             lead_id=request.args.get('lead_id', '')[:256]))
 
 
 _LEAD_STATUSES = {"Open", "Contacted", "Qualified", "Won", "Lost"}
@@ -1728,7 +1729,7 @@ def api_lead_status_put(lead_id: str):
 
 @bp.get("/conversations")
 def api_conversations():
-    from service.analytics_db import _conn, _ensure_ready, _since, _norm_tenant
+    from service.analytics_db import _conn, _ensure_ready, _since, _norm_tenant, search_terms
     from service import session_store
     from service.conversation_views import conversation_message
     tenant = _norm_tenant(_tenant())
@@ -1739,6 +1740,9 @@ def api_conversations():
         abort(400)
     if not 1 <= before <= 9223372036854775807:
         abort(400)
+    terms = search_terms(request.args.get('q', '')[:150])
+    def matches(mark):
+        return (" AND LOWER(COALESCE(text,'') || ' ' || channel) LIKE " + mark + " ESCAPE '!'") * len(terms)
     _ensure_ready()
     if session_store._using_postgres():
         from psycopg.rows import dict_row
@@ -1749,8 +1753,8 @@ def api_conversations():
                     "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
                     "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out','navigation_click')) "
                     "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
-                    "WHERE id<%s AND ts_utc>=%s ORDER BY id DESC LIMIT 51",
-                    (tenant, before, since),
+                    "WHERE id<%s AND ts_utc>=%s" + matches("%s") + " ORDER BY id DESC LIMIT 51",
+                    (tenant, before, since, *terms),
                 ).fetchall()
         return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
                        next_before=rows[49]["id"] if len(rows) > 50 else None)
@@ -1760,7 +1764,7 @@ def api_conversations():
             "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
             "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out','navigation_click')) "
             "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
-            "WHERE id<? AND ts_utc>=? ORDER BY id DESC LIMIT 51", (tenant, before, since)
+            "WHERE id<? AND ts_utc>=?" + matches("?") + " ORDER BY id DESC LIMIT 51", (tenant, before, since, *terms)
         ).fetchall()
     return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
                    next_before=rows[49]["id"] if len(rows) > 50 else None)

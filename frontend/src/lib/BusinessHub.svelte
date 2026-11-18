@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import { businessLabel } from './businessLabel';
   import {onMount,onDestroy} from 'svelte';
   import BusinessEmailSetup from './BusinessEmailSetup.svelte';
@@ -220,7 +221,7 @@
     <div class="activity-filters"><label>Search enquiries<input type="search" bind:value={activitySearch} placeholder="Sender, subject or enquiry"/></label><label>Activity status<select bind:value={activityState}><option value="">All statuses</option>{#each Object.entries(stateNames) as [value,label]}<option {value}>{label}</option>{/each}</select></label></div>
     {#if !visibleOperations.length&&!loading&&!error}<p>{channelOperations.length?'No enquiries match these filters.':'No channel activity yet. Connect and enable a channel to start receiving enquiries.'}</p>{/if}
     {#each visibleOperations as row (row.id)}
-      <article><div class="row"><strong>{row.channel==='email'?'Email':row.channel==='phone'?'Phone':'Workflow'} · {stateNames[row.state]||row.state}</strong><time datetime={new Date(row.created*1000).toISOString()}>{new Date(row.created*1000).toLocaleString()}</time></div>
+      <article id={recordAnchor('operations',row.id)}><div class="row"><strong>{row.channel==='email'?'Email':row.channel==='phone'?'Phone':'Workflow'} · {stateNames[row.state]||row.state}</strong><time datetime={new Date(row.created*1000).toISOString()}>{new Date(row.created*1000).toLocaleString()}</time></div>
         <p>{row.source_address}</p>{#if row.payload.subject}<h4>{row.payload.subject}</h4>{/if}
         {#if row.payload.text}<pre>{row.payload.text}</pre>{/if}
         {#if row.error_code}<p class="hint">{operationReasons[row.error_code]||'This item needs a review. Check its state and connection before taking further action.'} <span>Reference: {row.error_code.replaceAll('_',' ')}</span></p>{/if}

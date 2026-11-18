@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import { businessLabel } from './businessLabel';
   import { t, language } from './i18n';
   import { subscriptionLocales, subscriptionMoney, subscriptionPrice, subscriptionMonth, subscriptionError } from './subscription-format';
@@ -106,7 +107,12 @@
     try{
       const result=await read('subscription',undefined,request.signal);
       if(disposed||controller!==request||request.signal.aborted)return;
-      data=result;if(isPlatform)void listCompanies();
+      data=result;
+      if(globalThis.location?.hash?.startsWith('#record-subscription-')){
+        const index=result.invoices.findIndex((row:Invoice)=>'#'+recordAnchor('subscription',row.id)===location.hash);
+        if(index>=0)invoicePage=1+Math.floor(index/12);
+      }
+      if(isPlatform)void listCompanies();
     }catch(failure){if(!disposed&&controller===request)error=request.signal.aborted?'Billing loading timed out. Try refreshing.':subscriptionError(failure instanceof Error?failure.message:'');}
     finally{clearTimeout(timeout);if(!disposed&&controller===request){busy=false;controller=undefined;}}
   }
@@ -291,7 +297,7 @@
     {#if months.length}<TrendChart title={$t('Recorded payments by invoice month')} labels={months.map(month)} unit="GBP" series={[{name:$t('Paid'),values:paidMonths,color:'#087f5b'},{name:$t('Outstanding'),values:dueMonths,color:'#bd5b28'}]} {locale} notRecordedLabel={$t('Not recorded')} periodLabel={$t('Period (UTC)')} figuresLabel={$t('View figures')} exactValuesLabel={$t('Exact values in the table below')} figuresRegionLabel={$t('Recorded payment figures')}/>{/if}
     <article class="panel"><header><div><h2>{$t('Payment history')}</h2><p>{$t('Previous subscription, assistance, WhatsApp and API invoices. Older platform invoices may include assistance. Showing the latest 120 recorded invoices.')}</p></div><label>{$t('Show')}<select bind:value={invoiceKind} on:change={()=>invoicePage=1}><option value="all">{$t('All charges')}</option><option value="platform">{$t('Platform subscription')}</option><option value="implementation">{$t('Optional setup assistance')}</option><option value="whatsapp">WhatsApp</option>{#if canViewCosts}<option value="api">{$t('API usage')}</option>{/if}</select></label></header>
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table horizontally on small screens.) -->
-      <div class="scroll" role="region" aria-label={$t('Payment history')} tabindex="0"><table><thead><tr><th>{$t('Month')}</th><th>{$t('Charge')}</th><th>{$t('Status')}</th><th>{$t('Invoice total')}</th><th>{$t('Paid')}</th><th>{$t('Remaining')}</th><th>{$t('Invoice')}</th></tr></thead><tbody>{#each invoices.slice((invoicePage-1)*12,invoicePage*12) as invoice}<tr><td>{month(invoice.month)}</td><td>{name(invoice.kind)}<details><summary>{$t('Invoice line items')}</summary>{#each invoice.lines as line}<p><bdi>{line.description}</bdi> · <bdi>{money(line.amount)}</bdi></p>{/each}</details></td><td><span class="invoice-status" class:paid={invoice.status==='paid'}>{status(invoice.status)}</span></td><td><bdi>{money(invoice.total)}</bdi></td><td><bdi>{money(invoice.paid)}</bdi></td><td><bdi>{money(invoice.remaining)}</bdi></td><td>{#if invoice.url}<a href={invoice.url} target="_blank" rel="noopener noreferrer">{$t(invoice.status==='open'?'Pay invoice':'View invoice')}</a>{:else}{$t('Pending')}{/if}</td></tr>{:else}<tr><td colspan="7">{$t('No invoices recorded yet. A checkout redirect alone does not mark an invoice as paid.')}</td></tr>{/each}</tbody></table></div>
+      <div class="scroll" role="region" aria-label={$t('Payment history')} tabindex="0"><table><thead><tr><th>{$t('Month')}</th><th>{$t('Charge')}</th><th>{$t('Status')}</th><th>{$t('Invoice total')}</th><th>{$t('Paid')}</th><th>{$t('Remaining')}</th><th>{$t('Invoice')}</th></tr></thead><tbody>{#each invoices.slice((invoicePage-1)*12,invoicePage*12) as invoice}<tr id={recordAnchor('subscription',invoice.id)}><td>{month(invoice.month)}</td><td>{name(invoice.kind)}<details><summary>{$t('Invoice line items')}</summary>{#each invoice.lines as line}<p><bdi>{line.description}</bdi> · <bdi>{money(line.amount)}</bdi></p>{/each}</details></td><td><span class="invoice-status" class:paid={invoice.status==='paid'}>{status(invoice.status)}</span></td><td><bdi>{money(invoice.total)}</bdi></td><td><bdi>{money(invoice.paid)}</bdi></td><td><bdi>{money(invoice.remaining)}</bdi></td><td>{#if invoice.url}<a href={invoice.url} target="_blank" rel="noopener noreferrer">{$t(invoice.status==='open'?'Pay invoice':'View invoice')}</a>{:else}{$t('Pending')}{/if}</td></tr>{:else}<tr><td colspan="7">{$t('No invoices recorded yet. A checkout redirect alone does not mark an invoice as paid.')}</td></tr>{/each}</tbody></table></div>
       <div class="controls"><button disabled={invoicePage===1} on:click={()=>invoicePage--}>{$t('Previous invoices')}</button><span>{$t('Page {page}',{page:count(invoicePage)})}</span><button disabled={invoicePage*12>=invoices.length} on:click={()=>invoicePage++}>{$t('Next invoices')}</button></div>
     </article>
     {#if canViewCosts}<article class="panel"><h2>{$t('AI usage records')}</h2>{#if data.internal}<p>{$t('Recorded model usage for the internal agent. Provider funding and availability still apply.')}</p>{:else}<p>{$t('Paid AI processing uses separate prepaid credit for website and WhatsApp replies. When credit cannot cover a request, paid AI pauses; no extra charge is created automatically. Any older approved charges remain visible below.')}</p>{/if}<p>{$t('Usage estimates are not invoices. Estimates use recorded model usage and an exchange rate; missing usage is not treated as free.')}</p>

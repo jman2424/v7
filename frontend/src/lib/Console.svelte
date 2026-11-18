@@ -4,6 +4,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
   import { goto } from '$app/navigation';
+  import {recordAnchor,revealSearchTarget,searchTopics} from './workspaceSearch';
   import SectionSearch from './SectionSearch.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
   import {subscriptionCreditAlerts} from './subscription-format';
@@ -351,10 +352,14 @@
     operations:'business hub email phone calls inbox approvals drafts workflows actions',
     budget:'AI funds balance spending alerts automatic recharge credit',
     'provider-funding':'provider finance reserve OpenAI costs margins',
-    subscription:'billing plans payment invoices cancel change plan',usage:'API AI models memory tokens credit costs',
+    subscription:'billing plans payment invoices line items free assistance VAT taxes discounts cancel change plan refunds renewal',usage:'API AI models memory tokens credit costs',
     website:'widget branding colours embed agent test',integrations:'MCP API OpenAI connections',
     faqs:'FAQ knowledge answers support','data-sources':'import sync WooCommerce Shopify upload spreadsheet CSV products prices connect',account:'login password authenticator 2FA security',
     team:'staff users permissions access',catalog:'products services prices stock',
+    spending:'usage cost reports tokens balance consumption',privacy:'retention deletion export personal data consent',
+    cookies:'cookie preferences consent analytics',delivery:'shipping collection postcode service areas fees',
+    offers:'coupons campaigns deals discounts promotions expiry',home:'dashboard channel activity metrics overview',
+    companies:'switch businesses business directory organisations',errors:'health incidents diagnostics logs failures',
     branches:'locations opening times hours',conversations:'chat history messages customers',
     implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
   };
@@ -363,6 +368,23 @@
     key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:[sections[key],sectionKeywords[key]].filter(Boolean).join(' '),
     href:platformMode?workspaceHref(base,'platform',platformWorkspace.views.find(view=>view.section===key)?.id||'overview',tenant):sectionHref(base,key,tenant),reload:isWidgetSection(key)||isWidgetSection(section)
   })):[];
+
+  $: workspaceSearchItems=[
+    ...sectionSearchItems.map(page=>{
+      const group=(platformMode?[platformWorkspace]:workspaces).find(group=>group.views.some(view=>view.section===page.key));
+      const view=group?.views.find(view=>view.section===page.key);
+      return {...page,keywords:[page.keywords,group?.label,view?.label].join(' ')};
+    }),
+    ...searchTopics.flatMap(([key,label,part,keywords])=>{
+      const page=sectionSearchItems.find(item=>item.key===key);
+      if(!page || (part==='install'&&!mayOpenScreen('implementation')))return [];
+      const href=part.startsWith('#')?page.href+'#jump-'+part.slice(1):page.href+'&panel='+part;
+      return [{key:key+part,label:$t(label),description:page.label,keywords,href,reload:true}];
+    }),
+    ...(sectionSearchItems.some(page=>page.key==='companies')&&mayOpenScreen('profile')?tenants.map(company=>({
+      key:'business-'+company.key,label:company.name,description:$t('Businesses'),keywords:'business company workspace '+company.key,
+      href:sectionHref(base,'profile',company.key),reload:true})):[])
+  ];
 
   let companyQuery='';
   let newTenantKey = '';
@@ -973,6 +995,14 @@
       const { response, data } = await requestJson(`/admin/api/insights?tenant=${encodeURIComponent(selectedTenant)}&minutes=10080&limit=50&home_channels=1`, { credentials: 'same-origin' }, activeLoad);
       if (!isCurrentWorkspace(activeLoad)) return;
       if (!response.ok) { activityStatus = 'Sales activity is currently unavailable. Try refreshing.'; return false; }
+      if(section==='pipeline' && window.location.hash?.startsWith('#record-pipeline-') && user?.permissions?.includes('customers.read')){
+        const id=decodeURIComponent(window.location.hash.slice('#record-pipeline-'.length));
+        if(!data.leads?.some((lead:InsightLead)=>lead.lead_id===id)){
+          const selected=await requestJson('/admin/api/leads?'+new URLSearchParams({tenant:selectedTenant,lead_id:id}),{credentials:'same-origin'},activeLoad);
+          if(!isCurrentWorkspace(activeLoad))return;
+          if(selected.response.ok && Array.isArray(selected.data))data.leads=[...selected.data,...(data.leads||[])];
+        }
+      }
       insights = normalizeInsights(data);
       insightsAvailable=true;
       activityStatus = '';
@@ -1695,6 +1725,7 @@
     } else agentStatus = 'Submitted agent playbook saved. You have unsaved edits.';
   }
 
+  onMount(revealSearchTarget);
   onMount(async () => {
     initialiseLanguage();
     const params = new URLSearchParams(window.location.search);
@@ -1800,7 +1831,7 @@
           <h1>{$t(viewDefinition.label === 'Overview' ? workspaceDefinition.label : viewDefinition.label)}</h1>
         </div>
         <div class="workspace-actions">
-          <SectionSearch items={sectionSearchItems} label={$t('Find anything')} placeholder={$t('Profile, WhatsApp setup, statistics…')} empty={$t('No matching sections available to your account.')} />
+          {#key JSON.stringify([tenant,user.email,user.roles,user.permissions,platformMode])}<SectionSearch items={workspaceSearchItems} {tenant} apiPrefix={import.meta.env.DEV?'/api':''} allowCustomers={Boolean(user.permissions?.includes('customers.read'))} label={$t('Find anything')} placeholder={$t('Search pages, settings and records…')} empty={$t('No matches in this workspace.')} />{/key}
           <LanguagePicker />
           {#if (isPlatform || isOwner) && tenants.length > 1}
             <label class="tenant-picker">{$t('Business')}<select aria-label={$t('Business')} value={tenant} on:change={async(event)=>{const picker=event.currentTarget;await selectTenant(picker.value);picker.value=tenant;}}>{#each tenants as item}<option value={item.key}>{item.name}</option>{/each}</select></label>
@@ -1916,7 +1947,7 @@
       {/if}
 
       {#if section === 'statistics'}
-        {#key tenant}{#await import('./Statistics.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedStatistics}<svelte:component this={loadedStatistics.default} {tenant} {businessName} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}        <details class="customer-question-report" bind:open={commonQuestionsOpen}><summary>Frequently asked customer questions</summary>{#if commonQuestionsOpen}<Conversations {tenant} initialView="questions" showViewSwitcher={false} apiPrefix={import.meta.env.DEV?'/api':''}/>{/if}</details>
+        {#key tenant}{#await import('./Statistics.svelte')}<p class="component-loading" role="status">Loading…</p>{:then loadedStatistics}<svelte:component this={loadedStatistics.default} initialView={workspacePanel} {tenant} {businessName} {csrf} canRecordSales={isPlatform || user.roles.includes('business_owner')} apiPrefix={import.meta.env.DEV ? '/api' : ''} />{:catch}<p class="notice error" role="alert">This view could not be loaded. Reload the page to try again.</p>{/await}{/key}        <details class="customer-question-report" bind:open={commonQuestionsOpen}><summary>Frequently asked customer questions</summary>{#if commonQuestionsOpen}<Conversations {tenant} initialView="questions" showViewSwitcher={false} apiPrefix={import.meta.env.DEV?'/api':''}/>{/if}</details>
 
       {/if}
       {#if section === 'whatsapp-qr'}
@@ -1957,7 +1988,7 @@
             <div class="workspace-toolbar"><a class="secondary" href={(import.meta.env.DEV?'/api':'')+'/analytics/export.csv?tenant='+encodeURIComponent(tenant)}>Export leads</a><label>Find a customer<input type="search" bind:value={salesQuery} placeholder="Name or phone…"/></label><label>Stage<select bind:value={salesStage}><option value="all">All stages</option>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select></label></div>
             <div class="list-heading"><h3>Customer follow-ups</h3><span>{insights.sales_funnel.contacts_captured} contacts shared in 7d</span></div>
             {#each insights.leads as lead}
-              {#if (salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)}<div class="lead-row"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : 'Customer enquiry'}</span></div><div><select value={lead.status} disabled={insightsBusy||!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>{/if}
+              {#if (salesStage==='all'||lead.status===salesStage)&&matches(salesQuery,lead.name,lead.phone)}<div class="lead-row" id={recordAnchor('pipeline',lead.lead_id)}><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong><span>{lead.name && lead.phone ? lead.phone : 'Customer enquiry'}</span></div><div><select value={lead.status} disabled={insightsBusy||!user.permissions?.includes('customers.read')} aria-label={`Status for ${lead.name || lead.phone || 'lead'}`} on:change={(event) => updateLeadStatus(lead.lead_id, event.currentTarget.value as LeadStatus)}>{#each leadStatuses as status}<option value={status}>{status}</option>{/each}</select><time datetime={lead.updated_utc}>{formatActivityDate(lead.updated_utc)}</time></div></div>{/if}
             {:else}
               <p class="empty-state">New customer conversations will appear here.</p>
             {/each}
@@ -2008,7 +2039,7 @@
           {/if}
           <div class="account-list" aria-live="polite">
             {#each accounts as account}
-              <div class="account-row"><strong>{account.email}</strong><span>{account.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span><span class:account-inactive={!account.active}>{account.active ? 'Active' : 'Inactive'}</span></div>
+              <div class="account-row" id={recordAnchor('team',account.id)}><strong>{account.email}</strong><span>{account.roles.includes('business_owner') ? 'Business owner' : 'Business staff'}</span><span class:account-inactive={!account.active}>{account.active ? 'Active' : 'Inactive'}</span></div>
             {:else}
               <p class="empty-state">No team access has been added for this business.</p>
             {/each}
@@ -2038,7 +2069,7 @@
             <div class="offering-cards">
             {#each category.items as item,itemIndex}
               {#if matches(catalogQuery,category.name,item.name,item.sku,...item.tags)}
-              <article class="offering-card">
+              <article class="offering-card" id={recordAnchor('catalog',item.sku)}>
                 <div class="offering-main"><label class="offering-name">Name<input bind:value={item.name} aria-label="Offering name" required placeholder="Product, service or package name"/></label><label>Price<input bind:value={item.price} type="number" min="0" step="0.01" aria-label="Offering price" required/></label><label>Per<input bind:value={item.unit} aria-label="Offering unit" required placeholder="each, hour, vehicle…"/></label><label class="stock-toggle"><input checked={item.stock_quantity==null?item.in_stock:item.stock_quantity>0} on:change={(event)=>item.in_stock=event.currentTarget.checked} disabled={item.stock_quantity!=null} type="checkbox"/><span>{(item.stock_quantity==null?item.in_stock:item.stock_quantity>0)?(agentSettings.playbook.offering_type==='products'?'In stock':'Available'):'Unavailable'}</span></label></div>
                 <details class="editor-advanced"><summary>{agentSettings.playbook.offering_type==='products'||item.stock_quantity!=null?'References, topics & inventory':'References, topics & optional inventory'}</summary><div class="offering-advanced"><label>Reference<input bind:value={item.sku} aria-label="Offering reference" required/></label><label>Topics<input value={item.tags.join(', ')} on:input={(event)=>item.tags=event.currentTarget.value.split(',').map(tag=>tag.trim()).filter(Boolean)} aria-label="Offering tags" placeholder="Comma-separated topics"/></label><label>Stock quantity<input bind:value={item.stock_quantity} type="number" min="0" max="1000000000" step="any" placeholder="Not counted"/></label><label>Low-stock alert at<input bind:value={item.low_stock_threshold} type="number" min="0" max="1000000000" step="any" placeholder="5"/></label></div><p class="field-note">Leave quantity blank for untracked products and services. A saved quantity of zero marks this offering unavailable.</p></details>
                 <div class="offering-footer"><small>{item.stock_quantity!=null?`${item.stock_quantity} ${item.unit||'units'} available`:'Availability managed manually'}</small><button class="icon-button danger" title="Remove offering" aria-label={'Remove '+(item.name||'offering')} on:click={()=>removeProduct(categoryIndex,itemIndex)}>Remove</button></div>
@@ -2063,7 +2094,7 @@
         <div class="offers-list">
           {#each offers as offer, index}
             {#if !previousOffer(offer)}
-            <section class="offer-editor" aria-label={`Offer ${offer.title || index + 1}`}>
+            <section class="offer-editor" id={recordAnchor('offers',offer.id)} aria-label={`Offer ${offer.title || index + 1}`}>
               <div class="offer-heading"><h3>{offer.title || `Offer ${index + 1}`}</h3><button class="icon-button danger" type="button" title="Archive offer" aria-label={`Archive ${offer.title || 'offer'}`} on:click={() => removeOffer(index)}>Archive</button></div>
               <div class="offer-fields"><label>Offer title<input bind:value={offer.title} maxlength="120" required /></label><details class="editor-advanced"><summary>Offer reference</summary><label>Offer key<input bind:value={offer.id} maxlength="64" required /></label></details><label>Offer code<input bind:value={offer.code} maxlength="64" placeholder="WELCOME10" /></label><label class="offer-toggle"><input bind:checked={offer.active} type="checkbox" /><span>Offer is active</span></label><label class="offer-toggle"><input bind:checked={offer.agent_visible} type="checkbox" /><span>Customer-facing agents can see this offer</span></label><p class="wide-field">Uncheck to keep this offer private in your management workspace. Remove any copies from FAQs, website pages and other public sources too. This does not make it a checkout discount.</p><label>Starts on<input bind:value={offer.starts_on} type="date" /></label><label>Ends on<input bind:value={offer.ends_on} type="date" /></label><label>Deal type<select bind:value={offer.deal_type} on:change={(event) => changeOfferType(offer, event.currentTarget.value as Offer['deal_type'])}><option value="custom">Custom promotion</option><option value="buy_one_get_one">Buy 1 get 1 free</option><option value="minimum_spend">Minimum-spend deal</option><option value="signup_discount">{$t("Signup discount")}</option></select></label>
                 {#if offer.deal_type === 'buy_one_get_one'}<p class="wide-field">Buy one eligible item and receive one of the same item free. Select the eligible catalogue references below.</p>{/if}
@@ -2082,7 +2113,7 @@
           {/each}
         </div>
         <div class="surface-body"><h3>Previous offers</h3><p>Expired and archived promotions stay here. Archive and save an offer to keep its details. To run it again, create a new offer with a new key.</p>
-          {#each offers.filter(previousOffer) as offer}<article class="offer-editor"><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.map(reference=>catalog.categories.flatMap(category=>category.items).find(item=>item.sku===reference)?.name||reference).join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
+          {#each offers.filter(previousOffer) as offer}<article class="offer-editor" id={recordAnchor('offers',offer.id)}><h4>{offer.title} · {offer.archived ? 'Archived' : 'Expired'}</h4><p>{offer.description}</p><p>{offer.deal_type === 'buy_one_get_one' ? 'Buy 1 get 1 free (same item)' : offer.deal_type === 'minimum_spend' ? `Spend GBP ${offer.minimum_spend}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'} off` : offer.deal_type === 'signup_discount' ? `${$t("Signup discount")}: ${offer.discount_value}${offer.discount_type === 'percentage' ? '%' : ' GBP'}` : 'Custom promotion'}</p><p>{offer.starts_on || 'No start date'} – {offer.ends_on || 'No end date'} · {offer.code || 'No code'} · {offer.product_skus.map(reference=>catalog.categories.flatMap(category=>category.items).find(item=>item.sku===reference)?.name||reference).join(', ') || 'All offerings'}</p><button class="secondary" type="button" on:click={() => reuseOffer(offer)}>Reuse as new offer</button>{#if !offer.archived}<button class="secondary" type="button" on:click={() => removeOffer(offers.indexOf(offer))}>Archive expired offer</button>{/if}</article>{:else}<p>No previous offers saved.</p>{/each}
         </div>
         <div class="section-footer"><span class:error={offersError} class="form-status">{offersStatus}</span><button class="primary" type="button" on:click={saveOffers} disabled={!canEditCurrent||offersStatus==='Saving...'}>{$t("Save offers")}</button></div>
         </fieldset>
@@ -2097,7 +2128,7 @@
         <fieldset class="editor-permission" disabled={!canEditCurrent}>
           <div class="faq-list">
             {#each faqs as faq, index}
-              {#if matches(faqQuery,faq.q,faq.a,...faq.tags)}<details class="faq-editor" open={faqs.length<4||Boolean(faqQuery)||!faq.q}><summary>{faq.q||'New answer'}</summary><div class="faq-fields">
+              {#if matches(faqQuery,faq.q,faq.a,...faq.tags)}<details class="faq-editor" id={recordAnchor('faqs',faq.q)} open={faqs.length<4||Boolean(faqQuery)||!faq.q}><summary>{faq.q||'New answer'}</summary><div class="faq-fields">
                 <label>Question<input bind:value={faq.q} required /></label>
                 <label>Answer<textarea bind:value={faq.a} required></textarea></label>
                 <div class="row-actions"><label>Topics<input value={faq.tags.join(', ')} on:input={(event) => (faq.tags = event.currentTarget.value.split(',').map((tag) => tag.trim()).filter(Boolean))} placeholder="delivery, opening hours" /></label><button class="icon-button danger" type="button" title="Remove FAQ" aria-label={`Remove FAQ ${index + 1}`} on:click={() => removeFaq(index)}>{$t("Remove")}</button></div>
@@ -2220,7 +2251,7 @@
         <fieldset class="editor-permission" disabled={!canEditCurrent}>
         <div class="branches-list">
           {#each branches as branch, branchIndex}
-            <section class="branch-editor" aria-label={`Branch ${branch.name || branchIndex + 1}`}>
+            <section class="branch-editor" id={recordAnchor('branches',branch.id)} aria-label={`Branch ${branch.name || branchIndex + 1}`}>
               <div class="branch-heading"><h3>{branch.name || `Branch ${branchIndex + 1}`}</h3><button class="icon-button danger" type="button" title="Remove branch" aria-label={`Remove ${branch.name || 'branch'}`} on:click={() => removeBranch(branchIndex)}>{$t("Remove")}</button></div>
               <div class="branch-fields"><label>Branch name<input bind:value={branch.name} required /></label><label>Postcode<input bind:value={branch.postcode} required /></label><label>{$t("Phone")}<input bind:value={branch.phone} type="tel" /></label><label class="wide-field">Street address<input bind:value={branch.address} /></label></div>
               <details class="editor-advanced"><summary>Location reference & map coordinates</summary><div class="two-fields"><label>Branch key<input bind:value={branch.id} required /></label><label>Latitude (optional)<input bind:value={branch.lat} type="number" min="-90" max="90" step="0.0001" /></label><label>Longitude (optional)<input bind:value={branch.lon} type="number" min="-180" max="180" step="0.0001" /></label></div></details>

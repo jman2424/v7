@@ -80,7 +80,7 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('frontend/src/lib/workspac
 const context = vm.createContext({
   ...architecture.exports,platformMode:false,dirtyResources:[],widgetDirty:false,hasUnsavedDrafts:()=>false,
   scenario,
-  AbortController, setTimeout, clearTimeout, URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, onDestroy:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
+  revealSearchTarget:()=>{}, AbortController, setTimeout, clearTimeout, URLSearchParams, URL, Object, Intl, Date, onMount:(callback)=>{mount=callback;}, onDestroy:()=>{}, initialiseLanguage:()=>{}, base:'/console', goto:async(path)=>{navigations.push(path);},
   window:{location:{search:scenario.includes('configured-company') ? '' : scenario === 'invalid-tenant-deep-link' ? '?tenant=../SHOP' : '?tenant=SHOP', pathname:'/console/', href:'http://localhost/console/?tenant=SHOP',
     assign:path=>{navigations.push(path);fullDocumentNavigations.push({method:'assign',path});},
     replace:path=>{navigations.push(path);fullDocumentNavigations.push({method:'replace',path});}}, history:{replaceState:()=>{}}},

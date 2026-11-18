@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import { onMount, onDestroy } from 'svelte';
   import { t } from './i18n';
   import { sourceTitle, sourceProblem, agoText, syncingText, reasonText, issueText, importError, changeTitle, permissionText } from './dataSourceText';
@@ -181,7 +182,7 @@
     {/if}
 
     {#each listing.sources as source (source.id)}
-      <article class="source" class:problem={source.status !== 'connected'}>
+      <article class="source" id={recordAnchor('data-sources',source.id)} class:problem={source.status !== 'connected'}>
         <div class="summary">
           <h3>{source.label}</h3>
           <p class="state">{$t(sourceTitle(source))}</p>

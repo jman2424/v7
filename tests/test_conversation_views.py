@@ -76,3 +76,25 @@ def test_native_postgres_conversation_reader_keeps_rls_and_opaque_references(pg_
         other=admin_api_routes.api_conversations().get_json()
     assert len(other['messages'])==1
     assert result['messages'][0]['conversation_ref']!=other['messages'][0]['conversation_ref']
+
+
+def test_workspace_search_finds_older_records_and_respects_the_tenant(client, app):
+    TenantService(app.container.storage).create_tenant('OTHER', 'Other')
+    now = datetime.now(timezone.utc).isoformat()
+    for tenant in ('EXAMPLE', 'OTHER'):
+        analytics_db.upsert_lead(tenant=tenant, lead_id=tenant+'-lead', name='Order 10% off')
+    with analytics_db._conn() as db:
+        for tenant in ('EXAMPLE', 'OTHER'):
+            for i in range(55):
+                text = 'Order 10% off' if i == 0 else 'Another message'
+                db.execute("INSERT INTO events(ts_utc,tenant,event_type,channel,session_id,text) VALUES(?,?,'msg_in','web',?,?)",
+                           (now, tenant, 'session', text))
+    sign_in(client)
+    params = {'tenant': 'EXAMPLE', 'q': '10% order'}
+    messages = client.get('/admin/api/conversations', query_string=params).json['messages']
+    assert len(messages) == 1 and messages[0]['text'] == 'Order 10% off'
+    direct = client.get('/admin/api/conversations', query_string={'tenant':'EXAMPLE','before':messages[0]['id']+1}).json
+    assert direct['messages'][0] == messages[0]
+    leads = client.get('/admin/api/leads', query_string=params).json
+    assert [row['lead_id'] for row in leads] == ['EXAMPLE-lead']
+    assert client.get('/admin/api/leads?tenant=EXAMPLE&lead_id=OTHER-lead').json == []

@@ -1,14 +1,83 @@
 <script lang="ts">
-  import {onMount} from 'svelte';
+  import {loadSearchRecords} from './workspaceSearch';
+  import {onMount,onDestroy} from 'svelte';
   import {findSections, type SectionResult} from './sectionSearch';
   export let items:SectionResult[]=[];
   export let label='Find account sections';
   export let placeholder='Search sections…';
   export let empty='No matching sections available to your account.';
+  export let tenant:string;
+  export let apiPrefix='';
+  export let allowCustomers=false;
+  let records:SectionResult[]=[];
+  let controls:SectionResult[]=[];
+  const targets=new Map<string,HTMLElement>();
+  function indexControls(){
+    controls=[];targets.clear();
+    const nodes=document.querySelectorAll<HTMLElement>('#workspace section label, #workspace section summary, #workspace section h2, #workspace section h3');
+    const found:SectionResult[]=[];
+    for(const node of nodes){
+      if(node.closest('[hidden], [aria-hidden="true"]') || !node.getClientRects().length)continue;
+      const target=node instanceof HTMLLabelElement?node.control:node;
+      if(!(target instanceof HTMLElement)||target.matches(':disabled'))continue;
+      const label=Array.from(node.childNodes).filter(child=>child.nodeType===Node.TEXT_NODE).map(child=>child.textContent).join(' ').trim()
+        || target.getAttribute('aria-label') || (node.querySelector('input,textarea,select')?'':node.textContent?.trim());
+      if(!label || label.length>150)continue;
+      const key='control-'+found.length;
+      targets.set(key,target);
+      found.push({key,label,description:'On this page',keywords:'',href:'#workspace',reload:false});
+    }
+    controls=found;
+  }
+  function choose(event:MouseEvent,item:SectionResult){
+    const target=targets.get(item.key);
+    if(target?.isConnected){
+      event.preventDefault();
+      if(!target.matches('input,select,textarea,button,summary,a'))target.tabIndex=-1;
+      target.focus({preventScroll:true});target.scrollIntoView({block:'center'});
+    }
+    close();
+  }
+  let controller:AbortController|undefined;
+  let searching=false;
+  let partial=false;
+  let remote:SectionResult[]=[];
+  let remoteRequest:AbortController|undefined;
+  let timer:ReturnType<typeof setTimeout>;
+  let remoteBusy=false,remotePartial=false;
+  function refreshRemote(text:string){
+    clearTimeout(timer);remoteRequest?.abort();remote=[];remotePartial=false;
+    remoteBusy=text.length>=2;
+    if(!remoteBusy)return;
+    const request=new AbortController();
+    remoteRequest=request;
+    timer=setTimeout(async()=>{
+      const failed=await loadSearchRecords(items,tenant,apiPrefix,request.signal,found=>{
+        if(!request.signal.aborted)remote=[...remote,...found];
+      },allowCustomers,text);
+      if(!request.signal.aborted){remotePartial=failed;remoteBusy=false;}
+    },250);
+  }
+  function reset(){
+    refreshRemote('');
+    controller?.abort();controller=undefined;
+    records=[];searching=false;partial=false;
+  }
+  function start(){
+    if(controller)return;
+    const request=new AbortController();
+    controller=request;searching=true;
+    loadSearchRecords(items,tenant,apiPrefix,request.signal,found=>{
+      if(controller===request)records=[...records,...found];
+    },allowCustomers).then(failed=>{
+      if(controller===request){searching=false;partial=failed;}
+    });
+  }
+  onDestroy(reset);
   let query='';
   let open=false;
   let input:HTMLInputElement;
-  function close(){open=false;query='';}
+  function close(){open=false;query='';reset();controls=[];targets.clear();}
   let resultsElement:HTMLUListElement;
   let searchElement:HTMLDivElement;
   onMount(()=>{
@@ -19,21 +88,27 @@
     if(event.key==='Escape'){event.preventDefault();input.focus();close();}
     if(event.key==='ArrowDown'&&open){event.preventDefault();resultsElement?.querySelector('a')?.focus();}
   }
-  $: results=findSections(items,query);
+  $: if(open&&query.trim().length>=2)start();
+  $: refreshRemote(open?query.trim():'');
+  $: results=findSections([...items,...records,...remote,...controls],query);
+  let visible=20;
+  $: {query;visible=20;}
 </script>
 
 <div class="section-search" bind:this={searchElement} on:focusout={(event)=>{if(!searchElement.contains(event.relatedTarget as Node|null))close();}}>
   <form role="search" aria-label={label} on:submit|preventDefault={()=>resultsElement?.querySelector('a')?.click()}>
-    <label><span class="search-label">{label}</span><input type="search" bind:value={query} bind:this={input} on:focus={()=>open=true} on:input={()=>open=true} on:click={()=>open=true} {placeholder} autocomplete="off" on:keydown={keyboard} /></label>
+    <label><span class="search-label">{label}</span><input type="search" bind:value={query} bind:this={input} on:focus={()=>{open=true;indexControls();}} on:input={()=>open=true} on:click={()=>open=true} {placeholder} autocomplete="off" on:keydown={keyboard} /></label>
   </form>
   {#if open && (results.length || query.trim())}
     <div class="section-results" aria-label={label}>
       <ul bind:this={resultsElement}>
-        {#each results as item (item.key)}
-          <li><a href={item.href} data-sveltekit-reload={item.reload?true:undefined} on:keydown={(event)=>{if(event.key==='Escape')keyboard(event);}} on:click={close}><strong>{item.label}</strong><span>{item.description}</span></a></li>
+        {#each results.slice(0,visible) as item (item.key)}
+          <li><a href={item.href} data-sveltekit-reload={item.reload?true:undefined} on:keydown={(event)=>{if(event.key==='Escape')keyboard(event);}} on:click={(event)=>choose(event,item)}><strong>{item.label}</strong><span>{item.description}</span></a></li>
         {/each}
       </ul>
-      {#if !results.length}<p role="status">{empty}</p>{/if}
+      {#if results.length>visible}<button type="button" on:click={()=>visible+=20}>Show more results</button>{/if}
+      {#if searching||remoteBusy}<p role="status">Searching workspace records…</p>{:else if !results.length}<p role="status">{empty}</p>{/if}
+      {#if partial||remotePartial}<p role="status">Some record lists could not be loaded.</p>{/if}
     </div>
   {/if}
 </div>

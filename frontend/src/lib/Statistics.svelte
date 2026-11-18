@@ -15,7 +15,8 @@
   export let apiPrefix = '';
   const views = [{id:'overview',label:'Overview'},{id:'performance',label:'Reply rates & trends'},{id:'products',label:'Products, sales & stock'},{id:'offers',label:'Offer overview'},{id:'sales',label:'Lead activity'},{id:'quality',label:'Response quality'}];
   const stages = ['Open','Contacted','Qualified','Won','Lost','Other'];
-  let view = 'overview';
+  export let initialView='';
+  let view = views.some(item=>item.id===initialView)?initialView:'overview';
   let productView = 'interest';
   let selectedProduct = '';
   let days = 30;

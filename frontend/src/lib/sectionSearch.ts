@@ -14,6 +14,5 @@ export function findSections(items:SectionResult[], query:string):SectionResult[
   };
   return items
     .filter(item=>terms.every(term=>normalize(`${item.label} ${item.description} ${item.keywords}`).includes(term)))
-    .sort((left,right)=>score(right)-score(left))
-    .slice(0,8);
+    .sort((left,right)=>score(right)-score(left));
 }

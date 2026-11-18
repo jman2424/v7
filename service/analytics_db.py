@@ -1081,49 +1081,37 @@ def get_common_questions(*, tenant: str, minutes: int = 1440, top: int = 10) -> 
     return [{"question": r["q"], "count": int(r["n"] or 0)} for r in rows]
 
 
-def get_leads(*, tenant: str, limit: int = 50) -> list[dict[str, Any]]:
+def search_terms(text: str) -> list[str]:
+    """Literal SQL LIKE terms for a bounded, case-insensitive record search."""
+    return ['%' + token.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
+            for token in text.lower().split()[:8]]
+
+
+def get_leads(*, tenant: str, limit: int = 50, query: str = '', lead_id: str = '') -> list[dict[str, Any]]:
     _ensure_ready()
     tenant_n = _norm_tenant(tenant)
     limit = max(1, min(_safe_int(limit, 50), 500))
-
-    if _using_postgres():
+    postgres = _using_postgres()
+    mark = '%s' if postgres else '?'
+    table = 'v7_private.leads' if postgres else 'leads'
+    clauses = ['tenant=' + mark]
+    params = [tenant_n]
+    if lead_id:
+        clauses.append('lead_id=' + mark)
+        params.append(lead_id)
+    for token in search_terms(query):
+        clauses.append("LOWER(COALESCE(name,'') || ' ' || COALESCE(phone,'') || ' ' || COALESCE(status,'') || ' ' || lead_id) LIKE " + mark + " ESCAPE '!'")
+        params.append(token)
+    sql = ("SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id FROM " + table
+           + " WHERE " + " AND ".join(clauses) + " ORDER BY updated_utc DESC LIMIT " + mark)
+    if postgres:
         with session_store.postgres_connection(tenant_n) as con:
-            rows = _pg_rows(
-                con, "SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id "
-                "FROM v7_private.leads WHERE tenant=%s ORDER BY updated_utc DESC LIMIT %s",
-                (tenant_n, limit),
-            )
-        output = []
-        for row in rows:
-            try:
-                tags = json.loads(row["tags"] or "[]")
-                if not isinstance(tags, list):
-                    tags = []
-            except (TypeError, ValueError):
-                tags = []
-            output.append({"lead_id": row["lead_id"], "name": row["name"],
-                           "phone": row["phone"], "status": row["status"] or "Open",
-                           "tags": tags, "updated_utc": row["updated_utc"],
-                           "last_session_id": row["last_session_id"]})
-        return output
-
-    with _conn() as con:
-        cols = _table_columns(con, "leads")
-        has_tenant = "tenant" in cols
-
-        if has_tenant:
-            rows = con.execute(
-                """
-                SELECT lead_id, name, phone, status, tags, updated_utc, last_session_id
-                FROM leads
-                WHERE tenant=?
-                ORDER BY updated_utc DESC
-                LIMIT ?;
-                """,
-                (tenant_n, limit),
-            ).fetchall()
-        else:
-            raise RuntimeError("Legacy leads require tenant migration before access")
+            rows = _pg_rows(con, sql, (*params, limit))
+    else:
+        with _conn() as con:
+            if 'tenant' not in _table_columns(con, 'leads'):
+                raise RuntimeError("Legacy leads require tenant migration before access")
+            rows = con.execute(sql, (*params, limit)).fetchall()
 
     out: list[dict[str, Any]] = []
     for r in rows:

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import { t } from './i18n';
   import {conversationThreads,type InboxMessage} from './conversationInbox';
   import { onMount, onDestroy } from 'svelte';
@@ -31,7 +32,10 @@
   let controller: AbortController | undefined;
   $: if (mounted) refresh(tenant, view, minutes);
 
-  onMount(() => { mounted = true; });
+  onMount(() => {
+    if(location.hash.startsWith('#record-conversations-'))minutes=43200;
+    mounted=true;
+  });
   onDestroy(() => { controller?.abort(); controller = undefined; });
 
   function dateLabel(value: string) {
@@ -55,6 +59,10 @@
     const query = new URLSearchParams({ tenant: company, minutes: String(period) });
     const endpoint = selectedView === 'messages' ? 'conversations' : selectedView;
     if (before) query.set('before', String(before));
+    else if(selectedView==='messages' && /^#record-conversations-\d+$/.test(location.hash)){
+      const id=Number(location.hash.slice('#record-conversations-'.length));
+      if(Number.isSafeInteger(id))query.set('before',String(id+1));
+    }
     if (selectedView === 'leads') query.set('limit', '50');
     if (selectedView === 'questions') query.set('top', '20');
     try {
@@ -66,6 +74,10 @@
       if (controller !== request || request.signal.aborted) return;
       if (selectedView === 'messages') {
         messages = [...(before ? messages : []), ...(Array.isArray(data.messages) ? data.messages : [])];
+        if(!before && location.hash.startsWith('#record-conversations-')){
+          const selected=conversationThreads(messages,'','').find(thread=>thread.messages.some(message=>'#'+recordAnchor('conversations',message.id)===location.hash));
+          if(selected){selectedThread=selected.key;threadOpen=true;}
+        }
         nextBefore = data.has_more && Number.isSafeInteger(data.next_before) ? data.next_before : null;
       } else if (selectedView === 'leads') {
         leads = Array.isArray(data) ? data : [];
@@ -114,7 +126,7 @@
           {#each threads as thread}<button class="thread" class:selected={currentThread?.key===thread.key} aria-pressed={currentThread?.key===thread.key} on:click={()=>{selectedThread=thread.key;threadOpen=true;}}><span class="thread-top"><strong>{thread.channel}</strong><time datetime={thread.latest.ts_utc}>{new Date(thread.latest.ts_utc).toLocaleDateString()}</time></span><span class="thread-title">{thread.title}</span><span class="thread-preview">{thread.latest.text}</span><span class="thread-count">{thread.messages.length} loaded messages</span></button>{:else}<div class="empty"><strong>{messages.length?'No matching conversations':'No messages recorded'}</strong><p>{messages.length?'Try another search or channel.':'Choose a longer time period to find earlier conversations.'}</p></div>{/each}
         </div>
         <div class="thread-content" role="region" aria-label="Selected conversation">
-          {#if currentThread}<div class="thread-heading"><button class="back-to-inbox" on:click={()=>threadOpen=false}>← Conversations</button><div><h3>Customer conversation</h3><p>{currentThread.channel} · Loaded history in the selected period</p></div></div><div class="message-bubbles">{#each currentThread.messages as message (message.id)}<article class="bubble" class:agent={message.event_type==='msg_out'} class:activity={message.event_type==='navigation_click'}><div class="message-meta"><strong>{message.event_type==='navigation_click'?'Customer clicked a button':message.event_type==='msg_in'?'Customer':'AI assistant'}</strong><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div><p>{message.text}</p></article>{/each}</div>{:else}<div class="thread-placeholder"><strong>Your customer conversations, together</strong><p>Select a conversation to read its available history.</p></div>{/if}
+          {#if currentThread}<div class="thread-heading"><button class="back-to-inbox" on:click={()=>threadOpen=false}>← Conversations</button><div><h3>Customer conversation</h3><p>{currentThread.channel} · Loaded history in the selected period</p></div></div><div class="message-bubbles">{#each currentThread.messages as message (message.id)}<article class="bubble" id={recordAnchor('conversations',message.id)} class:agent={message.event_type==='msg_out'} class:activity={message.event_type==='navigation_click'}><div class="message-meta"><strong>{message.event_type==='navigation_click'?'Customer clicked a button':message.event_type==='msg_in'?'Customer':'AI assistant'}</strong><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div><p>{message.text}</p></article>{/each}</div>{:else}<div class="thread-placeholder"><strong>Your customer conversations, together</strong><p>Select a conversation to read its available history.</p></div>{/if}
         </div>
       </div>
       {#if nextBefore}<button class="load-older" type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes, nextBefore ?? undefined)}>Load older messages</button>{/if}
