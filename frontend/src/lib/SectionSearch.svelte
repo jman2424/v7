@@ -25,6 +25,8 @@
       const label=Array.from(node.childNodes).filter(child=>child.nodeType===Node.TEXT_NODE).map(child=>child.textContent).join(' ').trim()
         || target.getAttribute('aria-label') || (node.querySelector('input,textarea,select')?'':node.textContent?.trim());
       if(!label || label.length>150)continue;
+      const indexedId=node.dataset.workspaceSection;
+      if(indexedId && items.some(item=>item.label===label && item.href.endsWith(indexedId)))continue;
       const key='control-'+found.length;
       targets.set(key,target);
       found.push({key,label,description:'On this page',keywords:'',href:'#workspace',reload:false});
@@ -41,7 +43,10 @@
       current.searchParams.delete('focus');
       destination.searchParams.delete('focus');
       if(destination.pathname===current.pathname && destination.search===current.search && destination.hash){
-        const node=document.getElementById(destination.hash.slice(1).replace(/^jump-/,''));
+        const anchor=destination.hash.slice(1).split('.').at(-1)||'';
+        const match=/^sec-[a-f0-9]{14}$/.test(anchor)?document.querySelector<HTMLElement>(`[data-workspace-section="${anchor}"]`):null;
+        const node=match instanceof HTMLLabelElement && match.control instanceof HTMLElement && !match.control.matches(':disabled')?match.control:
+          match || document.getElementById(destination.hash.slice(1).replace(/^jump-/,''));
         if(node && node.getClientRects().length){
           if(new URL(item.href,location.href).href!==location.href)pushState(item.href,page.state);
           target=node;

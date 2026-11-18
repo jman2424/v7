@@ -16,8 +16,8 @@
   const views = [{id:'overview',label:'Overview'},{id:'performance',label:'Reply rates & trends'},{id:'products',label:'Products, sales & stock'},{id:'offers',label:'Offer overview'},{id:'sales',label:'Lead activity'},{id:'quality',label:'Response quality'}];
   const stages = ['Open','Contacted','Qualified','Won','Lost','Other'];
   export let initialView='';
-  let view = views.some(item=>item.id===initialView)?initialView:'overview';
-  let productView = 'interest';
+  let view = initialView.startsWith('products-')?'products':views.some(item=>item.id===initialView)?initialView:'overview';
+  let productView = initialView==='products-stock'?'stock':initialView==='products-sales'?'sales':'interest';
   let selectedProduct = '';
   let days = 30;
   let channel = 'all';

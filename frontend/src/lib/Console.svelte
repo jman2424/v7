@@ -4,6 +4,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { base } from './consoleBase';
   import { goto } from '$app/navigation';
+  import pageSections from 'virtual:v7-section-index';
   import {recordAnchor,revealSearchTarget,searchTopics} from './workspaceSearch';
   import SectionSearch from './SectionSearch.svelte';
   import PlatformLogo from './PlatformLogo.svelte';
@@ -363,12 +364,21 @@
     branches:'locations opening times hours',conversations:'chat history messages customers',
     implementation:'setup install onboarding',agent:'tone behaviour sales playbook',
   };
+  const accessibleBeforeActivation=['home','billing-overview','budget','spending','subscription','companies','account','cookies','privacy','application'];
   function searchableSections(platform:boolean, showDelivery:boolean){return [...new Set((platform?[platformWorkspace]:workspaces).flatMap(group=>group.views.map(view=>view.section)))].filter(key=>mayOpenScreen(key)&&(key!=='delivery'||showDelivery));}
   $: sectionSearchItems=user?searchableSections(platformMode,deliveryVisible).map(key=>({
     key,label:$t(sections[key]),description:$t(pageDescriptions[key]||''),keywords:[sections[key],sectionKeywords[key]].filter(Boolean).join(' '),
     href:platformMode?workspaceHref(base,'platform',platformWorkspace.views.find(view=>view.section===key)?.id||'overview',tenant):sectionHref(base,key,tenant),reload:isWidgetSection(key)||isWidgetSection(section)
   })):[];
 
+  let sectionAccess:Record<string,boolean>;
+  $: sectionAccess= {
+    isOwner,isPlatform,canViewCosts,canViewSubscriptions,
+    'settings.owner_access':isOwner,
+    'mayReadModelParameters()':Boolean(user)&&mayReadModelParameters(),
+    'mayReadConversionSettings()':Boolean(user)&&mayReadConversionSettings(),
+    "mayOpenScreen('implementation')":Boolean(user)&&mayOpenScreen('implementation')
+  };
   $: workspaceSearchItems=[
     ...sectionSearchItems.map(page=>{
       const group=(platformMode?[platformWorkspace]:workspaces).find(group=>group.views.some(view=>view.section===page.key));
@@ -377,9 +387,21 @@
     }),
     ...searchTopics.flatMap(([key,label,part,keywords])=>{
       const page=sectionSearchItems.find(item=>item.key===key);
-      if(!page || (part==='install'&&!mayOpenScreen('implementation')))return [];
+      if(!page || label.toLowerCase()===page.label.toLowerCase() || (part==='install'&&!mayOpenScreen('implementation')))return [];
       const href=part.startsWith('#')?page.href+'#jump-'+part.slice(1):page.href+'&panel='+part;
       return [{key:key+part,label:$t(label),description:page.label,keywords,href,reload:true}];
+    }),
+    ...pageSections.flatMap(entry=>{
+      if(!isPlatform && activation && !activation.active && !accessibleBeforeActivation.includes(entry.section))return [];
+      if((entry.workspace==='platform')!==platformMode || !entry.guards.every(rule=>sectionAccess[rule]))return [];
+      const page=sectionSearchItems.find(item=>item.key===entry.section);
+      if(!page || entry.title.toLowerCase()===page.label.toLowerCase())return [];
+      const group=workspaceDefinitions.find(group=>group.id===entry.workspace);
+      const view=group?.views.find(view=>view.id===entry.view);
+      const description=[group?.label,view?.label,entry.context].filter(Boolean).map(label=>$t(label!)).join(' › ');
+      const hash=[...entry.open,entry.id].join('.');
+      return [{key:[entry.workspace,entry.view,entry.id,entry.title].join('/'),label:$t(entry.title),description,
+        keywords:entry.title,href:workspaceHref(base,entry.workspace,entry.view,tenant,entry.panel)+'#'+hash,reload:true}];
     }),
     ...(sectionSearchItems.some(page=>page.key==='companies')&&mayOpenScreen('profile')?tenants.map(company=>({
       key:'business-'+company.key,label:company.name,description:$t('Businesses'),keywords:'business company workspace '+company.key,
@@ -1738,8 +1760,10 @@
       failed:'Provider sign-in could not be completed. Start again or use your password.'
     };
     oidcNotice = notices[params.get('oidc') || ''] || '';
-    params.delete('oidc'); params.delete('provider');
-    window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params.toString():''));
+    if(params.has('oidc') || params.has('provider')){
+      params.delete('oidc'); params.delete('provider');
+      window.history.replaceState(window.history.state,'',window.location.pathname+(params.size?'?'+params.toString():'')+window.location.hash);
+    }
     void loadProviders();
     try {
       await restoreSession();
@@ -1872,7 +1896,7 @@
 
       {#if !mayOpenScreen(section)||!workspaceAllowed(activeWorkspace,isPlatform)}
         <section class="surface"><div class="surface-body"><h2>{$t('Access restricted')}</h2><p>{$t('This account cannot open this workspace section.')}</p><a href={base+'/'+defaultWorkspaceScreen()+'?tenant='+encodeURIComponent(tenant)}>{$t('Open your workspace')}</a></div></section>
-      {:else if !isPlatform && activation && !activation.active && !['home','billing-overview','budget','spending','subscription','companies','account','cookies','privacy','application'].includes(section)}
+      {:else if !isPlatform && activation && !activation.active && !accessibleBeforeActivation.includes(section)}
         <section class="surface"><div class="surface-body"><h2>Activate your business</h2><p>Complete payment in Subscription to add business data and manage team access.</p></div></section>
       {:else}
       {#if !canEditCurrent}<p class="notice" role="status">You have view-only access. Ask your business owner for permission to edit this information.</p>{/if}

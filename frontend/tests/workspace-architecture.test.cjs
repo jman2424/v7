@@ -64,3 +64,13 @@ test('workspace search offers permitted shortcuts and ranks destination names ov
  assert.equal(findSections(items,'whats app setup')[0].key,'whatsapp-qr');
  assert.equal(findSections(items,'statistics').length,0);
 });
+
+test('partial title outranks incidental text in workspace search',()=>{
+  const {findSections}=moduleFor('sectionSearch');
+  const items=[
+    {key:'profile',label:'Business profile',description:'Business details',keywords:'contact details'},
+    {key:'operations',label:'Business hub',description:'Manage email and phone',keywords:'approvals'},
+    {key:'budget',label:'AI Budget',description:'Manage your balance',keywords:'credit'}
+  ];
+  assert.deepEqual(Array.from(findSections(items,'ai bu'),item=>item.key),['budget']);
+});

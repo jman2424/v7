@@ -81,17 +81,38 @@ export function focusSearchDestination(node:HTMLElement){
 // Resolve after the destination's lazy component and tenant data arrive.
 export function revealSearchTarget(){
   const id=location.hash.slice(1);
-  if(!/^(?:record-|jump-)/.test(id))return;
+  const sectionTarget=/^sec-[a-f0-9]{14}(?:\.sec-[a-f0-9]{14})*$/.test(id);
+  if(!sectionTarget && !/^(?:record-|jump-)/.test(id))return;
   const targetId=id.replace(/^jump-/,'');
   const reveal=()=>{
-    const node=document.getElementById(targetId);
+    let node:HTMLElement|null=null;
+    if(location.hash.slice(1)!==id)return true;
+    if(sectionTarget){
+      const parts=id.split('.');
+      for(const ancestor of parts.slice(0,-1)){
+        const details=document.querySelector<HTMLDetailsElement>(`details[data-workspace-section="${ancestor}"]`);
+        if(details&&!details.open)details.open=true;
+      }
+      const matches=document.querySelectorAll<HTMLElement>(`#workspace [data-workspace-section="${parts.at(-1)}"]`);
+      node=Array.from(matches).find(item=>item.getClientRects().length>0)||null;
+      if(node instanceof HTMLLabelElement && node.control instanceof HTMLElement && !node.control.matches(':disabled'))node=node.control;
+    } else node=document.getElementById(targetId);
     if(!node)return false;
     focusSearchDestination(node);
     return true;
   };
   if(reveal())return;
   const observer=new MutationObserver(()=>{if(reveal())cleanup();});
-  const timer=setTimeout(cleanup,20000);
+  const timer=setTimeout(()=>{
+    cleanup();
+    if(sectionTarget && location.hash.slice(1)===id){
+      const notice=document.createElement('p');
+      notice.setAttribute('role','status');
+      notice.className='notice';
+      notice.textContent='This section is currently unavailable in this workspace.';
+      document.querySelector('#workspace .workspace-head')?.after(notice);
+    }
+  },20000);
   function cleanup(){observer.disconnect();clearTimeout(timer);}
   observer.observe(document.body,{childList:true,subtree:true});
   return cleanup;
