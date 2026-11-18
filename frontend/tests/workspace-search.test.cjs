@@ -60,3 +60,19 @@ test('search arrival expands the destination, focuses it and honours reduced mot
     assert.equal(animated,!reduced);
   }
 });
+
+test('support and module records link to the specific row on its permitted page',async()=>{
+  const results=[],urls=[];
+  const search=searchWith(async address=>{
+    const url=new URL(address,'https://example.test');urls.push(url);
+    const data=url.pathname==='/billing/support'?{requests:[{id:'ref7',kind:'setup',message:'Need a callback'}]}:
+      url.pathname==='/admin/api/agent-modules'?{modules:[{id:'email',label:'Email drafting'}]}:{};
+    return {ok:true,json:async()=>data};
+  });
+  await search.loadSearchRecords([page('subscription'),page('agent')],'A','',new AbortController().signal,rows=>results.push(...rows),false);
+  assert.equal(urls.length,3);assert.ok(urls.every(url=>url.searchParams.get('tenant')==='A'));
+  const support=results.find(row=>row.key===search.recordAnchor('support','ref7'));
+  assert.ok(support.href.endsWith('#'+support.key));assert.ok(support.keywords.includes('Need a callback'));
+  const module=results.find(row=>row.key===search.recordAnchor('agent','email'));
+  assert.equal(module.label,'Email drafting');assert.ok(module.href.endsWith('#'+module.key));
+});

@@ -13,7 +13,7 @@ export function recordAnchor(section:string, id:string|number){
 }
 
 const sources:Record<string,string>={
-  catalog:'catalog', faqs:'faq', offers:'offers', branches:'branches', team:'accounts',
+  agent:'agent-modules', support:'support', catalog:'catalog', faqs:'faq', offers:'offers', branches:'branches', team:'accounts',
   operations:'business-operations', subscription:'subscription', pipeline:'leads', conversations:'conversations', 'data-sources':'data-sources'
 };
 
@@ -21,12 +21,14 @@ export async function loadSearchRecords(items:SectionResult[],tenant:string,apiP
   receive:(results:SectionResult[])=>void, allowCustomers:boolean, search?:string){
   const allowed=items.filter(page=>Object.hasOwn(sources,page.key) && (page.key!=='pipeline'||allowCustomers));
   const targeted=(key:string)=>key==='pipeline'||key==='conversations';
+  const subscription=allowed.find(page=>page.key==='subscription');
+  if(subscription)allowed.push({...subscription,key:'support',label:'Support requests'});
   const tasks=allowed.filter(page=>targeted(page.key)===(search!==undefined)).map(async page=>{
     const query=new URLSearchParams({tenant});
     if(search)query.set('q',search.slice(0,150));
     if(page.key==='pipeline')query.set('limit','50');
     if(page.key==='conversations')query.set('minutes','43200');
-    const response=await fetch(apiPrefix+(page.key==='subscription'?'/billing/':'/admin/api/')+sources[page.key]+'?'+query,{credentials:'same-origin',cache:'no-store',signal});
+    const response=await fetch(apiPrefix+((page.key==='subscription'||page.key==='support')?'/billing/':'/admin/api/')+sources[page.key]+'?'+query,{credentials:'same-origin',cache:'no-store',signal});
     if(!response.ok)throw Error('search source unavailable');
     const data=await response.json();
     const result:SectionResult[]=[];
@@ -37,6 +39,12 @@ export async function loadSearchRecords(items:SectionResult[],tenant:string,apiP
         href:page.href+'&focus='+recordAnchor('entry',id)+'#'+anchor,reload:true});
     };
     switch(page.key){
+      case 'support':
+        for(const row of rows(data.requests))add(row.id,words('Support request',row.id),row.kind,row.message,row.state,row.reply);
+        break;
+      case 'agent':
+        for(const row of rows(data.modules))add(row.id,row.label,'business actions permissions',row.id);
+        break;
       case 'subscription':
         for(const row of rows(data.invoices))add(row.id,'Invoice '+words(row.month,row.kind),row.id,row.status,...rows(row.lines).map(line=>line.description));
         break;
@@ -78,25 +86,34 @@ export function focusSearchDestination(node:HTMLElement){
   }
 }
 
+// An indexed loop or reused component shares an anchor across its rendered instances.
+export function sectionDestination(fragment:string){
+  const separator=fragment.indexOf('~');
+  const path=separator<0?fragment:fragment.slice(0,separator);
+  if(!/^sec-[a-f0-9]{14}(?:\.sec-[a-f0-9]{14})*$/.test(path))return null;
+  const variant=separator<0?undefined:fragment.slice(separator+1);
+  const parts=path.split('.');
+  for(const ancestor of parts.slice(0,-1)){
+    for(const details of document.querySelectorAll<HTMLDetailsElement>(`#workspace details[data-workspace-section="${ancestor}"]`)){
+      if(!details.open && details.getClientRects().length){details.open=true;break;}
+    }
+  }
+  const matches=document.querySelectorAll<HTMLElement>(`#workspace [data-workspace-section="${parts.at(-1)}"]`);
+  const node=Array.from(matches).find(item=>item.getClientRects().length>0 &&
+    (variant===undefined||encodeURIComponent(item.dataset.workspaceVariant||'')===variant));
+  return node instanceof HTMLLabelElement && node.control instanceof HTMLElement && !node.control.matches(':disabled')?node.control:node||null;
+}
+
 // Resolve after the destination's lazy component and tenant data arrive.
 export function revealSearchTarget(){
   const id=location.hash.slice(1);
-  const sectionTarget=/^sec-[a-f0-9]{14}(?:\.sec-[a-f0-9]{14})*$/.test(id);
+  const sectionTarget=id.startsWith('sec-');
   if(!sectionTarget && !/^(?:record-|jump-)/.test(id))return;
   const targetId=id.replace(/^jump-/,'');
   const reveal=()=>{
     let node:HTMLElement|null=null;
     if(location.hash.slice(1)!==id)return true;
-    if(sectionTarget){
-      const parts=id.split('.');
-      for(const ancestor of parts.slice(0,-1)){
-        const details=document.querySelector<HTMLDetailsElement>(`details[data-workspace-section="${ancestor}"]`);
-        if(details&&!details.open)details.open=true;
-      }
-      const matches=document.querySelectorAll<HTMLElement>(`#workspace [data-workspace-section="${parts.at(-1)}"]`);
-      node=Array.from(matches).find(item=>item.getClientRects().length>0)||null;
-      if(node instanceof HTMLLabelElement && node.control instanceof HTMLElement && !node.control.matches(':disabled'))node=node.control;
-    } else node=document.getElementById(targetId);
+    node=sectionTarget?sectionDestination(id):document.getElementById(targetId);
     if(!node)return false;
     focusSearchDestination(node);
     return true;

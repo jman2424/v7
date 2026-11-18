@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {parse} from 'svelte/compiler';
 
 const virtual='virtual:v7-section-index';
-const indexed=/^(?:h[1-6]|summary|legend|label|section|article|aside|nav|fieldset)$/;
+const indexed=/^(?:h[1-6]|summary|legend|label|button|a|section|article|aside|nav|fieldset)$/;
 const branches=['fragment','body','fallback','then','consequent','alternate'];
 /** @param {unknown} value */
 const componentFile=value=>typeof value==='string' && value.endsWith('.svelte') ? path.basename(value,'.svelte') : null;
@@ -29,6 +29,17 @@ function caption(node){
   return (node.fragment?.nodes||[]).map(literalText).join('').replace(/\s+/g,' ').trim();
 }
 
+/** A heading or field caption supplied by a component prop or loop row.
+ * @param {any} node
+ */
+function captionExpression(node){
+  const content=node.fragment?.nodes.filter((/** @type {any} */ n)=>
+    n.type==='ExpressionTag'||(n.type==='Text'&&n.data.trim()));
+  if(content?.length!==1)return;
+  const expr=content[0].expression;
+  if(expr?.type==='Identifier'||(expr?.type==='MemberExpression'&&!expr.computed))return expr;
+}
+
 /** Static alternatives for headings whose labels depend on a selected tab.
  * @param {any} node
  * @param {Record<string,any>} values
@@ -36,11 +47,14 @@ function caption(node){
  */
 function titles(node,values){
   const region=node.type==='RegularElement' && ['section','article','aside','nav','fieldset'].includes(node.name);
-  if(region){
+  if(region||node.name==='button'||node.name==='a'){
     const attr=node.attributes.find((/** @type {any} */ a)=>a.name==='aria-label');
     const label=Array.isArray(attr?.value)?attr.value.map(literalText).join('').trim():'';
-    return label?[label]:[];
+    if(label)return [label];
+    if(region)return [];
   }
+  const resolved=known(captionExpression(node),values);
+  if(typeof resolved==='string'&&resolved.trim())return [resolved];
   const fixed=caption(node);
   if(fixed)return [fixed];
   const significant=node.fragment?.nodes.filter((/** @type {any} */ n)=>n.type!=='Text'||n.data.trim())||[];
@@ -84,7 +98,20 @@ function panelTitle(node,values){
 function known(node,values){
   if(!node)return;
   if(node.type==='Literal')return node.value;
-  if(node.type==='Identifier')return values[node.name];
+  if(node.type==='Identifier')return Object.hasOwn(values,node.name)?values[node.name]:undefined;
+  if(node.type==='MemberExpression'&&!node.computed){
+    const object=known(node.object,values);
+    return object && Object.hasOwn(object,node.property.name)?object[node.property.name]:undefined;
+  }
+  if(node.type==='ArrayExpression')return node.elements.map((/** @type {any} */ item)=>known(item,values));
+  if(node.type==='ObjectExpression'){
+    const properties=node.properties.filter((/** @type {any} */ prop)=>prop.type==='Property'&&!prop.computed);
+    return Object.fromEntries(properties.map((/** @type {any} */ prop)=>[prop.key.name??prop.key.value,known(prop.value,values)]));
+  }
+  if(node.type==='CallExpression' && node.callee.object?.name==='Object' && node.callee.property?.name==='entries'){
+    const object=known(node.arguments[0],values);
+    return object && typeof object==='object'?Object.entries(object):undefined;
+  }
   if(node.type==='ConditionalExpression'){
     const condition=known(node.test,values);
     if(condition!==undefined)return known(condition?node.consequent:node.alternate,values);
@@ -128,13 +155,15 @@ export function sectionIndexPlugin(lib){
     function annotate(node){
       if(!node)return;
       if(node.type==='RegularElement' && (indexed.test(node.name)||node.name==='details')){
-        const title=node.name==='details'?caption(node.fragment.nodes.find((/** @type {any} */ n)=>n.name==='summary')||{}):titles(node,{}).join(' / ');
+        const expr=node.name==='details'?undefined:captionExpression(node);
+        const variant=expr?source.slice(expr.start,expr.end):'';
+        const title=node.name==='details'?(caption(node.fragment.nodes.find((/** @type {any} */ n)=>n.name==='summary')||{})||'disclosure'):titles(node,{}).join(' / ')||variant;
         if(title){
           const seed=name+'/'+node.name+'/'+title;
           const count=seen.get(seed)||0;seen.set(seed,count+1);
           const id='sec-'+createHash('sha256').update(seed+'/'+count).digest('hex').slice(0,14);
-          anchors.set(node,{id,title});
-          edits.push([node.start+1+node.name.length,' data-workspace-section="'+id+'"']);
+          anchors.set(node,{id,title,variant});
+          edits.push([node.start+1+node.name.length,' data-workspace-section="'+id+'"'+(variant?' data-workspace-variant={'+variant+'}':'')]);
         }
       }
       if(node.nodes)node.nodes.forEach(annotate);
@@ -148,6 +177,7 @@ export function sectionIndexPlugin(lib){
   function manifest(){
     const nav=JSON.parse(fs.readFileSync(path.resolve(lib,'../../../service/console_navigation.json'),'utf8'));
     const entries=new Map();
+    cache.clear();
     for(const group of [...nav.workspaces,nav.platform])for(const route of group.views){
       const section=route.section;
       const panels=section==='website'?['appearance','test','install']:section==='statistics'?['overview','performance','products','products-sales','products-stock','offers','sales','quality']:[''];
@@ -163,7 +193,15 @@ export function sectionIndexPlugin(lib){
          */
         function scan(name,env,active=false,parents=[],guards=[],stack=[]){
           if(stack.includes(name))return;
-          const {ast,anchors,source,imports}=read(name);
+          const {ast,anchors,source,imports}=cache.get(name)||read(name);
+          env={...env};
+          for(const stmt of ast.instance?.content.body||[]){
+            for(const decl of stmt.declarations||[]){
+              if(decl.id.type==='Identifier'&&['ArrayExpression','ObjectExpression'].includes(decl.init?.type))env[decl.id.name]=known(decl.init,env);
+            }
+            const assign=stmt.type==='LabeledStatement'&&stmt.body?.expression;
+            if(assign?.left?.type==='Identifier'&&assign.right.type==='ArrayExpression')env[assign.left.name]=known(assign.right,env);
+          }
           /**
            * @param {any} node
            * @param {boolean} on
@@ -172,6 +210,23 @@ export function sectionIndexPlugin(lib){
            */
           function walk(node,on,open,rules,context=''){
             if(!node)return;
+            if(node.type==='EachBlock'){
+              const rows=known(node.expression,env);
+              if(Array.isArray(rows)&&rows.length){
+                const outer=env;
+                for(const row of rows){
+                  env={...outer};
+                  if(node.context?.type==='Identifier')env[node.context.name]=row;
+                  if(node.context?.type==='ArrayPattern'&&Array.isArray(row)){
+                    node.context.elements.forEach((/** @type {any} */ part,/** @type {number} */ index)=>{if(part?.name)env[part.name]=row[index];});
+                  }
+                  walk(node.body,on,open,rules,context);
+                }
+                env=outer;
+                walk(node.fallback,on,open,rules,context);
+                return;
+              }
+            }
             if(node.type==='IfBlock'){
               const expr=source.slice(node.test.start,node.test.end);
               const applies=on || (name==='Console' && /\bsection\s*===|isWidgetSection\(section\)/.test(expr));
@@ -185,7 +240,7 @@ export function sectionIndexPlugin(lib){
             if(on && anchor && indexed.test(node.name)){
               for(const title of titles(node,env)){
                 const key=[group.id,route.id,anchor.id,title].join('/');
-                if(!entries.has(key))entries.set(key,{section,workspace:group.id,view:route.id,panel,...anchor,title,context:context===title?'':context,open,guards:[...new Set(rules)]});
+                if(!entries.has(key))entries.set(key,{section,workspace:group.id,view:route.id,panel,id:anchor.id,variant:Boolean(anchor.variant),title,context:context===title?'':context,open,guards:[...new Set(rules)]});
               }
             }
             if(anchor && node.name==='details')open=[...open,anchor.id];

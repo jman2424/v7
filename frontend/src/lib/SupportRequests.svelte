@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import {onMount,onDestroy} from 'svelte';
   export let tenant:string;
   export let csrf:string;
@@ -41,7 +42,7 @@
     <label>Tell us what you need help with<textarea bind:value={message} minlength="10" maxlength="2000" rows="3" required disabled={busy}></textarea></label>
     <button disabled={busy}>{busy?'Saving…':'Send support request'}</button>
   </form>{/if}
-  <div class="requests">{#each requests as row}<article><h3>{row.kind==='demo'?'Demo enquiry':row.kind==='setup'?'Setup assistance':row.kind==='billing'?'Billing question':'Account access'}</h3><p>Reference {row.id} · {row.state==='needs_review'?'Waiting for support':row.state==='completed'?'Completed':'Closed'}</p><p class="message">{row.message}</p>{#if isPlatform}<p>Contact: {row.contact}</p>{/if}{#if row.reply}<p class="message">{row.reply}</p>{/if}
+  <div class="requests">{#each requests as row}<article id={recordAnchor('support',row.id)}><h3>{row.kind==='demo'?'Demo enquiry':row.kind==='setup'?'Setup assistance':row.kind==='billing'?'Billing question':'Account access'}</h3><p>Reference {row.id} · {row.state==='needs_review'?'Waiting for support':row.state==='completed'?'Completed':'Closed'}</p><p class="message">{row.message}</p>{#if isPlatform}<p>Contact: {row.contact}</p>{/if}{#if row.reply}<p class="message">{row.reply}</p>{/if}
     {#if isPlatform&&row.state==='needs_review'}<label>Update for the customer<textarea bind:value={row.reply} maxlength="6000" rows="2"></textarea></label><button disabled={busy} on:click={()=>complete(row)}>Save update and complete</button>{/if}
   </article>{:else}<p>No support requests recorded for this business.</p>{/each}</div>
 </section>

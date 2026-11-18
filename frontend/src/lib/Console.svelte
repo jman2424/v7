@@ -399,7 +399,7 @@
       const group=workspaceDefinitions.find(group=>group.id===entry.workspace);
       const view=group?.views.find(view=>view.id===entry.view);
       const description=[group?.label,view?.label,entry.context].filter(Boolean).map(label=>$t(label!)).join(' › ');
-      const hash=[...entry.open,entry.id].join('.');
+      const hash=[...entry.open,entry.id].join('.')+(entry.variant?'~'+encodeURIComponent(entry.title):'');
       return [{key:[entry.workspace,entry.view,entry.id,entry.title].join('/'),label:$t(entry.title),description,
         keywords:entry.title,href:workspaceHref(base,entry.workspace,entry.view,tenant,entry.panel)+'#'+hash,reload:true}];
     }),

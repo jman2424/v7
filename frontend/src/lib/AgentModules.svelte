@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {recordAnchor} from './workspaceSearch';
   import {base} from './consoleBase';
   import {sectionHref} from './workspaceArchitecture';
   import DraftGuard from './DraftGuard.svelte';
@@ -70,7 +71,7 @@
   {#if loading}<p role="status">Loading module controls…</p>{:else if modules.length}
     {#if !initialized}<p class="notice">Existing configured services are continuing under their current permissions. A platform operator must initialize these controls before you can use the new switches. Initialization preserves the existing enabled-service choices.</p>{/if}
     <form on:submit|preventDefault={()=>save('enabled')}>
-      <div class="grid">{#each modules as row}<fieldset>
+      <div class="grid">{#each modules as row}<fieldset id={recordAnchor('agent',row.id)}>
         <legend>{row.label}</legend>
         <label><input type="checkbox" bind:checked={enabled[row.id]} disabled={!initialized||!canManage||!row.granted||busy}/>Enable for this business</label>
         <p class="state">{row.available?'Available with existing verification and confirmation checks':reasons[row.blocked_by]||'Check configuration before use.'}</p>

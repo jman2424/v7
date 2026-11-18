@@ -16,9 +16,19 @@ test('every workspace view contributes destinations from its actual components',
  const rest=title('REST API connection','integrations'), token=title('Token endpoint','integrations');
  assert.equal(title('API base URL','integrations').context,'REST API connection');
  assert.equal(rest.view,'apps');assert.equal(rest.workspace,'settings');assert.equal(token.open.length,1);
+ assert.ok(title('Copy MCP URL','integrations'));
+ assert.ok(title('Copy API URL','integrations'));
  const filename=path.join(lib,'ConnectionSettings.svelte');
  const {code}=plugin.transform(fs.readFileSync(filename,'utf8'),filename);
  for(const id of [rest.id,token.id,...token.open])assert.ok(code.includes('data-workspace-section="'+id+'"'));
+ for(const [label,section,panel] of [
+   ['Reply rate','statistics','performance'],['Answer success rate','statistics','performance'],
+   ['Busiest hours (UTC)','statistics','performance'],['Brand accent','website','appearance'],
+   ['Customer bubble','website','appearance'],['Error breakdown','statistics','quality']
+ ]){
+   const entry=title(label,section);
+   assert.ok(entry,label);assert.equal(entry.variant,true);assert.equal(entry.panel,panel);
+ }
  assert.equal(title('Welcome message','website').panel,'appearance');
  assert.equal(title('Stock filter','statistics').panel,'products-stock');
  assert.ok(title('Your connected apps','integrations').guards.includes('settings.owner_access'));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {focusSearchDestination,loadSearchRecords} from './workspaceSearch';
+  import {focusSearchDestination,loadSearchRecords,sectionDestination} from './workspaceSearch';
   import {pushState} from '$app/navigation';
   import {page} from '$app/state';
   import {onMount,onDestroy} from 'svelte';
@@ -16,7 +16,7 @@
   const targets=new Map<string,HTMLElement>();
   function indexControls(){
     controls=[];targets.clear();
-    const nodes=document.querySelectorAll<HTMLElement>('#workspace section label, #workspace section summary, #workspace section h2, #workspace section h3');
+    const nodes=document.querySelectorAll<HTMLElement>('#workspace :is(section,article,aside) :is(label,summary,legend,h1,h2,h3,h4,h5,h6,button,a[href])');
     const found:SectionResult[]=[];
     for(const node of nodes){
       if(node.closest('[hidden], [aria-hidden="true"]') || !node.getClientRects().length)continue;
@@ -26,7 +26,7 @@
         || target.getAttribute('aria-label') || (node.querySelector('input,textarea,select')?'':node.textContent?.trim());
       if(!label || label.length>150)continue;
       const indexedId=node.dataset.workspaceSection;
-      if(indexedId && items.some(item=>item.label===label && item.href.endsWith(indexedId)))continue;
+      if(indexedId && items.some(item=>item.label===label && (item.href.endsWith(indexedId)||item.href.endsWith(indexedId+'~'+encodeURIComponent(node.dataset.workspaceVariant||'')))))continue;
       const key='control-'+found.length;
       targets.set(key,target);
       found.push({key,label,description:'On this page',keywords:'',href:'#workspace',reload:false});
@@ -43,10 +43,8 @@
       current.searchParams.delete('focus');
       destination.searchParams.delete('focus');
       if(destination.pathname===current.pathname && destination.search===current.search && destination.hash){
-        const anchor=destination.hash.slice(1).split('.').at(-1)||'';
-        const match=/^sec-[a-f0-9]{14}$/.test(anchor)?document.querySelector<HTMLElement>(`[data-workspace-section="${anchor}"]`):null;
-        const node=match instanceof HTMLLabelElement && match.control instanceof HTMLElement && !match.control.matches(':disabled')?match.control:
-          match || document.getElementById(destination.hash.slice(1).replace(/^jump-/,''));
+        const fragment=destination.hash.slice(1);
+        const node=sectionDestination(fragment)||document.getElementById(fragment.replace(/^jump-/,''));
         if(node && node.getClientRects().length){
           if(new URL(item.href,location.href).href!==location.href)pushState(item.href,page.state);
           target=node;
