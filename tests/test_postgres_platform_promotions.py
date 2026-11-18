@@ -14,9 +14,10 @@ def test_native_offer_policy_documents_are_scoped_and_reads_refresh_between_jobs
     app.container = SimpleNamespace(storage=storage, settings=SimpleNamespace(PLATFORM_MARKETING_TENANT=tenant))
     storage.write_json(tenant, policy.FILENAME, {'setup_enabled': False, 'highstreet_enabled': True})
     with app.app_context():
-        assert policy.public_flags() == {'setup_enabled': False, 'highstreet_enabled': True}
-        storage.write_json(tenant, policy.FILENAME, policy.DEFAULTS.copy())
         assert policy.public_flags() == policy.DEFAULTS
+        updated = {**policy.DEFAULTS, 'assistance_enabled': False, 'highstreet_public': True}
+        storage.write_json(tenant, policy.FILENAME, updated)
+        assert policy.public_flags() == updated
     with session_store.postgres_connection(other) as db:
         assert db.execute('SELECT payload FROM v7_private.business_documents WHERE tenant=%s AND filename=%s',
                           (tenant, policy.FILENAME)).fetchone() is None
