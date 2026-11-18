@@ -260,7 +260,7 @@ def allow_request(tenant):
         return True
 
 
-def break_even(policy, *, amount_pence=500, vat_percent=0, markup=None):
+def break_even(policy, *, amount_pence=500, vat_percent=0, markup=None, credit_pence=None):
     required = ('stripe_percent_bps','stripe_fixed_pence','climate_bps','fx_cost_bps',
                 'refund_dispute_risk_bps','infrastructure_bps','target_margin_bps')
     missing = [name for name in required if policy.get(name) is None]
@@ -271,10 +271,11 @@ def break_even(policy, *, amount_pence=500, vat_percent=0, markup=None):
     fee = (cash*Decimal(policy['stripe_percent_bps'])/10000+policy['stripe_fixed_pence']).quantize(Decimal(1),rounding=ROUND_CEILING)
     climate = cash*Decimal(policy['climate_bps'])/10000
     overhead = net*sum(Decimal(policy[name]) for name in ('fx_cost_bps','refund_dispute_risk_bps','infrastructure_bps'))/10000
-    provider = cash/(1+Decimal(str(markup))/100)
+    credit = Decimal(amount_pence if credit_pence is None else credit_pence)
+    provider = credit/(1+Decimal(str(markup))/100)
     contribution = net-fee-climate-overhead-provider
     maximum_provider = net*(1-Decimal(policy['target_margin_bps'])/10000)-fee-climate-overhead
-    minimum_markup = ((cash/maximum_provider-1)*100) if maximum_provider>0 else None
+    minimum_markup = ((credit/maximum_provider-1)*100) if maximum_provider>0 else None
     return {'validated':bool(policy.get('financial_review_completed')),'amount_pence':amount_pence,
         'net_revenue_pence':str(net),'processing_fee_pence':str(fee),'climate_pence':str(climate),
         'other_overhead_pence':str(overhead),'estimated_provider_cost_pence':str(provider),
@@ -304,5 +305,8 @@ def report():
         'billing_settings_url':BILLING_URL,'usage_url':USAGE_URL,'health':health(tenant),'settings':value,
         'cost_observations':snapshots,'spend_limit_observations':limits,'usage_markup_percent':markup,
         'recharge_break_even':break_even(value,markup=markup,vat_percent=vat_percent()),
+        'manual_topup_break_even':[break_even(value, amount_pence=amount*(100+vat_percent())//100,
+                                             credit_pence=amount, markup=markup, vat_percent=vat_percent())
+                                  for amount in (1000,2500,5000)],
         'funding_separation':'Stripe receipts and customer AI balances do not replenish OpenAI. Configure provider auto-recharge and its limits in OpenAI billing settings.',
         'cost_warning':'Official cost observations can be delayed and can include other projects if no project filter is configured. They do not establish available cash or provider credit.'}

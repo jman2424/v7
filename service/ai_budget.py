@@ -172,5 +172,5 @@ def customer_report(tenant, *, page=1):
         'checkout_requests':[{key:row[key] for key in ('pack_id','request_id','status')}
             for row in usage_payments.checkout_requests(tenant)],
         'terms':{'rates_url':'/ai-usage-pricing','month_reset':'Calendar month, UTC',
-            'summary':'Your balance pays for V7 AI processing at the published rates for your selected model. It is separate from your subscription. No AI allowance is included. Automatic purchase limits do not limit manual purchases or subscriptions.'},
+            'summary':'Your balance pays for V7 AI processing at the published rates for your selected model. It is separate from your subscription. No AI allowance is included. Automatic purchase limits do not limit manual purchases or subscriptions. Unused AI credit is not refunded at our discretion, including after cancellation, suspension or termination. Legally required refunds and corrections of incorrect charges remain available.'},
     }

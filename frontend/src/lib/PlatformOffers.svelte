@@ -5,10 +5,10 @@
   export let canManage=false;
   export let apiPrefix='';
   let available:boolean|null=null,loading=true,busy='',status='',error=false,disposed=false;
-  let settings={setup_enabled:true,highstreet_enabled:true},revision='';
+  let settings={setup_enabled:false,highstreet_enabled:true},revision='';
   let referral={enabled:false,percent:0,joining_setup_percent:0};
   const controllers=new Set<AbortController>();
-  const offers=[{key:'setup_enabled' as const,code:'SETUP',title:'Free one-time assistance',details:'Waives the optional one-time assistance fee. Monthly subscriptions keep their normal price.'},
+  const offers=[{key:'setup_enabled' as const,code:'SETUP',title:'Retired setup offer',details:'Closed to new claims. Previously accepted discounts keep their agreed terms.'},
     {key:'highstreet_enabled' as const,code:'MHIGHSTREET',title:'Free assistance + 50% off the first month',details:'Waives unpaid assistance and discounts the first subscription month only. Later months keep their normal price.'}];
   async function request(path:string,method='GET',body?:unknown) {
     const controller=new AbortController();controllers.add(controller);
@@ -39,11 +39,11 @@
     finally {if(!disposed)loading=false;}
   }
   async function toggle(key:'setup_enabled'|'highstreet_enabled') {
-    if(!canManage||busy||loading||available!==true)return;
+    if(key==='setup_enabled'||!canManage||busy||loading||available!==true)return;
     const enabled=!settings[key];busy=key;status='';error=false;
     try {
       const data=await request('/admin/api/platform-promotions','PUT',{settings:{...settings,[key]:enabled},revision});
-      if(!disposed){apply(data);status=`${key==='setup_enabled'?'SETUP':'MHIGHSTREET'} ${enabled?'enabled':'paused'} for new claims.`;}
+      if(!disposed){apply(data);status=`MHIGHSTREET ${enabled?'enabled':'paused'} for new claims.`;}
     } catch(err) {if(!disposed){error=true;status=err instanceof Error?err.message:'Could not update the offer.';}}
     finally {if(!disposed)busy='';}
   }
@@ -70,7 +70,7 @@
     <div class="offer-grid">{#each offers as offer}<article>
       <div class="row"><code>{offer.code}</code><span class:active={settings[offer.key]}>{settings[offer.key]?'Active':'Paused'}</span></div>
       <h3>{offer.title}</h3><p>{offer.details}</p>
-      <button type="button" disabled={!canManage||Boolean(busy)} on:click={()=>toggle(offer.key)}>{busy===offer.key?'Updating…':`${settings[offer.key]?'Disable':'Enable'} ${offer.code}`}</button>
+      <button type="button" disabled={offer.key==='setup_enabled'||!canManage||Boolean(busy)} on:click={()=>toggle(offer.key)}>{offer.key==='setup_enabled'?'Retired':busy===offer.key?'Updating…':`${settings[offer.key]?'Disable':'Enable'} ${offer.code}`}</button>
     </article>{/each}
     <article><div class="row"><strong>Referrals</strong><span class:active={referral.enabled}>{referral.enabled?'Active':'Paused'}</span></div>
       <h3>Refer a business</h3><p>{referral.percent}% off the joining business’s first subscription month, with {referral.joining_setup_percent}% off its unpaid assistance. The referrer earns its reward after verified payment.</p>

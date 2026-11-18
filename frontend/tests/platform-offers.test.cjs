@@ -14,8 +14,8 @@ function harness(){
   }});
   vm.runInContext(`let tenant='VERTEX',csrf='synthetic-csrf',apiPrefix='',canManage=true;
     let available=null,loading=false,busy='',status='',error=false,disposed=false;
-    let settings={setup_enabled:true,highstreet_enabled:true},revision='${'a'.repeat(64)}';
-    let referral={enabled:true,percent:40,joining_setup_percent:100};const controllers=new Set();
+    let settings={setup_enabled:false,highstreet_enabled:true},revision='${'a'.repeat(64)}';
+    let referral={enabled:true,percent:20,joining_setup_percent:50};const controllers=new Set();
     ${functions}
     globalThis.subject={load,toggle,toggleReferral,
       activate(){available=true;},readOnly(){canManage=false;},
@@ -24,17 +24,17 @@ function harness(){
   return {subject:scope.subject,requests};
 }
 function respond(row,data,status=200){row.resolve({ok:status<400,status,json:async()=>data});}
-const data={available:true,settings:{setup_enabled:true,highstreet_enabled:true},revision:'a'.repeat(64),referral:{enabled:true,percent:40,joining_setup_percent:100}};
+const data={available:true,settings:{setup_enabled:false,highstreet_enabled:true},revision:'a'.repeat(64),referral:{enabled:true,percent:20,joining_setup_percent:50}};
 
 test('pause is revision-bound and cannot submit percentages or arbitrary campaign terms',async()=>{
-  const {subject,requests}=harness();subject.activate();const pending=subject.toggle('setup_enabled');
-  await subject.toggle('highstreet_enabled');assert.equal(requests.length,1);
+  const {subject,requests}=harness();subject.activate();const pending=subject.toggle('highstreet_enabled');
+  await subject.toggle('setup_enabled');assert.equal(requests.length,1);
   const row=requests[0];assert.equal(row.url,'/admin/api/platform-promotions?tenant=VERTEX');
   assert.equal(row.options.credentials,'same-origin');assert.equal(row.options.headers['X-CSRF-Token'],'synthetic-csrf');
-  assert.deepEqual(JSON.parse(row.options.body),{revision:'a'.repeat(64),settings:{setup_enabled:false,highstreet_enabled:true}});
-  assert.equal(subject.state().settings.setup_enabled,true,'status stays unchanged until server confirmation');
-  respond(row,{...data,settings:{...data.settings,setup_enabled:false},revision:'b'.repeat(64)});await pending;
-  assert.equal(subject.state().settings.setup_enabled,false);assert.equal(subject.state().revision,'b'.repeat(64));
+  assert.deepEqual(JSON.parse(row.options.body),{revision:'a'.repeat(64),settings:{setup_enabled:false,highstreet_enabled:false}});
+  assert.equal(subject.state().settings.highstreet_enabled,true,'status stays unchanged until server confirmation');
+  respond(row,{...data,settings:{...data.settings,highstreet_enabled:false},revision:'b'.repeat(64)});await pending;
+  assert.equal(subject.state().settings.highstreet_enabled,false);assert.equal(subject.state().revision,'b'.repeat(64));
   assert.match(subject.state().status,/paused for new claims/);
 });
 
@@ -44,9 +44,9 @@ test('read-only operators cannot write either kind of offer',async()=>{
 });
 
 test('stale revision retains the last confirmed state and does not display response details',async()=>{
-  const {subject,requests}=harness();subject.activate();const pending=subject.toggle('setup_enabled');
+  const {subject,requests}=harness();subject.activate();const pending=subject.toggle('highstreet_enabled');
   respond(requests[0],{error:'access_token=secret /private/db'},409);await pending;
-  assert.equal(subject.state().settings.setup_enabled,true);assert.equal(subject.state().error,true);
+  assert.equal(subject.state().settings.highstreet_enabled,true);assert.equal(subject.state().error,true);
   assert.match(subject.state().status,/changed.*Refresh/);assert.doesNotMatch(subject.state().status,/secret|private/);
 });
 

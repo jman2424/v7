@@ -29,7 +29,7 @@ def test_disable_preserves_accepted_offer_and_earned_rewards(client, monkeypatch
     with pytest.raises(ValueError, match='disabled'):
         referrals.claim('OTHER', 'other@example.test', code)
     report = referrals.report('EXAMPLE', 'new@example.test', 'https://example.test')
-    assert report['claim']['percent'] == 40
+    assert report['claim']['percent'] == 20
     assert len(report['rewards']) == 2
     referrals.qualified_payment('EXAMPLE', 'platform', {'id':'in_first','status':'paid','amount_paid':5940,'billing_reason':'subscription_create'})
     assert len(referrals.report('SPONSOR', 'owner@example.test', 'https://example.test')['rewards']) == 2
@@ -74,7 +74,7 @@ def test_verified_coupon_once_and_consumption_scoped_to_generation(client, monke
     welcome(monkeypatch)
     reward=referrals.reserve('EXAMPLE','platform','first')
     provider=Mock()
-    provider.stripe_request.return_value={'id':'coupon_test','percent_off':40,'duration':'once','valid':True}
+    provider.stripe_request.return_value={'id':'coupon_test','percent_off':20,'duration':'once','valid':True}
     referrals.coupon(provider,'EXAMPLE',reward)
     assert provider.stripe_request.call_args.args[2]['duration'] == 'once'
     invoice={'id':'in_first','status':'paid','amount_paid':5940,'discounts':[{'source':{'coupon':{'id':'coupon_test'}}}]}
@@ -100,7 +100,7 @@ def test_routes_enforce_owner_tenant_and_admin_toggle(client):
 def test_checkout_discount_is_once_and_undiscounted_price_unchanged(client,stripe,monkeypatch):
     monkeypatch.setenv('V7_VAT_REGISTERED','false')
     welcome(monkeypatch)
-    stripe.side_effect=[{'id':'coupon_test','percent_off':40,'duration':'once','valid':True},{'id':'cs_test','url':'https://checkout.stripe.com/c/pay/test'}]
+    stripe.side_effect=[{'id':'coupon_test','percent_off':20,'duration':'once','valid':True},{'id':'cs_test','url':'https://checkout.stripe.com/c/pay/test'}]
     identity(client,'business_owner')
     response=client.post('/billing/checkout',json={'kind':'platform','plan_id':'starter'})
     assert response.status_code==200, response.json
@@ -174,7 +174,7 @@ def test_renewal_reward_once_and_does_not_replace_other_stripe_discount(client,s
     subscription={'id':'sub_test','status':'active','metadata':{'tenant':'EXAMPLE','kind':'platform','billing_ref':contract['ref']},'items':{'data':[]},'discounts':[{'coupon':'other_coupon'}] if other_discount else []}
     def provider(method,path,*args,**kwargs):
         if path=='/v1/coupons':
-            return {'id':'coupon_test','percent_off':40,'duration':'once','valid':True}
+            return {'id':'coupon_test','percent_off':20,'duration':'once','valid':True}
         if method=='GET':
             return subscription
         return {**subscription,'discounts':[{'source':{'coupon':'coupon_test'}}]}
@@ -184,7 +184,7 @@ def test_renewal_reward_once_and_does_not_replace_other_stripe_discount(client,s
             referrals.apply_next_month('EXAMPLE')
         assert not any(call.args[:2]==('POST','/v1/subscriptions/sub_test') for call in stripe.call_args_list)
     else:
-        assert referrals.apply_next_month('EXAMPLE')['percent']==40
+        assert referrals.apply_next_month('EXAMPLE')['percent']==20
         payload=stripe.call_args.args[2]
         assert payload['proration_behavior']=='none' and payload['discounts[0][coupon]']=='coupon_test'
         assert referrals.report('EXAMPLE','new@example.test','https://example.test')['rewards'][0]['status'] in {'applied','available'}
@@ -196,16 +196,16 @@ def test_referral_mutations_require_csrf(client):
     assert response.status_code==403
 
 
-def test_new_joiner_gets_free_setup_but_referrer_keeps_40_percent(client,monkeypatch):
+def test_new_referral_discounts_are_halved(client,monkeypatch):
     welcome(monkeypatch)
     report=referrals.report('EXAMPLE','new@example.test','https://example.test')
-    assert report['claim']['joining_setup_percent']==100
-    assert {row['kind']:row['percent'] for row in report['rewards']}=={'platform':40,'implementation':100}
+    assert report['claim']['joining_setup_percent']==50
+    assert {row['kind']:row['percent'] for row in report['rewards']}=={'platform':20,'implementation':50}
     referrals.qualified_payment('EXAMPLE','platform',{'id':'in_first','status':'paid','amount_paid':5940,'billing_reason':'subscription_create'})
     earned=referrals.report('SPONSOR','owner@example.test','https://example.test')['rewards']
-    assert {row['kind']:row['percent'] for row in earned}=={'platform':40,'implementation':40}
+    assert {row['kind']:row['percent'] for row in earned}=={'platform':20,'implementation':20}
     offer=referrals.public_offer('EXAMPLE')
-    assert offer['joining_setup_percent']==100 and offer['sponsor_setup_percent']==40
+    assert offer['joining_setup_percent']==50 and offer['sponsor_setup_percent']==20
     assert offer['stacks'] is False and offer['excludes_ai_credit'] is True
 
 
@@ -222,9 +222,9 @@ def test_previous_offer_snapshot_is_not_rewritten_when_program_changes(client,mo
     referrals.set_program('SPONSOR',False,'')
     old=referrals.report('EXAMPLE','old@example.test','https://example.test')
     new=referrals.report('OTHER','new@example.test','https://example.test')
-    assert old['claim']['joining_setup_percent']==40
-    assert next(row['percent'] for row in old['rewards'] if row['kind']=='implementation')==40
-    assert new['claim']['joining_setup_percent']==100
+    assert old['claim']['joining_setup_percent']==20
+    assert next(row['percent'] for row in old['rewards'] if row['kind']=='implementation')==20
+    assert new['claim']['joining_setup_percent']==50
 
 
 def test_local_schema_upgrade_snapshots_existing_percentage(monkeypatch):
@@ -246,6 +246,8 @@ def test_local_schema_upgrade_snapshots_existing_percentage(monkeypatch):
 def test_zero_setup_coupon_is_once_and_wins_over_weaker_campaign(client,stripe,monkeypatch,plan_id,saved_campaign):
     monkeypatch.setenv('V7_VAT_REGISTERED','false')
     welcome(monkeypatch)
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("UPDATE referral_rewards SET percent=100 WHERE tenant='EXAMPLE' AND kind='implementation'")
     if saved_campaign:
         monkeypatch.setattr(subscriptions,'saved_campaign',lambda tenant:'existing-campaign')
     stripe.side_effect=[{'id':'coupon_free','percent_off':100,'duration':'once','valid':True},{'id':'cs_free','url':'https://checkout.stripe.com/c/pay/free'}]
@@ -265,6 +267,9 @@ def test_zero_setup_coupon_is_once_and_wins_over_weaker_campaign(client,stripe,m
 def free_setup_checkout(client,stripe,monkeypatch):
     monkeypatch.setenv('V7_VAT_REGISTERED','false')
     welcome(monkeypatch)
+    # Previously earned free setup remains redeemable after the offer changes.
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("UPDATE referral_rewards SET percent=100 WHERE tenant='EXAMPLE' AND kind='implementation'")
     stripe.side_effect=[{'id':'coupon_free','percent_off':100,'duration':'once','valid':True},{'id':'cs_free','url':'https://checkout.stripe.com/c/pay/free'}]
     identity(client,'business_owner')
     assert client.post('/billing/checkout',json={'kind':'implementation','plan_id':'starter'}).status_code==200

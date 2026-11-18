@@ -338,11 +338,6 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
     from service import business_applications as applications
     applications.require_eligible(tenant)
     application = applications.get(tenant)
-    if (application and not application['existing_service_preserved']
-            and (kind == 'platform' or (kind == 'implementation' and not (plan_state(tenant) or {}).get('active_plan')))):
-        if plan_id is not None and plan_id != application['plan_id']:
-            raise applications.ApplicationError('application_plan_changed_review_required', 409)
-        plan_id = application['plan_id']
     if not isinstance(kind,str) or kind not in {'platform','implementation','whatsapp','api'} or not isinstance(month,str):
         raise ValueError('invalid_billing_item')
     if interval not in INTERVALS or (interval != 'month' and kind != 'platform'):
@@ -359,6 +354,8 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
         contract = _contract(tenant,'platform')
         # Existing financial contracts retain their agreed legacy prices.
         legacy = bool(not state and (contract['subscription'] or contract['implementation_paid'] or contract['status'] != 'not_started' or contract['checkout']))
+        if application and not legacy and plan_id is None and not state:
+            raise ValueError('invalid_subscription_plan')
         if plan_id is not None or state or not legacy:
             chosen = plan_id if plan_id is not None else state['selected_plan'] if state else 'starter'
             select_plan(tenant, chosen)
@@ -771,8 +768,15 @@ def whatsapp_enabled(tenant):
     if state:
         with connection(tenant) as db:
             base = db.execute("SELECT status,next_due FROM billing_contracts WHERE tenant=? AND kind='platform'", (tenant,)).fetchone()
-        return bool(state['active_plan'] and 'whatsapp' in get_plan(state['active_plan'])['channels']
-                    and not state['whatsapp_paused'] and base and base['status'] in {'active','trialing'} and (base['next_due'] or 0)>time.time())
+        if not state['active_plan'] or 'whatsapp' not in get_plan(state['active_plan'])['channels'] or state['whatsapp_paused'] or not base:
+            return False
+        if base['status'] in {'active', 'trialing'}:
+            return (base['next_due'] or 0) > time.time()
+        from service import payment_recovery
+        if base['status'] in payment_recovery.FAILED_STATUSES:
+            from service.tenant_access import activation
+            return activation(tenant).get('status') == 'payment_recovery'
+        return False
     with connection(tenant) as db:
         row = db.execute("SELECT paused,status,next_due FROM billing_contracts WHERE tenant=? AND kind='whatsapp'",(tenant,)).fetchone()
     # Enforce purchased access when a billing contract exists. Preserve legacy integrations until migrated.

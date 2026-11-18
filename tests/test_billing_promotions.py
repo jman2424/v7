@@ -28,6 +28,10 @@ def test_offers_keep_base_prices_and_discount_only_the_intended_item(client, str
     identity(client, 'business_owner')
     stripe.side_effect = provider
     response = client.post('/billing/discount', json={'code': ' '+code.lower()+' '})
+    if code == 'SETUP':
+        assert response.status_code == 400 and response.json['error'] == 'promotion_unavailable'
+        stripe.assert_not_called()
+        return
     assert response.status_code == 200, response.json
     assert response.json['setup_discount_percent'] == 100
     assert response.json['first_month_discount_percent'] == (50 if code == 'MHIGHSTREET' else 0)
@@ -55,7 +59,10 @@ def test_offers_keep_base_prices_and_discount_only_the_intended_item(client, str
 def setup_checkout(client, stripe):
     identity(client, 'business_owner')
     stripe.side_effect = provider
-    assert client.post('/billing/discount', json={'code': 'SETUP'}).status_code == 200
+    # Seed an accepted historical offer; retirement must not revoke it.
+    subscriptions._contract('EXAMPLE', 'platform')
+    with subscriptions.connection('EXAMPLE') as db:
+        promotions._save(db, 'EXAMPLE', {'campaign': promotions.SETUP})
     assert client.post('/billing/checkout', json={'kind': 'implementation', 'plan_id': 'starter'}).status_code == 200
     body = stripe.call_args.args[2]
     return {'id': 'cs_offer', 'mode': 'payment', 'status': 'complete', 'payment_status': 'no_payment_required',
@@ -122,7 +129,8 @@ def test_codes_cannot_cross_tenants_or_roles_or_accept_forged_percentages(client
     assert client.post('/billing/discount', json={'code': code}).status_code == 403
     identity(client, 'business_owner')
     assert client.post('/billing/discount?tenant=OTHER', json={'code': code}).status_code == 403
-    assert client.post('/billing/discount', json={'code': code, 'percent': 999, 'duration': 'forever'}).status_code == 200
+    response = client.post('/billing/discount', json={'code': code, 'percent': 999, 'duration': 'forever'})
+    assert response.status_code == (400 if code == 'SETUP' else 200)
     assert promotions.preview('EXAMPLE')['first_month_discount_percent'] in {0, 50}
     stripe.assert_not_called()
 
@@ -132,7 +140,7 @@ def test_first_month_code_rejects_existing_paid_subscriptions_and_setup_does_not
     subscriptions._contract('EXAMPLE', 'platform')
     with subscriptions.connection('EXAMPLE') as db:
         db.execute("UPDATE billing_contracts SET subscription='sub_existing',implementation_paid=1 WHERE tenant='EXAMPLE' AND kind='platform'")
-    for code, error in [('MHIGHSTREET', 'first_month_discount_new_subscription_only'), ('SETUP', 'implementation_already_paid')]:
+    for code, error in [('MHIGHSTREET', 'first_month_discount_new_subscription_only'), ('SETUP', 'promotion_unavailable')]:
         response = client.post('/billing/discount', json={'code': code})
         assert response.status_code == 400 and response.json['error'] == error
     assert subscriptions.saved_campaign('EXAMPLE') == ''

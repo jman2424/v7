@@ -44,3 +44,15 @@ def test_error_rows_use_label_and_count_and_scope_to_company(request):
     assert response.status_code == 200
     assert response.json == [{"label": "provider_timeout", "count": 1}]
     assert client.get("/admin/api/errors?tenant=BETA").status_code == 403
+
+
+def test_readiness_checks_database_but_liveness_stays_lightweight(client, monkeypatch):
+    from service import session_store
+    assert client.get('/ready').status_code == 200
+    def unavailable():
+        raise RuntimeError('synthetic database outage')
+    monkeypatch.setattr(session_store, 'connection', unavailable)
+    response = client.get('/ready')
+    assert response.status_code == 503 and response.json == {'ready':False}
+    assert 'synthetic' not in response.text
+    assert client.get('/health').status_code == 200

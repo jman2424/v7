@@ -152,11 +152,11 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
         assert specification["unitText"] == "month"
         assert "referenceQuantity" not in specification
         assert f"£{plan['monthly_pence'] // 100} / month" in visible
-        assert f"£{plan['setup_pence'] // 100} optional one-time assistance" in visible
+        assert f"Optional setup assistance — £{plan['setup_pence'] // 100} once" in visible
         monthly_with_vat = Decimal(plan['monthly_pence']) * (100 + VAT_PERCENT) / 10000
         setup_with_vat = Decimal(plan['setup_pence']) * (100 + VAT_PERCENT) / 10000
         assert f"£{monthly_with_vat:.2f} / month including {VAT_PERCENT}% VAT, where applicable" in visible
-        assert f"£{setup_with_vat:.2f} assistance including {VAT_PERCENT}% VAT, where applicable" in visible
+        assert f"£{setup_with_vat:.0f} including {VAT_PERCENT}% VAT, before any accepted discount." in visible
         assert f"{plan['website_conversations']:,} website conversations" not in visible
         assert "Messages are limited by your prepaid AI credit" in visible
         assert f"{plan['whatsapp_messages']:,} WhatsApp messages" not in visible
@@ -229,8 +229,8 @@ def test_unregistered_home_prices_do_not_add_or_advertise_vat(seo_client,monkeyp
     page.feed(response.text)
     visible=' '.join(' '.join(page.visible_text).split())
     assert '£99 / month' in visible
-    assert '£100 optional one-time assistance' in visible
-    assert visible.count('VAT')==1
+    assert 'Optional setup assistance — £100 once' in visible
+    assert visible.count('VAT')==2
     assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
 
 
@@ -332,12 +332,12 @@ def test_dedicated_pricing_uses_current_catalogue_and_separates_usage(seo_client
         visible = ' '.join(' '.join(page.visible_text).split())
         for plan in public_plans():
             assert f"£{plan['monthly_pence'] // 100} / month" in visible
-            assert f"£{plan['setup_pence'] // 100} optional one-time assistance" in visible
+            assert f"Optional setup assistance — £{plan['setup_pence'] // 100} once" in visible
         if registered:
             assert '£130.80 / month including 20% VAT' in visible
         else:
             assert '£109 / month' in visible
-            assert visible.count('VAT') == 1
+            assert visible.count('VAT') == 2
             assert 'Prices shown are final GBP amounts. VAT is not currently charged.' in visible
             assert 'before VAT' not in visible
         assert 'AI processing credit purchased separately' in visible
@@ -527,9 +527,18 @@ def test_public_pages_advertise_shared_crawlable_brand_icons(seo_client, path):
 
 def test_home_search_branding_agrees_with_visible_brand_and_public_icon(seo_client):
     page = HomeStructuredData()
-    page.feed(seo_client.get("/", base_url="https://untrusted.example").text)
+    html = seo_client.get("/", base_url="https://untrusted.example").text
+    page.feed(html)
     graph = json.loads(page.scripts[0]["text"])["@graph"]
     organization = next(item for item in graph if item["@type"] == "Organization")
+    social_profiles = {
+        "Instagram": "https://www.instagram.com/vertex_seven/",
+        "TikTok": "https://www.tiktok.com/@vertexseven",
+    }
+    assert organization["sameAs"] == list(social_profiles.values())
+    anchors = PublicAnchors()
+    anchors.feed(html)
+    assert all({"href": url, "text": name} in anchors.links for name, url in social_profiles.items())
     website = next(item for item in graph if item["@type"] == "WebSite")
     assert website["name"] == organization["name"] == "Vertex Seven"
     assert website["alternateName"] == ["V7 Agents by Vertex Seven", "vertex-seven.com"]

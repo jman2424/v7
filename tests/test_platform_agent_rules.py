@@ -13,7 +13,7 @@ def test_setup_scope_and_codes_override_old_installation_promises_for_platform_o
     assert policy['answer_complete'] is True
     assert 'your team or website developer' in policy['answer']
     assert 'not included as a done-for-you implementation service' in policy['answer']
-    assert 'Use SETUP for free optional one-time assistance' in policy['answer']
+    assert 'SETUP is paused for new claims.' in policy['answer']
     assert '50% off the first subscription month only' in policy['answer']
     assert 'do not cover AI credit' in policy['answer']
     from service.grounded_statements import statement_catalog
@@ -118,9 +118,9 @@ def test_other_businesses_never_receive_platform_referral_rules(client,monkeypat
     assert platform_offer_knowledge.public_destinations('EXAMPLE',[])==[]
     with client.application.app_context():
         knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
-    assert knowledge['joining_setup_percent']==100
-    assert all(row['referred_setup']=='£0.00' for row in knowledge['prices'])
-    assert knowledge['prices'][0]['referred_first_month']=='£59.40'
+    assert knowledge['joining_setup_percent']==50
+    assert all(row['referred_setup']=='£50.00' for row in knowledge['prices'])
+    assert knowledge['prices'][0]['referred_first_month']=='£79.20'
     encoded=json.dumps(knowledge)
     assert 'owner_hash' not in encoded and 'qualifying_invoice' not in encoded
 
@@ -130,7 +130,7 @@ def test_live_pause_and_saved_knowledge_fallback_reflect_current_terms(client,mo
     with client.application.app_context():
         knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
         text=platform_offer_knowledge.automatic_offer_answer('How does your referral work?',knowledge)
-        assert 'no assistance fee (£0)' in text and '40%' in text
+        assert '50% off unpaid assistance' in text and '20%' in text
         referrals.set_program('VERTEX',False,'')
         knowledge=platform_offer_knowledge.public_knowledge('VERTEX')
         assert 'paused' in platform_offer_knowledge.automatic_offer_answer('referrals',knowledge)
@@ -207,5 +207,5 @@ def test_selected_product_beyond_catalogue_preview_remains_available(monkeypatch
 def test_subscription_report_previews_free_setup_without_spending(client,monkeypatch):
     from tests.test_referrals import welcome
     welcome(monkeypatch)
-    assert subscriptions.report('EXAMPLE',include_api=False)['referral_setup_percent']==100
-    assert referrals.reserve('EXAMPLE','implementation','first_setup')['percent']==100
+    assert subscriptions.report('EXAMPLE',include_api=False)['referral_setup_percent']==50
+    assert referrals.reserve('EXAMPLE','implementation','first_setup')['percent']==50

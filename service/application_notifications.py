@@ -30,7 +30,7 @@ def render(payload, base_url, platform_tenant):
         subject = 'New Vertex Seven business application'
         submitted = datetime.fromtimestamp(payload['submitted'], timezone.utc).strftime('%d %b %Y, %H:%M UTC')
         body = (f"{payload['business_name']} has applied.\nWebsite: {payload['website'] or 'Not provided'}\n"
-                f"Plan: {payload['plan_id'].title()}\nSubmitted: {submitted}\n\n"
+                f"Submitted: {submitted}\n\n"
                 'Sign in to review the application. No decision has been made and no payment has been taken.')
     else:
         subject = SUBJECTS[stage]
@@ -95,12 +95,17 @@ def process_one(container):
 
 
 def retention_once():
-    from service import tenant_access
+    from service import tenant_access, business_operations
+    from flask import current_app
     with tenant_access._database() as db:
         tenant_access._schema(db)
         tenants = [row[0] for row in tenant_access._execute(db, 'SELECT tenant FROM managed_businesses')]
+    marketing = current_app.container.settings.PLATFORM_MARKETING_TENANT
+    if marketing and marketing not in tenants:
+        tenants.append(marketing)
     for tenant in tenants:
         try:
+            business_operations.purge_closed_support(tenant)
             applications.purge_closed(tenant)
         except applications.ApplicationError:
             continue  # An unresolved payment always takes priority over purge.

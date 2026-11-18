@@ -136,3 +136,16 @@ def test_failed_send_is_retried_later(client, monkeypatch):
 def test_notice_goes_only_to_this_business_owner(client, owner, expected):
     tenant_access.register('EXAMPLE', owner)
     assert recovery.owner_email('EXAMPLE') == expected
+
+
+@pytest.mark.parametrize('plan,expected', [('starter',False),('scale',True)])
+def test_whatsapp_uses_same_renewal_grace_as_other_paid_channels(client,monkeypatch,plan,expected):
+    _paid_business()
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("UPDATE billing_plan_state SET active_plan=?,selected_plan=? WHERE tenant='EXAMPLE'", (plan,plan))
+    start=time.time()
+    monkeypatch.setattr(time,'time',lambda:start)
+    _status('past_due')
+    assert subscriptions.whatsapp_enabled('EXAMPLE') is expected
+    monkeypatch.setattr(time,'time',lambda:start+7*DAY+1)
+    assert subscriptions.whatsapp_enabled('EXAMPLE') is False

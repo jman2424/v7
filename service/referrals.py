@@ -37,8 +37,14 @@ def _lock(db):
 def program(tenant):
     with connection(tenant) as db:
         _schema(db)
-        result = dict(db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone())
+        result = _new_offer(db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone())
         return {**result,'sponsor_setup_percent':result['percent']}
+
+
+def _new_offer(settings):
+    """Halve new referral offers; never alter accepted claims or earned rewards."""
+    return {**dict(settings), 'percent': settings['percent'] // 2,
+            'joining_setup_percent': settings['joining_setup_percent'] // 2}
 
 
 def public_offer(tenant):
@@ -91,7 +97,7 @@ def claim(tenant, identity, code):
         _lock(db)
         if session_store._using_postgres():
             db.execute('SELECT pg_advisory_xact_lock_shared(hashtextextended(?,0))',('v7-referral-program',))
-        settings = db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone()
+        settings = _new_offer(db.execute('SELECT enabled,percent,joining_setup_percent FROM referral_program WHERE id=1').fetchone())
         existing = db.execute('SELECT sponsor,percent,status FROM referral_claims WHERE tenant=?',(tenant,)).fetchone()
         if existing:
             raise ValueError('referral_already_accepted')

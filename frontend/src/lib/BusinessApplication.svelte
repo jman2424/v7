@@ -5,13 +5,10 @@
   export let csrf:string;
   export let apiPrefix='';
   export let canEdit=true;
-  type Application={status:string;revision:number;business_name:string;website:string;description:string;plan_id:string;public_message:string;existing_service_preserved:boolean;accepted_policy_text?:string};
+  type Application={status:string;revision:number;business_name:string;website:string;description:string;public_message:string;existing_service_preserved:boolean;accepted_policy_text?:string};
   let application:Application|null=null;
-  let policy:{intake_enabled:boolean;guidance:string;policy_version:string;plans:{id:string;name:string;monthly_pence:number;setup_pence:number}[]}={intake_enabled:false,guidance:'',policy_version:'',plans:[]};
-  const pounds=(pence:number)=>'£'+(pence/100).toLocaleString('en-GB',{maximumFractionDigits:2});
-  let chosenPlan:{setup_pence:number}|undefined;
-  $: chosenPlan=policy.plans.find(plan=>plan.id===planId);
-  let businessName='', website='', description='', planId='starter', acceptedTerms=false;
+  let policy:{intake_enabled:boolean;guidance:string;policy_version:string}={intake_enabled:false,guidance:'',policy_version:''};
+  let businessName='', website='', description='', acceptedTerms=false;
   let busy=false, loaded=false, editing=false, error='', notice='';
   let alive=true;
   const requests=new Set<AbortController>();
@@ -21,19 +18,19 @@
     const timer=setTimeout(()=>controller.abort(),20000);
     try{
       const response=await fetch(apiPrefix+'/business-applications/'+path+'?tenant='+encodeURIComponent(tenant),{method,credentials:'same-origin',signal:controller.signal,headers:{'X-CSRF-Token':csrf,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
-      const result=await response.json();if(!response.ok)throw new Error(result.error||'application_request_failed');return result;
+      const result=await response.json();if(!response.ok){if(response.status===401||result.error==='csrf_failed')throw new Error('Your session expired before we could save. Sign in again, review your settings and save.');if(response.status===403)throw new Error('Your account cannot perform this action. Sign in with the business owner or platform administrator account.');throw new Error(result.error||'application_request_failed');}return result;
     }finally{clearTimeout(timer);requests.delete(controller);}
   }
-  function fill(){if(application){businessName=application.business_name;website=application.website;description=application.description;planId=application.plan_id;}}
+  function fill(){if(application){businessName=application.business_name;website=application.website;description=application.description;}}
   async function load(){
     if(busy)return;busy=true;error='';
-    try{const result=await api('current');if(!alive)return;application=result.application;policy=result.policy;loaded=true;fill();if(!application&&result.prefill){businessName=result.prefill.business_name;website=result.prefill.website;const selected=new URLSearchParams(window.location.search).get('plan');if(selected&&policy.plans.some(plan=>plan.id===selected))planId=selected;}}
+    try{const result=await api('current');if(!alive)return;application=result.application;policy=result.policy;loaded=true;fill();if(!application&&result.prefill){businessName=result.prefill.business_name;website=result.prefill.website;}}
     catch{if(alive)error='Your application could not be loaded. Please retry.';}finally{if(alive)busy=false;}
   }
   async function submit(){
     if(busy)return;busy=true;error='';notice='';
     try{
-      const result=await api('current',application?'PUT':'POST',{business_name:businessName,website,description,plan_id:planId,accepted_terms:acceptedTerms,policy_version:policy.policy_version,revision:application?.revision});
+      const result=await api('current',application?'PUT':'POST',{business_name:businessName,website,description,accepted_terms:acceptedTerms,policy_version:policy.policy_version,revision:application?.revision});
       if(!alive)return;application=result.application;editing=false;acceptedTerms=false;notice='Application submitted for manual review. No payment has been taken.';
     }catch(failure){if(alive)error=failure instanceof Error?failure.message:'Application could not be saved.';}finally{if(alive)busy=false;}
   }
@@ -58,25 +55,23 @@
   {#if !loaded}<p>Loading application…</p><button disabled={busy} on:click={load}>Retry</button>
   {:else}
     {#if application}
-      <p><strong>{application.business_name}</strong> · {application.plan_id}</p>
+      <p><strong>{application.business_name}</strong></p>
       {#if application.status==='PENDING_REVIEW'}<p>We've received your application and are reviewing your business details. We'll email you when there is an update. No payment is needed while it is under review.</p>{/if}
       {#if application.public_message}<p class="message">{application.public_message}</p>{/if}
       {#if application.accepted_policy_text}<details><summary>Policy accepted with this application</summary><p class="message">{application.accepted_policy_text}</p></details>{/if}
       {#if application.existing_service_preserved}<p>Existing services and prepaid balances remain subject to their current billing and permissions. This review does not automatically cancel your subscription.</p>{/if}
-      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant,plan:application.plan_id})}>Continue to secure checkout</a><p>Monthly subscription and assistance fees are separate from prepaid AI usage credit. Activation follows verified payment.</p><p>If you need help with your service, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>{/if}
+      {#if application.status==='APPROVED'}<a class="primary" href={base+'/subscription?'+new URLSearchParams({tenant})}>Choose your plan</a><p>Choose your monthly subscription and add one-time setup assistance if you want help getting started. AI usage credit is separate.</p><p>If you need help with your service, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>{/if}
       <div class="actions"><button disabled={busy} on:click={load}>Refresh status</button>{#if canEdit}<button disabled={busy} on:click={()=>{editing=!editing;fill();}}>Correct details / request reconsideration</button>{#if application.status!=='CANCELLED'}<button disabled={busy} on:click={withdraw}>Withdraw application</button>{/if}{/if}</div>
     {/if}
     {#if canEdit&&(!application||editing)}
       <form on:submit|preventDefault={submit}>
         <p>See our <a href="/privacy">privacy notice</a> for how we use application information. If you need help using this form, email <a href="mailto:support@vertex-seven.com">support@vertex-seven.com</a>.</p>
         <p>{policy.guidance}</p>
-        {#if application}<p>Changing the business name, website, activities or selected application plan returns it to manual review before further purchases. Resolve open checkouts first.</p>{:else if !policy.intake_enabled}<p>New business applications are currently closed.</p>{/if}
+        {#if application}<p>Changing the business name, website or activities returns it to manual review before further purchases. Resolve open checkouts first.</p>{:else if !policy.intake_enabled}<p>New business applications are currently closed.</p>{/if}
         <fieldset disabled={busy||(!application&&!policy.intake_enabled)}>
           <label>Business name<input bind:value={businessName} maxlength="120" required/></label>
           <label>Business website (optional)<input type="url" placeholder="https://example.com" bind:value={website} maxlength="2048"/></label>
           <label>Business description {website?'(optional)':''}<textarea bind:value={description} maxlength="2000" rows="3" required={!website}></textarea></label>
-          <label>Selected plan<select bind:value={planId}>{#each policy.plans as plan}<option value={plan.id}>{plan.name} · {pounds(plan.monthly_pence)}/month</option>{/each}</select>
-            {#if chosenPlan}<small>Billed monthly. Optional one-time setup help ({pounds(chosenPlan.setup_pence)}) is offered when you pay, after approval; you can skip it.</small>{/if}</label>
           <label class="check"><input type="checkbox" bind:checked={acceptedTerms} required/><span>I agree to the <a href="/acceptable-use" target="_blank" rel="noopener noreferrer">Acceptable Use Policy</a> and <a href="/terms" target="_blank" rel="noopener noreferrer">terms</a>.</span></label>
           <button type="submit" class="primary">{busy?'Saving…':application?'Submit for another review':'Submit application'}</button>
         </fieldset>
@@ -87,5 +82,5 @@
 </section>
 
 <style>
-  .application{padding:clamp(18px,3vw,30px);max-width:850px}h2{margin-top:0}p{line-height:1.6;color:var(--v7-muted)}.message{white-space:pre-line}.actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}form,fieldset,label{display:grid;gap:10px}form{margin-top:25px}fieldset{border:0;padding:0;gap:18px}input,textarea,select,button,.primary{font:inherit;box-sizing:border-box;max-width:100%;border:1px solid var(--v7-control-line,var(--v7-control-line));border-radius:var(--v7-radius-control);padding:12px;min-height:44px}button{cursor:pointer;background:var(--v7-surface);color:var(--v7-accent-hover)}.primary{display:inline-block;background:var(--v7-accent-hover);color:white;text-decoration:none;width:fit-content}.check{display:flex;align-items:flex-start}.check input{min-height:20px}details{margin-top:25px}summary{cursor:pointer}.error{color:var(--v7-danger)}button:disabled,fieldset:disabled{opacity:.6}:focus-visible{outline:3px solid #79b398;outline-offset:2px}
+  .application{padding:clamp(18px,3vw,30px);max-width:850px}h2{margin-top:0}p{line-height:1.6;color:var(--v7-muted)}.message{white-space:pre-line}.actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}form,fieldset,label{display:grid;gap:10px}form{margin-top:25px}fieldset{border:0;padding:0;gap:18px}input,textarea,button,.primary{font:inherit;box-sizing:border-box;max-width:100%;border:1px solid var(--v7-control-line,var(--v7-control-line));border-radius:var(--v7-radius-control);padding:12px;min-height:44px}button{cursor:pointer;background:var(--v7-surface);color:var(--v7-accent-hover)}.primary{display:inline-block;background:var(--v7-accent-hover);color:white;text-decoration:none;width:fit-content}.check{display:flex;align-items:flex-start}.check input{min-height:20px}details{margin-top:25px}summary{cursor:pointer}.error{color:var(--v7-danger)}button:disabled,fieldset:disabled{opacity:.6}:focus-visible{outline:3px solid #79b398;outline-offset:2px}
 </style>

@@ -13,7 +13,7 @@
   <header class="policy-header">{% include 'platform_brand.html' %}<nav aria-label="Policy navigation"><a href="/cookies">Cookies</a><button type="button" data-open-cookie-preferences>Cookie preferences</button><a href="/console/">Workspace</a></nav></header>
   <main id="main" class="policy">
     <h1>Privacy policy</h1>
-    <p class="source">Last updated: 23 October 2026</p>
+    <p class="source">Last updated: 17 November 2026</p>
     <p class="intro">This policy explains how Vertex Seven handles personal information on vertex-seven.com and when providing the V7 Agents platform.</p>
     <section id="controller"><h2>Who is responsible</h2>
       <p><strong>{{ policy.settings.controller_name }}</strong> is the controller for the Vertex Seven website, our own enquiries and demonstration chat, business-account administration, billing and platform security.</p>
@@ -53,11 +53,12 @@
     </section>
     {% if processors|selectattr('name', 'equalto', 'Google Analytics')|list %}
     <section id="analytics"><h2>Optional Google Analytics</h2>
-      <p>Google Analytics loads only after explicit analytics opt-in, on the public homepage and solution pages. It does not run on account, sign-in or customer-chat pages. V7's page-view configuration excludes query strings, URL fragments, referrers, form contents, account details and chat content. Google receives technical information needed to handle permitted measurement requests. Advertising storage, advertising personalisation and Google Signals are disabled.</p>
+      <p>Google Analytics loads only after explicit analytics opt-in, on the public homepage and solution pages. It does not run on account, sign-in or customer-chat pages. For visits from our official Instagram and TikTok profile links, V7 sends the fixed campaign labels for source, medium and campaign so we can compare visits. V7 excludes other query parameters, URL fragments, referrers, form contents, account details and chat content from its page-view configuration. With analytics consent, V7 also saves the fixed Instagram or TikTok source in your session for up to 30 days and records it with an application you submit during that period. We use it internally to count applications, approvals and recorded first subscription payments by source. We do not send account identity, application details or payment amounts to Google. Withdrawing consent stops new attribution; already submitted application records follow application retention. Google receives technical information needed to handle permitted measurement requests. Advertising storage, advertising personalisation and Google Signals are disabled.</p>
       <p>Changing your choice stops future measurement and removes this site's Analytics cookies; it does not erase information already received by Google. See <a href="https://policies.google.com/privacy" rel="noopener noreferrer">Google's privacy policy</a> and <a href="https://support.google.com/analytics/answer/7667196" rel="noopener noreferrer">data-retention information</a>. Browser-cookie expiry and Google's retention of received data are separate.</p>
     </section>
     {% endif %}
     <section id="retention"><h2>How long information is kept</h2>
+      <p>Website demo enquiries and setup or billing support requests are saved for manual follow-up. Closed requests and their contact details are removed 180 days after their last update when scheduled maintenance runs. Open requests remain available until resolved; billing and security audit records have separate retention requirements.</p>
       <p>Closed applications without existing paid service have their business contact details, description, website, research and private review notes minimised after the configured application retention period (180 days by default). Minimal decision/security audit records remain. Sent application-notification payloads are removed after 30 days when the maintenance worker runs. Pending applications, existing service records, invoices and prepaid balances have separate retention and contractual requirements. You can request correction or reconsideration from your signed-in application page.</p>
       {% if policy.settings.retention_days is not none %}<p>Configured platform retention period: {{ policy.settings.retention_days }} days, subject to the record-specific criteria below.</p>{% endif %}
       <p class="owner-text">{{ policy.settings.retention_criteria }}</p>

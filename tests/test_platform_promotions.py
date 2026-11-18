@@ -82,6 +82,9 @@ def test_pause_blocks_new_claims_and_reenable_restores_them(client, marketing, s
     response = client.post('/billing/discount', json={'code': code})
     assert response.status_code == 400 and response.json['error'] == 'promotion_unavailable'
     stripe.assert_not_called()
+    if code == 'SETUP':
+        assert update(client, **{key: True}).status_code == 400
+        return
     assert update(client, **{key: True}).status_code == 200
     identity(client, 'business_owner')
     assert client.post('/billing/discount', json={'code': code}).status_code == 200
@@ -93,7 +96,10 @@ def test_pausing_preserves_accepted_coupon_terms_and_checkout(client, app, marke
     app.container.settings = replace(app.container.settings, PLATFORM_MARKETING_TENANT='MARKETING')
     monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: tenant == 'MARKETING')
     identity(client, 'business_owner')
-    assert client.post('/billing/discount', json={'code': 'SETUP'}).status_code == 200
+    from service import billing_promotions
+    subscriptions._contract('EXAMPLE', 'platform')
+    with subscriptions.connection('EXAMPLE') as db:
+        billing_promotions._save(db, 'EXAMPLE', {'campaign': billing_promotions.SETUP})
     assert update(client, tenant='MARKETING', setup_enabled=False).status_code == 200
     identity(client, 'business_owner')
     # Accepted claims remain idempotent and keep their original terms.
@@ -107,7 +113,7 @@ def test_pausing_preserves_accepted_coupon_terms_and_checkout(client, app, marke
 
 
 def test_pause_updates_homepage_current_ai_policy_and_stale_copy(client, app, marketing):
-    assert 'id="setup-offer-title"' in client.get('/').text
+    assert 'id="setup-offer-title"' not in client.get('/').text
     assert update(client, setup_enabled=False).status_code == 200
     assert 'id="setup-offer-title"' not in client.get('/').text
     with app.app_context():
@@ -149,7 +155,7 @@ def test_platform_offer_fallback_uses_live_codes_without_hijacking_setup_help(cl
     with app.app_context():
         assert platform_offer_knowledge.automatic_setup_answer('How do I set up my widget?', 'EXAMPLE') is None
         assert platform_offer_knowledge.automatic_setup_answer('What offers do you have?', 'OTHER', all_offers=True) is None
-        assert 'free unpaid optional one-time assistance' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
+        assert 'SETUP is paused for new claims.' in platform_offer_knowledge.automatic_setup_answer('Tell me about the Setup offer', 'EXAMPLE')
     assert update(client, setup_enabled=False, highstreet_enabled=False).status_code == 200
     monkeypatch.setattr(referrals, 'public_offer', lambda tenant: {'enabled': False})
     with app.app_context():

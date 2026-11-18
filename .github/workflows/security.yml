@@ -46,8 +46,7 @@ jobs:
         with:
           node-version: "22"
       - name: Audit console lockfile
-        working-directory: frontend
-        run: npm audit --package-lock-only --audit-level=low
+        run: node scripts/audit-console-dependencies.mjs
 
   secret-scan:
     name: Secret Scan (TruffleHog)

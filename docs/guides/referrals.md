@@ -4,9 +4,11 @@ Owners can share their referral code/link in Account & security or Subscription
 → Refer a business. The homepage advertises the current enabled offer. Shared
 links preserve the code through sign-in in session storage; owners explicitly
 accept it above the plan/checkout controls before creating checkout.
-The current offer gives a new referred business 40% off its first subscription
-month and **zero setup fee** (a once-only 100% setup discount). The referrer earns
-40% off one subscription month and any unpaid setup fee. New businesses must
+The current offer gives a new referred business 20% off its first subscription
+month and 50% off its unpaid one-time setup assistance. The referrer earns
+20% off one subscription month and any unpaid setup assistance. SETUP is retired
+for new claims. MHIGHSTREET retains free assistance and 50% off the first month.
+Accepted claims and earned rewards retain their saved percentages. New businesses must
 accept before their first checkout; the
 referrer earns a reward only after V7 retrieves and verifies the referred
 business's positive, paid first subscription invoice from Stripe.

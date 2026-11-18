@@ -1,7 +1,7 @@
 """Search discovery for public marketing pages only."""
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from flask import Blueprint, Response, abort, current_app, render_template, request, send_from_directory
+from flask import Blueprint, Response, abort, current_app, jsonify, render_template, request, send_from_directory, session, redirect
 
 from app.middleware import NON_INDEXABLE_PREFIXES
 from service.public_site_content import SOLUTIONS
@@ -13,6 +13,59 @@ from service.plan_catalog import public_plans, vat_percent
 
 
 bp = Blueprint("public_seo", __name__)
+
+
+@bp.route('/contact', methods=['GET', 'POST'])
+def contact_page():
+    import secrets
+    from service.account_service import valid_account_email
+    from service import business_operations
+    tenant = current_app.container.settings.PLATFORM_MARKETING_TENANT
+    available = bool(tenant and current_app.container.storage.tenant_exists(tenant))
+    session.setdefault('enquiry_request_id', secrets.token_hex(16))
+    error = ''
+    if request.method == 'POST':
+        if not available:
+            abort(503)
+        request_id = request.form.get('request_id')
+        if request_id not in {session.get('enquiry_request_id'), session.get('enquiry_last_request')} or not isinstance(request_id, str):
+            abort(400)
+        email = request.form.get('email', '').strip().lower()
+        name = request.form.get('business_name', '').strip()
+        message = request.form.get('message', '').strip()
+        if (not valid_account_email(email) or len(email)>254 or not 1<=len(name)<=120
+                or not 10<=len(message)<=1800 or '\x00' in name+message):
+            error = 'Enter your business name, a valid email and a message of 10–1,800 characters.'
+        else:
+            try:
+                reference = business_operations.request_support(tenant, email, 'demo', name+'\n'+message, request_id)
+                session['enquiry_receipt'] = reference
+                session['enquiry_last_request'] = request_id
+                session.pop('enquiry_request_id', None)
+                return redirect('/contact?sent=1', code=303)
+            except ValueError:
+                error = 'Your request could not be saved. Check your details or email info@vertex-seven.com.'
+    reference = session.get('enquiry_receipt') if request.args.get('sent') == '1' else None
+    response = current_app.make_response(render_template('public_contact.html', available=available, error=error, reference=reference))
+    response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+    return response, 400 if error else 200
+
+
+@bp.post('/marketing/attribution')
+def campaign_attribution():
+    """Retain only confirmed profile labels after optional analytics consent."""
+    import time
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {'source'}:
+        abort(400)
+    source = data['source']
+    if source is None:
+        session.pop('profile_campaign', None)
+    elif source in ('instagram', 'tiktok') and request.cookies.get('v7_analytics_consent') == 'v1:granted':
+        session['profile_campaign'] = {'source': source, 'created': int(time.time())}
+    else:
+        abort(400)
+    return jsonify(ok=True)
 
 
 def _site_origin():

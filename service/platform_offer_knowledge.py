@@ -17,7 +17,7 @@ def setup_support() -> str:
     from service.platform_promotions import public_flags
     flags = public_flags()
     text = ('Your workspace includes the embed snippet and step-by-step guidance; your team or website developer adds and tests it. '
-            'Optional one-time assistance is a paid add-on: guided help with setup, without Vertex Seven signing in to your accounts. '
+            'Optional one-time assistance costs £100 before applicable tax or an accepted discount. It covers help importing authorised business data, fixing AI answers and improving responses, and guidance for phone, email and WhatsApp setup where included in your plan. Public website imports require your authorisation and review. '
             'A business that sets itself up does not need it. '
             'Website editing, installation by Vertex Seven, custom development and third-party integrations '
             'are not included as a done-for-you implementation service. ')
