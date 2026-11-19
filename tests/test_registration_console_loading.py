@@ -24,7 +24,11 @@ source+=`globalThis.h={refresh,submit,state:()=>({loaded,busy,error,state}),
  setup:()=>{email='applicant@synthetic.test';password='Synthetic-test-password-123';tenant='NEWCO';businessName='Test business';},
  verify:()=>{state={status:'verification',email:'applicant@synthetic.test',tenant:'NEWCO'};code='123456';}};`;
 const timers=new Map(),calls=[];let id=0,destroy,stalled=true,sessionReads=0,release;
-const context=vm.createContext({AbortController,
+const helpers={exports:{},URLSearchParams};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('frontend/src/lib/referral-link.ts','utf8'),
+ {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,helpers);
+const referral='V7-'+'AB'.repeat(16);
+const context=vm.createContext({AbortController,...helpers.exports,window:{location:{search:'?ref='+referral}},
  onMount:()=>{},onDestroy:callback=>{destroy=callback;},createEventDispatcher:()=>()=>{},
  setTimeout:(callback,delay)=>{const key=++id;timers.set(key,{callback,delay});return key;},clearTimeout:key=>timers.delete(key),
  fetch:async(path,{signal,...options})=>{
@@ -50,6 +54,7 @@ const h=context.h,flush=()=>new Promise(resolve=>setImmediate(resolve));
  if(scenario==='expired-cookie') {
    await pending;assert.equal(sessionReads,2);
    const submission=calls.find(call=>call.path==='/auth/register');
+   assert.equal(JSON.parse(submission.body).referral_code,referral);
    assert.equal(submission.headers['X-CSRF-Token'],'fresh');assert.equal(submission.credentials,'same-origin');
    assert.equal(h.state().state.status,'verification');
  } else if(scenario==='destroy') {
