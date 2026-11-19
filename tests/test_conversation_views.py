@@ -98,3 +98,19 @@ def test_workspace_search_finds_older_records_and_respects_the_tenant(client, ap
     leads = client.get('/admin/api/leads', query_string=params).json
     assert [row['lead_id'] for row in leads] == ['EXAMPLE-lead']
     assert client.get('/admin/api/leads?tenant=EXAMPLE&lead_id=OTHER-lead').json == []
+
+
+def test_contact_search_checks_permission_channel_date_and_retained_history(client, app):
+    analytics_db.upsert_lead(tenant='EXAMPLE', lead_id='buyer', name='Amelia Brown', phone='555123456')
+    with analytics_db._conn() as db:
+        db.execute("INSERT INTO events(ts_utc,tenant,event_type,channel,lead_id,session_id,text) "
+                   "VALUES('2022-02-18T11:15:00Z','EXAMPLE','msg_in','whatsapp','buyer','thread-one','Delivery enquiry')")
+    sign_in(client)
+    def search(query, channel='whatsapp'):
+        return client.get('/admin/api/conversations', query_string={'q':query,'period':'all','channel':channel}).json['messages']
+    for query in ['AmEL','12345','deliv 2022-02','WhatsApp']:
+        assert [row['text'] for row in search(query)] == ['Delivery enquiry']
+    assert not search('Brown','email')
+    sign_in(client,'business_staff',permissions=['conversations.read'])
+    assert not search('12345')
+    assert len(search('delivery')) == 1

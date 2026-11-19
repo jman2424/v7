@@ -27,7 +27,7 @@ export async function loadSearchRecords(items:SectionResult[],tenant:string,apiP
     const query=new URLSearchParams({tenant});
     if(search)query.set('q',search.slice(0,150));
     if(page.key==='pipeline')query.set('limit','50');
-    if(page.key==='conversations')query.set('minutes','43200');
+    if(page.key==='conversations')query.set('period','all');
     const response=await fetch(apiPrefix+((page.key==='subscription'||page.key==='support')?'/billing/':'/admin/api/')+sources[page.key]+'?'+query,{credentials:'same-origin',cache:'no-store',signal});
     if(!response.ok)throw Error('search source unavailable');
     const data=await response.json();
@@ -136,7 +136,7 @@ export function revealSearchTarget(){
 }
 
 export const searchTopics = [
-  ['account','Business referrals','#business-referrals','referral link reward code invite'],
+  ['subscription','Business referrals','#business-referrals','referral link reward code invite'],
   ['budget','AI budget','#ai-budget','credit prepaid funds automatic recharge balance spending limits'],
   ['website','Test agent','test','preview simulate conversation chatbot'],
   ['website','Website installation','install','embed snippet iframe approved domains install'],

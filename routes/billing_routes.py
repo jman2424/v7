@@ -139,7 +139,12 @@ def cancel_subscription_post():
 def referrals_get():
     from service import referrals
     tenant = _tenant()
-    return jsonify(referrals.report(tenant, _owner()['email'], get_container().settings.BASE_URL.rstrip('/')))
+    from service.registration import signup_referral
+    owner = _owner()
+    result = referrals.report(tenant, owner['email'], get_container().settings.BASE_URL.rstrip('/'))
+    if not result['claim']:
+        result['signup_code'] = signup_referral(tenant, owner)
+    return jsonify(result)
 
 
 @bp.post('/referrals/<action>')

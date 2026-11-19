@@ -1,5 +1,6 @@
 """Verified owner onboarding and owner-approved, least-privilege join requests."""
 import json
+import re
 import secrets
 import time
 from contextlib import contextmanager
@@ -34,6 +35,18 @@ def _database():
 
 def _execute(db, sql, params=()):
     return db.execute(sql.replace('?', '%s') if session_store._using_postgres() else sql, params)
+
+
+def signup_referral(tenant, user):
+    account_id = user.get('id') or ''
+    if not account_id.startswith('signup:'):
+        return ''
+    with _database() as db:
+        _schema(db)
+        row = _execute(db, "SELECT application FROM registration_requests WHERE id=? AND tenant=? "
+                       "AND email=? AND kind='owner' AND status='approved'",
+                       (account_id[7:], tenant, user['email'].lower())).fetchone()
+    return json.loads(row[0]).get('referral_code', '') if row else ''
 
 
 def _lock_request_key(db, key):
@@ -93,6 +106,9 @@ def start(data):
         if not policy['intake_enabled']:
             raise applications.ApplicationError('business_application_intake_closed', 503)
         application = applications.validate_details(data, policy=policy)
+        referral = data.get('referral_code')
+        if isinstance(referral, str) and re.fullmatch(r'V7-[0-9A-F]{32}', referral, re.IGNORECASE):
+            application['referral_code'] = referral.upper()
         application.update(accepted_terms=True, policy_version=policy['policy_version'])
     now = time.time()
     request_id = secrets.token_urlsafe(32)

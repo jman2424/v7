@@ -1165,7 +1165,7 @@
     const params = new URLSearchParams(window.location.search);
     const referral = params.get('ref') || '';
     referralSaved = /^V7-[A-Fa-f0-9]{32}$/.test(referral);
-    const next = params.get('next');
+    const next = params.get('next') || (referralSaved && window.location.pathname.replace(/\/$/,'')===base ? 'subscription' : null);
     const requested=next?resolveWorkspace(next,params.get('view')||'',params.get('panel')||''):null;
     let destination = requested && mayOpenScreen(requested.section) ? requested.section : !mayOpenScreen(section) ? defaultWorkspaceScreen() : null;
     if (!destination && window.location.pathname.replace(/\/$/,'')===base) {

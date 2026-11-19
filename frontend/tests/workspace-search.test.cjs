@@ -37,7 +37,7 @@ test('message search queries retained history and a cancelled response cannot ad
   const pending=search.loadSearchRecords([page('conversations'),page('catalog')],'B','',controller.signal,rows=>records.push(...rows),false,'late order');
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(url.pathname,'/admin/api/conversations');assert.equal(url.searchParams.get('q'),'late order');
-  assert.equal(url.searchParams.get('minutes'),'43200');
+  assert.equal(url.searchParams.get('period'),'all');
   controller.abort();finish({messages:[{id:2,text:'late order'}]});
   await pending;assert.deepEqual(records,[]);
 });

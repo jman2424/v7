@@ -81,15 +81,17 @@ def report(tenant, identity, base_url):
                    (tenant,code,owner_hash(identity)))
         row = db.execute('SELECT code FROM referral_codes WHERE tenant=?',(tenant,)).fetchone()
         claim = db.execute('SELECT percent,joining_setup_percent,status FROM referral_claims WHERE tenant=?',(tenant,)).fetchone()
+        conversions = db.execute("SELECT COUNT(*) AS n FROM referral_rewards WHERE tenant=? "
+                                 "AND source_tenant<>tenant AND kind='platform'", (tenant,)).fetchone()['n']
         rewards = [dict(row) for row in db.execute('SELECT id,kind,percent,status FROM referral_rewards WHERE tenant=? ORDER BY created,id',(tenant,))]
     from service import subscriptions
     return {'program':program(tenant),'payments_configured':subscriptions.configured(),'code':row['code'],'link':base_url+'/console/?ref='+row['code'],
-            'claim':dict(claim) if claim else None,'rewards':rewards}
+            'referred_businesses_paid':conversions,'claim':dict(claim) if claim else None,'rewards':rewards}
 
 
 def claim(tenant, identity, code):
     from service import subscriptions
-    if not isinstance(code,str) or not re.fullmatch(r'V7-[A-Fa-f0-9]{32}',code.strip()):
+    if not isinstance(code,str) or not re.fullmatch(r'V7-[A-F0-9]{32}',code.strip().upper()):
         raise ValueError('invalid_referral_code')
     hashed = owner_hash(identity)
     with connection(tenant) as db:

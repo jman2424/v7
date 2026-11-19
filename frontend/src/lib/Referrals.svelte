@@ -8,7 +8,7 @@
   export let isPlatform=false;
   export let configured=false;
   type Reward={id:string;kind:string;percent:number;status:string};
-  type Report={program:{enabled:number;percent:number;joining_setup_percent:number;sponsor_setup_percent:number};payments_configured:boolean;code:string;link:string;claim:{percent:number;joining_setup_percent:number;status:string}|null;rewards:Reward[]};
+  type Report={signup_code?:string;referred_businesses_paid:number;program:{enabled:number;percent:number;joining_setup_percent:number;sponsor_setup_percent:number};payments_configured:boolean;code:string;link:string;claim:{percent:number;joining_setup_percent:number;status:string}|null;rewards:Reward[]};
   let data:Report|null=null;
   let code='';
   let busy=false;
@@ -16,6 +16,11 @@
   let message='';
   const dispatch=createEventDispatcher<{changed:void}>();
   const errors:Record<string,string>={invalid_referral_code:'Enter a valid referral code.',invalid_or_self_referral:'This code is invalid or belongs to your own business.',referral_already_accepted:'This business or owner has already accepted a referral.',referral_program_disabled:'New referrals are currently disabled.',referral_requires_new_business_before_checkout:'Accept a referral before your first checkout. Existing or complimentary businesses cannot claim a welcome discount.',referral_does_not_stack_with_existing_discount:'Your existing discount stays in place. This reward remains available.',active_paid_subscription_required:'An active paid subscription is needed to apply a renewal reward.',no_available_referral_reward:'No subscription reward is available.'};
+  async function shareLink(){
+    if(!data?.link)return;
+    try { await navigator.clipboard.writeText(data.link); message='Referral link copied.'; }
+    catch { const field=document.getElementById('referral-link') as HTMLInputElement|null; field?.focus();field?.select();message='Select and copy your referral link.'; }
+  }
   async function read(action='',body?:Record<string,unknown>){
     const response=await fetch(apiPrefix+'/billing/referrals'+(action?'/'+action:'')+'?tenant='+encodeURIComponent(tenant),{credentials:'same-origin',...(body?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)}:{})});
     const result=await response.json();
@@ -30,7 +35,7 @@
   }
   onMount(async()=>{
     code=referralCodeFromSearch(window.location.search);
-    try{data=await read();}catch(err){error=err instanceof Error?err.message:'Could not update referrals. Please refresh and try again.';}
+    try{data=await read();code ||= data?.signup_code || '';}catch(err){error=err instanceof Error?err.message:'Could not update referrals. Please refresh and try again.';}
   });
 </script>
 <section id="business-referrals" class="referrals" aria-labelledby="referral-heading">
@@ -43,7 +48,10 @@
     <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid assistance only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
     <p class="hint">{$t('Already-paid assistance fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
     <label for="referral-link">{$t('Your referral link')}</label><input id="referral-link" readonly value={data.link} dir="ltr" on:focus={(event)=>event.currentTarget.select()}/>
-    {#if data.claim}<p>{$t('Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid assistance.',{percent:data.claim.percent,setup_percent:data.claim.joining_setup_percent})}</p>
+    <button type="button" on:click={shareLink} disabled={!data.program.enabled}>{$t('Copy referral link')}</button>
+    <p>{$t('Referral code')} <bdi>{data.code}</bdi></p>
+    <p>{$t('Referred businesses that made their first payment')} <strong>{data.referred_businesses_paid}</strong></p>
+    {#if data.claim}<p>{$t(({pending:'Awaiting first payment',qualified:'First payment confirmed',review:'Payment under review'} as Record<string,string>)[data.claim.status] || 'Under review')}</p><p>{$t('Your accepted offer is saved: {percent}% off your first subscription month and {setup_percent}% off unpaid assistance.',{percent:data.claim.percent,setup_percent:data.claim.joining_setup_percent})}</p>
     {:else if data.program.enabled}<form on:submit|preventDefault={()=>action('claim',{code})}><label for="referral-code">{$t('Have a referral code?')}</label><div><input id="referral-code" bind:value={code} maxlength="35" dir="ltr" required/><button disabled={busy}>{$t('Accept referral')}</button></div></form>{/if}
     {#if data.rewards.length}<ul>{#each data.rewards as reward}<li>{$t(reward.kind==='platform'?'Subscription month':'Unpaid assistance fee')} · {reward.percent}% · {$t(({available:'Available',reserved:'Checkout pending',applied:'Applied to next invoice',used:'Used',review:'Under review'} as Record<string,string>)[reward.status]||'Under review')}</li>{/each}</ul>
       <button disabled={busy||!(configured||data.payments_configured)||data.rewards.some(reward=>reward.kind==='platform'&&['reserved','applied'].includes(reward.status))||!data.rewards.some(reward=>reward.kind==='platform'&&reward.status==='available')} on:click={()=>action('apply',{})}>{$t('Apply reward to next subscription month')}</button>
@@ -53,5 +61,5 @@
   {/if}
 </section>
 <style>
-  .referrals{border:1px solid #d7e1db;border-radius:var(--v7-radius-panel);padding:1.5rem;background:var(--v7-surface);margin:1.5rem 0}header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}h3{margin:0}header span,.hint{font-size:.9rem;color:#53625b}input{width:100%;min-width:0;padding:.75rem;border:1px solid #b6c5bc;border-radius:var(--v7-radius-control);margin:.4rem 0;box-sizing:border-box}form div{display:flex;align-items:center;gap:.6rem}button{padding:.75rem 1rem;border:0;border-radius:var(--v7-radius-control);background:#087d59;color:white;cursor:pointer}button:disabled{opacity:.55;cursor:default}.settings{border-top:1px solid #e0e6e2;margin-top:1.2rem;padding-top:1.2rem}li{margin:.4rem 0}@media(max-width:550px){form div{flex-wrap:wrap}.referrals{padding:1rem}}
+  .referrals{border:1px solid #d7e1db;border-radius:var(--v7-radius-panel);padding:1.5rem;background:var(--v7-surface);margin:1.5rem 0}header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}h3{margin:0}bdi{overflow-wrap:anywhere}header span,.hint{font-size:.9rem;color:#53625b}input{width:100%;min-width:0;padding:.75rem;border:1px solid #b6c5bc;border-radius:var(--v7-radius-control);margin:.4rem 0;box-sizing:border-box}form div{display:flex;align-items:center;gap:.6rem}button{padding:.75rem 1rem;border:0;border-radius:var(--v7-radius-control);background:#087d59;color:white;cursor:pointer}button:disabled{opacity:.55;cursor:default}.settings{border-top:1px solid #e0e6e2;margin-top:1.2rem;padding-top:1.2rem}li{margin:.4rem 0}@media(max-width:550px){form div{flex-wrap:wrap}.referrals{padding:1rem}}
 </style>

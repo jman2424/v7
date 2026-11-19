@@ -1,6 +1,6 @@
 <script lang="ts">
   import {recordAnchor} from './workspaceSearch';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { t } from './i18n';
   import { sourceTitle, sourceProblem, agoText, syncingText, reasonText, issueText, importError, changeTitle, permissionText } from './dataSourceText';
   import type { Source, Row, Change, Listing } from './dataSourceText';
@@ -53,14 +53,17 @@
   async function act(work: () => Promise<void>, done = '') {
     if (busy) return;
     busy = true; error = ''; status = '';
-    try { await work(); status = done; await load(); }
+    try { await work(); if(done)status = done; await load(); }
     catch (failure) { if (!controller.signal.aborted) error = importError(failure instanceof Error ? failure.message : ''); }
     finally { busy = false; }
   }
 
-  function begin(kind: typeof adding, sourceId = '') {
+  let formHeading:HTMLHeadingElement;
+  async function begin(kind: typeof adding, sourceId = '') {
+    selection++;automatic=true;autoApply=false;
     adding = kind; authorised = false; form = {}; fileText = ''; fileName = ''; completeList = false;
     refreshSource = sourceId; instant = null; status = ''; error = '';
+    await tick();formHeading?.focus();
   }
 
   async function connectWebsite() {
@@ -78,12 +81,21 @@
     instant = data.instant_updates; adding = '';
   }, 'Connected. The first import will appear here for your approval — nothing is added until you approve it.');
 
+  let selection=0;
   async function chooseFile(event: Event) {
     const file = (event.currentTarget as HTMLInputElement).files?.[0];
+    const version=++selection;
+    fileText='';fileName='';error='';
     if (!file) return;
+    if (!/\.(csv|json)$/i.test(file.name)) { error='Choose a CSV or JSON file.';return; }
     if (file.size > 900_000) { error = importError('import_too_large'); return; }
     fileName = file.name; fileFormat = file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv';
-    fileText = await file.text();
+    try {
+      const content=await file.text();
+      if(version!==selection)return;
+      if(!content.trim()) { error='The selected file is empty.';return; }
+      fileText=content;
+    } catch { if(version===selection)error='Could not read this file. Select it again.'; }
   }
 
   const upload = () => act(async () => {
@@ -242,8 +254,8 @@
     {/if}
 
     {#if manage && !adding}
-      <div class="add">
-        <h3>{$t('Add a source')}</h3>
+      <details class="add">
+        <summary>{$t('Add a source')}</summary>
         <div class="choices">
           <button type="button" on:click={() => begin('woocommerce')}><strong>WooCommerce</strong><span>{$t('Products, prices and stock')}</span></button>
           <button type="button" on:click={() => begin('shopify')}><strong>Shopify</strong><span>{$t('Products, prices and stock')}</span></button>
@@ -251,12 +263,12 @@
           {#if !listing.sources.some(source => source.kind === 'website' && source.host === listing?.website)}<button type="button" on:click={() => begin('website')}><strong>{$t('Your website')}</strong><span>{$t('Public pages, read with your permission')}</span></button>{/if}
           <button type="button" on:click={() => begin('upload')}><strong>{$t('Upload a file')}</strong><span>{$t('Spreadsheet (CSV) or prepared import file')}</span></button>
         </div>
-      </div>
+      </details>
     {/if}
 
     {#if adding}
       <form class="connect" on:submit|preventDefault={adding === 'upload' ? upload : adding === 'website' ? connectWebsite : connect}>
-        <h3>{$t(adding === 'upload' ? (refreshSource ? 'Import an updated file' : 'Upload a file') : adding === 'website' ? 'Let V7 read your website' : 'Connect your store')}</h3>
+        <h3 tabindex="-1" bind:this={formHeading}>{$t(adding === 'upload' ? (refreshSource ? 'Import an updated file' : 'Upload a file') : adding === 'website' ? 'Let V7 read your website' : 'Connect your store')}</h3>
         {#if adding === 'website'}
           {#if listing.website}
             <p class="site">{$t('Website')}: <strong>{listing.website}</strong></p>
@@ -268,7 +280,7 @@
             </ul>
             <label class="check"><input type="checkbox" bind:checked={automatic} />{$t('Read my website again once a day')}</label>
           {:else}
-            <p class="issue">{$t('Save your public https:// website address in Business profile first.')}</p>
+            <p class="issue">{$t('Save your public https:// website address in Business profile first.')} <a href={'?'+new URLSearchParams({tenant,view:'profile'})}>{$t('Business profile')}</a></p>
           {/if}
         {:else if adding === 'woocommerce'}
           <label>{$t('Store address')}<input type="url" required placeholder="https://your-shop.com" bind:value={form.store_url} /></label>
@@ -365,7 +377,7 @@
   fieldset{border:1px solid var(--v7-line);border-radius:var(--v7-radius-control);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;min-inline-size:0}
   ul{list-style:none;margin:0;padding:0}li{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;padding:8px 0;border-block-end:1px solid var(--v7-line);font-size:var(--v7-text-sm)}
   .permissions{background:var(--v7-surface);border:1px solid var(--v7-line);border-radius:var(--v7-radius-panel);padding:12px 20px}
-  .permissions summary{min-block-size:44px;align-content:center;font-weight:600;cursor:pointer}.permissions li{overflow-wrap:anywhere}
+  .add summary,.permissions summary{min-block-size:44px;align-content:center;font-weight:600;cursor:pointer}.permissions li{overflow-wrap:anywhere}
   .site{margin:0;overflow-wrap:anywhere}.plain{display:grid;gap:6px;padding-inline-start:20px;list-style:disc;color:var(--v7-ink-soft,var(--v7-muted));font-size:var(--v7-text-sm);line-height:1.5}.plain li{display:list-item;border:0;padding:0}
   pre{overflow:auto;font-size:var(--v7-text-xs);background:var(--v7-soft);padding:12px;border-radius:var(--v7-radius-control)}
 </style>

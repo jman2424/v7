@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TrendChart from './TrendChart.svelte';
   import { createEventDispatcher } from 'svelte';
   import { base } from './consoleBase';
   import type { Stats } from './statisticsTypes';
@@ -24,7 +25,6 @@
   $: averageSeconds = timedReplies > 0 ? data.replies.total.response_seconds / timedReplies : null;
   $: unmatchedMessages = Math.max(0, data.replies.total.eligible - data.replies.total.replied);
   $: activeChannels = data.channels.filter(row => row.inbound || row.outbound || row.sessions);
-  $: chartMax = Math.max(1, ...data.daily.flatMap(row => [row.inbound, row.outbound]));
   $: busiestDay = data.daily.filter(row => row.inbound > 0).reduce<(typeof data.daily)[number] | null>((best, row) => !best || row.inbound > best.inbound ? row : best, null);
   $: topProducts = data.commerce.products.filter(product => product.interest > 0).slice().sort((a, b) => b.interest - a.interest || a.name.localeCompare(b.name)).slice(0, 5);
   $: totalProductInterest = data.commerce.products.reduce((sum, product) => sum + product.interest, 0);
@@ -43,9 +43,6 @@
     ...(data.current.errors > 0 ? [{ label: 'Recorded error events', count: data.current.errors, detail: 'Inspect the recorded breakdown and affected conversations.', view: 'quality' as ReportView, action: 'Inspect error breakdown' }] : []),
     ...(data.current.handoffs > 0 ? [{ label: 'Conversations requesting a person', count: data.current.handoffs, detail: 'A request count; it does not show whether a handoff was completed.', view: 'sales' as ReportView, action: 'View lead activity' }] : [])
   ];
-  function points(key: 'inbound' | 'outbound') {
-    return data.daily.map((row, index) => `${48 + index * 820 / Math.max(1, data.daily.length - 1)},${205 - row[key] * 170 / chartMax}`).join(' ');
-  }
 </script>
 
 <div class="overview">
@@ -64,14 +61,10 @@
     <article class="card activity-card">
       <header><div><h3>Customer activity</h3><p>Daily customer messages and agent replies</p></div><button class="text-button" on:click={() => dispatch('view', 'performance')}>Explore trends <span aria-hidden="true">↗</span></button></header>
       {#if data.current.inbound || data.current.outbound}
-        <div class="legend"><span class="customer"><i aria-hidden="true"></i>Customer messages</span><span class="agent"><i aria-hidden="true"></i>Agent replies</span></div>
-        <svg viewBox="0 0 920 245" role="img" aria-label="Daily customer messages and agent replies. Exact daily figures are available below.">
-          {#each [0, .5, 1] as fraction}<line x1="48" x2="868" y1={205 - fraction * 170} y2={205 - fraction * 170} stroke="var(--v7-line)"/><text x="40" y={209 - fraction * 170} text-anchor="end">{number(chartMax * fraction)}</text>{/each}
-          <polygon points={'48,205 ' + points('inbound') + ' 868,205'} fill="#087f5b0c"/>
-          <polyline points={points('inbound')} fill="none" stroke="#087f5b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          <polyline points={points('outbound')} fill="none" stroke="#64716d" stroke-width="3" stroke-dasharray="7 4" stroke-linecap="round" stroke-linejoin="round"/>
-          <text x="48" y="233">{data.daily[0]?.day || ''}</text><text x="868" y="233" text-anchor="end">{data.daily[data.daily.length - 1]?.day || ''}</text>
-        </svg>
+        <TrendChart title="Daily customer messages and agent replies" periodLabel="Date (UTC)" yAxis="Messages" labels={data.daily.map(row=>row.day)} series={[
+          {name:'Customer messages',values:data.daily.map(row=>row.inbound),color:'#087f5b'},
+          {name:'Agent replies',values:data.daily.map(row=>row.outbound),color:'#64716d'}
+        ]}/>
         <div class="activity-summary"><span><strong>{data.current.sessions ? number(data.current.inbound / data.current.sessions) : 'No data'}</strong> customer messages per conversation</span>{#if busiestDay}<span><strong>{busiestDay.day}</strong> busiest day · {number(busiestDay.inbound)} messages</span>{/if}</div>
       {:else}<div class="section-empty"><strong>No messages recorded</strong><p>Daily trends appear as customer activity is recorded for this view.</p></div>{/if}
       <details><summary>View daily figures</summary>
@@ -152,12 +145,6 @@
   a, .text-button { display:inline-flex; align-items:center; justify-content:flex-start; gap:8px; box-sizing:border-box; min-height:44px; max-width:100%; padding:8px 0; border:0; border-radius:var(--v7-radius-control); background:transparent; color:var(--v7-accent, var(--v7-accent)); font:inherit; font-size:var(--v7-text-xs); font-weight:600; line-height:1.5; text-align:left; text-decoration:none; cursor:pointer; }
   a:hover, .text-button:hover { text-decoration:underline; text-underline-offset:3px; }
   header > :is(a, .text-button) { margin-top:-7px; }
-  .legend { display:flex; flex-wrap:wrap; gap:18px; margin:22px 0 12px; font-size:var(--v7-text-xs); color:var(--v7-muted, var(--v7-muted)); }
-  .legend span { display:inline-flex; align-items:center; gap:8px; }
-  .legend i { width:20px; border-top:3px solid var(--v7-accent, var(--v7-accent)); }
-  .legend .agent i { border-top-style:dashed; border-color:var(--v7-muted, var(--v7-muted)); }
-  svg { display:block; width:100%; height:auto; min-height:140px; }
-  svg text { font:11px system-ui; fill:var(--v7-muted, var(--v7-muted)); }
   .activity-summary { display:flex; flex-wrap:wrap; gap:10px 24px; padding-top:14px; color:var(--v7-muted, var(--v7-muted)); font-size:var(--v7-text-xs); line-height:1.6; }
   .activity-summary strong { color:var(--v7-ink, var(--v7-ink)); font-weight:600; }
   details { margin-top:16px; padding-top:4px; border-top:1px solid var(--v7-line, var(--v7-line)); }

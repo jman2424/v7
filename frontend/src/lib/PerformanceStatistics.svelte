@@ -26,21 +26,21 @@
     <article><h3>Messages without a recorded reply</h3><strong>{replies.total.eligible-replies.total.replied}</strong><p>Of {replies.total.eligible} tracked inbound messages, as of the report end. {replies.total.inbound-replies.total.eligible} older messages without IDs are excluded from rates.</p></article>
     <article><h3>Current lead win rate</h3><strong>{fmt(ratio(pipeline.Won||0,(pipeline.Won||0)+(pipeline.Lost||0)))}</strong><p>Won ÷ (Won + Lost), using current owner-managed statuses across all time and channels. This is not a product purchase rate.</p></article>
   </div>
-  <TrendChart title="Reply and answer success rates" {labels} ceiling={100} unit="%" series={[
+  <TrendChart periodLabel="Date (UTC)" yAxis="Eligible messages (%)" title="Reply and answer success rates" {labels} ceiling={100} unit="%" series={[
     {name:'Reply rate',color:'#087f5b',values:rates.map(row=>row?ratio(row.replied,row.eligible):null)},
     {name:'Answer success rate',color:'#64716d',values:rates.map(row=>row?ratio(row.answered,row.eligible):null)}]}/>
   <p class="hint">Rates follow inbound messages received on each day and replies recorded before the report end. Gaps mean no eligible messages. A generated reply is not proof of delivery or a successful sale.</p>
-  <div class="chart-grid"><TrendChart title="Inbound vs outbound queries" {labels} series={[
+  <div class="chart-grid"><TrendChart periodLabel="Date (UTC)" yAxis="Messages" title="Inbound vs outbound queries" {labels} series={[
     {name:'Inbound customer messages',color:'#087f5b',values:daily.map(row=>row.inbound)},
     {name:'Outbound agent replies',color:'#64716d',values:daily.map(row=>row.outbound)}]}/>
-  <TrendChart title="Fallback and error timeline" {labels} series={[
+  <TrendChart periodLabel="Date (UTC)" yAxis="Recorded events" title="Fallback and error timeline" {labels} series={[
     {name:'Fallback replies',color:'#996419',values:daily.map(row=>row.fallbacks)},
     {name:'Recorded errors',color:'#ad3939',values:daily.map(row=>row.errors)}]}/></div>
-  <TrendChart title="Busiest hours (UTC)" labels={Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00')} series={[
+  <TrendChart periodLabel="Hour of day (UTC)" yAxis="Messages" reportRange={labels} title="Busiest hours (UTC)" labels={Array.from({length:24},(_,i)=>String(i).padStart(2,'0')+':00')} series={[
     {name:'Inbound',color:'#087f5b',values:Array.from({length:24},(_,i)=>hours.find(row=>Number(row.hour)===i)?.inbound||0)},
     {name:'Outbound',color:'#64716d',values:Array.from({length:24},(_,i)=>hours.find(row=>Number(row.hour)===i)?.outbound||0)}]}/>
   <label>Query topic<select bind:value={topic}><option value="">All query topics</option>{#each topicNames as name}<option value={name}>{name.replaceAll('_',' ')}</option>{/each}</select></label>
-  <TrendChart title="Query topic timeline" {labels} series={[{name:topic?topic.replaceAll('_',' '):'All topics',color:'#087f5b',values:labels.map(day=>topics.filter(row=>row.day===day&&(!topic||row.topic===topic)).reduce((sum,row)=>sum+row.count,0))}]}/>
+  <TrendChart periodLabel="Date (UTC)" yAxis="Classified replies" title="Query topic timeline" {labels} series={[{name:topic?topic.replaceAll('_',' '):'All topics',color:'#087f5b',values:labels.map(day=>topics.filter(row=>row.day===day&&(!topic||row.topic===topic)).reduce((sum,row)=>sum+row.count,0))}]}/>
   <p class="hint">Topics are classified from agent responses. Inbound queries without a reply may not have a topic.</p>
 </div>
 <style>

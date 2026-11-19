@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {referralCodeFromSearch} from './referral-link';
   import { t } from './i18n';
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   export let csrf = '';
@@ -55,6 +56,7 @@
       const {response,data}=await requestJson(verifying?'/auth/register/confirm':'/auth/register',{
         method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
         body:JSON.stringify(verifying?{code}:{email,password,tenant:kind==='join'?tenant:'',business_name:businessName,kind,
+          referral_code:kind==='owner'?referralCodeFromSearch(window.location.search):'',
           website,description,accepted_terms:acceptedTerms,policy_version:applicationPolicy.policy_version})});
       if(!alive)return;
       if(!response.ok)throw new Error(data.error || 'The request could not be completed.');

@@ -1733,41 +1733,55 @@ def api_conversations():
     from service import session_store
     from service.conversation_views import conversation_message
     tenant = _norm_tenant(_tenant())
-    since = _since(_int_arg("minutes", 1440, maximum=43200))
+    since = None if request.args.get("period") == "all" else _since(_int_arg("minutes", 1440, maximum=43200))
     try:
         before = int(request.args.get("before", "9223372036854775807"))
     except ValueError:
         abort(400)
     if not 1 <= before <= 9223372036854775807:
         abort(400)
+    channel = request.args.get('channel', '').strip().lower()
+    if len(channel) > 50:
+        abort(400)
     terms = search_terms(request.args.get('q', '')[:150])
-    def matches(mark):
-        return (" AND LOWER(COALESCE(text,'') || ' ' || channel) LIKE " + mark + " ESCAPE '!'") * len(terms)
+    postgres = session_store._using_postgres()
+    mark = '%s' if postgres else '?'
+    schema = 'v7_private.' if postgres else ''
+    filters = [f'm.id < {mark}']
+    args = [tenant, before]
+    if since:
+        filters.append(f'm.ts_utc >= {mark}')
+        args.append(since)
+    if channel:
+        filters.append(f'LOWER(m.channel) = {mark}')
+        args.append(channel)
+    contacts = bool(terms) and has_permission(management_user(), 'customers.read')
+    for term in terms:
+        predicate = f"LOWER(COALESCE(m.text,'') || ' ' || m.channel || ' ' || CAST(m.ts_utc AS TEXT)) LIKE {mark} ESCAPE '!'"
+        args.append(term)
+        if contacts:
+            predicate += (f" OR EXISTS (SELECT 1 FROM {schema}leads l WHERE l.tenant={mark} "
+                          "AND ((m.lead_id NOT IN ('','unknown') AND l.lead_id=m.lead_id) OR "
+                          "(m.session_id NOT IN ('','unknown') AND l.last_session_id=m.session_id)) "
+                          f"AND LOWER(COALESCE(l.name,'') || ' ' || COALESCE(l.phone,'')) LIKE {mark} ESCAPE '!')")
+            args.extend([tenant, term])
+        filters.append('(' + predicate + ')')
+    # Keep public message numbers scoped to this business across searches and pages.
+    sql = (f"WITH tenant_messages AS (SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, "
+           f"channel,event_type,text,session_id,lead_id FROM {schema}events WHERE tenant={mark} "
+           "AND event_type IN ('msg_in','msg_out','navigation_click')) "
+           "SELECT m.id,m.ts_utc,m.channel,m.event_type,m.text,m.session_id FROM tenant_messages m WHERE "
+           + ' AND '.join(filters) + " ORDER BY m.id DESC LIMIT 51")
     _ensure_ready()
-    if session_store._using_postgres():
+    if postgres:
         from psycopg.rows import dict_row
-        with session_store.postgres_connection(tenant) as db:
-            with db.cursor(row_factory=dict_row) as cursor:
-                rows = cursor.execute(
-                    "WITH tenant_messages AS ("
-                    "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
-                    "FROM v7_private.events WHERE tenant=%s AND event_type IN ('msg_in','msg_out','navigation_click')) "
-                    "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
-                    "WHERE id<%s AND ts_utc>=%s" + matches("%s") + " ORDER BY id DESC LIMIT 51",
-                    (tenant, before, since, *terms),
-                ).fetchall()
-        return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
-                       next_before=rows[49]["id"] if len(rows) > 50 else None)
-    with _conn() as db:
-        rows = db.execute(
-            "WITH tenant_messages AS ("
-            "SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, channel, event_type, text, session_id "
-            "FROM events WHERE tenant=? AND event_type IN ('msg_in','msg_out','navigation_click')) "
-            "SELECT id, ts_utc, channel, event_type, text, session_id FROM tenant_messages "
-            "WHERE id<? AND ts_utc>=?" + matches("?") + " ORDER BY id DESC LIMIT 51", (tenant, before, since, *terms)
-        ).fetchall()
-    return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]], has_more=len(rows) > 50,
-                   next_before=rows[49]["id"] if len(rows) > 50 else None)
+        with session_store.postgres_connection(tenant) as db, db.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(sql, args).fetchall()
+    else:
+        with _conn() as db:
+            rows = db.execute(sql, args).fetchall()
+    return jsonify(messages=[conversation_message(row, tenant, current_app.secret_key) for row in rows[:50]],
+                   has_more=len(rows) > 50, next_before=rows[49]["id"] if len(rows) > 50 else None)
 
 
 @bp.get("/integrations")

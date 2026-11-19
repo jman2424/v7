@@ -21,10 +21,10 @@ def mailbox(monkeypatch, app):
     return messages
 
 
-def request_account(client, kind='owner', tenant='NEWCO'):
+def request_account(client, kind='owner', tenant='NEWCO', referral_code=''):
     return client.post('/auth/register', json={
         'email':'new@testing.test', 'password':'Signup-test-password-123',
-        'kind':kind, 'tenant':tenant, 'business_name':'New company',
+        'kind':kind, 'tenant':tenant, 'referral_code':referral_code, 'business_name':'New company',
         'description':'A retail business', 'accepted_terms':True, 'policy_version':'draft-2',
         'roles':['platform_admin'], 'active':True, 'permissions':['view_costs']})
 
@@ -184,3 +184,21 @@ def test_signup_requires_csrf_and_same_origin(app, mailbox):
     csrf = browser.get('/auth/session').json['csrf_token']
     assert browser.post('/auth/register', json={}, headers={'X-CSRF-Token':csrf,'Origin':'https://attacker.example'}).status_code == 403
     assert not mailbox
+
+
+def test_signup_referral_survives_verification_and_login(client, mailbox):
+    from service import referrals
+    sponsor = referrals.report('EXAMPLE', 'sponsor@testing.test', 'https://example.test')
+    assert request_account(client, referral_code=sponsor['code']).status_code == 202
+    assert client.post('/auth/register/confirm', json={'code':mailbox['new@testing.test']}).status_code == 200
+    login = client.post('/auth/login', json={'tenant':'NEWCO','email':'new@testing.test','password':'Signup-test-password-123'})
+    token = generate_totp_token(login.json['mfa']['setup_key'])
+    assert client.post('/auth/mfa/confirm', json={'code':token}).status_code == 200
+    report = client.get('/billing/referrals?tenant=NEWCO').json
+    assert report['claim'] is None and report['signup_code'] == sponsor['code']
+    assert client.post('/billing/referrals/claim?tenant=NEWCO', json={'code':report['signup_code'].lower()}).status_code == 200
+    assert client.get('/billing/referrals?tenant=NEWCO').json['claim']['status'] == 'pending'
+    invoice = {'id':'in_signup','status':'paid','amount_paid':100,'billing_reason':'subscription_create'}
+    for _ in range(2):
+        referrals.qualified_payment('NEWCO','platform',invoice)
+    assert referrals.report('EXAMPLE','sponsor@testing.test','https://example.test')['referred_businesses_paid'] == 1

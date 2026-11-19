@@ -11,8 +11,8 @@
   export let showViewSwitcher=true;
   type Message = InboxMessage;
   let query='',channel='',selectedThread='',threadOpen=false;
-  $: channels=[...new Set(messages.map(message=>message.channel))];
-  $: threads=conversationThreads(messages,channel,query);
+  $: channels=[...new Set(['web','whatsapp','email','phone',channel,...messages.map(message=>message.channel)])].filter(Boolean);
+  $: threads=conversationThreads(messages,'','');
   $: currentThread=threads.find(thread=>thread.key===selectedThread)||threads[0];
   type Lead = { lead_id: string; name?: string; phone?: string; status?: string; updated_utc: string };
   type Question = { question: string; count: number };
@@ -21,7 +21,7 @@
     { key: 'questions', title: 'Common questions' }
   ];
   let view: View = initialView;
-  let minutes = 1440;
+  let minutes = initialView==='messages'?0:1440;
   let messages: Message[] = [];
   let leads: Lead[] = [];
   let questions: Question[] = [];
@@ -30,20 +30,31 @@
   let error = '';
   let mounted = false;
   let controller: AbortController | undefined;
-  $: if (mounted) refresh(tenant, view, minutes);
+  let debounce:ReturnType<typeof setTimeout>;
+  function schedule(company:string,selected:View,period:number,text:string,filter:string){
+    clearTimeout(debounce);controller?.abort();controller=undefined;
+    nextBefore=null;error='';messages=[];busy=true;
+    debounce=setTimeout(()=>refresh(company,selected,period,undefined,text,filter),text?220:0);
+  }
+  $: if(mounted)schedule(tenant,view,minutes,query,channel);
 
   onMount(() => {
-    if(location.hash.startsWith('#record-conversations-'))minutes=43200;
+
     mounted=true;
   });
-  onDestroy(() => { controller?.abort(); controller = undefined; });
+  onDestroy(() => { clearTimeout(debounce);controller?.abort(); controller = undefined; });
+
+  function highlight(text:string,term:string){
+    const needle=term.trim().toLowerCase(),index=needle?text.toLowerCase().indexOf(needle):-1;
+    return index<0?[{text,match:false}]:[{text:text.slice(0,index),match:false},{text:text.slice(index,index+needle.length),match:true},{text:text.slice(index+needle.length),match:false}];
+  }
 
   function dateLabel(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Time unavailable' : date.toLocaleString();
   }
 
-  async function refresh(company: string, selectedView: View, period: number, before?: number) {
+  async function refresh(company: string, selectedView: View, period: number, before?: number, search=query, filter=channel) {
     controller?.abort();
     const request = new AbortController();
     controller = request;
@@ -56,17 +67,22 @@
       questions = [];
       nextBefore = null;selectedThread='';threadOpen=false;
     }
-    const query = new URLSearchParams({ tenant: company, minutes: String(period) });
-    const endpoint = selectedView === 'messages' ? 'conversations' : selectedView;
-    if (before) query.set('before', String(before));
-    else if(selectedView==='messages' && /^#record-conversations-\d+$/.test(location.hash)){
-      const id=Number(location.hash.slice('#record-conversations-'.length));
-      if(Number.isSafeInteger(id))query.set('before',String(id+1));
+    const params = new URLSearchParams({ tenant: company, minutes: String(period || 43200) });
+    if(selectedView==='messages'){
+      if(!period)params.set('period','all');
+      if(search.trim())params.set('q',search.trim());
+      if(filter)params.set('channel',filter);
     }
-    if (selectedView === 'leads') query.set('limit', '50');
-    if (selectedView === 'questions') query.set('top', '20');
+    const endpoint = selectedView === 'messages' ? 'conversations' : selectedView;
+    if (before) params.set('before', String(before));
+    else if(!search && !filter && selectedView==='messages' && /^#record-conversations-\d+$/.test(location.hash)){
+      const id=Number(location.hash.slice('#record-conversations-'.length));
+      if(Number.isSafeInteger(id))params.set('before',String(id+1));
+    }
+    if (selectedView === 'leads') params.set('limit', '50');
+    if (selectedView === 'questions') params.set('top', '20');
     try {
-      const response = await fetch(apiPrefix + '/admin/api/' + endpoint + '?' + query, {
+      const response = await fetch(apiPrefix + '/admin/api/' + endpoint + '?' + params, {
         credentials: 'same-origin', signal: request.signal
       });
       if (!response.ok) throw new Error(response.status === 401 ? 'Your session expired. Sign in again to view conversations.' : 'Could not load conversations. Try refreshing.');
@@ -97,12 +113,12 @@
   <header>
     {#if showViewSwitcher}<nav aria-label="Conversation views">
       {#each views as item}
-        <button type="button" class:active={view === item.key} aria-pressed={view === item.key} on:click={() => view = item.key}>{item.title}</button>
+        <button type="button" class:active={view === item.key} aria-pressed={view === item.key} on:click={() => { view = item.key; if(view !== "messages" && !minutes) minutes = 1440; }}>{item.title}</button>
       {/each}
     </nav>{/if}
     <div class="tools">
       {#if view !== 'leads'}
-        <label>Time period<select bind:value={minutes}><option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
+        <label>Time period<select bind:value={minutes}>{#if view==='messages'}<option value={0}>All retained history</option>{/if}<option value={1440}>Last 24 hours</option><option value={10080}>Last 7 days</option><option value={43200}>Last 30 days</option></select></label>
       {/if}
       <button type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes)}>{$t("Refresh")}</button>
       {#if view === 'leads'}
@@ -117,20 +133,21 @@
       {#if !busy && !error}<span class="result-count">{view === 'messages' ? `${messages.length} loaded` : view === 'leads' ? `${leads.length} leads` : `${questions.length} questions`}</span>{/if}
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if view==='messages'}<div class="inbox-filters"><label>Search messages<input type="search" bind:value={query} maxlength="150" placeholder="Name, message, contact or YYYY-MM-DD"/></label><label>Channel<select bind:value={channel}><option value="">All channels</option>{#each channels as value}<option value={value}>{value}</option>{/each}</select></label></div>{/if}
     {#if busy}<p class="loading" role="status">{view === 'messages' && messages.length ? 'Loading older messages…' : view === 'messages' ? 'Loading messages…' : view === 'leads' ? 'Loading leads…' : 'Loading common questions…'}</p>{/if}
     {#if !busy || (view === 'messages' && messages.length)}
     {#if !error && view === 'messages'}
-      <div class="inbox-filters"><label>Search loaded messages<input type="search" bind:value={query} placeholder="Find a conversation…"/></label><label>Channel<select bind:value={channel}><option value="">All channels</option>{#each channels as value}<option value={value}>{value}</option>{/each}</select></label></div>
+
       <div class="inbox" class:thread-open={threadOpen}>
         <div class="thread-list" role="region" aria-label="Customer conversations">
-          {#each threads as thread}<button class="thread" class:selected={currentThread?.key===thread.key} aria-pressed={currentThread?.key===thread.key} on:click={()=>{selectedThread=thread.key;threadOpen=true;}}><span class="thread-top"><strong>{thread.channel}</strong><time datetime={thread.latest.ts_utc}>{new Date(thread.latest.ts_utc).toLocaleDateString()}</time></span><span class="thread-title">{thread.title}</span><span class="thread-preview">{thread.latest.text}</span><span class="thread-count">{thread.messages.length} loaded messages</span></button>{:else}<div class="empty"><strong>{messages.length?'No matching conversations':'No messages recorded'}</strong><p>{messages.length?'Try another search or channel.':'Choose a longer time period to find earlier conversations.'}</p></div>{/each}
+          {#each threads as thread}<button class="thread" class:selected={currentThread?.key===thread.key} aria-pressed={currentThread?.key===thread.key} on:click={()=>{selectedThread=thread.key;threadOpen=true;}}><span class="thread-top"><strong>{thread.channel}</strong><time datetime={thread.latest.ts_utc}>{new Date(thread.latest.ts_utc).toLocaleDateString()}</time></span><span class="thread-title">{thread.title}</span><span class="thread-preview">{thread.latest.text}</span><span class="thread-count">{thread.messages.length} loaded messages</span></button>{:else}<div class="empty"><strong>{query||channel?'No matching conversations':'No messages recorded'}</strong><p>{query||channel?'Try another name, phrase, date or channel.':'Choose a longer time period to find earlier conversations.'}</p></div>{/each}
         </div>
         <div class="thread-content" role="region" aria-label="Selected conversation">
-          {#if currentThread}<div class="thread-heading"><button class="back-to-inbox" on:click={()=>threadOpen=false}>← Conversations</button><div><h3>Customer conversation</h3><p>{currentThread.channel} · Loaded history in the selected period</p></div></div><div class="message-bubbles">{#each currentThread.messages as message (message.id)}<article class="bubble" id={recordAnchor('conversations',message.id)} class:agent={message.event_type==='msg_out'} class:activity={message.event_type==='navigation_click'}><div class="message-meta"><strong>{message.event_type==='navigation_click'?'Customer clicked a button':message.event_type==='msg_in'?'Customer':'AI assistant'}</strong><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div><p>{message.text}</p></article>{/each}</div>{:else}<div class="thread-placeholder"><strong>Your customer conversations, together</strong><p>Select a conversation to read its available history.</p></div>{/if}
+          {#if currentThread}<div class="thread-heading"><button class="back-to-inbox" on:click={()=>threadOpen=false}>← Conversations</button><div><h3>Customer conversation</h3><p>{currentThread.channel} · Loaded history in the selected period</p></div></div><div class="message-bubbles">{#each currentThread.messages as message (message.id)}<article class="bubble" id={recordAnchor('conversations',message.id)} class:agent={message.event_type==='msg_out'} class:activity={message.event_type==='navigation_click'}><div class="message-meta"><strong>{message.event_type==='navigation_click'?'Customer clicked a button':message.event_type==='msg_in'?'Customer':'AI assistant'}</strong><time datetime={message.ts_utc}>{dateLabel(message.ts_utc)}</time></div><p>{#each highlight(message.text,query) as part}{#if part.match}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}</p>{#if query||channel}<a href={'?'+new URLSearchParams({tenant,view:'messages'}).toString()+'#'+recordAnchor('conversations',message.id)} data-sveltekit-reload>Open message in context</a>{/if}</article>{/each}</div>{:else}<div class="thread-placeholder"><strong>Your customer conversations, together</strong><p>Select a conversation to read its available history.</p></div>{/if}
         </div>
       </div>
       {#if nextBefore}<button class="load-older" type="button" disabled={busy} on:click={() => refresh(tenant, view, minutes, nextBefore ?? undefined)}>Load older messages</button>{/if}
-      <p class="hint inbox-note">Only loaded messages are searched. Load older messages to see more history. A button click does not confirm a completed booking or purchase.</p>
+      <p class="hint inbox-note">A button click does not confirm a completed booking or purchase.</p>
     {:else if !error && view === 'leads'}
       {#each leads as lead (lead.lead_id)}
         <article class="lead"><div><strong>{lead.name || lead.phone || 'Contact details not supplied'}</strong>{#if lead.name && lead.phone}<span>{lead.phone}</span>{/if}</div><span class="status">{lead.status || 'Open'}</span><time datetime={lead.updated_utc}>{dateLabel(lead.updated_utc)}</time></article>

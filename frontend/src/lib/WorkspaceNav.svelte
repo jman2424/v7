@@ -16,11 +16,18 @@
   let moreOpen=false;
   let moreMenu:HTMLDetailsElement;
   function closeMore(){moreOpen=false;if(moreMenu)moreMenu.open=false;}
+  function toggleSidebar(){
+    collapsed=!collapsed;
+    try { localStorage.setItem('v7.sidebar.collapsed',String(collapsed)); } catch { /* Storage is optional. */ }
+  }
   onMount(()=>{
+    try { collapsed=localStorage.getItem('v7.sidebar.collapsed')==='true'; } catch { /* Keep the desktop default. */ }
+    const desktop=matchMedia('(min-width:851px)');
+    desktop.addEventListener('change',closeMore);
     const closeOutside=(event:PointerEvent)=>{if((moreOpen||moreMenu?.open)&&event.target instanceof Node&&!moreMenu?.contains(event.target))closeMore();};
     const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&(moreOpen||moreMenu?.open)){closeMore();moreMenu?.querySelector('summary')?.focus();}};
     document.addEventListener('pointerdown',closeOutside);document.addEventListener('keydown',escape);
-    return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',escape);};
+    return()=>{desktop.removeEventListener('change',closeMore);document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',escape);};
   });
   const firstView=(workspace:Workspace)=>workspace.views.find(view=>!view.hidden)||workspace.views[0];
   const hrefFor=(item:Workspace)=>workspaceHref(base,platform?'platform':item.id,platform?item.id:firstView(item).id,tenant);
@@ -41,7 +48,7 @@
     {/each}
   </nav>
   <div class="sidebar-bottom">
-    <button class="collapse-control" on:click={()=>collapsed=!collapsed} aria-label={collapsed?'Expand navigation':'Collapse navigation'} title={collapsed?'Expand navigation':'Collapse navigation'}><svg class="glyph" class:flipped={collapsed} viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6 M20 4v16"/></svg><span>{$t('Collapse navigation')}</span></button>
+    <button class="collapse-control" type="button" aria-expanded={!collapsed} on:click={toggleSidebar} aria-label={collapsed?'Expand navigation':'Collapse navigation'} title={collapsed?'Expand navigation':'Collapse navigation'}><svg class="glyph" class:flipped={collapsed} viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6 M20 4v16"/></svg><span>{$t('Collapse navigation')}</span></button>
     <div class="account-strip"><span class="avatar" aria-hidden="true">{email.charAt(0).toUpperCase()||'V'}</span><div><strong>{platform?$t('Platform operator'):$t('Your account')}</strong><small>{email}</small></div><button on:click={onSignOut} aria-label={$t('Sign out')} title={$t('Sign out')}><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h4v16h-4 M10 8l4 4-4 4 M14 12H4"/></svg></button></div>
   </div>
 </aside>
@@ -53,7 +60,7 @@
     <details class="mobile-more" bind:this={moreMenu} bind:open={moreOpen}>
       <summary class:active={more.some(item=>item.id===active)}><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01 M12 12h.01 M19 12h.01"/></svg><span>{$t('More')}</span></summary>
       <div class="more-menu" role="group" aria-label="More workspaces">
-        {#each more as item}<a href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined} on:click={closeMore}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>{/each}
+        {#each more as item}<a aria-current={active===item.id?'page':undefined} href={hrefFor(item)} data-sveltekit-reload={item.id==='channels'||undefined} on:click={closeMore}><NavigationIcon section={item.icon}/><span>{$t(item.label)}</span></a>{/each}
         {#if administrator}<a href={workspaceHref(base,platform?'home':'platform','overview',tenant)}>{$t(platform?'Business workspace':'Platform administration')}</a>{/if}
         <button on:click={onSignOut}>{$t('Sign out')}</button>
       </div>
@@ -77,7 +84,7 @@
   nav>a:hover{background:#ffffff0c;color:white}nav>a.active{background:var(--v7-mint-soft);color:var(--v7-on-mint);font-weight:650}
   .sidebar-bottom{margin-top:auto;padding-top:18px}.collapse-control{display:flex;align-items:center;gap:12px;width:100%;padding:12px;color:#afc8b8;background:none;border:0;font:inherit;font-size:var(--v7-text-xs);text-align:start;min-height:44px}
   .account-strip{border-top:1px solid #ffffff1c;padding:17px 2px 0;margin-top:8px;display:flex;align-items:center;gap:10px;min-width:0}.avatar{width:33px;height:33px;border-radius:var(--v7-radius-panel);display:grid;place-items:center;background:#ffffff14;color:#d2e5d8;font-weight:650;flex:none}.account-strip>div{min-width:0;display:grid;gap:3px}.account-strip strong{font-size:var(--v7-text-xs);font-weight:600}.account-strip small{max-width:132px;overflow:hidden;text-overflow:ellipsis;font-size:var(--v7-text-xs);color:var(--v7-tint-line)}.account-strip button{margin-inline-start:auto;min-width:30px;min-height:40px;background:none;border:0;color:#c9ddce;font:inherit;font-size:var(--v7-text-lg)}
-  .collapsed{padding-inline:11px}.collapsed .brand{padding:7px;margin-inline:5px}.collapsed :is(nav>a>span,.nav-caption,.workspace-switch>span:not(.switch-mark),.collapse-control>span+span,.account-strip>div,.account-strip>button){display:none}.collapsed nav>a{justify-content:center;padding-inline:0}.collapsed .workspace-switch{justify-content:center}.collapsed .account-strip{justify-content:center}.collapsed .collapse-control{justify-content:center}
+  .collapsed{padding-inline:11px}.collapsed .brand{padding:7px;margin-inline:5px}.collapsed :is(nav>a>span,.nav-caption,.workspace-switch>span:not(.switch-mark),.collapse-control>span,.account-strip>div){display:none}.collapsed nav>a{justify-content:center;padding-inline:0}.collapsed .workspace-switch{justify-content:center}.collapsed .account-strip{justify-content:center}.collapsed .account-strip .avatar{display:none}.collapsed .account-strip button{margin:0}.collapsed .collapse-control{justify-content:center}
   a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--v7-mint);outline-offset:3px}.mobile-navigation{display:none}
   @media(max-width:850px){
     .primary-sidebar{display:none}.mobile-navigation{position:fixed;bottom:0;inset-inline:0;display:flex;align-items:stretch;justify-content:space-around;padding:7px 8px max(7px,env(safe-area-inset-bottom));background:#fffffff7;border-top:1px solid var(--v7-line);z-index:60;gap:0;backdrop-filter:blur(12px)}
