@@ -331,6 +331,19 @@ def test_full_approved_application_to_verified_subscription_and_optional_assista
     assert tenant_access.activation(tenant)['active']
     with subscriptions.connection(tenant) as db:
         assert db.execute('SELECT COUNT(*),SUM(paid) FROM billing_invoices WHERE tenant=?',(tenant,)).fetchone()[:] == (2,29900)
+    # Follow the paid owner into setup, then use the widget as an anonymous visitor.
+    suffix = '?tenant=' + tenant
+    question, answer = 'Which detailing package is available?', 'The Meridian detailing package.'
+    assert client.put('/admin/api/faq' + suffix, json=[{'q': question, 'a': answer}]).status_code == 200
+    origin = 'https://shop.example.test'
+    assert client.put('/admin/api/widget' + suffix, json={'allowed_origins': [origin]}).status_code == 200
+    visitor = client.application.test_client()
+    chat = visitor.post('/chat_api', json={'tenant': tenant, 'message': question}, headers={'Origin': origin})
+    assert chat.status_code == 200, chat.json
+    assert answer in chat.json['reply']
+    report = client.get('/admin/api/conversations' + suffix)
+    assert report.status_code == 200
+    assert any(question in row['text'] for row in report.json['messages'])
     # A material change requests review without automatically ending paid service.
     storage = client.application.container.storage
     with client.application.app_context():

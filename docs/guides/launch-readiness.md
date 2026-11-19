@@ -54,3 +54,25 @@ credit and usage history. Browser checks must also cover English, Spanish,
 French, Arabic and mobile layout. Automated mocks validate payment logic but
 do not prove that live Stripe or Meta credentials work. An actual paid transaction
 or live WhatsApp message test requires the configured provider and user action.
+
+## Rehearse a 30-business cohort
+
+Run `python -m pytest -s tests/test_onboarding_cohort.py` to exercise 30 isolated
+fixture businesses. The same question must return each business's own saved
+answer on its first and repeat chat. The run reports p95 for each phase.
+
+For an HTTP rehearsal, supply the comma-separated fixture keys in `TENANTS` and
+the isolated server URL in `BASE_URL` to `k6 run tools/k6_load_test.js`.
+`RPS` sets the number of scheduled requests per `TIME_UNIT` (default `1s`).
+For a single-source baseline, use `RPS=1`, `TIME_UNIT=2s`, and `DURATION=2m`.
+The existing peak profile schedules 20 requests per second. The public chat
+limit is 30 requests per minute per source IP with a burst allowance. Record
+429s separately from application failures when interpreting peak results.
+The test requires every tenant to receive traffic and successful replies,
+and fails if scheduled iterations are dropped.
+
+The isolated SQLite recovery drill is
+`python -m pytest tests/test_ops_second_pass.py::test_restore_fixture_into_clean_isolated_business_directory`.
+It restores a fixture backup to a new directory and verifies the catalogue,
+both databases and removal of old sessions. Production recovery needs a
+snapshot from the actual production storage backend.

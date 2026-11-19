@@ -172,6 +172,14 @@ class Storage:
                 repositories[key] = PostgresBusinessDocuments(key)
             return repositories[key]
 
+    @staticmethod
+    def _matching_tenant_dirs(root: Path, key: str):
+        # Check directory metadata only for matching names. A chat reads several
+        # documents, and unrelated tenants should not add a stat per document.
+        folded = key.casefold()
+        with os.scandir(root) as entries:
+            return [entry for entry in entries if entry.name.casefold() == folded and entry.is_dir()]
+
     def canonical_tenant_key(self, tenant: Optional[str] = None) -> str:
         """Resolve filesystem aliases before authorizing a tenant identity.
 
@@ -182,8 +190,7 @@ class Storage:
         key = self.validate_tenant_key(tenant or self.tenant_key)
         if self._using_postgres() or not self.business_root.is_dir():
             return key
-        matches = [entry for entry in self.business_root.iterdir()
-                   if entry.is_dir() and entry.name.casefold() == key.casefold()]
+        matches = self._matching_tenant_dirs(self.business_root, key)
         if len(matches) > 1:
             raise ValueError("ambiguous_tenant")
         if matches:
@@ -242,7 +249,7 @@ class Storage:
         target = candidate.resolve()
         if target.parent != root or target != candidate.absolute() or candidate.is_symlink():
             raise ValueError("invalid_tenant")
-        if root.is_dir() and sum(p.is_dir() and p.name.casefold() == key.casefold() for p in root.iterdir()) > 1:
+        if root.is_dir() and len(self._matching_tenant_dirs(root, key)) > 1:
             raise ValueError("ambiguous_tenant")
         return target
 

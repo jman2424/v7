@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass, field, replace
+from dataclasses import InitVar, dataclass, field, replace
 from pathlib import Path
 from threading import RLock
 from typing import Dict, List, Optional
@@ -86,7 +86,10 @@ class Container:
     _tenant_containers: Dict[str, "Container"] = field(default_factory=dict, init=False, repr=False)
     _tenant_lock: object = field(default_factory=RLock, init=False, repr=False)
 
-    def __post_init__(self):
+    shared_analytics: InitVar[Optional[AnalyticsService]] = None
+    shared_crm: InitVar[Optional[CRMService]] = None
+
+    def __post_init__(self, shared_analytics=None, shared_crm=None):
         # ---------- Retrieval layer ----------
         if os.getenv("V7_STORAGE_BACKEND", "sqlite").strip().lower() != "postgres":
             production = self.settings.ENVIRONMENT == "production" or os.getenv("RENDER") == "true"
@@ -103,8 +106,8 @@ class Container:
         self.business_name = str(self.business_profile.get("name") or "").strip()
 
         # ---------- Services ----------
-        self.analytics = AnalyticsService(self.settings)
-        self.crm = CRMService()
+        self.analytics = shared_analytics if shared_analytics is not None else AnalyticsService(self.settings)
+        self.crm = shared_crm if shared_crm is not None else CRMService()
         from service.conversation_memory import ConversationMemory
         self.memory = ConversationMemory(self.storage, self.settings.BUSINESS_KEY)
         self.rewriter = Rewriter()
@@ -163,10 +166,8 @@ class Container:
         if cached is not None:
             return cached
 
-        tenant_container = Container(replace(self.settings, BUSINESS_KEY=tenant_key))
-        tenant_container.crm = self.crm
-        tenant_container.handler.crm = self.crm
-        tenant_container.handler.deps.crm = self.crm
+        tenant_container = Container(replace(self.settings, BUSINESS_KEY=tenant_key),
+                                     shared_analytics=self.analytics, shared_crm=self.crm)
         self._tenant_containers[tenant_key] = tenant_container
         return tenant_container
 
@@ -177,11 +178,9 @@ class Container:
             target = self if tenant_key == self.settings.BUSINESS_KEY else self._tenant_containers.get(tenant_key)
             if target is None:
                 return
-            memory, crm = target.memory, target.crm
-            target.__post_init__()
-            target.memory, target.crm = memory, crm
-            target.handler.memory, target.handler.crm = memory, crm
-            target.handler.deps.memory, target.handler.deps.crm = memory, crm
+            memory = target.memory
+            target.__post_init__(target.analytics, target.crm)
+            target.memory = target.handler.memory = target.handler.deps.memory = memory
 
     def _load_business_profile(self) -> Dict[str, object]:
         try:

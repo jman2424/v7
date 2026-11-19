@@ -57,6 +57,24 @@ def backup_environment(tmp_path, monkeypatch):
     return root, snapshot
 
 
+def test_restore_fixture_into_clean_isolated_business_directory(backup_environment, tmp_path, monkeypatch):
+    source, snapshot = backup_environment
+    target = tmp_path / "restored"
+    target.mkdir()
+    for key, relative in (("BUSINESS_DATA_ROOT", "business"), ("ANALYTICS_DB_PATH", "logs/analytics.db"),
+                          ("SECURITY_DB_PATH", "logs/security.db"), ("AUDIT_LOG_PATH", "logs/audit.jsonl"),
+                          ("CRM_SNAPSHOT_PATH", "logs/crm_snapshot.json")):
+        monkeypatch.setenv(key, str(target / relative))
+    platform_backup.restore_backup(target, snapshot, service_stopped=True)
+    assert (target / "business/ALPHA/catalog.json").read_bytes() == (source / "business/ALPHA/catalog.json").read_bytes()
+    for name in ("analytics.db", "security.db"):
+        with sqlite3.connect(target / "logs" / name) as db:
+            assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+            assert db.execute("SELECT value FROM sample").fetchone() == ("original",)
+            if name == "security.db":
+                assert db.execute("SELECT count(*) FROM management_sessions").fetchone() == (0,)
+
+
 @pytest.mark.parametrize("relative", ["ALPHA/CON.json", "ALPHA/aux", "ALPHA/NUL", "ALPHA/COM1.txt", "ALPHA/a?b", "ALPHA/a|b", "ALPHA/\x00bad"])
 def test_reserved_backup_paths_are_rejected(tmp_path, relative):
     with pytest.raises(ValueError, match="Unsafe backup path"):

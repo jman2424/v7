@@ -435,13 +435,14 @@ def _public_action_payload(result: Dict[str, Any], *, tenant: str = "", session_
 
 
 
-def _unavailable_notice(tenant):
+def _unavailable_notice(tenant, container=None):
     """The contact wording for an existing business whose assistant is off, else None."""
     from service.tenant_access import activation, unavailable_notice
-    try:
-        container = get_container().for_tenant(tenant)
-    except (ValueError, FileNotFoundError):
-        return None
+    if container is None:
+        try:
+            container = get_container().for_tenant(tenant)
+        except (ValueError, FileNotFoundError):
+            return None
     from service.service_controls import blocked
     if activation(container.settings.BUSINESS_KEY)['active'] and not blocked(container.settings.BUSINESS_KEY, 'web'):
         return None
@@ -451,7 +452,7 @@ def _unavailable_notice(tenant):
 def _tenant_container(tenant):
     try:
         container = get_container().for_tenant(tenant)
-        notice = _unavailable_notice(tenant)
+        notice = _unavailable_notice(tenant, container)
         if notice:
             response = jsonify(error="business_awaiting_activation", message=notice)
             response.status_code = 403
