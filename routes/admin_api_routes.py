@@ -1760,11 +1760,14 @@ def api_conversations():
         predicate = f"LOWER(COALESCE(m.text,'') || ' ' || m.channel || ' ' || CAST(m.ts_utc AS TEXT)) LIKE {mark} ESCAPE '!'"
         args.append(term)
         if contacts:
-            predicate += (f" OR EXISTS (SELECT 1 FROM {schema}leads l WHERE l.tenant={mark} "
-                          "AND ((m.lead_id NOT IN ('','unknown') AND l.lead_id=m.lead_id) OR "
-                          "(m.session_id NOT IN ('','unknown') AND l.last_session_id=m.session_id)) "
-                          f"AND LOWER(COALESCE(l.name,'') || ' ' || COALESCE(l.phone,'')) LIKE {mark} ESCAPE '!')")
-            args.extend([tenant, term])
+            # Build the matching identifier sets once per term, including on SQLite.
+            # A correlated lookup would scan every tenant contact for each message.
+            matched = (f"FROM {schema}leads WHERE tenant={mark} AND "
+                       f"LOWER(COALESCE(name,'') || ' ' || COALESCE(phone,'')) LIKE {mark} ESCAPE '!'")
+            predicate += (f" OR m.lead_id IN (SELECT lead_id {matched} AND lead_id NOT IN ('','unknown'))"
+                          f" OR m.session_id IN (SELECT last_session_id {matched} "
+                          "AND last_session_id NOT IN ('','unknown'))")
+            args.extend([tenant, term, tenant, term])
         filters.append('(' + predicate + ')')
     # Keep public message numbers scoped to this business across searches and pages.
     sql = (f"WITH tenant_messages AS (SELECT ROW_NUMBER() OVER (ORDER BY id) AS id, ts_utc, "
