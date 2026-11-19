@@ -42,7 +42,7 @@ const requests = [];
 const timers = new Map();
 let timerId = 0, destroy;
 const context = vm.createContext({
-  AbortController, URLSearchParams, Date, Intl,
+  location:{hash:''}, AbortController, URLSearchParams, Date, Intl,
   onMount: callback => {}, onDestroy: callback => {destroy=callback;},
   setTimeout: (callback, delay) => {const id=++timerId;timers.set(id,{callback,delay});return id;},
   clearTimeout: id => timers.delete(id),

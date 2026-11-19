@@ -4,7 +4,7 @@ import subprocess
 from tests.test_console_workspace_loading import NODE, ROOT, SCRIPT, pytestmark
 
 
-def test_section_search_matches_aliases_and_limits_results():
+def test_section_search_matches_aliases_and_keeps_all_ranked_results():
     script = r"""
 const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
 const ts=require('./frontend/node_modules/typescript');
@@ -18,7 +18,8 @@ assert.equal(find(items,'memory')[0].key,'usage');
 assert.equal(find(items,'cancel plan')[0].key,'subscription');
 assert.equal(find(items,'memory')[0].href,'/console/usage?tenant=CLIENT_A');
 assert.equal(find(items,'not-a-section').length,0);assert.equal(find(items,' ').length,0);
-assert.equal(find(Array(20).fill(items[0]),'API').length,8);
+const pages=Array.from({length:20},(_,i)=>({...items[0],key:'usage-'+i}));
+assert.equal(find(pages,'API').length,20);
 assert.equal(find([{...items[0],label:'Configuración',keywords:''}],'configuracion').length,1);
 """
     result = subprocess.run([NODE, '-e', script], cwd=ROOT, capture_output=True, text=True, timeout=20)

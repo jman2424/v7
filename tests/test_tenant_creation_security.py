@@ -90,21 +90,20 @@ def test_canonical_key_uses_existing_sqlite_spelling_and_exact_postgres_keys(cli
 
 def test_canonical_key_rejects_ambiguous_sqlite_directories(client, monkeypatch):
     storage = client.application.container.storage
-    entries = Path.iterdir
-    is_dir = Path.is_dir
+    # Simulate the directory entries on both case-sensitive and Windows filesystems.
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import os
+
+    scandir = os.scandir
 
     def ambiguous_entries(path):
         if path == storage.business_root:
-            return iter([path / 'EXAMPLE', path / 'example'])
-        return entries(path)
+            entries = [SimpleNamespace(name=name, is_dir=lambda: True) for name in ('EXAMPLE', 'example')]
+            return nullcontext(iter(entries))
+        return scandir(path)
 
-    def ambiguous_directory(path):
-        if path.parent == storage.business_root and path.name.casefold() == 'example':
-            return True
-        return is_dir(path)
-
-    monkeypatch.setattr(Path, 'iterdir', ambiguous_entries)
-    monkeypatch.setattr(Path, 'is_dir', ambiguous_directory)
+    monkeypatch.setattr(os, 'scandir', ambiguous_entries)
     with pytest.raises(ValueError, match='^ambiguous_tenant$'):
         storage.canonical_tenant_key('example')
 

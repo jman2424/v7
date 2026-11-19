@@ -38,7 +38,7 @@ const location={search:'?tenant=OLD',pathname:'/console/pipeline',href:'http://l
 const architecture={exports:{},URLSearchParams,require:()=>JSON.parse(fs.readFileSync('service/console_navigation.json','utf8'))};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('frontend/src/lib/workspaceArchitecture.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,architecture);
 const context=vm.createContext({...architecture.exports,platformMode:false,dirtyResources:[],widgetDirty:false,hasUnsavedDrafts:()=>false,AbortController,URL,URLSearchParams,Date,Intl,
- onMount:()=>{},onDestroy:callback=>{destroy=callback;},initialiseLanguage:()=>{},base:'/console',goto:async target=>{navigation.push({method:'goto',target});},
+ revealSearchTarget:()=>{},onMount:()=>{},onDestroy:callback=>{destroy=callback;},initialiseLanguage:()=>{},base:'/console',goto:async target=>{navigation.push({method:'goto',target});},
  window:{location,history:{replaceState:()=>{}}},
  setTimeout:(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id),
  fetch:async(path,options)=>{
