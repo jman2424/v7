@@ -65,3 +65,17 @@ def test_whatsapp_status_explains_a_plan_without_whatsapp(client, configured, mo
     with client.application.app_context():
         codes = [row['code'] for row in whatsapp.setup_status(configured, 'EXAMPLE')['blockers']]
     assert 'whatsapp_not_in_plan' in codes and 'whatsapp_subscription_inactive' not in codes
+
+
+def test_owner_can_disable_one_channel_when_worker_is_offline(client, configured, monkeypatch):
+    owner(client)
+    path = '/admin/api/business-channels?tenant=EXAMPLE'
+    prefs = client.get(path).json['settings']
+    assert prefs['email']['enabled'] and prefs['phone']['enabled']
+    monkeypatch.setenv('V7_CHANNEL_WORKER', 'false')
+    prefs['phone']['enabled'] = False
+    response = client.put(path, json={'settings': prefs})
+    assert response.status_code == 200
+    assert response.json['settings'] == prefs
+    prefs['phone']['enabled'] = True
+    assert client.put(path, json={'settings': prefs}).status_code == 409

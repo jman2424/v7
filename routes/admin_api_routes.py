@@ -1269,20 +1269,26 @@ def api_business_channels_put():
     try:
         value = channels.validate(data['settings'])
         ready = channels.readiness(get_container(), tenant)
-        for channel, config in value.items():
-            if config['enabled'] and not ready['channels'][channel]['in_plan']:
-                return jsonify(error='channel_not_in_plan'), 403
-            if config['enabled'] and not ready['grants'][channel]:
-                return jsonify(error='channel_not_granted'), 403
-            if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
-                return jsonify(error='channel_connection_required'), 409
-            if channel == 'email':
-                from service import business_email_setup as setup
-                email_setup = setup.status(get_container(), tenant)
-                if config['enabled'] and not email_setup['can_enable']:
-                    return jsonify(error='email_setup_verification_required'), 409
-                if config['provider_cleanup'] != 'keep' and not ready['channels']['email']['provider_cleanup_available']:
-                    return jsonify(error='email_cleanup_not_supported'), 409
+        # A connection outage must not prevent an owner from switching handling off.
+        previous = ready['settings']
+        disabling_only = any(previous[key]['enabled'] and not row['enabled'] for key, row in value.items()) and all(
+            row == previous[key] or row == {**previous[key], 'enabled': False} for key, row in value.items()
+        )
+        if not disabling_only:
+            for channel, config in value.items():
+                if config['enabled'] and not ready['channels'][channel]['in_plan']:
+                    return jsonify(error='channel_not_in_plan'), 403
+                if config['enabled'] and not ready['grants'][channel]:
+                    return jsonify(error='channel_not_granted'), 403
+                if config['enabled'] and not (ready['channels'][channel]['configured'] and ready['worker_enabled']):
+                    return jsonify(error='channel_connection_required'), 409
+                if channel == 'email':
+                    from service import business_email_setup as setup
+                    email_setup = setup.status(get_container(), tenant)
+                    if config['enabled'] and not email_setup['can_enable']:
+                        return jsonify(error='email_setup_verification_required'), 409
+                    if config['provider_cleanup'] != 'keep' and not ready['channels']['email']['provider_cleanup_available']:
+                        return jsonify(error='email_cleanup_not_supported'), 409
     except ValueError as exc:
         return _validation_failure(exc, 'invalid_channel_settings')
     _audited_json_write(storage, tenant, channels.FILENAME, value, action='business.channels.update')
