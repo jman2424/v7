@@ -4,7 +4,7 @@ The delivery layer identifies V7 as an AI service independently of tenant names,
 greetings, model instructions and edited drafts. This is a transparency feature,
 not a certification of compliance with every jurisdiction's requirements.
 
-- Website chat keeps an AI assistant badge in its header, an AI/error notice by
+- Website chat identifies the assistant and explains possible errors by
   the composer, and disclosure metadata in JSON and the final SSE event.
 - Console test conversations identify AI replies; appearance previews explicitly
   identify their illustrative conversation.

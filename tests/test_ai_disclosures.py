@@ -122,7 +122,8 @@ def test_custom_widget_branding_cannot_remove_ai_identification(client, app):
     app.container.storage.write_json('EXAMPLE', 'branding.json', branding)
     response = client.get('/chat_ui?tenant=EXAMPLE')
     assert response.status_code == 200
-    assert 'widget__ai-label">AI assistant</span>' in response.text
+    assert 'You are chatting with an AI assistant.' in response.text
+    assert 'widget__ai-label' not in response.text
     assert WEB_NOTICE in response.text
 
 
