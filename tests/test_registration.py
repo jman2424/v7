@@ -21,9 +21,9 @@ def mailbox(monkeypatch, app):
     return messages
 
 
-def request_account(client, kind='owner', tenant='NEWCO', referral_code=''):
+def request_account(client, kind='owner', tenant='NEWCO', referral_code='', email='new@testing.test'):
     return client.post('/auth/register', json={
-        'email':'new@testing.test', 'password':'Signup-test-password-123',
+        'email':email, 'password':'Signup-test-password-123',
         'kind':kind, 'tenant':tenant, 'referral_code':referral_code, 'business_name':'New company',
         'description':'A retail business', 'accepted_terms':True, 'policy_version':'draft-2',
         'roles':['platform_admin'], 'active':True, 'permissions':['view_costs']})
@@ -202,3 +202,19 @@ def test_signup_referral_survives_verification_and_login(client, mailbox):
     for _ in range(2):
         referrals.qualified_payment('NEWCO','platform',invoice)
     assert referrals.report('EXAMPLE','sponsor@testing.test','https://example.test')['referred_businesses_paid'] == 1
+
+
+@pytest.mark.parametrize('original,second', [
+    ('new@testing.test', 'new@testing.test'),
+    ('own.er+first@googlemail.com', 'owner+second@gmail.com'),
+])
+def test_verified_owner_cannot_create_second_workspace(client, mailbox, original, second):
+    assert request_account(client, email=original).status_code == 202
+    code = mailbox[original]
+    assert client.post('/auth/register/confirm', json={'code': code}).status_code == 200
+    with session_store.connection() as db:
+        db.execute('DELETE FROM registration_requests')
+    assert request_account(client, tenant='SECOND', email=second).status_code == 202
+    response = client.post('/auth/register/confirm', json={'code': mailbox[second]})
+    assert response.status_code == 400
+    assert not client.application.container.storage.tenant_exists('SECOND')

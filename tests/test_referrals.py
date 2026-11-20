@@ -38,6 +38,9 @@ def test_disable_preserves_accepted_offer_and_earned_rewards(client, monkeypatch
 def test_same_owner_self_and_repeated_claims_are_rejected(client, monkeypatch):
     code = welcome(monkeypatch)
     referrals.set_program('SPONSOR', True, '')
+    with pytest.raises(ValueError, match='invalid_or_self'):
+        referrals.claim('UNRELATED', 'other@example.test', code)
+    code = referrals.report('SPONSOR', 'owner@example.test', 'https://example.test')['code']
     for tenant, owner, error in [('SPONSOR','different@example.test','invalid_or_self'),('OTHER','owner@example.test','invalid_or_self'),('OTHER','new@example.test','already_accepted'),('EXAMPLE','other@example.test','already_accepted')]:
         with pytest.raises(ValueError, match=error):
             referrals.claim(tenant, owner, code)
@@ -218,6 +221,7 @@ def test_previous_offer_snapshot_is_not_rewritten_when_program_changes(client,mo
     referrals.claim('EXAMPLE','old@example.test',code)
     with subscriptions.connection('SPONSOR') as db:
         db.execute('UPDATE referral_program SET joining_setup_percent=100 WHERE id=1')
+    code = referrals.report('SPONSOR', 'owner@example.test', 'https://example.test')['code']
     referrals.claim('OTHER','new@example.test',code)
     referrals.set_program('SPONSOR',False,'')
     old=referrals.report('EXAMPLE','old@example.test','https://example.test')
@@ -333,3 +337,23 @@ def test_zero_payment_cannot_consume_non_free_or_outstanding_reward(client,monke
     referrals.coupon(provider,'EXAMPLE',reward)
     referrals.consumed_payment('EXAMPLE',kind,'bound',{'id':'in_zero','status':'paid','amount_paid':0,'total':total,'amount_remaining':remaining,'discounts':[{'coupon':'coupon_test'}]})
     assert referrals.reserve('EXAMPLE',kind,'bound')['status']=='reserved'
+
+
+def test_two_businesses_claiming_one_link_get_one_award(client, monkeypatch):
+    monkeypatch.setattr(subscriptions, 'internal_business', lambda tenant: False)
+    monkeypatch.setattr(subscriptions, 'complimentary_plan', lambda tenant: None)
+    def current_code():
+        return referrals.report('SPONSOR', 'owner@example.test', 'https://example.test')['code']
+    code = current_code()
+    def attempt(tenant):
+        try:
+            referrals.claim(tenant, tenant.lower() + '@example.test', code)
+        except ValueError as err:
+            assert str(err) == 'invalid_or_self_referral'
+            return False
+        return True
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sum(pool.map(attempt, ['FIRST', 'SECOND'])) == 1
+    replacement = current_code()
+    assert code != replacement
+    referrals.claim('THIRD', 'third@example.test', replacement)

@@ -26,6 +26,12 @@ def _schema(db):
         # Existing accepted offers retain their agreed setup percentage.
         db.execute('ALTER TABLE referral_claims ADD COLUMN joining_setup_percent INTEGER NOT NULL DEFAULT 40 CHECK(joining_setup_percent BETWEEN 1 AND 100)')
         db.execute('UPDATE referral_claims SET joining_setup_percent=percent')
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='replace_claimed_referral'").fetchone():
+        db.execute("""UPDATE referral_codes SET code='V7-' || hex(randomblob(16))
+                      WHERE tenant IN (SELECT sponsor FROM referral_claims)""")
+        db.execute("""CREATE TRIGGER replace_claimed_referral AFTER INSERT ON referral_claims
+                      BEGIN UPDATE referral_codes SET code='V7-' || hex(randomblob(16))
+                      WHERE tenant=NEW.sponsor; END""")
     db.commit()
 
 

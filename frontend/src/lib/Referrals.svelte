@@ -18,6 +18,8 @@
   const errors:Record<string,string>={invalid_referral_code:'Enter a valid referral code.',invalid_or_self_referral:'This code is invalid or belongs to your own business.',referral_already_accepted:'This business or owner has already accepted a referral.',referral_program_disabled:'New referrals are currently disabled.',referral_requires_new_business_before_checkout:'Accept a referral before your first checkout. Existing or complimentary businesses cannot claim a welcome discount.',referral_does_not_stack_with_existing_discount:'Your existing discount stays in place. This reward remains available.',active_paid_subscription_required:'An active paid subscription is needed to apply a renewal reward.',no_available_referral_reward:'No subscription reward is available.'};
   async function shareLink(){
     if(!data?.link)return;
+    try { data = await read() as Report; }
+    catch { error='Could not refresh your referral link. Please try again.'; return; }
     try { await navigator.clipboard.writeText(data.link); message='Referral link copied.'; }
     catch { const field=document.getElementById('referral-link') as HTMLInputElement|null; field?.focus();field?.select();message='Select and copy your referral link.'; }
   }
@@ -47,6 +49,7 @@
     {:else}<p>{$t('The new business gets {percent}% off its unpaid assistance fee.',{percent:data.program.joining_setup_percent})}</p>{/if}
     <p class="hint">{$t('You earn your subscription reward and {percent}% off unpaid assistance only after the new business makes its first successful subscription payment.',{percent:data.program.sponsor_setup_percent})}</p>
     <p class="hint">{$t('Already-paid assistance fees are not refunded. Discounts do not stack or apply to AI credit.')}</p>
+    <p>{$t('Each link can be accepted once. Copy a fresh link for the next business.')}</p>
     <label for="referral-link">{$t('Your referral link')}</label><input id="referral-link" readonly value={data.link} dir="ltr" on:focus={(event)=>event.currentTarget.select()}/>
     <button type="button" on:click={shareLink} disabled={!data.program.enabled}>{$t('Copy referral link')}</button>
     <p>{$t('Referral code')} <bdi>{data.code}</bdi></p>

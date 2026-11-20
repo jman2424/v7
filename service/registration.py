@@ -149,12 +149,41 @@ def status():
     return {'email': row[0], 'tenant': row[1], 'status': state}
 
 
+def _owner_mailbox(email):
+    local, _, domain = email.strip().lower().rpartition('@')
+    if domain in {'gmail.com', 'googlemail.com'}:
+        return local.split('+', 1)[0].replace('.', '') + '@gmail.com'
+    return email.strip().lower()
+
+
+def _check_new_owner(db, storage, email):
+    mailbox = _owner_mailbox(email)
+    if session_store._using_postgres():
+        _lock_request_key(db, 'signup-owner:' + mailbox)
+        exists = db.execute('SELECT v7_private.signup_owner_exists(%s)', (mailbox,)).fetchone()[0]
+    else:
+        # SQLite provisions documents after committing the creating state.
+        creating = db.execute("SELECT email FROM registration_requests WHERE kind='owner' AND status='creating'")
+        accounts = AccountService(storage)
+        exists = any(_owner_mailbox(row[0]) == mailbox for row in creating) or any(
+            _owner_mailbox(row['email']) == mailbox
+            for tenant in storage.tenant_keys() for row in accounts.list_accounts(tenant)
+            if 'business_owner' in row['roles']
+        )
+    from service.security import _business_users
+    if exists or any(_owner_mailbox(str(row.get('email') or '')) == mailbox
+                     and 'business_owner' in (row.get('roles') or []) for row in _business_users()):
+        raise ValueError('An account already exists for this email. Use the existing sign-in.')
+
+
 def _reserved_email(email):
     import os
     from service.security import _registry_users
-    if email == os.getenv('ADMIN_USERNAME', '').strip().lower():
+    mailbox = _owner_mailbox(email)
+    if mailbox == _owner_mailbox(os.getenv('ADMIN_USERNAME', '')):
         return True
-    return any(str(user.get('email', '')).strip().lower() == email for user in _registry_users(current_app.container))
+    return any(_owner_mailbox(str(user.get('email') or '')) == mailbox
+               for user in _registry_users(current_app.container))
 
 
 def confirm(code):
@@ -189,6 +218,7 @@ def confirm(code):
                     raise ValueError('An account already exists for this company. Use the existing sign-in.')
                 _execute(db, "UPDATE registration_requests SET status='pending',code_hash='' WHERE id=?", (request_id,))
             else:
+                _check_new_owner(db, storage, email)
                 owner_details = (email,password_hash,tenant,name,application)
                 _execute(db, "UPDATE registration_requests SET status='creating',code_hash='' WHERE id=?", (request_id,))
     if owner_details:
@@ -243,6 +273,7 @@ def _confirm_postgres(code):
                 from service.postgres_business_documents import PostgresBusinessDocuments
                 from service.tenant_access import owner_key
                 from service.tenant_service import TenantService
+                _check_new_owner(db, storage, email)
                 repository = PostgresBusinessDocuments(tenant)
                 identity = {'id':'signup:'+request_id,'email':email,'tenant':tenant,'roles':['business_owner']}
                 documents = TenantService._starter_documents(name)
