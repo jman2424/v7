@@ -110,6 +110,9 @@ def processors(container, tenant: str | None) -> list[dict[str, str]]:
     email_routes = business_channels.bindings('email')
     if email_routes and (tenant is None or tenant in email_routes.values()):
         result.append({"name": "Resend", "purpose": "Enabled business support email receiving, draft/reply delivery and configured inbox retention."})
+    phone_routes = business_channels.bindings('phone')
+    if phone_routes and (tenant is None or tenant in phone_routes.values()):
+        result.append({"name": "Twilio", "purpose": "Incoming business calls, speech input and optional transfer to the business team."})
     if os.getenv("STRIPE_API_KEY", "").strip() and os.getenv("BILLING_PROVIDER", "stripe") == "stripe":
         result.append({"name": "Stripe", "purpose": "Payment checkout, invoicing and subscription administration."})
     for provider, name in (("meta", "Meta WhatsApp"), ("twilio", "Twilio")):

@@ -216,10 +216,10 @@ answers already imported stay in your workspace until you remove them, because y
 have edited them since. The stored copy of website pages is different: it is deleted
 on withdrawal (clause 6.8).
 
-11.2 Import history, including the copy kept so that a change can be undone, is kept
-for *[period to be agreed. Product behaviour today: undo copies for the ten most recent
-changes; history entries and dated back-ups of workspace documents until the workspace
-is closed]*.
+11.2 Import history and dated backups have separate retention periods. Before signing,
+record the retention period for import history, the availability of undo copies, and
+the expiry of each deployed backup. Confirm how deletion requests are handled if a
+backup is restored. Workspace closure alone does not establish when backups expire.
 
 11.3 Permission records are kept for as long as your workspace exists and then for
 *[period to be agreed, long enough to answer a later dispute about what was

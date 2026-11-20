@@ -11,7 +11,7 @@ prepared from how the product actually behaves, for a UK-qualified solicitor to 
 
 ## Details to settle before publication
 
-- Confirm the supplier's legal identity, business address and contact details. If the supplier is a UK limited company, verify its registered name, number, office and jurisdiction against its registration before publishing. [GOV.UK company website requirements](https://www.gov.uk/running-a-limited-company/signs-stationery-and-promotional-material)
+- The live [platform privacy notice](https://vertex-seven.com/privacy) identifies a named individual trading as Vertex Seven and publishes the business address and privacy contact. Confirm the contracting supplier and address for service against those details when completing the order. If the supplier is a UK limited company, verify its registered name, number, office and jurisdiction against its registration before publishing. [GOV.UK company website requirements](https://www.gov.uk/running-a-limited-company/signs-stationery-and-promotional-material)
 - Reconcile the signed schedule with the providers, processing locations, transfer safeguards, retention periods and backup expiry actually used by the customer. Check the public privacy notice against those same facts.
 - The repository has no root software licence. The rights holder must decide whether to grant reuse rights. The bundled Bricolage Grotesque and Hanken Grotesk fonts have their own licence files in [the fonts directory](../../dashboard/static/fonts/). Retain those notices with redistributed copies.
 
@@ -43,7 +43,6 @@ prepared from how the product actually behaves, for a UK-qualified solicitor to 
    proposed in section 12 appropriate where the declaration is false?
 10. Public pages can contain personal data (for example named staff). Does reading and
     repeating it need Article 28 terms and a privacy-notice change now (clause 6.7)?
-11. Withdrawal deletes the stored pages, but dated back-ups keep earlier copies until
-    the workspace is closed (clauses 6.8 and 11.2). Is that acceptable, or must
-    back-ups be purged on withdrawal?
+11. Withdrawal deletes the stored pages. What backup expiry and restore procedure
+    should the operator document for earlier copies (clauses 6.8 and 11.2)?
 12. How long should permission records be kept after a workspace closes (clause 11.3)?

@@ -302,6 +302,15 @@ def test_support_email_processor_disclosure_does_not_expose_other_mailboxes(priv
     assert 'private-inbound' not in str(own+other+public)
 
 
+def test_phone_processor_is_listed_for_assigned_calls_without_exposing_numbers(privacy_app, monkeypatch):
+    from service.privacy_settings import processors
+    monkeypatch.setenv("V7_PHONE_ROUTES_JSON", '{"+447700900123":"ALPHA"}')
+    for tenant in ("ALPHA", "BETA", None):
+        rows = processors(privacy_app.container, tenant)
+        assert any(row["name"] == "Twilio" and "Incoming business calls" in row["purpose"] for row in rows) == (tenant != "BETA")
+        assert "+447700900123" not in str(rows)
+
+
 def test_own_account_export_requires_current_session_and_ignores_other_tenant(privacy_app):
     client = privacy_app.test_client()
     assert client.get("/auth/privacy/export").status_code == 401

@@ -16,6 +16,12 @@ The supplier will restrict access to authorised people who need it and are bound
 
 Before signature, attach the providers actually used for the customer, their functions, processing locations and applicable transfer safeguards. Under general written authorisation, the supplier will give advance written notice of intended additions or replacements and allow the customer to object before the change. The parties will record the notice period and objection procedure in the order. Each sub-processor must accept equivalent data protection obligations. The supplier remains liable to the customer for performance of those obligations. Restricted transfers require a lawful mechanism applicable to the route and any required assessment.
 
+### Preparing the customer's order
+
+Use the deployment's [privacy notice](https://vertex-seven.com/privacy) and the customer's channel assignments to prepare the provider list. Render hosts the application and Supabase hosts the production database. Check which optional services process this customer's information, including OpenAI for configured AI functions, Resend for routed support email, Twilio for assigned calls, and Meta or Twilio for WhatsApp. Account sign-in and billing providers may have different roles. Record the contracting entity, role, locations and transfer arrangements from the applicable provider terms before signature.
+
+For support email and phone, record the workspace retention setting for each channel. V7 supports 1 to 90 days and defaults to 30. Expiry requires the maintenance worker to run. Content-free delivery records can remain for up to 90 days. A caller's message can produce a transcript. V7 does not create a call audio recording. Original mailboxes, provider copies, CRM records and backups have separate lifecycles. Confirm each applicable period and the backup expiry with the operator.
+
 ## Assistance and incidents
 
 The supplier will promptly route individual rights requests to the customer and assist it through appropriate technical and organisational measures, taking the nature of processing into account. Taking account of the information available to it, the supplier will assist with security, breach notifications, impact assessments and prior consultation with the regulator. The supplier will notify the customer without undue delay after becoming aware of a personal data breach and supply available information as the investigation progresses.
