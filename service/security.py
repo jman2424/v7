@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
 from flask import abort, current_app, g, session
+from twilio.request_validator import RequestValidator
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from service import session_store
@@ -159,17 +160,8 @@ def verify_webhook_signature(*args: Any) -> bool:
     if not auth_token or not signature_header or not full_url:
         return False
 
-    # Twilio signs: full_url + concatenated sorted params (key + value)
-    items = sorted((k, str(v)) for k, v in (form_data or {}).items())
-    payload = full_url + "".join(k + v for k, v in items)
-
-    digest = hmac.new(
-        auth_token.encode("utf-8"),
-        payload.encode("utf-8"),
-        hashlib.sha1,
-    ).digest()
-
-    expected = base64.b64encode(digest).decode("utf-8")
+    # Keep exact-URL verification while letting Twilio canonicalise signed form fields.
+    expected = RequestValidator(auth_token).compute_signature(full_url, form_data or {})
     return hmac.compare_digest(expected, signature_header)
 
 

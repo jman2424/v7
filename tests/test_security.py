@@ -24,6 +24,19 @@ from service.security import (
     verify_csrf_token,
 )
 
+def test_twilio_webhook_checks_all_form_values_and_the_exact_url():
+    from twilio.request_validator import RequestValidator
+    from werkzeug.datastructures import MultiDict
+
+    token = "fixture-token"
+    url = "https://example.test/call"
+    fields = MultiDict([("item", "one"), ("item", "two")])
+    signature = RequestValidator(token).compute_signature(url, fields)
+    assert verify_webhook_signature(token, signature, url, fields)
+    assert not verify_webhook_signature(token, signature, url, {"item": "one"})
+    assert not verify_webhook_signature(token, signature, url + "/other", fields)
+
+
 def test_password_hash_and_verify():
     password = "super_secret_password"
     hashed = hash_password(password)

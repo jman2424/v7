@@ -66,12 +66,12 @@ def _price(value):
         return None
     if isinstance(value, str):
         # Each run of spaces has one place to match, so long padding cannot cause quadratic backtracking.
-        match = re.fullmatch(r'\s*(?:[£$€]\s*)?(\d{1,9}(?:,\d{3})*(?:\.\d{1,4})?|\d{1,9},\d{2})\s*(?:(?:GBP|USD|EUR)\s*)?',
+        match = re.fullmatch(r'\s*(?:[£$€]\s*)?(\d{1,9}(?:,\d{3})*(?:\.\d{1,4})?|(?P<decimal_comma>\d{1,9},\d{2}))\s*(?:(?:GBP|USD|EUR)\s*)?',
                              value, re.I)
         if not match:
             return None
         text = match.group(1)
-        value = text.replace(',', '.') if re.fullmatch(r'\d+,\d{2}', text) else text.replace(',', '')
+        value = text.replace(',', '.') if match.group('decimal_comma') else text.replace(',', '')
     try:
         number = float(value)
     except (TypeError, ValueError):
