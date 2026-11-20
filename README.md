@@ -11,6 +11,10 @@ the [business-first agent brief](docs/history/business-intelligence-brief.md). C
 business intelligence remains available on every plan; optional execution modules
 are delivered separately with server-enforced permissions.
 
+## Licence
+
+First-party code is proprietary. Contact support@vertex-seven.com for written permission to reuse or redistribute it. Earlier SDK grants and third-party licences continue to apply. [Repository licence](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+
 ## Overview
 
 V7 Agents by Vertex Seven is a modular, multi-tenant chatbot and sales automation

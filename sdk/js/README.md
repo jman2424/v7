@@ -23,3 +23,7 @@ Minimal JS SDK to embed the **AI Sales Assistant** as a web widget (iframe).
   widget.open();
   widget.sendMessage("Hi, what are today’s hours?");
 </script>
+
+## Licence
+
+Version 0.1.1 is distributed under the [Vertex Seven proprietary licence](LICENSE). Contact support@vertex-seven.com for permission.

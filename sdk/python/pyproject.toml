@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aisales-assistant-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python client for the AI Sales Assistant chat and admin APIs."
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [{name = "Jamal Khan"}]
 dependencies = ["requests>=2.31.0"]
 

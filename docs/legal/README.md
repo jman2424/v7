@@ -13,7 +13,7 @@ prepared from how the product actually behaves, for a UK-qualified solicitor to 
 
 - The live [platform privacy notice](https://vertex-seven.com/privacy) identifies a named individual trading as Vertex Seven and publishes the business address and privacy contact. Confirm the contracting supplier and address for service against those details when completing the order. If the supplier is a UK limited company, verify its registered name, number, office and jurisdiction against its registration before publishing. [GOV.UK company website requirements](https://www.gov.uk/running-a-limited-company/signs-stationery-and-promotional-material)
 - Reconcile the signed schedule with the providers, processing locations, transfer safeguards, retention periods and backup expiry actually used by the customer. Check the public privacy notice against those same facts.
-- The repository has no root software licence. The rights holder must decide whether to grant reuse rights. The bundled Bricolage Grotesque and Hanken Grotesk fonts have their own licence files in [the fonts directory](../../dashboard/static/fonts/). Retain those notices with redistributed copies.
+- The [repository licence](../../LICENSE) reserves first-party reuse and redistribution for separate written permission. Earlier SDK licence grants continue under their original terms. The bundled Bricolage Grotesque and Hanken Grotesk fonts have their own licence files in [the fonts directory](../../dashboard/static/fonts/). Retain those notices with redistributed copies.
 
 ## Questions for the reviewing solicitor
 

@@ -3,6 +3,7 @@
 [project]
 name = "v7-agents"
 version = "7.0.0"
+license = {file = "LICENSE"}
 description = "Multi-tenant AI sales and support assistant platform"
 readme = "README.md"
 requires-python = ">=3.11"

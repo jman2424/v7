@@ -1,8 +1,8 @@
 {
   "name": "@aisales/assistant-widget",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Embed SDK for the AI Sales Assistant web widget (iframe bridge).",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "index.js",
   "module": "index.js",
   "exports": {
