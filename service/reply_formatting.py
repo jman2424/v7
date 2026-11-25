@@ -61,7 +61,7 @@ def readable_reply(text: str) -> str:
             block = re.sub(r'\bare +(?=[^£$€\n]{1,100}[£$€])', 'are\n\n', block, count=1)
             block = re.sub(r', +(?=(?:and +)?[^£$€\n,]{1,70}[£$€])', ',\n\n', block)
             block = re.sub(r'(?<=[\d.])\. +(?=[A-Z])', '.\n\n', block)
-        if len(block) <= 320 or '\n' in block or re.match(r'\s*(?:[-*•]|\d+[.)])\s', block):
+        if len(block) <= 200 or '\n' in block or '`' in block or re.match(r'\s*(?:[-*•]|\d+[.)])\s', block):
             blocks.append(block)
             return
         # Split only at sentence-ending punctuation followed by whitespace.
@@ -71,7 +71,7 @@ def readable_reply(text: str) -> str:
         paragraphs = []
         for sentence in sentences:
             paragraph.append(sentence)
-            if len(paragraph) >= 2 or len(' '.join(paragraph)) >= 280:
+            if len(paragraph) >= 2 or len(' '.join(paragraph)) >= 140:
                 paragraphs.append(' '.join(paragraph))
                 paragraph = []
         if paragraph:

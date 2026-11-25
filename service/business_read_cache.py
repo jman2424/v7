@@ -31,12 +31,14 @@ def namespace(storage, tenant):
     return backend, hashlib.sha256(location.encode()).hexdigest(), storage.canonical_tenant_key(tenant)
 
 
-def cached(key):
+def _cached_entry(key):
     with _lock:
         row = _cache.get(key)
         if row is not None:
             _cache.move_to_end(key)
-            return copy.deepcopy(row[:2])
+            # Cache rows are replaced wholesale. request_value copies the
+            # payload before passing it to a consumer.
+            return row[:2]
     return None
 
 
@@ -98,7 +100,7 @@ def snapshot(storage, tenant):
     with phase('business_snapshot'):
         if storage._using_postgres():
             repository = storage._postgres_repository(tenant)
-            entries = {name: cached((*scope, name)) for name in PUBLIC_DOCUMENTS}
+            entries = {name: _cached_entry((*scope, name)) for name in PUBLIC_DOCUMENTS}
             versions = {name: row[0] for name, row in entries.items() if row is not None}
             for name, version, unchanged, payload in repository.read_versioned_documents(PUBLIC_DOCUMENTS, versions):
                 if unchanged:
@@ -116,7 +118,7 @@ def snapshot(storage, tenant):
                     path = storage.file_path(tenant, name)
                     stat = path.stat()
                     version = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
-                    entry = cached((*scope, name))
+                    entry = _cached_entry((*scope, name))
                     if entry is not None and entry[0] == version:
                         documents[name] = entry[1]
                         hits += 1

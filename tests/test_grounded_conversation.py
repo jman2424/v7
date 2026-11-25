@@ -641,3 +641,22 @@ def test_selection_metadata_downgrade_does_not_weaken_other_validation(monkeypat
     reply, state, links, _ = _structured_answer(monkeypatch, payload,
         question=question, knowledge=knowledge, context=context)
     assert reply is None and state == {} and links == []
+
+
+def test_exact_public_faq_skips_inference_but_followup_keeps_context(monkeypatch):
+    from handlers.handler_v7 import MessageHandlerV7
+    from retrieval.faq_store import FAQStore
+
+    faq = FAQStore(faq=[{'q': 'Do you have parking?', 'a': 'Yes, behind the shop.'}])
+    handler = MessageHandlerV7(SimpleNamespace(faq=faq))
+    ctx = SimpleNamespace(tenant='EXAMPLE', channel='test')
+    calls = []
+    def grounded(question, session, **kwargs):
+        calls.append(question)
+        return 'Contextual answer.'
+    monkeypatch.setattr(handler, '_grounded_answer', grounded)
+    question = 'Do you have parking?'
+    assert handler.handle(question, ctx, {})['reply'] == 'Yes, behind the shop.'
+    assert not calls
+    assert handler.handle(question, ctx, {'conversation_history': [{'role': 'user', 'content': 'At the other branch?'}]})['intent'] == 'grounded_answer'
+    assert calls == [question]

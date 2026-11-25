@@ -453,6 +453,28 @@ class MessageHandlerV7:
             if private_answer:
                 return self._wrap_reply(request_id=request_id, t0=t0, reply=private_answer,
                     intent='faq', plan=None, facts={}, entities={}, items=[])
+            # Standalone directory questions can use the published business facts
+            # directly. Leave follow-ups and questions with extra conditions to
+            # the grounded answer pipeline.
+            if channel in {'web', 'test', 'whatsapp'} and not sess.get('conversation_history'):
+                from service.faq_integrity import question_key
+                key = question_key(user_text)
+                if key in {'opening hours', 'business hours', 'what are your opening hours',
+                           'what are your business hours', 'contact details', 'what are your contact details',
+                           'what is your phone number', 'what is your email address'}:
+                    directory = self.directory_answer(user_text)
+                    if directory:
+                        return self._wrap_reply(request_id=request_id, t0=t0, reply=directory,
+                            intent='store_info', plan=None, facts={}, entities={}, items=[])
+                if self.faq and key in {'do you have parking', 'is there parking', 'do you have free parking',
+                                         'do you have wheelchair access', 'what payment methods do you accept',
+                                         'do you accept cash', 'do you accept cards'}:
+                    entry = next((row for row in self._optional_faq_rows()
+                                  if question_key(str(row.get('q') or '')) == key), None)
+                    if entry and isinstance(entry.get('a'), str) and not re.search(r'[{}]', entry['a']):
+                        faq = {'question': entry['q'], 'answer': entry['a']}
+                        return self._wrap_reply(request_id=request_id, t0=t0, reply=faq['answer'],
+                            intent='faq', plan=None, facts={'faq': faq}, entities={}, items=[])
             # A funded, accounted answer takes precedence over keyword shortcuts.
             # The existing deterministic paths remain the no-credit/provider fallback.
             intelligent = self._grounded_answer(user_text, sess, channel=channel)
