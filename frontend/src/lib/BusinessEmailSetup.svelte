@@ -10,6 +10,7 @@
   export let apiPrefix='';
   let address='',provider='hosted_email',revision='',state='not_started',loading=true,busy=false,disposed=false;
   let storageAvailable=false,cleanupCounts:Record<string,number>|null=null;
+  let connectionReady=false;
   let forwardTo:string[]=[],connectedAddress='';
   let message='',error=false;
   $: dirty=Boolean(savedDraft&&savedDraft!==JSON.stringify({address,provider}));
@@ -25,7 +26,7 @@
     const timeout=setTimeout(()=>controller.abort(),20000);
     try {
       const response=await fetch(`${apiPrefix}/admin/api/business-email-setup?tenant=${encodeURIComponent(tenant)}`,{
-        method,credentials:'same-origin',signal:controller.signal,
+        method,credentials:'same-origin',cache:'no-store',signal:controller.signal,
         headers:{'X-CSRF-Token':csrf,...(method==='PUT'?{'Content-Type':'application/json'}:{})},
         ...(method==='PUT'?{body:JSON.stringify({revision,settings:{address,provider,purpose:'support'}})}:{})});
       const data=await response.json();
@@ -39,6 +40,7 @@
   }
   function apply(data:any) {
     address=data.settings.address;connectedAddress=address;provider=data.settings.provider;revision=data.revision;state=data.state;
+    connectionReady=data.can_enable===true;
     storageAvailable=data.storage_available;cleanupCounts=data.cleanup_counts;
     forwardTo=data.forward_to||[];
     savedDraft=JSON.stringify({address,provider});
@@ -72,6 +74,7 @@
     <li><strong>Choose replies and retention.</strong> Start with review-first drafts, choose how long V7 keeps message content, then enable the channel once its connection is ready.</li></ol>
   {#if loading}<p role="status">Loading email setup…</p>{:else}
     <p><strong>{states[state]||'Check setup'}</strong></p>
+    {#if state==='routing_configured'}<p role="status">{connectionReady?'Mailbox routing and processing prerequisites are configured.':'Mailbox routing is saved. Check worker, channel access and queue availability before enabling processing.'}</p>{/if}
     {#if forwardTo.length&&address===connectedAddress}<p>After your operator confirms verification, forward support enquiries from <strong>{connectedAddress}</strong> to:</p><ul>{#each forwardTo as target}<li><code>{target}</code> <button type="button" on:click={()=>copyTarget(target)}>Copy forwarding address</button></li>{/each}</ul><p>V7 replies from your approved business address. Forward only the mailbox or messages you want the assistant to handle.</p>{/if}
     {#if !storageAvailable}<p class="notice">The platform’s email queue storage is not available yet. You can prepare setup, but live processing must remain off until the operator provisions it.</p>{/if}
     <form on:submit|preventDefault={save}>

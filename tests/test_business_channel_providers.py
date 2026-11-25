@@ -341,3 +341,39 @@ def test_inbox_read_cannot_follow_untrusted_paths_or_return_an_outbound_message(
     monkeypatch.setattr(email,'_request',lambda *_:{'id':EMAIL_ID,'direction':'outbound'})
     with pytest.raises(email.EmailTransportError,match='email_envelope_mismatch'):
         email.receive_inbox(EMAIL_ID,EMAIL_ID,EMAIL_ID)
+
+def test_bound_resend_forwarding_address_routes_and_replies_in_thread(client, configured, monkeypatch):
+    from service import channel_routes
+    inbox = 'aa111111-1111-4111-8111-111111111111'
+    thread = 'bb222222-2222-4222-8222-222222222222'
+    alias = 'forward@tenant.resend.app'
+    public = 'business@example.com'
+    monkeypatch.setenv('V7_EMAIL_INBOX_ROUTES_JSON', json.dumps({inbox: public}))
+    doc = channel_routes.validate({'email': [{'address': alias, 'sender': public, 'inbox_id': inbox}]})
+    monkeypatch.setattr(channel_routes, '_stored', lambda: [('EXAMPLE', doc)])
+    assert channels.inbox_bindings()[inbox] == alias
+    event = {'type':'inbox.email.received','data':{'email_id':EMAIL_ID,'inbox_id':inbox,
+        'thread_id':thread,'email':{'id':EMAIL_ID,'direction':'inbound','from':'visitor@example.net','to':[alias]}}}
+    def deliver():
+        raw = json.dumps(event).encode()
+        return client.post('/channels/email/webhook', data=raw, content_type='application/json', headers=signature(raw))
+    first = deliver().json
+    assert first['queued'] and deliver().json == {**first, 'queued':False}
+    event['data']['email']['to'].append('other@example.com')
+    assert deliver().json['ignored']
+    calls = []
+    def request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == 'POST':
+            return {'id':'sent'}
+        return received(id=EMAIL_ID, direction='inbound', to=[alias])
+    monkeypatch.setattr(email, '_request', request)
+    fake_answer(monkeypatch, configured)
+    channel_worker.process_one(configured,'EXAMPLE')
+    job = operations.get('EXAMPLE', first['reference'])
+    assert job['state'] == 'needs_review' and job['reply']
+    assert email.send_reply(job, job['reply']) == 'sent'
+    assert calls[-1][1] == f'/inboxes/{inbox}/threads/{thread}/emails/{EMAIL_ID}/reply'
+    assert calls[-1][2]['idempotency_key'] == 'v7-reply-'+job['id']
+    monkeypatch.setattr(channel_routes, '_stored', lambda: [('EXAMPLE', doc), ('OTHER', doc)])
+    assert inbox not in channels.inbox_bindings()

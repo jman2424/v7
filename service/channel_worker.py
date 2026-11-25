@@ -107,6 +107,13 @@ def process_one(container, tenant, *, lane='all'):
                        if payload.get('inbox_id') else business_email.receive(payload['email_id']))
             clean = business_email.content(message, expected_sender=job['source_address'],
                                            expected_recipient=payload['recipient'], routed_recipients=channels.bindings('email'))
+            if payload.get('inbox_id'):
+                # Resend thread replies follow Reply-To. Use the thread endpoint
+                # only when it targets the sender already bound at intake.
+                targets = message.get('reply_to') or []
+                clean['reply_in_thread'] = not targets or targets == [job['source_address']]
+                if job['source_address'] == payload.get('sending_address'):
+                    clean['automated'] = True
             payload = {**payload, **clean}
             # No raw headers, HTML, attachments, download URLs or credentials.
             if not operations.save_payload(tenant, identifier, lease, payload):

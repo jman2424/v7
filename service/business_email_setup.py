@@ -25,6 +25,11 @@ def status(container, tenant):
     settings = validate(raw) if raw is not None else DEFAULTS.copy()
     ready = channels.readiness(container, tenant)
     configured = bool(settings['address'] and settings['address'] in ready['channels']['email']['sending_addresses'])
+    if configured and settings['provider'] == 'resend_inbox':
+        inbox_routes = set(channels.inbox_bindings().values())
+        senders = channels.email_senders()
+        configured = any(recipient in inbox_routes and senders.get(recipient) == settings['address']
+                         for recipient in ready['channels']['email']['recipients'])
     from service.business_operations import cleanup_counts
     try:
         counts = cleanup_counts(tenant)

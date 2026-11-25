@@ -322,8 +322,17 @@ def send_reply(operation, reply):
         headers.update({'In-Reply-To': message_id, 'References': message_id})
     # Recipient, sender and headers come from verified/stored intake, never
     # from model output or the editable draft text.
-    result = _request('POST', '/emails', data={'from': sender, 'to': [recipient], 'subject': subject,
-        'text': email_reply(reply), 'headers': headers}, idempotency_key='v7-reply-'+operation['id'])
+    if payload.get('inbox_id') and payload.get('reply_in_thread') is True:
+        path = thread_path(payload['inbox_id'], payload['thread_id'])
+        if not UUID.fullmatch(payload['email_id']):
+            raise EmailTransportError('invalid_email_id')
+        result = _request('POST', path+'/emails/'+payload['email_id']+'/reply',
+                          data={'text': email_reply(reply), 'headers': {'Auto-Submitted': 'auto-replied',
+                                'X-Auto-Response-Suppress': 'All'}},
+                          idempotency_key='v7-reply-'+operation['id'])
+    else:
+        result = _request('POST', '/emails', data={'from': sender, 'to': [recipient], 'subject': subject,
+            'text': email_reply(reply), 'headers': headers}, idempotency_key='v7-reply-'+operation['id'])
     identifier = result.get('id')
     if not isinstance(identifier, str) or not 1 <= len(identifier) <= 200:
         raise EmailTransportError('email_provider_response_invalid', uncertain=True)

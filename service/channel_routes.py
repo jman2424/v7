@@ -26,12 +26,18 @@ _cache: dict[str, Any] = {'at': 0.0, 'value': None}
 
 
 def _email_row(row: Any) -> dict[str, str]:
-    from service.business_channels import address
-    if not isinstance(row, dict) or set(row) - {'address', 'sender'} or 'address' not in row:
+    from service.business_channels import UUID, address
+    if not isinstance(row, dict) or set(row) - {'address', 'sender', 'inbox_id'} or 'address' not in row:
         raise ValueError('invalid_channel_routes')
     inbound = address(row['address'])
     sender = address(row.get('sender') or inbound)
-    return {'address': inbound, 'sender': sender}
+    result = {'address': inbound, 'sender': sender}
+    if 'inbox_id' in row:
+        identifier = row['inbox_id']
+        if not isinstance(identifier, str) or not UUID.fullmatch(identifier):
+            raise ValueError('invalid_channel_routes')
+        result['inbox_id'] = identifier
+    return result
 
 
 def validate(value: Any) -> dict[str, Any]:
@@ -132,6 +138,11 @@ def merge(base: dict[str, str], kind: str) -> dict[str, str]:
                 key = key.lstrip('+')
             claims.setdefault(key, set()).add(tenant)
     return {key: next(iter(owners)) for key, owners in claims.items() if len(owners) == 1}
+
+
+def stored_inboxes():
+    return [(row['inbox_id'], tenant, row['address'], row['sender'])
+            for tenant, doc in _stored() for row in doc['email'] if 'inbox_id' in row]
 
 
 def stored_senders() -> dict[str, tuple[str, str]]:

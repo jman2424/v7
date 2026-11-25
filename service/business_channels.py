@@ -167,6 +167,22 @@ def inbox_bindings():
             if not UUID.fullmatch(identifier) or recipient not in routes:
                 return {}
             result[identifier] = recipient
+        from service import channel_routes
+        # An operator-verified forwarding address may replace the public address
+        # of the same mailbox. Conflicting claims disable that inbox.
+        claims = {}
+        for identifier, tenant, recipient, sender in channel_routes.stored_inboxes():
+            claims.setdefault(identifier, set()).add((tenant, recipient, sender))
+        for identifier, owners in claims.items():
+            if len(owners) == 1:
+                tenant, recipient, sender = next(iter(owners))
+                prior = result.get(identifier)
+                if (routes.get(recipient) == tenant and
+                        (prior is None or prior == recipient or
+                         (prior == sender and routes.get(prior) == tenant))):
+                    result[identifier] = recipient
+                    continue
+            result.pop(identifier, None)
         return result
     except (ValueError, TypeError, RecursionError):
         return {}

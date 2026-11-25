@@ -43,6 +43,11 @@ def _phone_signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt='v7-phone-turn-v1')
 
 
+def _ignored_email(reason):
+    current_app.logger.info('email_intake outcome=ignored reason=%s', reason)
+    return jsonify(ok=True, ignored=True)
+
+
 @bp.post('/email/webhook')
 def email_webhook():
     secret = os.getenv('V7_EMAIL_WEBHOOK_SECRET', '')
@@ -58,7 +63,7 @@ def email_webhook():
     if not isinstance(event, dict):
         abort(400)
     if event.get('type') not in {'email.received', 'inbox.email.received'}:
-        return jsonify(ok=True, ignored=True)
+        return _ignored_email('unsupported_event_type')
     data = event.get('data')
     if (not isinstance(data, dict) or not isinstance(data.get('email_id'), str)
             or not channels.UUID.fullmatch(data['email_id'])):
@@ -72,10 +77,14 @@ def email_webhook():
         inbox_recipient = channels.inbox_bindings().get(data['inbox_id'])
         metadata = data.get('email')
         thread = data.get('thread')
-        if (not inbox_recipient or not isinstance(metadata, dict) or metadata.get('id') != data['email_id']
-                or metadata.get('direction') != 'inbound'
-                or isinstance(thread, dict) and thread.get('folder') == 'spam'):
-            return jsonify(ok=True, ignored=True)
+        if not inbox_recipient:
+            return _ignored_email('mailbox_not_connected')
+        if not isinstance(metadata, dict) or metadata.get('id') != data['email_id']:
+            return _ignored_email('email_metadata_unavailable')
+        if metadata.get('direction') != 'inbound':
+            return _ignored_email('not_inbound')
+        if isinstance(thread, dict) and thread.get('folder') == 'spam':
+            return _ignored_email('spam_folder')
         extras = {'inbox_id': data['inbox_id'], 'thread_id': data['thread_id']}
     try:
         sender, recipients = business_email.envelope(metadata)
@@ -85,27 +94,31 @@ def email_webhook():
     matched = [(recipient, routes[recipient]) for recipient in recipients if recipient in routes]
     # A multi-tenant email cannot inherit one tenant's context by list order.
     if len(matched) != 1:
-        return jsonify(ok=True, ignored=True)
+        return _ignored_email('ambiguous_recipient' if matched else 'unknown_recipient')
     recipient, tenant = matched[0]
     if (inbox_recipient and inbox_recipient != recipient
             or not inbox_recipient and recipient in channels.inbox_bindings().values()):
         # Subscribe to the Inbox event for configured inboxes, never both
         # delivery products for one address, even if provider IDs differ.
-        return jsonify(ok=True, ignored=True)
+        return _ignored_email('mailbox_route_mismatch')
     container = get_container()
-    if not container.storage.tenant_exists(tenant) or not channels.active(container.storage, tenant, 'email'):
-        return jsonify(ok=True, ignored=True)
+    if not container.storage.tenant_exists(tenant):
+        return _ignored_email('workspace_not_found')
+    if not channels.active(container.storage, tenant, 'email'):
+        return _ignored_email('email_channel_disabled')
     if inbox_recipient and isinstance(data.get('thread'), dict) and data['thread'].get('folder') == 'trash':
         if not operations.previously_trashed(tenant, data['inbox_id'], data['thread_id']):
-            return jsonify(ok=True, ignored=True)
+            return _ignored_email('trashed_thread')
         extras['restore_thread'] = True
     config = channels.settings(container.storage, tenant)['email']
     sending_address = channels.email_senders().get(recipient)
     if not sending_address:
         abort(503)
+    conversation_key = (f"{data['inbox_id']}:{data['thread_id']}:{sender}"
+                        if inbox_recipient else data['email_id'])
     try:
         job, created = operations.enqueue(tenant, 'email', data['email_id'],
-            'email:'+hashlib.sha256((tenant+'\0'+data['email_id']).encode()).hexdigest(), sender,
+            'email:'+hashlib.sha256((tenant+'\0'+conversation_key).encode()).hexdigest(), sender,
             {'email_id': data['email_id'], 'recipient': recipient, 'sending_address': sending_address,
              'mode_at_intake': config['mode'], **extras},
             daily_limit=config['daily_limit'])
@@ -113,6 +126,7 @@ def email_webhook():
         if str(exc) in {'channel_daily_limit', 'channel_sender_limit'}:
             return jsonify(ok=True, limited=True)
         abort(400)
+    current_app.logger.info('email_intake outcome=%s', 'queued' if created else 'duplicate_event')
     channel_worker.wake()
     return jsonify(ok=True, queued=created, reference=job['id'])
 
