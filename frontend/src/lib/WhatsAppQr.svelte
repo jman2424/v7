@@ -4,6 +4,7 @@
   import { base } from './consoleBase';
   import WhatsAppConnection from './WhatsAppConnection.svelte';
   export let tenant: string;
+  export let ownerSetup=false;
   export let csrf: string;
   export let apiPrefix = '';
   let phone = '';
@@ -47,7 +48,7 @@
   }
 </script>
 
-<WhatsAppConnection {tenant} {apiPrefix} bind:number={phone} />
+<WhatsAppConnection {ownerSetup} {csrf} {tenant} {apiPrefix} bind:number={phone} />
 
 <section class="qr-page" aria-label="WhatsApp links and QR codes" id="whatsapp-share">
   <article class="panel">

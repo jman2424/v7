@@ -5,6 +5,9 @@
   import {sectionHref} from './workspaceArchitecture';
   import { t, language } from './i18n';
   import { subscriptionLocales } from './subscription-format';
+  import SupportRequests from './SupportRequests.svelte';
+  export let csrf='';
+  export let ownerSetup=false;
   export let tenant: string;
   export let apiPrefix = '';
   export let number = '';
@@ -85,6 +88,10 @@
       <div><span class="status-dot" aria-hidden="true"></span><strong>{$t(providerReady ? 'Local setup ready — test before launch' : status.billing?.allowance?.paused ? 'WhatsApp paused — monthly allowance reached' : 'Let’s finish your setup')}</strong><p>{$t('{count}/4 local checks complete for {provider}. Delivery still needs a real message test.',{count:count(completed),provider:providerName})}</p></div>
       <div class="check-pills"><span class:done={hasRecipient}>{hasRecipient ? '✓' : '○'} {$t('Number assigned')}</span><span class:done={selected.configured}>{selected.configured ? '✓' : '○'} {$t('Provider settings')}</span><span class:done={status.tenant_active && status.subscription_enabled}>{status.tenant_active && status.subscription_enabled ? '✓' : '○'} {$t('V7 access')}</span><span class:done={status.setup?.public_https}>{status.setup?.public_https ? '✓' : '○'} {$t('Public HTTPS')}</span></div>
     </div>
+    {#if ownerSetup && !status.providers.meta.recipients.length && !status.providers.twilio.recipients.length}
+      <SupportRequests {tenant} {csrf} {apiPrefix} setupChannel="whatsapp" canManageBilling={ownerSetup}/>
+    {/if}
+    <details open={providerReady}><summary>{$t('Provider setup guides')}</summary>
     <nav class="step-nav" aria-label={$t('WhatsApp setup steps')}><a href="#whatsapp-number">01 · {$t('Number & provider')}</a><a href="#whatsapp-connect">02 · {$t('Connection')}</a><a href="#whatsapp-costs">03 · {$t('Costs')}</a><a href="#whatsapp-test">04 · {$t('Test & launch')}</a></nav>
     <article class="panel" id="whatsapp-number">
       <div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><div><h3>{$t('Choose how to connect')}</h3><p>{$t('These buttons change the guide shown here. The platform operator saves the actual connection.')}</p></div></div>
@@ -129,6 +136,7 @@
       <p class="cost-example">{$t('For example: three customer messages and three replies can create AI token charges in V7 and separate messaging charges from your provider.')}</p>
       <details><summary>{$t('Replies, templates and the 24-hour window')}</summary><p>{$t('V7 replies to incoming customer messages. A customer message opens the provider’s 24-hour service window; messages outside it generally need an approved template. Campaigns and template sending are not enabled by this setup. Provider pricing rules still apply.')}</p></details>
     </article>
+    </details>
     <article class="panel" id="whatsapp-test">
       <div class="panel-heading"><span class="step-number" aria-hidden="true">04</span><div><h3>{$t('Test the experience, then share the number')}</h3><p>{$t('Confirm the real customer journey before launch.')}</p></div></div>
       {#if status.blockers.length}<div class="notice"><strong>{$t('Finish these local checks first')}</strong><ul>{#each status.blockers as blocker}<li>{blockerLabel(blocker.code,$t)}</li>{/each}</ul><a href={link('subscription')}>{$t('Review company activation & WhatsApp access')} →</a></div>{/if}

@@ -2,6 +2,8 @@
   import {recordAnchor} from './workspaceSearch';
   import { businessLabel } from './businessLabel';
   import {onMount,onDestroy} from 'svelte';
+  import SupportRequests from './SupportRequests.svelte';
+  export let ownerSetup=false;
   import BusinessEmailSetup from './BusinessEmailSetup.svelte';
   import AgentModules from './AgentModules.svelte';
   import DraftGuard from './DraftGuard.svelte';
@@ -179,12 +181,20 @@
       {/if}
     {/if}
     {#if !channel||channel==='phone'}<section class="notice" aria-labelledby="phone-setup-title"><h3 id="phone-setup-title">Connect your business phone</h3>
+      {#if readiness.phone?.recipients?.length}
+        <p>Call an assigned V7 number to test it. To keep your current number, use your carrier’s call forwarding settings to send all calls, or just missed calls, to the tested line.</p>
+        {#each readiness.phone.recipients as line}<p><a href={'tel:'+line}>Call {line}</a></p>{/each}
+        <p>For handover, choose a team line that does not forward back to V7.</p>
+      {:else if ownerSetup}
+        <SupportRequests {tenant} {csrf} {apiPrefix} setupChannel="phone" canManageBilling={ownerSetup}/>
+      {/if}
+      <details><summary>Connect a Twilio number yourself</summary>
       <p>Bring a voice-capable Twilio number you control. Your platform operator securely connects the provider account and assigns the exact number to your company. Start in review mode to take messages; automatic mode answers permitted business questions.</p>
       <label>Incoming call webhook<input readonly value={phoneWebhook}/></label>
       <button type="button" on:click={copyWebhook}>Copy call webhook</button>
       <p>Set the number’s incoming-call webhook to this URL using HTTP POST after the operator confirms the connection. Then choose your call language and enable the channel below. Test a real call before publishing the number.</p>
       <p>Callers hear an AI and synthetic-voice notice before input collection. They can press 0 to reach the team. If you set a hand-over number below, the call is passed to it; otherwise, or if nobody answers within 20 seconds, the caller leaves a message. Number rental, calls and provider speech charges are separate. No number is purchased here.</p>
-      <a href="https://www.twilio.com/docs/voice/quickstart" target="_blank" rel="noopener noreferrer">Twilio inbound voice setup ↗</a>
+      <a href="https://www.twilio.com/docs/voice/quickstart" target="_blank" rel="noopener noreferrer">Twilio inbound voice setup ↗</a></details>
     </section>{/if}
     <div class="notice"><strong>Provider connections and costs</strong><p>Email needs a verified sender, incoming mail routing and a signed webhook. Phone needs a connected business number and signed call routing. AI replies use this business’s prepaid AI credit. Email delivery, number rental, calls and provider speech services have separate provider charges. No number or subscription is purchased here.</p><p>{workerEnabled?'The channel worker is enabled.':'The platform operator must enable the channel worker before live handling can start.'}</p></div>
     {#if isPlatform&&!moduleInitialized}<fieldset><legend>Platform permissions for {$businessLabel || tenant}</legend><p>These permissions make a channel available to this business. The business must still configure and enable it.</p>{#each ['email','phone'] as key}<label class="check"><input type="checkbox" bind:checked={grants[key as Channel]} disabled={saving}/>{channelNames[key as Channel]} allowed</label>{/each}<button type="button" on:click={saveGrants} disabled={saving}>Save platform permissions</button></fieldset>{/if}
