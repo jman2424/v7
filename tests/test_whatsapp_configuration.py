@@ -183,7 +183,7 @@ def test_setup_callbacks_do_not_publish_invalid_or_private_base_urls(origin):
         "webhook_url": "", "status_callback_url": "", "public_https": False}
 
 
-def test_setup_plan_allowance_paused_is_not_reported_ready(platform, monkeypatch):
+def test_setup_plan_allowance_paused_is_not_reported_ready(historical_scale_sales, platform, monkeypatch):
     from service import subscriptions
     app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")
     with app.app_context():
@@ -229,7 +229,7 @@ def test_setup_staff_has_message_allowance_without_ai_cost_details(platform):
 
 
 @pytest.mark.parametrize("view_costs", [False, True], ids=["setup-staff", "owner"])
-def test_money_based_setup_exposes_prepaid_credit_only_with_cost_permission(platform, monkeypatch, view_costs):
+def test_money_based_setup_exposes_prepaid_credit_only_with_cost_permission(historical_scale_sales, platform, monkeypatch, view_costs):
     from service import subscriptions
     from service.plan_catalog import PLANS
     app = configure(platform[0], WHATSAPP_PROVIDER_MODE="meta")

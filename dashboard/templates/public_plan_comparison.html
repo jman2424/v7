@@ -6,7 +6,7 @@
           {% if subscription_vat_percent %}<p class="plan-tax"><strong>£{{ '%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000) }} / month</strong> including {{ subscription_vat_percent }}% VAT, where applicable</p>{% endif %}
           <ul class="plan-highlights"><li>{{ plan.channel_summary }}</li><li>Messages are limited by your prepaid AI credit</li><li>AI processing credit purchased separately · usage depends on model and tokens</li><li>{{ plan.locations }} location{% if plan.locations != 1 %}s{% endif %} / service area{% if plan.locations != 1 %}s{% endif %} · {{ plan.staff }} staff accounts</li></ul>
           <p class="plan-exclusion">{% if "whatsapp" in plan.channels %}WhatsApp phone numbers are not included. Provider and number rental charges are separate.{% else %}WhatsApp and calls are part of the Scale plan.{% endif %}</p>
-          <a class="button button-dark" href="/console/?apply=1&amp;next=application&amp;plan={{ plan.id }}">Apply for {{ plan.name }} <span aria-hidden="true">→</span></a>
+          {% if plan.purchasable %}<a class="button button-dark" href="/console/?apply=1&amp;next=application&amp;plan={{ plan.id }}">Apply for {{ plan.name }} <span aria-hidden="true">→</span></a>{% else %}<strong>Coming soon</strong>{% endif %}
         </article>
         {% endfor %}
       </div>
@@ -24,7 +24,7 @@
       </aside>
       {% endif %}
       <div class="plan-comparison" role="region" aria-label="Compare subscription plans" tabindex="0">
-        <table><caption>Exactly what your business gets</caption><thead><tr><th scope="col">Feature</th>{% for plan in subscription_plans %}<th scope="col">{{ plan.name }}</th>{% endfor %}</tr></thead><tbody>
+        <table><caption>Exactly what your business gets</caption><thead><tr><th scope="col">Feature</th>{% for plan in subscription_plans %}<th scope="col">{{ plan.name }}{% if not plan.purchasable %} (Coming soon){% endif %}</th>{% endfor %}</tr></thead><tbody>
           {% for label, channel in [('Website AI agent', 'web'), ('Email AI assistant', 'email'), ('WhatsApp AI agent', 'whatsapp'), ('AI phone receptionist', 'phone')] %}<tr><th scope="row">{{ label }}</th>{% for plan in subscription_plans %}<td>{{ 'Included' if channel in plan.channels else 'Not included' }}</td>{% endfor %}</tr>{% endfor %}
           <tr><th scope="row">WhatsApp phone number</th>{% for plan in subscription_plans %}<td>Not included</td>{% endfor %}</tr>
           <tr><th scope="row">Website and WhatsApp message capacity*</th>{% for plan in subscription_plans %}<td>Based on model, tokens and prepaid credit</td>{% endfor %}</tr>

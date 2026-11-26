@@ -26,7 +26,7 @@
     {% set tax_description = (" before VAT. Monthly price including " + (subscription_vat_percent | string) + "% VAT £" + ('%.2f' | format(plan.monthly_pence * (100 + subscription_vat_percent) / 10000)) + "; optional assistance including VAT £" + ('%.2f' | format(plan.setup_pence * (100 + subscription_vat_percent) / 10000)) + ", where VAT applies.") if subscription_vat_percent else ". No VAT is added to these prices." %}
     {% set plan_offers.items = plan_offers.items + [{
       "@type": "Offer", "url": canonical_url + "#pricing", "name": "V7 Agents " + plan.name,
-      "availability": "https://schema.org/OnlineOnly",
+      "availability": "https://schema.org/OnlineOnly" if plan.purchasable else "https://schema.org/OutOfStock",
       "description": plan.name + " monthly subscription. Channels: " + plan.channel_summary + ". Separate optional one-time assistance £" + ('%.0f' | format(plan.setup_pence / 100)) + tax_description + " Phone numbers and separate WhatsApp provider charges are not included. AI processing credit is purchased separately and shared across website and WhatsApp; paid AI pauses without available credit. No automatic recharge is enabled.",
       "priceSpecification": {"@type": "UnitPriceSpecification", "price": '%.2f' | format(plan.monthly_pence / 100), "priceCurrency": "GBP", "unitCode": "MON", "unitText": "month", "valueAddedTaxIncluded": false},
       "seller": {"@id": site_origin + "/#organization"}

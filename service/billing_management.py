@@ -257,6 +257,7 @@ def change_plan(tenant, plan_id, base_url, interval=None):
     from service.business_applications import require_eligible
     require_eligible(tenant)
     plan = get_plan(plan_id)
+    plan_catalog.require_purchasable(plan)
     if interval is not None and interval not in INTERVALS:
         raise ValueError('invalid_billing_interval')
     contract, data = _verified_subscription(tenant, change=True)

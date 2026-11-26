@@ -245,7 +245,7 @@ def test_local_schema_upgrade_snapshots_existing_percentage(monkeypatch):
         assert db.execute('SELECT joining_setup_percent FROM referral_program WHERE id=1').fetchone()[0]==100
 
 
-@pytest.mark.parametrize('plan_id',['starter','business','scale'])
+@pytest.mark.parametrize('plan_id',['starter','business'])
 @pytest.mark.parametrize('saved_campaign',[False,True])
 def test_zero_setup_coupon_is_once_and_wins_over_weaker_campaign(client,stripe,monkeypatch,plan_id,saved_campaign):
     monkeypatch.setenv('V7_VAT_REGISTERED','false')

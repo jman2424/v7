@@ -143,7 +143,10 @@ def test_home_plan_schema_matches_visible_monthly_pricing_and_allowances(seo_cli
     for plan, offer in zip(public_plans(), product["offers"]):
         specification = offer["priceSpecification"]
         assert offer["name"] == "V7 Agents " + plan["name"]
-        assert offer["availability"] == "https://schema.org/OnlineOnly"
+        assert offer["availability"] == ("https://schema.org/OnlineOnly" if plan["purchasable"] else "https://schema.org/OutOfStock")
+        if not plan["purchasable"]:
+            assert "Coming soon" in visible
+            assert "apply=1&amp;next=application&amp;plan=scale" not in response.text
         assert specification["@type"] == "UnitPriceSpecification"
         assert Decimal(specification["price"]) == Decimal(plan["monthly_pence"]) / 100
         assert specification["priceCurrency"] == "GBP"

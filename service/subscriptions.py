@@ -210,6 +210,7 @@ def select_plan(tenant, plan_id):
         pending = db.execute("SELECT 1 FROM billing_contracts WHERE tenant=? AND kind IN ('platform','implementation') AND subscription IS NULL AND status!='paid' AND checkout_expires>? LIMIT 1", (tenant,int(time.time()))).fetchone()
         if pending and (not state or state['selected_plan'] != plan_id):
             raise ValueError('cancel_pending_checkout_before_changing_plan')
+        plan_catalog.require_purchasable(plan)
         db.execute('INSERT INTO billing_plan_state (tenant,selected_plan) VALUES (?,?) ON CONFLICT(tenant) DO UPDATE SET selected_plan=excluded.selected_plan', (tenant,plan['id']))
     return plan_state(tenant)
 
@@ -362,8 +363,10 @@ def checkout(tenant, email, kind, base_url, month='', discount_code='', plan_id=
             raise ValueError('invalid_subscription_plan')
         if plan_id is not None or state or not legacy:
             chosen = plan_id if plan_id is not None else state['selected_plan'] if state else 'starter'
-            select_plan(tenant, chosen)
             plan = get_plan(chosen)
+            if kind == 'platform':
+                plan_catalog.require_purchasable(plan)
+            select_plan(tenant, chosen)
     elif plan_id is not None:
         raise ValueError('plan_not_applicable_to_billing_item')
     if interval != 'month' and not plan:

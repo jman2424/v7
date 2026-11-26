@@ -44,7 +44,7 @@ def stripe_plan_provider(pg_runtime, monkeypatch):
 def test_native_plan_tables_force_rls_and_hide_other_tenant(pg_runtime):
     tenant, other = pg_runtime['tenant'], pg_runtime['other']
     subscriptions.select_plan(tenant, 'starter')
-    subscriptions.select_plan(other, 'scale')
+    subscriptions.select_plan(other, 'business')
     for key in (tenant, other):
         contract = subscriptions._contract(key, 'platform')
         with subscriptions.connection(key) as db:
@@ -71,14 +71,14 @@ def test_native_plan_tables_force_rls_and_hide_other_tenant(pg_runtime):
         with session_store.postgres_connection(tenant) as db:
             db.execute("INSERT INTO v7_private.billing_plan_state (tenant,selected_plan) VALUES(%s,'starter') "
                        'ON CONFLICT(tenant) DO UPDATE SET selected_plan=excluded.selected_plan', (other,))
-    assert subscriptions.plan_state(other)['selected_plan'] == 'scale'
+    assert subscriptions.plan_state(other)['selected_plan'] == 'business'
 
 
 @pytest.mark.parametrize('plan_id,monthly,setup', [('starter', 9900, 10000),
                                                  ('business', 19900, 10000),
                                                  ('scale', 34900, 10000)])
 @pytest.mark.parametrize('vat_registered', [False, True])
-def test_native_checkout_binds_server_plan_prices_and_vat(pg_runtime, stripe_plan_provider, plan_id, monthly, setup, monkeypatch, vat_registered):
+def test_native_checkout_binds_server_plan_prices_and_vat(historical_scale_sales, pg_runtime, stripe_plan_provider, plan_id, monthly, setup, monkeypatch, vat_registered):
     monkeypatch.setenv('V7_VAT_REGISTERED', 'true' if vat_registered else 'false')
     tenant = pg_runtime['tenant']
     for kind, amount in [('platform', monthly), ('implementation', setup)]:

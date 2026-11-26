@@ -194,3 +194,10 @@ def dummy_lead():
 @pytest.fixture()
 def json_headers():
     return {"Content-Type": "application/json"}
+
+
+@pytest.fixture
+def historical_scale_sales(monkeypatch):
+    # Exercise billing records created while Scale was available for purchase.
+    from service.plan_catalog import PLANS
+    monkeypatch.setitem(PLANS['scale'], 'purchasable', True)

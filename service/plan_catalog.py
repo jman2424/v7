@@ -29,7 +29,7 @@ PLANS = {
         'channels': ('web', 'email'), 'channel_summary': 'Website chat and email',
     },
     'scale': {
-        'id': 'scale', 'name': 'Scale', 'audience': 'Busy businesses',
+        'purchasable': False, 'id': 'scale', 'name': 'Scale', 'audience': 'Busy businesses',
         'monthly_pence': 34900, 'annual_pence': 349000, 'setup_pence': SETUP_ASSISTANCE_PENCE,
         'message_usage_model': 'ai_cost', 'ai_credit_model': 'prepaid', 'usage_billing_mode': 'prepaid',
         'website_conversations': 3000, 'whatsapp_messages': 5000,
@@ -44,8 +44,13 @@ PLANS = {
 def get_plan(plan_id):
     if not isinstance(plan_id, str) or plan_id not in PLANS:
         raise ValueError('invalid_subscription_plan')
-    return {**PLANS[plan_id], 'website_conversations_enforced': False,
+    return {**PLANS[plan_id], 'purchasable': PLANS[plan_id].get('purchasable', True), 'website_conversations_enforced': False,
             'whatsapp_messages_enforced': False}
+
+
+def require_purchasable(plan):
+    if not plan['purchasable']:
+        raise ValueError('plan_coming_soon')
 
 
 # Stripe recurring intervals. Yearly is paid up front; allowances stay monthly.

@@ -23,7 +23,7 @@ def provider(method, path, data=None, **kwargs):
 
 @pytest.mark.parametrize('code', ['MHIGHSTREET', 'SETUP'])
 @pytest.mark.parametrize('kind', ['platform', 'implementation'])
-@pytest.mark.parametrize('plan_id', ['starter', 'business', 'scale'])
+@pytest.mark.parametrize('plan_id', ['starter', 'business'])
 def test_offers_keep_base_prices_and_discount_only_the_intended_item(client, stripe, code, kind, plan_id):
     identity(client, 'business_owner')
     stripe.side_effect = provider

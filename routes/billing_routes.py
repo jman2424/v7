@@ -13,6 +13,7 @@ bp = Blueprint('billing', __name__, url_prefix='/billing')
 _PROVIDER_ERRORS = ('stripe_not_configured', 'stripe_request_failed', 'stripe_response_invalid',
                     'stripe_setup_required', 'stripe_live_payments_required')
 _PLAN_ERRORS = (
+    'plan_coming_soon',
     'invalid_subscription_plan', 'existing_subscription_requires_review',
     'paid_setup_plan_requires_review', 'existing_setup_requires_review',
     'internal_business_has_no_customer_subscription', 'cancel_pending_checkout_before_changing_plan',

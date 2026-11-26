@@ -165,6 +165,8 @@ def public_knowledge(tenant):
     offer = referrals.public_offer(tenant)
     plans = []
     for plan in public_plans():
+        if not plan['purchasable']:
+            continue
         regular = plan['monthly_pence']
         first = int((Decimal(regular) * (100-offer['percent']) / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         setup = int((Decimal(plan['setup_pence']) * (100-offer['joining_setup_percent']) / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
@@ -194,6 +196,8 @@ def public_destinations(tenant, configured):
     if not public_flags()['referrals_public']:
         candidates = [row for row in candidates if row['id'] != 'platform_referrals']
     for plan in public_plans():
+        if not plan['purchasable']:
+            continue
         candidates.append({'id':'platform_plan_'+plan['id'], 'label':'Choose '+plan['name'],
                            'url':origin+'/console/subscription?plan='+plan['id'],
                            'purpose':'Sign in to select this subscription plan and review checkout; no payment occurs by opening it.'})
@@ -213,7 +217,7 @@ def public_plan_context(tenant):
     return {
         'authority': 'Current platform billing catalogue; do not infer features from plan names.',
         'plans': [{'id': plan['id'], 'name': plan['name'],
-                   'channels': plan['channel_summary'],
+                   'channels': plan['channel_summary'], 'purchasable': plan['purchasable'],
                    **{key: plan[key] for key in ('locations', 'staff_accounts', 'analytics', 'api_access', 'onboarding')}}
                   for plan in public_plans()],
         'usage': 'AI processing credit is separately prepaid; none is included. There is no fixed message allowance. Usage depends on the selected model and tokens.',
@@ -266,6 +270,7 @@ def automatic_plan_answer(question, knowledge, history=None):
     lines = [f"{plan['name']}: £{plan['monthly_pence']/100:.2f}/month, billed monthly, "
              f"plus £{plan['setup_pence']/100:.2f} optional one-time assistance; "
              f"{plan['channel_summary']}; {plan['locations']} location(s), {plan['staff_accounts']} staff accounts."
+             + (' Coming soon.' if not plan['purchasable'] else '')
              for plan in selected]
     from service.plan_catalog import vat_percent
     tax = f' VAT is charged at {vat_percent()}%.' if vat_percent() else ''

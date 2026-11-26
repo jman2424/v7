@@ -13,7 +13,7 @@ stripe = test_subscriptions.stripe
 
 @pytest.mark.parametrize('plan_id', ['starter','business','scale'])
 @pytest.mark.parametrize('kind', ['platform','implementation'])
-def test_all_plan_checkout_amounts_and_metadata_are_server_owned(client,stripe,plan_id,kind):
+def test_all_plan_checkout_amounts_and_metadata_are_server_owned(historical_scale_sales, client,stripe,plan_id,kind):
     identity(client,'business_owner')
     stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20},
                         {'id':'cs_tier','url':'https://checkout.stripe.com/c/pay/tier'}]
@@ -82,7 +82,7 @@ def test_paid_setup_does_not_lock_plan_selection(client,stripe):
     subscriptions.select_plan('EXAMPLE','starter')
     with subscriptions.connection('EXAMPLE') as db:
         db.execute("UPDATE billing_plan_state SET setup_plan='starter' WHERE tenant='EXAMPLE'")
-    assert subscriptions.select_plan('EXAMPLE','scale')['selected_plan'] == 'scale'
+    assert subscriptions.select_plan('EXAMPLE','business')['selected_plan'] == 'business'
     stripe.assert_not_called()
 
 
@@ -120,20 +120,20 @@ def test_invoice_without_bound_plan_is_rejected(client,stripe):
 def test_setup_cannot_use_a_cheaper_plan_while_monthly_checkout_is_open(client,stripe):
     identity(client,'business_owner')
     stripe.side_effect=[{'active':True,'inclusive':False,'percentage':20},
-                        {'id':'cs_scale','url':'https://checkout.stripe.com/c/pay/scale','expires_at':int(time.time())+3600}]
-    assert client.post('/billing/checkout',json={'kind':'platform','plan_id':'scale'}).status_code==200
+                        {'id':'cs_business','url':'https://checkout.stripe.com/c/pay/business','expires_at':int(time.time())+3600}]
+    assert client.post('/billing/checkout',json={'kind':'platform','plan_id':'business'}).status_code==200
     stripe.reset_mock()
     stripe.side_effect=None
     assert client.post('/billing/checkout',json={'kind':'implementation','plan_id':'starter'}).json['error']=='cancel_pending_checkout_before_changing_plan'
     stripe.assert_not_called()
-    assert subscriptions.plan_state('EXAMPLE')['selected_plan']=='scale'
+    assert subscriptions.plan_state('EXAMPLE')['selected_plan']=='business'
     stripe.side_effect=[{'status':'open'},{'status':'expired'}]
     assert client.post('/billing/cancel-checkout').status_code==200
     assert not subscriptions.plan_state('EXAMPLE')['checkout_pending']
     assert client.post('/billing/select-plan',json={'plan_id':'starter'}).status_code==200
 
 
-def test_tiered_activation_needs_only_a_paid_subscription(client):
+def test_tiered_activation_needs_only_a_paid_subscription(historical_scale_sales, client):
     from service import tenant_access
     tenant_access.register('EXAMPLE')
     subscriptions.select_plan('EXAMPLE','scale')
@@ -147,3 +147,19 @@ def test_tiered_activation_needs_only_a_paid_subscription(client):
         db.execute("INSERT INTO billing_invoices VALUES ('in_scale','EXAMPLE','platform','2025-01',1,NULL,100,100,0,'paid','[]',NULL)")
     # One-time assistance is an optional add-on and never gates activation.
     assert tenant_access.activation('EXAMPLE')['active']
+
+
+def test_scale_sales_are_closed_even_with_saved_selection(client, stripe):
+    identity(client, 'business_owner')
+    with subscriptions.connection('EXAMPLE') as db:
+        db.execute("INSERT INTO billing_plan_state (tenant,selected_plan) VALUES ('EXAMPLE','scale')")
+    for path, payload in [
+        ('select-plan', {'plan_id': 'scale'}),
+        ('checkout', {'kind': 'platform'}),
+        ('checkout', {'kind': 'platform', 'plan_id': 'scale'}),
+        ('change-plan', {'plan_id': 'scale'}),
+    ]:
+        response = client.post('/billing/' + path, json=payload)
+        assert response.status_code == 400
+        assert response.json == {'error': 'plan_coming_soon'}
+    stripe.assert_not_called()

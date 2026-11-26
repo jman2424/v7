@@ -44,7 +44,7 @@ def test_a_business_already_billed_yearly_can_still_change_plan(client, stripe, 
 
 
 @pytest.mark.parametrize('plan_id,pence', [('starter', 99000), ('business', 199000), ('scale', 349000)])
-def test_yearly_checkout_charges_the_server_owned_yearly_price(client, stripe, plan_id, pence):
+def test_yearly_checkout_charges_the_server_owned_yearly_price(historical_scale_sales, client, stripe, plan_id, pence):
     identity(client, 'business_owner')
     stripe.side_effect = [TAX, _session('year')]
     response = client.post('/billing/checkout', json={'kind': 'platform', 'plan_id': plan_id, 'interval': 'year',

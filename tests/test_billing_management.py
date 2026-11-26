@@ -91,7 +91,7 @@ def test_active_change_is_reviewed_in_stripe_and_activated_only_after_paid_evide
         assert db.execute("SELECT count(*) n FROM billing_plan_changes WHERE tenant='EXAMPLE' AND status='applied'").fetchone()['n'] == 1
 
 
-def test_unpaid_second_change_retains_previously_confirmed_plan(client, stripe, managed_subscription):
+def test_unpaid_second_change_retains_previously_confirmed_plan(historical_scale_sales, client, stripe, managed_subscription):
     assert client.post('/billing/change-plan', json={'plan_id': 'business'}).status_code == 200
     confirm_plan(managed_subscription, 'business')
     subscriptions.sync_subscription('sub_managed')
@@ -149,7 +149,7 @@ def test_cancel_opens_period_end_confirmation_and_preserves_access_until_provide
 
 
 @pytest.mark.parametrize('field,value', [('currency', 'usd'), ('status', 'open'), ('subscription', 'sub_other'), ('created', 1)])
-def test_wrong_or_unpaid_invoice_cannot_upgrade_entitlements(client, stripe, managed_subscription, field, value):
+def test_wrong_or_unpaid_invoice_cannot_upgrade_entitlements(historical_scale_sales, client, stripe, managed_subscription, field, value):
     assert client.post('/billing/change-plan', json={'plan_id': 'scale'}).status_code == 200
     confirm_plan(managed_subscription, 'scale')
     managed_subscription['data']['latest_invoice'][field] = value
@@ -157,7 +157,7 @@ def test_wrong_or_unpaid_invoice_cannot_upgrade_entitlements(client, stripe, man
     assert subscriptions.plan_state('EXAMPLE')['active_plan'] == 'starter'
 
 
-def test_wrong_price_or_original_metadata_cannot_claim_an_upgrade(client, stripe, managed_subscription):
+def test_wrong_price_or_original_metadata_cannot_claim_an_upgrade(historical_scale_sales, client, stripe, managed_subscription):
     assert client.post('/billing/change-plan', json={'plan_id': 'scale'}).status_code == 200
     confirm_plan(managed_subscription, 'scale')
     managed_subscription['data']['items']['data'][0]['price']['unit_amount'] = 1
@@ -176,7 +176,7 @@ def test_existing_scheduled_update_cannot_be_overwritten(client, stripe, managed
     assert all(call.args[0] == 'GET' for call in stripe.call_args_list)
 
 
-def test_confirmed_setup_proof_survives_cancel_and_new_subscription_generation(client, stripe, managed_subscription):
+def test_confirmed_setup_proof_survives_cancel_and_new_subscription_generation(historical_scale_sales, client, stripe, managed_subscription):
     subject = managed_subscription
     assert client.post('/billing/change-plan', json={'plan_id': 'business'}).status_code == 200
     confirm_plan(subject, 'business')
