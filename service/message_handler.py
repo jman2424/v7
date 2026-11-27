@@ -301,6 +301,10 @@ class MessageHandler:
                           and reply.get('intent') == 'grounded_answer'
                           and isinstance(reply.get('agent'), dict)
                           and reply['agent'].get('_validated_grounded') is True else None)
+        email_needs_human = (isinstance(reply.get('agent'), dict)
+                             and reply['agent'].get('_response_kind') in {'refusal', 'clarification'})
+        public_catalogue = validated_text and reply['agent'].pop('_public_catalogue_email', False) is True
+        cited_faq = reply['agent'].pop('_email_faq_question', None) if validated_text else None
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
@@ -334,11 +338,17 @@ class MessageHandler:
 
         self._telemetry(ctx, event_type='pipeline_turn', meta={
             'mode': mode, 'rid': rid, 'intent': reply.get('intent'), 'ok': True, 'channel': ctx.channel})
+        if ctx.channel == 'email' and email_needs_human:
+            reply['_email_needs_human'] = True
         reply.pop('_validated_channel_answer', None)
         if (ctx.channel in {'email', 'phone'} and isinstance(validated_text, str)
                 and reply.get('intent') == 'grounded_answer'
                 and reply.get('reply') == readable_reply(consultation_estimate(validated_text))):
             reply['_validated_channel_answer'] = True
+            if ctx.channel == 'email' and public_catalogue:
+                reply['_public_catalogue_email'] = True
+            if ctx.channel == 'email' and isinstance(cited_faq, str):
+                reply['_email_faq_question'] = cited_faq
         return reply
 
     def _remember_turn(self, ctx, sess, user_text, reply):

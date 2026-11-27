@@ -123,6 +123,28 @@ def channel_counts(tenant, minutes):
         return counts
 
 
+def email_thread_hold(job):
+    """Keep a conversation with its reviewer and bound unattended reply loops."""
+    with connection(job['tenant']) as db:
+        rows = db.execute("""SELECT state,payload FROM business_operations WHERE tenant=? AND channel='email'
+                          AND conversation_id=? AND id<>? ORDER BY updated DESC,id DESC""",
+                          (job['tenant'], job['conversation_id'], job['id'])).fetchall()
+    if any(row['state'] in ('needs_review', 'uncertain') for row in rows):
+        return 'email_human_followup'
+    count = 0
+    for row in rows:
+        if row['state'] != 'completed':
+            continue
+        approval = json.loads(row['payload']).get('reply_approval')
+        if approval == 'owner':
+            break
+        if approval == 'automatic':
+            count += 1
+            if count >= 3:
+                return 'email_thread_limit'
+    return ''
+
+
 def claim(tenant, *, lane='all'):
     if lane not in {'all', 'phone', 'background'}:
         raise ValueError('invalid_operation_lane')
@@ -136,6 +158,11 @@ def claim(tenant, *, lane='all'):
             """SELECT * FROM business_operations WHERE tenant=? AND state IN ('queued','approved')
                AND (? = 'all' OR (? = 'phone' AND channel='phone')
                     OR (? = 'background' AND channel<>'phone'))
+               AND (channel<>'email' OR NOT EXISTS (
+                   SELECT 1 FROM business_operations prior WHERE prior.tenant=business_operations.tenant
+                   AND prior.channel='email' AND prior.conversation_id=business_operations.conversation_id
+                   AND prior.id<>business_operations.id AND (prior.state IN ('processing','sending')
+                       OR (prior.state='approved' AND business_operations.state='queued'))))
                ORDER BY created,id LIMIT 1""",
             (tenant, lane, lane, lane)).fetchone()
         if row is None:

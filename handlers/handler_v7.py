@@ -1175,6 +1175,15 @@ class MessageHandlerV7:
                 agent_state.update(offering_ids=references,last_offering_ids=references)
                 agent_state['sources'] = list(dict.fromkeys([*agent_state.get('sources',[]),*references]))
                 emit('catalogue_choices_linked',outcome='exact_public_price_matches',count=len(references))
+        if (channel == 'email' and agent_state.get('_validated_grounded') is True
+                and agent_state.get('_response_kind') == 'answer'):
+            sources = agent_state.get('sources') or []
+            from service.grounded_statements import public_catalogue_email
+            agent_state['_public_catalogue_email'] = public_catalogue_email(text, sources, knowledge, question)
+            if len(sources) == 1 and sources[0].startswith(('faq:', 'matched_faq:')):
+                row = knowledge.get(sources[0]) or {}
+                if row.get('answer_complete', True):
+                    agent_state['_email_faq_question'] = row.get('question')
         requested_action = agent_state.get('requested_action')
         if isinstance(requested_action, str) and requested_action in allowed_actions and self.module_storage is not None:
             from service.agent_modules import allowed

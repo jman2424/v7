@@ -49,7 +49,39 @@ def _answer(container, job, text):
 
     language = job.get('payload', {}).get('language')
     prompt = phone_copy(language, 'website_pages') if channel == 'phone' else None
-    return render_queued_reply(result, channel, targets, phone_page_prompt=prompt)
+    answer, routine = render_queued_reply(result, channel, targets, phone_page_prompt=prompt)
+    if channel != 'email':
+        return answer, routine
+    if result.get('_email_needs_human') or result.get('intent') in {'unknown', 'out_of_scope', 'human_handoff', 'handoff', 'complaint', 'cancel', 'checkout', 'quote', 'book'}:
+        return answer, False
+    if job.get('payload', {}).get('inbox_id'):
+        # Inbox does not attest to sender identity. Only send verbatim public
+        # business facts. Never send conversation history or free-form prose.
+        if routine and result.get('_validated_channel_answer') and result.get('_public_catalogue_email'):
+            return answer, True
+        from service.faq_integrity import question_key
+        body = job['payload'].get('text') or ''
+        key = question_key(body)
+        cited_key = question_key(result.get('_email_faq_question') or '') if routine else ''
+        directory_questions = {'opening hours', 'business hours', 'what are your opening hours',
+                               'what are your business hours', 'what time do you open',
+                               'what time do you close', 'what is your phone number',
+                               'what is your email address', 'what are your contact details'}
+        v7 = runtime.handler.h_v7
+        if key in directory_questions and callable(getattr(v7, 'directory_answer', None)):
+            public = v7.directory_answer(body)
+            if public and (routine or (result.get('intent') == 'store_info' and not result.get('agent'))):
+                return render_queued_reply({'reply': public, '_validated_channel_answer': True}, channel, targets)
+        if routine or (result.get('intent') == 'faq' and not result.get('agent')):
+            faq_rows = getattr(v7, '_optional_faq_rows', None)
+            for row in faq_rows() if callable(faq_rows) else ():
+                public = row.get('a') or row.get('answer')
+                if isinstance(public, str) and public.strip() and (
+                        question_key(row.get('q') or row.get('question') or '') in {key, cited_key}
+                        or (routine and public.strip() == answer.strip())):
+                    return render_queued_reply({'reply': public, '_validated_channel_answer': True}, channel, targets)
+        return answer, False
+    return answer, routine
 
 
 def process_one(container, tenant, *, lane='all'):
@@ -84,8 +116,10 @@ def process_one(container, tenant, *, lane='all'):
                 return True
             approval = payload.get('reply_approval')
             if approval != 'owner' and (approval == 'automatic' or payload.get('mode_at_intake') == 'automatic'):
-                if (current['mode'] != 'automatic' or payload.get('inbox_id')
-                        or not payload.get('sender_domain_authenticated') or payload.get('attachments')):
+                eligible = (payload.get('public_inbox_reply') is True and payload.get('reply_in_thread') is True
+                            if payload.get('inbox_id') else payload.get('sender_domain_authenticated'))
+                if (current['mode'] != 'automatic' or not eligible or payload.get('attachments')
+                        or operations.email_thread_hold(job)):
                     operations.finish(tenant, identifier, lease, 'needs_review', reply=job['reply'],
                                       error_code='reply_review_required')
                     return True
@@ -112,6 +146,8 @@ def process_one(container, tenant, *, lane='all'):
                 # only when it targets the sender already bound at intake.
                 targets = message.get('reply_to') or []
                 clean['reply_in_thread'] = not targets or targets == [job['source_address']]
+                clean['single_recipient'] = (len(message.get('to') or []) == 1 and not message.get('cc')
+                                             and not message.get('bcc'))
                 if job['source_address'] == payload.get('sending_address'):
                     clean['automated'] = True
             payload = {**payload, **clean}
@@ -133,12 +169,16 @@ def process_one(container, tenant, *, lane='all'):
         automatic = (enabled and current['mode'] == latest['mode'] == payload.get('mode_at_intake') == 'automatic'
                      and routine and channels.bindings(channel).get(payload['recipient']) == tenant)
         if channel == 'email':
-            automatic = (automatic and not payload.get('inbox_id')
-                         and payload['sender_domain_authenticated'] and not payload['attachments'])
+            eligible = (payload.get('single_recipient') and payload.get('reply_in_thread')
+                        if payload.get('inbox_id') else payload['sender_domain_authenticated'])
+            hold = operations.email_thread_hold(job)
+            automatic = automatic and eligible and not payload['attachments'] and not hold
+            reason = hold or ('email_human_followup' if not routine else 'reply_review_required')
             state = 'approved' if automatic else 'needs_review'
             operations.finish(tenant, identifier, lease, state, reply=answer,
-                              error_code='' if automatic else 'reply_review_required',
-                              payload={**payload, 'reply_approval': 'automatic'} if automatic else None)
+                              error_code='' if automatic else reason,
+                              payload={**payload, 'reply_approval': 'automatic',
+                                       'public_inbox_reply': bool(payload.get('inbox_id'))} if automatic else None)
         else:
             timed_out = time.time() - job['created'] >= operations.PHONE_REPLY_WINDOW
             state = 'completed' if automatic and not timed_out and len(answer) <= 1400 else 'needs_review'

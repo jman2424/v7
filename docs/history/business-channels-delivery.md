@@ -96,9 +96,10 @@ The user selected **both** review-first and automatic routine-answer modes.
    present in `V7_EMAIL_ROUTES_JSON`. Body retrieval is bound to that inbox/thread
    and message. Standard receiving events for those addresses are ignored to avoid
    duplicate handling. The Inbox API documents no provider-authenticated DMARC
-   result, so those drafts require owner review even in automatic mode. Replies
-   use the outbound email API and original sender, ignoring untrusted Reply-To;
-   V7 does not claim that its sent reply appears in the Inbox product's thread UI.
+   result. In Automatic mode, a routine Inbox question can receive a verbatim
+   public FAQ, catalogue or directory answer on its bound, single-recipient thread. Other
+   drafts, attachments and human handoffs go to Activity for review. After
+   three automatic replies the team must review the thread.
 4. Twilio inbound voice uses POST `https://<V7 origin>/channels/phone/incoming`.
    V7 signs continuation tokens and validates the provider signature against the
    configured `BASE_URL`, account, number and call ID. No outbound calls or audio

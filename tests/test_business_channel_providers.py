@@ -377,3 +377,53 @@ def test_bound_resend_forwarding_address_routes_and_replies_in_thread(client, co
     assert calls[-1][2]['idempotency_key'] == 'v7-reply-'+job['id']
     monkeypatch.setattr(channel_routes, '_stored', lambda: [('EXAMPLE', doc), ('OTHER', doc)])
     assert inbox not in channels.inbox_bindings()
+
+
+def test_inbox_automatic_public_answer_then_handoff(client, configured, monkeypatch):
+    inbox = '00000000-0000-4000-8000-000000000002'
+    thread = '00000000-0000-4000-8000-000000000003'
+    monkeypatch.setenv('V7_EMAIL_INBOX_ROUTES_JSON', json.dumps({inbox: 'business@example.com'}))
+    fake_answer(monkeypatch, configured)
+    configured.for_tenant('EXAMPLE').handler.h_v7._optional_faq_rows = lambda: [
+        {'q': 'When do you open?', 'a': 'We open at nine.'}]
+    sends = []
+    def provider(method, path, **kwargs):
+        if method == 'POST':
+            sends.append(kwargs['data']['text'])
+            return {'id': 'accepted'}
+        identifier = path.rsplit('/', 1)[-1]
+        body = 'Can you fix my order?' if identifier.endswith('5') else 'When do you open?'
+        return received(id=identifier, direction='inbound', text=body)
+    monkeypatch.setattr(email, '_request', provider)
+    def deliver(sequence):
+        identifier = '00000000-0000-4000-8000-00000000000' + str(sequence)
+        event = {'type': 'inbox.email.received', 'data': {'email_id': identifier, 'inbox_id': inbox,
+                 'thread_id': thread, 'email': {'id': identifier, 'direction': 'inbound',
+                 'from': 'visitor@example.net', 'to': ['business@example.com']}}}
+        raw = json.dumps(event).encode()
+        result = client.post('/channels/email/webhook', data=raw, content_type='application/json', headers=signature(raw))
+        return result.json['reference']
+    first = deliver(4)
+    for _ in range(2):
+        assert channel_worker.process_one(configured, 'EXAMPLE')
+    assert operations.get('EXAMPLE', first)['state'] == 'completed'
+    assert len(sends) == 1 and 'We open at nine.' in sends[0]
+    assert deliver(4) == first and not channel_worker.process_one(configured, 'EXAMPLE')
+    for i in (5, 6):
+        identifier = deliver(i)
+        assert channel_worker.process_one(configured, 'EXAMPLE')
+        job = operations.get('EXAMPLE', identifier)
+        assert (job['state'], job['error_code']) == ('needs_review', 'email_human_followup')
+    assert len(sends) == 1
+
+
+def test_inbox_loop_limit_and_tenant_isolation(configured):
+    payload = {'reply_approval': 'automatic'}
+    for n in range(3):
+        operations.enqueue('EXAMPLE', 'email', 'event' + str(n), 'thread-one', 'test@example.net', payload)
+        active = operations.claim('EXAMPLE')
+        assert operations.email_thread_hold(active) == ''
+        operations.finish('EXAMPLE', active['id'], active['lease'], 'completed', payload=payload)
+    request = {'tenant': 'EXAMPLE', 'conversation_id': 'thread-one', 'id': 'next'}
+    assert operations.email_thread_hold(request) == 'email_thread_limit'
+    assert operations.email_thread_hold({**request, 'tenant': 'OTHER'}) == ''

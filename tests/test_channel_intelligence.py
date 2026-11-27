@@ -288,3 +288,13 @@ def test_prices_and_complete_policy_conditions_use_same_validation(monkeypatch, 
     else:
         assert '150' in result and '30 days' in result and 'unless faulty' in result
         assert len(calls) == 1
+
+
+def test_public_catalogue_email_excludes_generated_and_private_text():
+    from service.grounded_statements import public_catalogue_email
+    key = 'offering:install'
+    row = {'name': 'Installation', 'type': 'service', 'price': 50, 'currency': 'GBP'}
+    answer = 'Installation: \u00a350.00.'
+    assert public_catalogue_email(answer, [key], {key: row}, 'Price?')
+    assert not public_catalogue_email(answer + ' Your balance is 20.', [key], {key: row}, 'Price?')
+    assert not public_catalogue_email(answer, [key], {key: {**row, 'public': False}}, 'Price?')

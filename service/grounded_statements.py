@@ -389,6 +389,22 @@ def _option_summary(row, question):
     return '. Catalogue options — ' + '; '.join(shown) + suffix
 
 
+def public_catalogue_email(answer, sources, knowledge, question):
+    """Recognise answers composed entirely of the published catalogue summaries."""
+    if not sources or len(sources) > 3:
+        return False
+    public_lines = set()
+    for key in sources:
+        row = knowledge.get(key)
+        if (not key.startswith(('product:', 'offering:')) or not isinstance(row, dict)
+                or row.get('public') is False or row.get('active') is False
+                or row.get('requires_manual_review')):
+            return False
+        public_lines.add(_offering_summary(row, product=key.startswith('product:'), question=question))
+    lines = [re.sub(r'^\d+\. ', '', line.strip()) for line in answer.splitlines() if line.strip()]
+    return bool(lines) and all(line in public_lines for line in lines)
+
+
 def _mixed_product_request(question, cited, knowledge):
     if not (_PRODUCT_DETAILS.search(question) or _OPTION_DETAILS.search(question)):
         return False
