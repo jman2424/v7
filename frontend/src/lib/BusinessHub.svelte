@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {base} from './consoleBase';
+  import {sectionHref} from './workspaceArchitecture';
   import {recordAnchor} from './workspaceSearch';
   import { businessLabel } from './businessLabel';
   import {onMount,onDestroy} from 'svelte';
@@ -163,6 +165,7 @@
 <DraftGuard {dirty}/><ConfirmDialog bind:this={confirmation}/>
 <section class="hub" aria-labelledby="business-hub-title">
   <div class="heading"><div><p class="eyebrow">Business operations</p><h2 id="business-hub-title">{presentation==='activity'?'Review and follow up':channel==='email'?'Your email assistant':channel==='phone'?'Your phone assistant':'Email, calls and follow-ups'}</h2><p>Use the same saved business knowledge across your website, email and phone. Review important requests and confirmed outcomes here.</p></div><button type="button" on:click={load} disabled={loading||saving||Boolean(busyId)}>Refresh activity and drafts</button></div>
+  {#if channel==='phone' && presentation!=='activity'}<p><a href={sectionHref(base,'test',tenant)} data-sveltekit-reload>Test the AI in your browser</a> before connecting a number. Type a question, or use microphone dictation and read-aloud where supported.</p>{/if}
   {#if status}<p role="status" class:error>{status}</p>{/if}
   {#if loading}<p role="status">Loading your business hub…</p>{/if}
   {#if settings && presentation!=='activity'}

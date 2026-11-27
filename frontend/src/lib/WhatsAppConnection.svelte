@@ -81,6 +81,7 @@
 
 <section class="whatsapp" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-labelledby="whatsapp-setup-title">
   <header class="intro"><div><p class="eyebrow">{$t('Customer channels')} · <bdi>{$businessLabel || tenant}</bdi></p><h2 id="whatsapp-setup-title">{$t('WhatsApp, ready for your business')}</h2><p>{$t('Choose your connection, prepare your number and see what you will pay before launch.')}</p></div><button class="secondary" type="button" disabled={busy} on:click={load}>{$t(busy ? 'Checking…' : 'Refresh setup')}</button></header>
+  <p><a href={link('test')} data-sveltekit-reload>{$t('Test the AI in your browser')}</a></p>
   {#if error}<p class="notice error" role="alert">{$t(error)}</p>{/if}
   {#if !status && !error}<p class="loading" role="status"><span aria-hidden="true"></span>{$t('Loading your WhatsApp setup…')}</p>{/if}
   {#if status && selected}
