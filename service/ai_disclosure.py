@@ -18,8 +18,8 @@ def email_reply(reply):
 
 _PHONE = {
     'en': {
-        'automatic': 'You are speaking to an AI assistant using an AI-generated voice. Your words are transcribed and saved for this business. Do not share passwords or payment information.',
-        'review': 'This is an AI message-taking service using an AI-generated voice. Your words are transcribed and saved for the team. Do not share passwords or payment information.',
+        'automatic': 'You’re speaking to an AI assistant with a generated voice. V7 saves your words and the assistant’s answers as text so the business can help you and follow up. V7 does not record call audio. For privacy details, ask the business. Please leave out passwords and payment details.',
+        'review': 'This is an AI message service with a generated voice. V7 saves what you say as a written message so the team can follow up. V7 does not record call audio. For privacy details, ask the business. Please leave out passwords and payment details.',
         'question': 'How can we help? Press 0 to leave a message for the team instead.',
         'message': 'Please say your enquiry and how you would like the team to contact you.',
         'retry': 'I did not hear an enquiry. Please say your question, or press 0 to leave a message for the team.',
@@ -36,8 +36,8 @@ _PHONE = {
         'end': 'Please contact the team if you need further help.',
     },
     'fr': {
-        'automatic': 'Vous parlez à un assistant IA avec une voix générée par intelligence artificielle. Vos paroles sont transcrites et conservées pour cette entreprise. Ne communiquez ni mot de passe ni données de paiement.',
-        'review': 'Ce service de messages utilise une IA et une voix générée par intelligence artificielle. Vos paroles sont transcrites et conservées pour l’équipe. Ne communiquez ni mot de passe ni données de paiement.',
+        'automatic': 'Vous parlez à un assistant IA à voix de synthèse. V7 conserve vos paroles et les réponses de l’assistant sous forme de texte pour que l’entreprise puisse vous aider et assurer le suivi. V7 n’enregistre pas le son de l’appel. Pour toute question sur vos données, contactez l’entreprise. Ne communiquez ni mot de passe ni données de paiement.',
+        'review': 'Ce service de messagerie utilise une IA à voix de synthèse. V7 conserve votre message par écrit pour que l’équipe puisse vous recontacter. V7 n’enregistre pas le son de l’appel. Pour toute question sur vos données, contactez l’entreprise. Ne communiquez ni mot de passe ni données de paiement.',
         'question': 'Comment pouvons-nous vous aider ? Appuyez sur 0 pour laisser un message à l’équipe.',
         'message': 'Veuillez expliquer votre demande et indiquer comment l’équipe peut vous contacter.',
         'retry': 'Je n’ai pas entendu votre demande. Veuillez parler ou appuyer sur 0 pour laisser un message à l’équipe.',
@@ -54,8 +54,8 @@ _PHONE = {
         'end': 'Veuillez contacter l’équipe pour toute aide supplémentaire.',
     },
     'es': {
-        'automatic': 'Está hablando con un asistente de IA que usa una voz generada por inteligencia artificial. Sus palabras se transcriben y guardan para esta empresa. No comparta contraseñas ni datos de pago.',
-        'review': 'Este servicio de mensajes utiliza IA y una voz generada por inteligencia artificial. Sus palabras se transcriben y guardan para el equipo. No comparta contraseñas ni datos de pago.',
+        'automatic': 'Habla con un asistente de IA con voz sintética. V7 guarda sus palabras y las respuestas del asistente por escrito para que la empresa pueda atenderle y hacer seguimiento. V7 no graba el audio de la llamada. Para información sobre privacidad, consulte a la empresa. No comparta contraseñas ni datos de pago.',
+        'review': 'Este servicio de mensajes utiliza IA con voz sintética. V7 guarda su mensaje por escrito para que el equipo pueda responderle. V7 no graba el audio de la llamada. Para información sobre privacidad, consulte a la empresa. No comparta contraseñas ni datos de pago.',
         'question': '¿Cómo podemos ayudarle? Pulse 0 para dejar un mensaje al equipo.',
         'message': 'Explique su consulta e indique cómo quiere que el equipo se ponga en contacto con usted.',
         'retry': 'No he oído su consulta. Hable o pulse 0 para dejar un mensaje al equipo.',
@@ -72,8 +72,8 @@ _PHONE = {
         'end': 'Contacte con el equipo si necesita más ayuda.',
     },
     'de': {
-        'automatic': 'Sie sprechen mit einem KI-Assistenten mit einer KI-generierten Stimme. Ihre Worte werden für dieses Unternehmen transkribiert und gespeichert. Nennen Sie keine Passwörter oder Zahlungsdaten.',
-        'review': 'Dieser Nachrichtendienst nutzt KI und eine KI-generierte Stimme. Ihre Worte werden für das Team transkribiert und gespeichert. Nennen Sie keine Passwörter oder Zahlungsdaten.',
+        'automatic': 'Sie sprechen mit einem KI-Assistenten mit künstlicher Stimme. V7 speichert Ihre Worte und die Antworten als Text, damit das Unternehmen Ihr Anliegen bearbeiten und Sie bei Bedarf kontaktieren kann. V7 zeichnet den Ton des Anrufs nicht auf. Bei Datenschutzfragen wenden Sie sich an das Unternehmen. Nennen Sie keine Passwörter oder Zahlungsdaten.',
+        'review': 'Dieser Nachrichtendienst nutzt KI und eine künstliche Stimme. V7 speichert Ihre Nachricht als Text, damit das Team sich bei Ihnen melden kann. V7 zeichnet den Ton des Anrufs nicht auf. Bei Datenschutzfragen wenden Sie sich an das Unternehmen. Nennen Sie keine Passwörter oder Zahlungsdaten.',
         'question': 'Wie können wir helfen? Drücken Sie 0, um dem Team eine Nachricht zu hinterlassen.',
         'message': 'Bitte nennen Sie Ihr Anliegen und wie das Team Sie kontaktieren soll.',
         'retry': 'Ich habe kein Anliegen gehört. Bitte sprechen Sie oder drücken Sie 0 für eine Nachricht an das Team.',

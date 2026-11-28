@@ -223,6 +223,7 @@
           {/if}
           {#if channel==='phone'}<label>Owner or team phone number<input type="tel" bind:value={settings.phone.handover_number} placeholder="+447700900123" maxlength="16" disabled={!canManage}/></label><label>Backup phone number (optional)<input type="tel" bind:value={settings.phone.backup_number} placeholder="+447700900124" maxlength="16" disabled={!canManage}/></label><label class="check"><input type="checkbox" bind:checked={settings.phone.auto_transfer} disabled={!canManage}/>Transfer automatically when the AI cannot answer</label><p class="hint">Pressing 0 also requests the team. Each number rings for up to 20 seconds. If nobody answers, the caller can leave a message. Forwarded calls incur provider charges. Use numbers that do not forward back to V7.</p>{/if}
           <label class="check"><input type="checkbox" bind:checked={settings[channel].privacy_confirmed} disabled={!canManage}/>Our privacy notice covers this channel and its saved messages.</label>
+          {#if channel==='phone'}<p class="hint"><a href={'/privacy?tenant='+encodeURIComponent(tenant)+'#phone-calls'} target="_blank" rel="noopener noreferrer">View the caller privacy notice</a>. Check the business’s privacy contact, lawful basis and retention details before enabling calls.</p>{/if}
         </fieldset>
       {/each}</div>
       <button type="submit" disabled={!canManage||saving}>{saving?'Saving…':'Save channel settings'}</button>

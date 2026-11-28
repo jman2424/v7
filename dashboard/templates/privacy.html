@@ -20,11 +20,12 @@
       <dt>Privacy contact</dt><dd>{% if policy.settings.contact_email %}<a href="{{ mailto_url }}">{{ policy.settings.contact_email }}</a>{% else %}Not provided — needs confirmation.{% endif %}</dd></dl>
       <p>The named controller decides how and why personal information is used. The platform operator must clarify its responsibilities and processing arrangements with each business.</p>
     </section>
+    {% include 'phone_privacy_notice.html' %}
     <section><h2>Information used by the service</h2><ul>
       <li>Account identity, assigned roles, business settings, authentication records and security/audit events support access and account protection.</li>
       <li>Customer messages, replies, contact details supplied during a conversation, leads, consultation requests and sales activity support the business's customer service and follow-up.</li>
       <li>Conversation and usage records help authorised business users review agent activity, errors and costs.</li>
-      <li>When you use voice, V7 handles the recording in memory for transcription. The transcript may be saved with the conversation; an enabled transcription provider receives the audio.</li>
+      <li>When you send a voice message for transcription, V7 handles the recording in memory. The transcript may be saved with the conversation and the enabled transcription provider receives the audio.</li>
     </ul><p>AI responses may be inaccurate. A human should review important enquiries and decisions. This service does not establish a lawful basis on a business's behalf.</p></section>
     {% if not tenant and processors|selectattr('name', 'equalto', 'Google Analytics')|list %}
     <section><h2>Optional public website analytics</h2>

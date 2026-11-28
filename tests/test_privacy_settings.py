@@ -58,6 +58,17 @@ def test_empty_details_are_a_draft_without_invented_legal_values(privacy_app):
     assert "privacy@example.test" not in response.text
 
 
+def test_public_call_notice_uses_business_phone_retention(privacy_app):
+    from service import business_channels
+    privacy_app.container.storage.write_json('ALPHA', business_channels.FILENAME, {'phone': {'retention_days': 17}})
+    client = privacy_app.test_client()
+    page = client.get('/privacy?tenant=ALPHA')
+    assert page.status_code == 200
+    assert 'phone activity retention period to 17 days' in page.text
+    assert 'V7 does not record the call audio' in page.text
+    assert 'phone activity retention period to 17 days' not in client.get('/privacy').text
+
+
 def test_completed_platform_policy_is_separate_from_tenant_notices(privacy_app, monkeypatch):
     monkeypatch.setenv("V7_PRIVACY_CONTROLLER", "Synthetic Sole Trader trading as Platform")
     monkeypatch.setenv("V7_PRIVACY_CONTACT_EMAIL", "data@example.test")

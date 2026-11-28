@@ -1,0 +1,7 @@
+<section id="phone-calls">
+  <h2>When you call a business’s AI phone assistant</h2>
+  <p>Before asking you to speak, the assistant identifies its generated voice and explains how your answers are used. Twilio processes the call and speech so V7 can receive your words as text. V7 does not record the call audio.</p>
+  <p>The business uses the written enquiry, the caller number when available, and any AI reply to answer questions and follow up. Authorised team members can review these records. In automatic mode, the AI provider may process the text and relevant business information to prepare a reply. In message-taking mode, the team receives a written message.</p>
+  <p>If the call transfers to the owner or another team member, the receiving line may see your caller number. {% if phone_retention_days %}This business has set its V7 phone activity retention period to {{ phone_retention_days }} {{ 'day' if phone_retention_days == 1 else 'days' }}.{% else %}The business chooses how long to keep phone activity in V7, from 1 to 90 days (30 by default).{% endif %}Customer records, backups and provider call logs have separate retention arrangements.</p>
+  <p>You can hang up before speaking and contact the business another way. Ask the business for its privacy notice, its reason for processing your information, its retention periods, or help requesting access, correction or deletion. Please leave passwords and payment details out of your message.</p>
+</section>

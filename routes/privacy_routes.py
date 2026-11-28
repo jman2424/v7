@@ -85,7 +85,15 @@ def privacy_page():
             abort(404)
     policy = privacy_settings.status(container.storage, tenant)
     template = "platform_privacy.html" if tenant is None and not policy["draft"] else "privacy.html"
+    phone_retention_days = None
+    if tenant:
+        from service import business_channels
+        try:
+            phone_retention_days = business_channels.settings(container.storage, tenant)['phone']['retention_days']
+        except ValueError:
+            pass  # The privacy notice remains available when channel settings need correction.
     response = current_app.make_response(render_template(template, policy=policy, tenant=tenant,
+        phone_retention_days=phone_retention_days,
         processors=privacy_settings.processors(container, tenant),
         business_address=privacy_settings.public_business_address() if tenant is None else "",
         mailto_url="mailto:" + quote(policy["settings"]["contact_email"], safe="@")))
