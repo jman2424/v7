@@ -35,11 +35,12 @@ def _shutdown():
     wake()
 
 
-def _answer(container, job, text):
+def _answer(container, job, text, *, phone_preview=False):
     tenant, channel = job['tenant'], job['channel']
     runtime = container.for_tenant(tenant)
-    result = runtime.handler.handle(text, tenant=tenant, session_id=job['conversation_id'], channel=channel,
-                                    metadata={'request_id': secrets.token_hex(12), 'source': 'business_channel'})
+    result = runtime.handler.handle(text, tenant=tenant, session_id=job['conversation_id'], channel='test' if phone_preview else channel,
+                                    metadata={'request_id': secrets.token_hex(12), 'source': 'console_test' if phone_preview else 'business_channel',
+                                              'preview_channel': 'phone' if phone_preview else None})
 
     def targets():
         original = runtime.handler.h_v7
@@ -50,8 +51,8 @@ def _answer(container, job, text):
     language = job.get('payload', {}).get('language')
     prompt = phone_copy(language, 'website_pages') if channel == 'phone' else None
     answer, routine = render_queued_reply(result, channel, targets, phone_page_prompt=prompt)
-    if channel != 'email':
-        return answer, routine
+    if channel == 'phone':
+        return answer, routine and not result.get('_phone_needs_human') and len(answer) <= 1400 and result.get('intent') not in {'unknown', 'out_of_scope', 'human_handoff'}
     if result.get('_email_needs_human') or result.get('intent') in {'unknown', 'out_of_scope', 'human_handoff', 'handoff', 'complaint', 'cancel', 'checkout', 'quote', 'book'}:
         return answer, False
     if job.get('payload', {}).get('inbox_id'):

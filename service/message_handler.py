@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
@@ -281,13 +281,15 @@ class MessageHandler:
         factory = getattr(self.h_v7, 'request_copy', None)
         with phase('retrieval_runtime'):
             v7 = factory() if dispatch_mode == 'v7' and callable(factory) else self.h_v7
+        dispatch_ctx = (replace(ctx, channel='phone') if ctx.channel == 'test'
+                        and ctx.metadata.get('preview_channel') == 'phone' else ctx)
         with phase('dispatch'), usage_context(ctx.tenant, ctx.channel, dispatch_mode):
             if dispatch_mode == "v5":
                 reply = self.h_v5.handle(user_text, ctx, sess)
             elif dispatch_mode == "v6":
                 reply = self.h_v6.handle(user_text, ctx, sess)
             else:
-                reply = v7.handle(user_text, ctx, sess)
+                reply = v7.handle(user_text, dispatch_ctx, sess)
 
         logger.info(
             "DISPATCH_RESULT tenant=%s mode=%s rid=%s intent=%s keys=%s",
@@ -308,7 +310,7 @@ class MessageHandler:
         reply = self._validate_reply(reply, user_text, ctx, sess)
         reply = self.sales_agent.guide(reply, user_text=user_text, session=sess)
         if dispatch_mode == 'v7':
-            reply = v7.finalize_navigation(reply, ctx.channel)
+            reply = v7.finalize_navigation(reply, dispatch_ctx.channel)
         from service.platform_offer_knowledge import current_promotion_reply, current_promotion_knowledge
         reply['reply'] = current_promotion_reply(ctx.tenant, str(reply.get('reply') or ''))
         structured = {key: reply[key] for key in ('facts', 'items', 'actions', 'agent') if key in reply}
@@ -338,10 +340,12 @@ class MessageHandler:
 
         self._telemetry(ctx, event_type='pipeline_turn', meta={
             'mode': mode, 'rid': rid, 'intent': reply.get('intent'), 'ok': True, 'channel': ctx.channel})
+        if dispatch_ctx.channel == 'phone' and email_needs_human:
+            reply['_phone_needs_human'] = True
         if ctx.channel == 'email' and email_needs_human:
             reply['_email_needs_human'] = True
         reply.pop('_validated_channel_answer', None)
-        if (ctx.channel in {'email', 'phone'} and isinstance(validated_text, str)
+        if (dispatch_ctx.channel in {'email', 'phone'} and isinstance(validated_text, str)
                 and reply.get('intent') == 'grounded_answer'
                 and reply.get('reply') == readable_reply(consultation_estimate(validated_text))):
             reply['_validated_channel_answer'] = True

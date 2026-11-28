@@ -112,3 +112,18 @@ def test_daily_limit_still_applies_to_transfers(client, app, configured):
     response = phone(client, app, _gather_path(incoming), Digits='0')
     assert '<Dial' not in response.text
     assert phone_copy('en-GB', 'limit') in response.text
+
+
+def test_automatic_handoff_attempts_owner_then_backup_once(client, app, configured):
+    backup = '+447700900556'
+    _set(configured, handover_number=TEAM, backup_number=backup, auto_transfer=True)
+    question = _post(client, app, _gather_path(phone(client, app)), SpeechResult='Can you make an exception?')
+    poll = ElementTree.fromstring(question.data).find('Redirect').text
+    job = operations.claim('EXAMPLE')
+    assert operations.finish('EXAMPLE', job['id'], job['lease'], 'needs_review', error_code='call_followup_required')
+    primary = ElementTree.fromstring(_post(client, app, poll).data).find('Dial')
+    assert primary.find('Number').text == TEAM
+    secondary = ElementTree.fromstring(_post(client, app, primary.attrib['action'], DialCallStatus='busy').data).find('Dial')
+    assert secondary.find('Number').text == backup
+    fallback = _post(client, app, secondary.attrib['action'], DialCallStatus='no-answer')
+    assert '<Gather' in fallback.text and '<Dial' not in fallback.text

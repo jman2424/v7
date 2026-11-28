@@ -17,7 +17,7 @@ DEFAULTS = {channel: {'enabled': False, 'mode': 'review', 'daily_limit': 50,
                       'retention_days': 30, 'privacy_confirmed': False, 'language': 'en-GB'} for channel in CHANNELS}
 DEFAULTS['email'].update(provider_cleanup='keep', cleanup_confirmed=False)
 # Optional number a caller is passed to when they ask for a person.
-DEFAULTS['phone'].update(handover_number='')
+DEFAULTS['phone'].update(handover_number='', backup_number='', auto_transfer=False)
 LANGUAGES = ('en-GB', 'en-US', 'fr-FR', 'es-ES', 'de-DE')
 PHONE = re.compile(r'\+[1-9][0-9]{7,14}\Z')
 UUID = re.compile(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\Z')
@@ -67,6 +67,11 @@ def validate(value):
                 raise ValueError('email_cleanup_confirmation_required')
         if channel == 'phone':
             number = row['handover_number']
+            backup = row['backup_number']
+            if (type(row['auto_transfer']) is not bool or not isinstance(backup, str)
+                    or (backup and (not number or not PHONE.fullmatch(backup) or backup == number or backup in bindings('phone')))
+                    or (row['auto_transfer'] and not number)):
+                raise ValueError('invalid_channel_settings')
             # A routed assistant number would hand a call back to the assistant.
             if (not isinstance(number, str) or number and (not PHONE.fullmatch(number) or number in bindings('phone'))):
                 raise ValueError('invalid_channel_settings')

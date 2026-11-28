@@ -328,3 +328,31 @@ def test_descriptive_question_cannot_bypass_payment_process_protection(monkeypat
         question='What size is my car?', knowledge={'faq:consultation': {
             'question': 'How does a consultation work?', 'answer': policy}})
     assert answer == policy
+
+
+def test_phone_preview_dispatches_as_phone_and_only_simulates_transfer(app, client, monkeypatch):
+    from service import business_channels as channels
+    from service.ai_disclosure import phone_copy
+    with client.session_transaction() as state:
+        set_test_identity(client, state, {'id': 'operator', 'roles': ['platform_admin'], 'tenant': 'EXAMPLE'})
+    config = channels.settings(app.container.storage, 'EXAMPLE')
+    config['phone'].update(handover_number='+447700900511', auto_transfer=True)
+    app.container.storage.write_json('EXAMPLE', channels.FILENAME, channels.validate(config))
+    handler = app.container.for_tenant('EXAMPLE').handler.h_v7
+    called = []
+    def unknown(self, text, ctx, session):
+        called.append((ctx.channel, ctx.session_id))
+        return {'reply':'Please ask the team.', 'intent':'unknown'}
+    monkeypatch.setattr(type(handler), 'handle', unknown)
+    def post(message, token=None, preview='phone'):
+        return client.post('/admin/api/test-agent?tenant=EXAMPLE', json={'message':message,
+                           'preview':preview, 'conversation_token':token})
+    intro = post('start')
+    assert intro.status_code == 200 and phone_copy('en-GB','automatic') in intro.json['reply']
+    token = intro.json['conversation_token']
+    assert post('question', token, 'chat').status_code == 403
+    result = post('Can you make an exception?', token)
+    assert result.json['outcome'] == 'transfer' and result.json['ended']
+    assert called[0][0] == 'phone' and called[0][1].startswith('test_')
+    assert post('0', token).json['outcome'] == 'transfer'
+    assert post('9', token).json['outcome'] == 'end'

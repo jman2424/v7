@@ -7,6 +7,7 @@
   export let isPlatform=false;
   export let canManageBilling=false;
   export let setupChannel:''|'phone'|'whatsapp'='';
+  export let provider:'meta'|'twilio'='meta';
   let useExisting=true, businessNumber='', region='';
   $: channelName=setupChannel==='phone'?'Phone':'WhatsApp';
   $: requestPrefix=channelName+' connection request';
@@ -29,7 +30,7 @@
   async function load(){const data=await api();if(alive)requests=data.requests;}
   async function send(){
     if(busy)return;busy=true;error='';notice='';
-    const details=setupChannel?[requestPrefix,useExisting?'Keep existing number: '+businessNumber.trim():'Request a new number', 'Country or region: '+region.trim()].join('\n'):message;
+    const details=setupChannel?[requestPrefix,useExisting?'Keep existing number: '+businessNumber.trim():'Request a new number', 'Country or region: '+region.trim(), ...(setupChannel==='whatsapp'?['WhatsApp provider: '+(provider==='meta'?'Meta Cloud API':'Twilio')]:[])].join('\n'):message;
     try{const result=await api('',{kind,message:details,request_id:requestId});if(!alive)return;requestId=crypto.randomUUID().replaceAll('-','');message='';notice='Request saved. Reference '+result.reference+'. You can track updates below.';await load();}
     catch(failure){if(alive)error=failure instanceof Error?failure.message:'Could not send request.';}
     finally{if(alive)busy=false;}

@@ -1,5 +1,9 @@
 {
   "en": {
+    "Choose the provider for your setup request.": "Choose the provider for your setup request.",
+    "Automatic phone call preview": "Automatic phone call preview",
+    "Start test call": "Start test call",
+    "Start another test call": "Start another test call",
     "Test the AI in your browser": "Test the AI in your browser",
     "Coming soon": "Coming soon",
     "Read-aloud uses a synthetic voice.": "Read-aloud uses a synthetic voice.",
@@ -826,6 +830,10 @@
     "New setup assistance is temporarily paused. You can still subscribe and set up V7 yourself. Already-paid assistance remains supported.": "New setup assistance is temporarily paused. You can still subscribe and set up V7 yourself. Already-paid assistance remains supported."
   },
   "es": {
+    "Choose the provider for your setup request.": "Elige el proveedor para tu solicitud.",
+    "Automatic phone call preview": "Vista previa de llamada automática",
+    "Start test call": "Iniciar llamada de prueba",
+    "Start another test call": "Iniciar otra llamada de prueba",
     "Test the AI in your browser": "Prueba la IA en tu navegador",
     "Coming soon": "Próximamente",
     "Read-aloud uses a synthetic voice.": "La lectura en voz alta utiliza una voz sintética.",
@@ -1652,6 +1660,10 @@
     "New setup assistance is temporarily paused. You can still subscribe and set up V7 yourself. Already-paid assistance remains supported.": "La nueva asistencia de configuración está pausada temporalmente. Puedes suscribirte y configurar V7 por tu cuenta. La asistencia ya pagada sigue disponible."
   },
   "fr": {
+    "Choose the provider for your setup request.": "Choisissez le fournisseur pour votre demande.",
+    "Automatic phone call preview": "Simulation d’appel automatique",
+    "Start test call": "Démarrer un appel de test",
+    "Start another test call": "Démarrer un autre appel de test",
     "Test the AI in your browser": "Tester l’IA dans votre navigateur",
     "Coming soon": "Bientôt disponible",
     "Read-aloud uses a synthetic voice.": "La lecture à voix haute utilise une voix de synthèse.",
@@ -2478,6 +2490,10 @@
     "New setup assistance is temporarily paused. You can still subscribe and set up V7 yourself. Already-paid assistance remains supported.": "Les nouvelles aides à la configuration sont temporairement suspendues. Vous pouvez toujours vous abonner et configurer V7 vous-même. Les aides déjà payées restent prises en charge."
   },
   "ar": {
+    "Choose the provider for your setup request.": "اختر مزود الخدمة لطلبك.",
+    "Automatic phone call preview": "محاكاة مكالمة آلية",
+    "Start test call": "بدء مكالمة تجريبية",
+    "Start another test call": "بدء مكالمة تجريبية أخرى",
     "Test the AI in your browser": "اختبر الذكاء الاصطناعي في متصفحك",
     "Coming soon": "قريبًا",
     "Read-aloud uses a synthetic voice.": "تستخدم القراءة بصوت عالٍ صوتًا اصطناعيًا.",

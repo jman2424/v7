@@ -1,6 +1,4 @@
 <script lang="ts">
-  import {base} from './consoleBase';
-  import {sectionHref} from './workspaceArchitecture';
   import {recordAnchor} from './workspaceSearch';
   import { businessLabel } from './businessLabel';
   import {onMount,onDestroy} from 'svelte';
@@ -24,7 +22,7 @@
   $: channelOperations=operations.filter(row=>!channel||row.channel===channel);
   $: visibleOperations=filterOperations(channelOperations,activitySearch,activityState);
   $: reviewCount=channelOperations.filter(row=>row.state==='needs_review').length;
-  type Preferences = {enabled:boolean;mode:'review'|'automatic';daily_limit:number;retention_days:number;privacy_confirmed:boolean;language:string;handover_number?:string;provider_cleanup?:'keep'|'trash_handled';cleanup_confirmed?:boolean};
+  type Preferences = {enabled:boolean;mode:'review'|'automatic';daily_limit:number;retention_days:number;privacy_confirmed:boolean;language:string;handover_number?:string;backup_number?:string;auto_transfer?:boolean;provider_cleanup?:'keep'|'trash_handled';cleanup_confirmed?:boolean};
   type Operation = {id:string;channel:string;state:string;source_address:string;reply:string;provider_id:string;error_code:string;version:number;created:number;payload:{subject?:string;text?:string;recipient?:string}};
   let savedSettings='',savedDrafts='';
   let confirmation:ConfirmDialog;
@@ -165,7 +163,7 @@
 <DraftGuard {dirty}/><ConfirmDialog bind:this={confirmation}/>
 <section class="hub" aria-labelledby="business-hub-title">
   <div class="heading"><div><p class="eyebrow">Business operations</p><h2 id="business-hub-title">{presentation==='activity'?'Review and follow up':channel==='email'?'Your email assistant':channel==='phone'?'Your phone assistant':'Email, calls and follow-ups'}</h2><p>Use the same saved business knowledge across your website, email and phone. Review important requests and confirmed outcomes here.</p></div><button type="button" on:click={load} disabled={loading||saving||Boolean(busyId)}>Refresh activity and drafts</button></div>
-  {#if channel==='phone' && presentation!=='activity'}<p><a href={sectionHref(base,'test',tenant)} data-sveltekit-reload>Test the AI in your browser</a> before connecting a number. Type a question, or use microphone dictation and read-aloud where supported.</p>{/if}
+  {#if channel==='phone' && presentation!=='activity'}<details><summary>Test a phone call in your browser</summary><p>Simulate an automatic call using your phone assistant. Type or dictate the caller’s words. Enter 0 for the team or 9 to hang up. Transfers are simulated.</p>{#await import('./AgentTest.svelte') then test}<svelte:component this={test.default} {tenant} {csrf} {apiPrefix} phonePreview={true}/>{/await}</details>{/if}
   {#if status}<p role="status" class:error>{status}</p>{/if}
   {#if loading}<p role="status">Loading your business hub…</p>{/if}
   {#if settings && presentation!=='activity'}
@@ -223,7 +221,7 @@
             <p class="hint">Optional inbox cleanup uses the same retention period. It skips unhandled, recent, unrecognised or incomplete threads. Resend moves eligible conversations (including replies) to Trash and schedules permanent deletion 30 days later. Gmail/Outlook originals and forwarded copies are not deleted by this setting; configure retention with that provider.</p>
             {#if settings.email.provider_cleanup==='trash_handled'}<label class="check"><input type="checkbox" bind:checked={settings.email.cleanup_confirmed} disabled={!canManage} required/>I am authorised to apply this retention policy to handled conversations in the connected inbox.</label>{/if}
           {/if}
-          {#if channel==='phone'}<label>Hand calls over to (optional)<input type="tel" bind:value={settings.phone.handover_number} placeholder="+447700900123" maxlength="16" autocomplete="off" disabled={!canManage}/></label><p class="hint">When a caller presses 0, the call rings this number for 20 seconds, then falls back to taking a message. Leave it empty to always take a message. A handed-over call is limited to 15 minutes and its call charges are separate. Calls made inside the WhatsApp app may not be transferable.</p><label>Call language<select bind:value={settings.phone.language} disabled={!canManage}><option value="en-GB">English (UK)</option><option value="en-US">English (US)</option><option value="fr-FR">French</option><option value="es-ES">Spanish</option><option value="de-DE">German</option></select></label>{/if}
+          {#if channel==='phone'}<label>Owner or team phone number<input type="tel" bind:value={settings.phone.handover_number} placeholder="+447700900123" maxlength="16" disabled={!canManage}/></label><label>Backup phone number (optional)<input type="tel" bind:value={settings.phone.backup_number} placeholder="+447700900124" maxlength="16" disabled={!canManage}/></label><label class="check"><input type="checkbox" bind:checked={settings.phone.auto_transfer} disabled={!canManage}/>Transfer automatically when the AI cannot answer</label><p class="hint">Pressing 0 also requests the team. Each number rings for up to 20 seconds. If nobody answers, the caller can leave a message. Forwarded calls incur provider charges. Use numbers that do not forward back to V7.</p>{/if}
           <label class="check"><input type="checkbox" bind:checked={settings[channel].privacy_confirmed} disabled={!canManage}/>Our privacy notice covers this channel and its saved messages.</label>
         </fieldset>
       {/each}</div>

@@ -382,7 +382,10 @@ def api_test_agent():
     message = data.get("message")
     if not isinstance(message, str) or not message.strip() or len(message) > 4000:
         return jsonify(error="message_must_be_1_to_4000_characters"), 400
-    signer = URLSafeTimedSerializer(current_app.secret_key, salt="console-agent-test-v1")
+    preview = data.get('preview', 'chat')
+    if preview not in ('chat', 'phone'):
+        return jsonify(error='invalid_preview'), 400
+    signer = URLSafeTimedSerializer(current_app.secret_key, salt="console-agent-test-v1" if preview == "chat" else "console-phone-test-v1")
     owner = hashlib.sha256(session["_csrf"].encode()).hexdigest()
     token = data.get("conversation_token")
     if token:
@@ -407,6 +410,39 @@ def api_test_agent():
     limited = enforce(tenant, console=True)
     if limited is not None:
         return limited
+    if preview == 'phone':
+        from service import business_channels, channel_worker
+        from service.ai_disclosure import phone_copy
+        config = business_channels.settings(get_container().storage, tenant)['phone']
+        language = config['language']
+        if not data.get('conversation_token'):
+            reply = phone_copy(language, 'automatic') + ' ' + phone_copy(language, 'question', handover=bool(config['handover_number']))
+            return jsonify(reply=reply, language=language, conversation_token=token, actions=[])
+        if identity.get('take_message'):
+            return jsonify(reply=phone_copy(language, 'saved'), ended=True, conversation_token=token, actions=[])
+        turn = identity.get('turn', 1)
+        transfer = message.strip() == '0' and bool(config['handover_number'])
+        if message.strip() in ('0', '9'):
+            outcome = 'transfer' if transfer else 'message' if message.strip() == '0' else 'end'
+        else:
+            import time
+            from service.business_operations import PHONE_REPLY_WINDOW
+            started = time.monotonic()
+            try:
+                reply, routine = channel_worker._answer(get_container(), {'tenant':tenant, 'channel':'phone',
+                    'conversation_id':identity['id'], 'payload':{'language':language}}, message.strip(), phone_preview=True)
+            except Exception:
+                routine = False
+            if routine and time.monotonic() - started < PHONE_REPLY_WINDOW:
+                end = turn >= 12
+                reply += ' ' + phone_copy(language, 'end' if end else 'anything_else', handover=bool(config['handover_number']))
+                return jsonify(reply=reply, ended=end, conversation_token=signer.dumps({**identity, 'turn':turn+1}), actions=[])
+            outcome = 'transfer' if config.get('auto_transfer') and config['handover_number'] else 'followup'
+        key = {'transfer':'connecting', 'message':'message', 'end':'goodbye', 'followup':'followup'}[outcome]
+        if outcome == 'message':
+            token = signer.dumps({**identity, 'take_message':True})
+        return jsonify(reply=phone_copy(language, key, handover=outcome=='transfer'), outcome=outcome,
+                       ended=outcome!='message', actions=[], conversation_token=token)
     try:
         result = container.handler.handle(message.strip(), tenant=tenant, session_id=identity["id"],
                                           channel="test", metadata={"source": "console_test"})

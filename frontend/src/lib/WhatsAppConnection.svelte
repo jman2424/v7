@@ -89,17 +89,19 @@
       <div><span class="status-dot" aria-hidden="true"></span><strong>{$t(providerReady ? 'Local setup ready — test before launch' : status.billing?.allowance?.paused ? 'WhatsApp paused — monthly allowance reached' : 'Let’s finish your setup')}</strong><p>{$t('{count}/4 local checks complete for {provider}. Delivery still needs a real message test.',{count:count(completed),provider:providerName})}</p></div>
       <div class="check-pills"><span class:done={hasRecipient}>{hasRecipient ? '✓' : '○'} {$t('Number assigned')}</span><span class:done={selected.configured}>{selected.configured ? '✓' : '○'} {$t('Provider settings')}</span><span class:done={status.tenant_active && status.subscription_enabled}>{status.tenant_active && status.subscription_enabled ? '✓' : '○'} {$t('V7 access')}</span><span class:done={status.setup?.public_https}>{status.setup?.public_https ? '✓' : '○'} {$t('Public HTTPS')}</span></div>
     </div>
-    {#if ownerSetup && !status.providers.meta.recipients.length && !status.providers.twilio.recipients.length}
-      <SupportRequests {tenant} {csrf} {apiPrefix} setupChannel="whatsapp" canManageBilling={ownerSetup}/>
-    {/if}
-    <details open={providerReady}><summary>{$t('Provider setup guides')}</summary>
-    <nav class="step-nav" aria-label={$t('WhatsApp setup steps')}><a href="#whatsapp-number">01 · {$t('Number & provider')}</a><a href="#whatsapp-connect">02 · {$t('Connection')}</a><a href="#whatsapp-costs">03 · {$t('Costs')}</a><a href="#whatsapp-test">04 · {$t('Test & launch')}</a></nav>
-    <article class="panel" id="whatsapp-number">
-      <div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><div><h3>{$t('Choose how to connect')}</h3><p>{$t('These buttons change the guide shown here. The platform operator saves the actual connection.')}</p></div></div>
+
+      <div class="panel-heading"><span class="step-number" aria-hidden="true">01</span><div><h3>{$t('Choose how to connect')}</h3><p>{$t('Choose the provider for your setup request.')}</p></div></div>
       <div class="provider-picker" aria-label={$t('Provider setup guides')}>
         <button class:chosen={provider === 'meta'} aria-pressed={provider === 'meta'} on:click={()=>chooseProvider('meta')}><strong>Meta Cloud API</strong><span>{$t('Connect directly through Meta')}</span><small>{$t(stateNames[status.providers.meta.state]||'Check settings')}</small></button>
         <button class:chosen={provider === 'twilio'} aria-pressed={provider === 'twilio'} on:click={()=>chooseProvider('twilio')}><strong>Twilio</strong><span>{$t('Connect through your Twilio account')}</span><small>{$t(stateNames[status.providers.twilio.state]||'Check settings')}</small></button>
       </div>
+
+    {#if ownerSetup && !status.providers.meta.recipients.length && !status.providers.twilio.recipients.length}
+      <SupportRequests {tenant} {csrf} {apiPrefix} setupChannel="whatsapp" {provider} canManageBilling={ownerSetup}/>
+    {/if}
+    <details open={providerReady}><summary>{$t('Provider setup guides')}</summary>
+    <nav class="step-nav" aria-label={$t('WhatsApp setup steps')}><a href="#whatsapp-number">01 · {$t('Number & provider')}</a><a href="#whatsapp-connect">02 · {$t('Connection')}</a><a href="#whatsapp-costs">03 · {$t('Costs')}</a><a href="#whatsapp-test">04 · {$t('Test & launch')}</a></nav>
+    <article class="panel" id="whatsapp-number">
       <div class="number-layout">
         <div><h4>{$t('Your customer-facing number')}</h4><label for="whatsapp-number-type">{$t('Which number will you use?')}<select id="whatsapp-number-type" bind:value={numberType}><option value="existing">{$t('A number I already own')}</option><option value="new">{$t('A new business number')}</option>{#if provider === 'twilio'}<option value="sandbox">{$t('Twilio Sandbox for testing')}</option>{/if}</select></label>
           <p>{$t(numberType === 'sandbox' ? 'Use Twilio’s shared test sender and follow its tester join instructions. A sandbox is not a production number; charges and restrictions apply.' : numberType === 'new' ? 'Choose a provider-compatible business number. Renting or buying a number is separate from V7 and may have recurring charges.' : 'Use a number you control. If it is already on WhatsApp, check the provider’s migration or coexistence process before changing anything.')}</p>

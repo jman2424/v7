@@ -231,6 +231,8 @@ def _reply_to_phone_job(response, call, job, turn, config, *, polls=0, announce=
     if mode_changed or timed_out:
         reason = 'call_review_mode_changed' if mode_changed else 'call_reply_timed_out'
         if operations.expire_call_turn(call.tenant, job['id'], reason=reason):
+            if timed_out and _automatic_transfer(config, call):
+                return _hand_over(response, call, turn, config, mode)
             return _end_call(response, language, 'followup')
         # Generation or a manual review may have won the race with deferral.
         job = operations.get(call.tenant, job['id'])
@@ -261,6 +263,10 @@ def _reply_to_phone_job(response, call, job, turn, config, *, polls=0, announce=
     if not automatic_intake and (pending or job['state'] == 'needs_review'):
         return _end_call(response, language, 'saved')
     if job['state'] == 'needs_review':
+        if (automatic_intake and _automatic_transfer(config, call)
+                and job['error_code'] in {'call_followup_required', 'call_reply_timed_out', 'channel_processing_failed',
+                                          'channel_invalid_answer', 'channel_unapproved_link', 'channel_answer_too_long'}):
+            return _hand_over(response, call, turn, config, mode)
         return _end_call(response, language, 'followup')
     return _end_call(response, language, 'unavailable')
 
@@ -336,7 +342,15 @@ def phone_turn():
         raise
     if job['state'] in {'queued', 'processing'}:
         channel_worker.wake()
+    if low_confidence and not handoff and call_mode == 'automatic' and _automatic_transfer(config, call):
+        return _hand_over(response, call, turn, config, call_mode)
     return _reply_to_phone_job(response, call, job, turn, config, announce=True)
+
+
+def _automatic_transfer(config, call):
+    return (config['mode'] == 'automatic' and config.get('auto_transfer')
+            and config['handover_number'] not in (call.source, call.recipient)
+            and config['handover_number'] not in channels.bindings('phone'))
 
 
 def _hand_over(response, call, turn, config, call_mode):
@@ -357,12 +371,16 @@ def _hand_over(response, call, turn, config, call_mode):
         raise
     channel_worker.wake()
     response.say(phone_copy(language, 'connecting', handover=True), language=language)
-    proof = call.proof(turn=turn, call_mode=call_mode, handover=True)
+    return _dial_team(response, call, turn, call_mode, config['handover_number'])
+
+
+def _dial_team(response, call, turn, call_mode, number, *, backup=False):
+    proof = call.proof(turn=turn, call_mode=call_mode, handover=True, dialed=hashlib.sha256(number.encode()).hexdigest(), backup=backup)
     # No caller ID is set: the team sees the caller's own number. The transfer
     # rings for 20 seconds and a connected call is capped at 15 minutes.
     dial = response.dial(action='/channels/phone/handover?token='+proof, method='POST',
                          timeout=20, time_limit=900, answer_on_bridge=True)
-    dial.number(config['handover_number'])
+    dial.number(number)
     return _xml(response)
 
 
@@ -381,6 +399,12 @@ def phone_handover():
     if request.form.get('DialCallStatus', '') == 'completed':
         response.hangup()
         return _xml(response)
+    backup = config.get('backup_number')
+    if (request.form.get('DialCallStatus') in {'busy', 'no-answer', 'failed'} and not proof.get('backup')
+            and proof.get('dialed') == hashlib.sha256(config['handover_number'].encode()).hexdigest() and backup
+            and backup not in (call.source, call.recipient, config['handover_number'])
+            and backup not in channels.bindings('phone')):
+        return _dial_team(response, call, turn, call_mode, backup, backup=True)
     response.say(phone_copy(language, 'no_answer', handover=True), language=language)
     _gather(response, call, turn, language, phone_copy(language, 'message'), call_mode=call_mode, handoff=True)
     return _xml(response)

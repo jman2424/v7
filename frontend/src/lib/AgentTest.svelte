@@ -5,6 +5,9 @@
   export let tenant: string;
   export let csrf: string;
   export let apiPrefix = '';
+  export let phonePreview = false;
+  let ended = false;
+  let callLanguage = 'en-GB';
   type Message = { id: number; from: 'You' | 'Agent'; text: string; links?: {label:string;url:string;clicked?:boolean}[] };
   type Recognition = {
     lang: string; interimResults: boolean;
@@ -39,6 +42,7 @@
 
   onMount(() => {
     canReadAloud = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
+    if (phonePreview) readAloud = canReadAloud;
     const speechWindow = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
     speechConstructor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     canDictate = Boolean(speechConstructor && window.isSecureContext);
@@ -93,7 +97,7 @@
     stopPlayback();
     const generation = speechGeneration;
     const speech = new SpeechSynthesisUtterance(message.text);
-    speech.lang = document.documentElement.lang || 'en-GB';
+    speech.lang = phonePreview ? callLanguage : document.documentElement.lang || 'en-GB';
     speakingMessageId = message.id;
     voiceStatus = 'Reading reply aloud…';
     speech.onend = () => {
@@ -128,7 +132,7 @@
     try {
       const activeRecognition = new speechConstructor();
       recognition = activeRecognition;
-      activeRecognition.lang = document.documentElement.lang || 'en-GB';
+      activeRecognition.lang = phonePreview ? callLanguage : document.documentElement.lang || 'en-GB';
       activeRecognition.interimResults = false;
       dictationStarting = true;
       voiceStatus = 'Starting microphone…';
@@ -178,14 +182,15 @@
     controller = undefined;
     cancelDictation();
     stopPlayback();
-    token = ''; messages = []; draft = ''; error = ''; busy = false;
+    ended = false; token = ''; messages = []; draft = ''; error = ''; busy = false;
     if (canDictate) voiceStatus = '';
     suggestions = initialQuestions;
     composer?.focus();
   }
 
   async function send() {
-    const text = draft.trim();
+    const starting = phonePreview && !token;
+    const text = starting ? 'start' : draft.trim();
     if (busy || !text || text.length > 4000) return;
     cancelDictation();
     stopPlayback();
@@ -193,7 +198,7 @@
     const request = new AbortController();
     controller = request;
     busy = true; error = ''; draft = '';
-    messages = [...messages, { id: ++nextMessageId, from: 'You', text }];
+    if (!starting) messages = [...messages, { id: ++nextMessageId, from: 'You', text }];
     await tick();
     if (request.signal.aborted || controller !== request || disposed) return;
     transcript.scrollTop = transcript.scrollHeight;
@@ -203,7 +208,7 @@
       const response = await fetch(apiPrefix + '/admin/api/test-agent?tenant=' + encodeURIComponent(tenant), {
         method: 'POST', credentials: 'same-origin', signal: request.signal,
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        body: JSON.stringify({ message: text, conversation_token: token || undefined })
+        body: JSON.stringify({ message: text, preview: phonePreview ? 'phone' : 'chat', conversation_token: token || undefined })
       });
       const data = await response.json().catch(() => ({}));
       if (request.signal.aborted || controller !== request || disposed) return;
@@ -215,6 +220,8 @@
         throw new Error('The agent could not complete this test. Try again or start a new conversation.');
       }
       token = data.conversation_token;
+      if (phonePreview && typeof data.language === 'string') callLanguage = data.language;
+      ended = phonePreview && data.ended === true;
       const reply = data.reply ? String(data.reply) : $t('No reply was returned.');
       const links = Array.isArray(data.actions) ? data.actions.filter((item: unknown): item is {type:string;label:string;url:string} => {
         if (!item || typeof item !== 'object') return false;
@@ -243,7 +250,7 @@
 
 <section class="test-card" lang={$language} dir={$language==='ar'?'rtl':'ltr'} aria-label={$t("Agent testing")}>
   <header>
-    <div><p class="eyebrow">{$t("Conversation preview")}</p><h2>{$t("Try your agent")}</h2><p>{$t('Check how {tenant} responds using its saved business information.',{tenant})}</p></div>
+    <div><p class="eyebrow">{$t("Conversation preview")}</p><h2>{$t(phonePreview?'Automatic phone call preview':'Try your agent')}</h2><p>{$t('Check how {tenant} responds using its saved business information.',{tenant})}</p></div>
     <button type="button" on:click={restart}>{$t("New conversation")}</button>
   </header>
   <p class="hint">{$t('AI assistant. Replies may be AI-generated and can contain mistakes.')}</p>
@@ -254,6 +261,7 @@
     {:else}<div class="empty"><div class="conversation-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-9.5A7.5 7.5 0 0 1 9.5 5H13A7 7 0 0 1 20 11.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 10h8M7 14h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div><h3>{$t("See the conversation from your customer’s side")}</h3><p>{$t("Ask about an offering, a price or a business policy. Then try a follow-up to check the agent keeps the context.")}</p></div>{/each}
     {#if busy}<p class="waiting" role="status"><span class="reply-indicator" aria-hidden="true"></span>{$t("The agent is replying…")}</p>{/if}
   </div>
+  {#if phonePreview && (!token || ended)}<button type="button" disabled={busy} on:click={()=>{restart(); void send();}}>{$t(ended ? 'Start another test call' : 'Start test call')}</button>{:else}
   <form on:submit|preventDefault={send}>
     {#if suggestions.length}<div class="suggestions" aria-label={$t("Suggested test questions")}>{#each suggestions as question}<button type="button" disabled={busy} on:click={() => { draft = $t(question); composer.focus(); }}>{$t(question)}</button>{/each}</div>{/if}
     <label for="test-message">{$t("Your message")}</label>
@@ -263,7 +271,7 @@
     {#if voiceStatus}<p class="hint" role="status">{$t(voiceStatus)}</p>{/if}
     {#if !canReadAloud}<p class="hint">{$t("Read-aloud audio is unavailable in this browser. Replies remain available as text.")}</p>{/if}
     <div class="test-notes"><p>{$t("These test chats do not create sales leads or customer analytics. AI calls still appear in API usage. Save business changes before testing them.")}</p><p>{$t("Microphone dictation needs your permission and may use your browser’s speech service. Dictation stops after 30 seconds. Review the text before sending.")}</p></div>
-  </form>
+  </form>{/if}
 </section>
 
 <style>
